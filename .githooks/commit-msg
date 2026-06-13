@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+import re
+import sys
+from pathlib import Path
+
+ALLOWED_TYPES = (
+    "feat",
+    "fix",
+    "build",
+    "chore",
+    "docs",
+    "style",
+    "refactor",
+    "test",
+    "release",
+)
+
+
+def main():
+    message_path = Path(sys.argv[1])
+    first_line = message_path.read_text(encoding="utf-8").splitlines()[0].strip()
+    types = "|".join(ALLOWED_TYPES)
+    pattern = re.compile(rf"^({types}): #\d+ .+")
+
+    if pattern.match(first_line):
+        return
+
+    print("\n[FaithLog commit-msg] 커밋 메시지 형식이 올바르지 않습니다.\n", file=sys.stderr)
+    print("형식: <type>: #<issue-number> <message>", file=sys.stderr)
+    print("예시: feat: #14 회원가입 API 구현", file=sys.stderr)
+    print(f"허용 type: {types}", file=sys.stderr)
+    print("\n규칙 문서: docs/GIT_FLOW.md", file=sys.stderr)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

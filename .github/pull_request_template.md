@@ -2,6 +2,12 @@
 
 - 
 
+## Git Flow
+
+- Base branch: `develop`
+- Issue:
+- Branch:
+
 ## Type
 
 - [ ] Feature
@@ -58,6 +64,10 @@
 
 ## Checklist
 
+- [ ] PR target branch is `develop`
+- [ ] Branch name follows `<type>/<issue-number>-<short-description>`
+- [ ] Commit messages follow `<type>: #<issue-number> <message>`
+- [ ] The application runs locally with Docker when applicable
 - [ ] Request DTO is not passed directly into application service
 - [ ] Entity is not returned directly from controller
 - [ ] Create/update flow uses Command objects where appropriate

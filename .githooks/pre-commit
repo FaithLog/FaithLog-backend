@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+import fnmatch
+import subprocess
+import sys
+
+ALLOWED_TYPES = (
+    "feat",
+    "fix",
+    "build",
+    "chore",
+    "docs",
+    "style",
+    "refactor",
+    "test",
+    "release",
+)
+
+PROTECTED_BRANCHES = {"main", "develop"}
+
+FORBIDDEN_PATTERNS = (
+    ".DS_Store",
+    "Thumbs.db",
+    "Desktop.ini",
+    ".idea/*",
+    "*.iml",
+    "*.iws",
+    "*.ipr",
+    ".vscode/*",
+    ".project",
+    ".classpath",
+    ".settings/*",
+    ".sts4-cache/*",
+    "nbproject/private/*",
+    ".gradle/*",
+    "build/*",
+    "out/*",
+    "target/*",
+    "bin/*",
+    "*.class",
+    "*.jar",
+    "*.war",
+    "*.ear",
+    "*.log",
+    "logs/*",
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.jks",
+    ".gstack/*",
+    "DESIGN.md",
+    "DESIGN.local.md",
+    "design-notes/*",
+    "docs/private/*",
+    "*.draft.md",
+    "*.local.md",
+    "docker/postgres-data/*",
+    "docker/redis-data/*",
+)
+
+ALLOWLIST_PATTERNS = (
+    ".vscode/extensions.json",
+    ".vscode/settings.example.json",
+    "gradle/wrapper/gradle-wrapper.jar",
+    ".env.example",
+)
+
+
+def run_git(args):
+    return subprocess.run(
+        ["git", *args],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def current_branch():
+    result = run_git(["branch", "--show-current"])
+    return result.stdout.strip()
+
+
+def staged_files():
+    result = run_git(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+    if result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+        sys.exit(1)
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def matches(path, patterns):
+    return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+
+
+def validate_branch(branch):
+    if not branch:
+        return []
+
+    errors = []
+    if branch in PROTECTED_BRANCHES:
+        errors.append(
+            f"'{branch}' 브랜치에서 직접 커밋할 수 없습니다. "
+            "최신 develop에서 작업 브랜치를 만들어주세요."
+        )
+        return errors
+
+    branch_type = "|".join(ALLOWED_TYPES)
+    prefix_ok = any(branch.startswith(f"{kind}/") for kind in ALLOWED_TYPES)
+    if not prefix_ok:
+        errors.append(
+            "브랜치 이름은 '<type>/<issue-number>-<description>' 형식이어야 합니다. "
+            f"허용 type: {branch_type}"
+        )
+        return errors
+
+    branch_tail = branch.split("/", 1)[1]
+    issue_part = branch_tail.split("-", 1)[0]
+    if not issue_part.isdigit() or "-" not in branch_tail:
+        errors.append(
+            "브랜치 이름에 이슈 번호와 설명이 필요합니다. "
+            "예: feat/1-swagger-api-docs"
+        )
+
+    return errors
+
+
+def validate_files(files):
+    errors = []
+    for path in files:
+        if matches(path, ALLOWLIST_PATTERNS):
+            continue
+        if matches(path, FORBIDDEN_PATTERNS):
+            errors.append(path)
+    return errors
+
+
+def main():
+    errors = []
+    branch = current_branch()
+    files = staged_files()
+
+    errors.extend(validate_branch(branch))
+    forbidden_files = validate_files(files)
+
+    if forbidden_files:
+        errors.append(
+            "프로젝트 기능과 무관하거나 민감할 수 있는 파일이 staged 상태입니다:\n"
+            + "\n".join(f"  - {path}" for path in forbidden_files)
+            + "\n필요하면 staged에서 제거하세요: git restore --staged <file>"
+        )
+
+    if errors:
+        print("\n[FaithLog pre-commit] 커밋이 중단되었습니다.\n", file=sys.stderr)
+        print("\n\n".join(errors), file=sys.stderr)
+        print("\n규칙 문서: docs/GIT_FLOW.md", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
