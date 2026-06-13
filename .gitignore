@@ -15,6 +15,14 @@ target/
 .DS_Store
 .gstack/
 
+# Local planning and design notes
+DESIGN.md
+DESIGN.local.md
+design-notes/
+docs/private/
+*.draft.md
+*.local.md
+
 .env
 .env.*
 !.env.example
