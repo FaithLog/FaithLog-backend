@@ -100,6 +100,7 @@ design-notes/
 docs/private/
 docs/design/
 docs/local/
+docs/project-management/
 planning/
 *.draft.md
 *.local.md

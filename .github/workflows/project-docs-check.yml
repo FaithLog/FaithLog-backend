@@ -1,4 +1,4 @@
-name: Project Docs Check
+name: Collaboration Files Check
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   required-files:
-    name: Required project-management files
+    name: Required GitHub collaboration files
     runs-on: ubuntu-latest
 
     steps:
@@ -22,17 +22,13 @@ jobs:
         shell: bash
         run: |
           required_files=(
-            "docs/project-management/README.md"
-            "docs/project-management/kanban-board.md"
-            "docs/project-management/git-flow.md"
-            "docs/project-management/branch-strategy.md"
-            "docs/project-management/commit-message-rules.md"
-            "docs/project-management/pull-request-rules.md"
-            "docs/project-management/definition-of-ready.md"
-            "docs/project-management/definition-of-done.md"
             ".github/pull_request_template.md"
             ".github/ISSUE_TEMPLATE/feature_request.md"
             ".github/ISSUE_TEMPLATE/bug_report.md"
+            ".github/ISSUE_TEMPLATE/refactor_task.md"
+            ".github/ISSUE_TEMPLATE/tech_task.md"
+            ".github/ISSUE_TEMPLATE/docs_task.md"
+            ".github/ISSUE_TEMPLATE/release_task.md"
           )
 
           for file in "${required_files[@]}"; do
@@ -42,4 +38,4 @@ jobs:
             fi
           done
 
-          echo "All required project-management files exist."
+          echo "All required GitHub collaboration files exist."
