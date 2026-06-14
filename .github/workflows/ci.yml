@@ -55,6 +55,12 @@ jobs:
       SPRING_DATA_REDIS_HOST: localhost
       SPRING_DATA_REDIS_PORT: 6379
       JWT_SECRET: test-jwt-secret-key-for-ci-only-change-in-production
+      JWT_ACCESS_TOKEN_VALIDITY_SECONDS: 3600
+      JWT_REFRESH_TOKEN_VALIDITY_SECONDS: 1209600
+      FIREBASE_CONFIG_PATH: ''
+      FIREBASE_CONFIG_JSON: ''
+      SPRINGDOC_API_DOCS_ENABLED: true
+      SPRINGDOC_SWAGGER_UI_ENABLED: true
 
     steps:
       - name: Checkout

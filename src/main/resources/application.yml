@@ -17,7 +17,7 @@ springdoc:
   api-docs:
     path: /api-docs
   swagger-ui:
-    path: /swagger-ui/index.html
+    path: /swagger-ui.html
 
 faithlog:
   api-prefix: /api/v1
