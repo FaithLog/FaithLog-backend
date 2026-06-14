@@ -18,6 +18,15 @@ repositories {
 	mavenCentral()
 }
 
+configurations.configureEach {
+	resolutionStrategy.eachDependency {
+		if (requested.group == "io.netty") {
+			useVersion("4.1.135.Final")
+			because("Override Spring Boot managed Netty version to address reported Netty CVEs.")
+		}
+	}
+}
+
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -27,6 +36,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.14")
 	implementation("com.google.firebase:firebase-admin:9.9.0")
+	implementation("org.apache.commons:commons-lang3:3.20.0")
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
