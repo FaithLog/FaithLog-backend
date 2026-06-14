@@ -24,7 +24,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:17
         env:
           POSTGRES_DB: faithlog_test
           POSTGRES_USER: faithlog
