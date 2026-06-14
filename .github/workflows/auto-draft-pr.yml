@@ -1,0 +1,101 @@
+name: Auto Draft PR
+
+on:
+  push:
+    branches:
+      - 'feat/**'
+      - 'fix/**'
+      - 'build/**'
+      - 'chore/**'
+      - 'docs/**'
+      - 'style/**'
+      - 'refactor/**'
+      - 'test/**'
+      - 'release/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+concurrency:
+  group: auto-draft-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  create-draft-pr:
+    name: Create draft PR to develop
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate branch and create draft PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TYPE="${BRANCH_NAME%%/*}"
+          REST="${BRANCH_NAME#*/}"
+          ISSUE_NUMBER="${REST%%-*}"
+          DESCRIPTION="${REST#*-}"
+
+          case "$TYPE" in
+            feat) PR_TYPE="Feat" ;;
+            fix) PR_TYPE="Fix" ;;
+            build) PR_TYPE="Build" ;;
+            chore) PR_TYPE="Chore" ;;
+            docs) PR_TYPE="Docs" ;;
+            style) PR_TYPE="Style" ;;
+            refactor) PR_TYPE="Refactor" ;;
+            test) PR_TYPE="Test" ;;
+            release) PR_TYPE="Release" ;;
+            *)
+              echo "Unsupported branch type: $TYPE"
+              exit 1
+              ;;
+          esac
+
+          if [[ ! "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Branch name must follow: type/issue-number-description"
+            echo "Example: feat/27-signup-login-jwt"
+            exit 1
+          fi
+
+          EXISTING_PR="$(
+            gh pr list \
+              --repo "$REPOSITORY" \
+              --head "$BRANCH_NAME" \
+              --base develop \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "Draft PR already exists: #$EXISTING_PR"
+            exit 0
+          fi
+
+          TITLE_DESCRIPTION="${DESCRIPTION//-/ }"
+          PR_TITLE="[$PR_TYPE] #$ISSUE_NUMBER $TITLE_DESCRIPTION"
+
+          gh pr create \
+            --repo "$REPOSITORY" \
+            --base develop \
+            --head "$BRANCH_NAME" \
+            --draft \
+            --title "$PR_TITLE" \
+            --body "## 연결 이슈
+          - Closes #$ISSUE_NUMBER
+
+          ## 작업 상태
+          - 이 PR은 브랜치 push로 자동 생성된 Draft PR입니다.
+          - 작업이 끝나면 PR 본문을 템플릿에 맞게 보완하고 Ready for review로 전환합니다.
+
+          ## 확인 원칙
+          - 오류가 없는 코드만 PR로 보냅니다.
+          - Docker 환경에서 동작하지 않는 코드는 머지하지 않습니다.
+          - Secret Key와 .env 파일은 절대 커밋하지 않습니다."
