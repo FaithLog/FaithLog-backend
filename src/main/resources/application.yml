@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: faithlog-backend
+  profiles:
+    active: local
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui/index.html
+
+faithlog:
+  api-prefix: /api/v1
+  jwt:
+    secret: ${JWT_SECRET:change-me-in-local-only}
+    access-token-validity-seconds: ${JWT_ACCESS_TOKEN_VALIDITY_SECONDS:3600}
+    refresh-token-validity-seconds: ${JWT_REFRESH_TOKEN_VALIDITY_SECONDS:1209600}
+  firebase:
+    config-path: ${FIREBASE_CONFIG_PATH:}
+    config-json: ${FIREBASE_CONFIG_JSON:}
