@@ -1,0 +1,41 @@
+name: Collaboration Files Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  required-files:
+    name: Required GitHub collaboration files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify required files
+        shell: bash
+        run: |
+          required_files=(
+            ".github/pull_request_template.md"
+            ".github/ISSUE_TEMPLATE/feature_request.md"
+            ".github/ISSUE_TEMPLATE/bug_report.md"
+            ".github/ISSUE_TEMPLATE/refactor_task.md"
+            ".github/ISSUE_TEMPLATE/tech_task.md"
+            ".github/ISSUE_TEMPLATE/docs_task.md"
+            ".github/ISSUE_TEMPLATE/release_task.md"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "Missing required file: $file"
+              exit 1
+            fi
+          done
+
+          echo "All required GitHub collaboration files exist."
