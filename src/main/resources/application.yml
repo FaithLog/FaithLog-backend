@@ -3,6 +3,10 @@ spring:
     name: faithlog-backend
   profiles:
     active: local
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
 
 server:
   port: ${SERVER_PORT:8080}

@@ -34,6 +34,8 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-web")
+	implementation("org.flywaydb:flyway-core")
+	implementation("org.flywaydb:flyway-database-postgresql")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.14")
 	implementation("com.google.firebase:firebase-admin:9.9.0")
 	implementation("org.apache.commons:commons-lang3:3.20.0")
