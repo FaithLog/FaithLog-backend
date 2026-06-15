@@ -40,7 +40,9 @@ replay_pid*
 # Gradle
 .gradle/
 build/
+gradle-app.setting
 !gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
 
 # Maven
 target/
@@ -60,6 +62,7 @@ logs/
 
 # IntelliJ IDEA / JetBrains
 .idea/
+.idea_modules/
 *.iws
 *.iml
 *.ipr
@@ -87,24 +90,49 @@ nbdist/
 
 # Local tooling
 .gstack/
+.codex/
+.agents/
 
 # Local planning and design notes
 DESIGN.md
 DESIGN.local.md
 design-notes/
 docs/private/
+docs/design/
+docs/local/
+docs/project-management/
+planning/
 *.draft.md
 *.local.md
+*.tmp.md
 
 # Environment variables and secrets
 .env
 .env.*
 !.env.example
+!.env.test.example
 *.pem
 *.key
 *.p12
 *.jks
+*.keystore
+firebase-service-account*.json
+google-application-credentials*.json
+serviceAccountKey.json
+application-secret.yml
+application-*.secret.yml
 
 # Docker local volumes
 docker/postgres-data/
 docker/redis-data/
+
+# Test and coverage reports
+coverage/
+htmlcov/
+test-results/
+
+# Misc local files
+*.swp
+*.swo
+*.bak
+*.orig
