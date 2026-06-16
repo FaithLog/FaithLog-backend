@@ -63,6 +63,10 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 기본 제공 템플릿: 1개(커피)
   - 관리자 생성 템플릿 범주: 3개(수요예배, 토요목자모임, 커스텀)
   - 반영 대상: #37 투표 템플릿/투표 생성 기획
+- 투표 자동 생성 정책 정리 수치:
+  - 자동 생성 설정 가능 대상: 관리자 생성 PollTemplate
+  - 실행 담당 이슈: #24 Scheduler/Batch
+  - 중복 방지 기준: campus + template + week 단위 필요
 
 ## Troubleshooting Log
 
@@ -83,6 +87,8 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-06-16 | PR readiness validation | 성공 | `./gradlew test` 4초 성공, 5개 task up-to-date | 문서-only PR로 기능 테스트 추가 없음 |
 | 2026-06-16 | Poll template planning validation | 성공 | 기본 템플릿 1개, 관리자 생성 템플릿 범주 3개로 정책 확정 | #37 구현 시 seed/admin 생성 테스트 필요 |
 | 2026-06-16 | Poll template policy PR validation | 성공 | `./gradlew test` 9초 성공, 5개 task up-to-date | #37 구현 시 기본 커피 템플릿 테스트 필요 |
+| 2026-06-16 | Poll auto-generation planning validation | 성공 | #37 설정 저장, #24 스케줄러 실행으로 책임 분리 | 자동 생성 요일/시간/마감 필드 테스트 필요 |
+| 2026-06-16 | Poll auto-generation policy PR validation | 성공 | `./gradlew test` 3초 성공, 5개 task up-to-date | #24 구현 시 중복 생성 방지 테스트 필요 |
 
 ## Resume Bullet Candidates
 
@@ -93,3 +99,4 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - Codex Hook 개발 규칙을 문서화하고 GitHub Issue #43 및 Project 카드와 연결해 TDD/보안/아키텍처/Obsidian 기록 기준을 표준화.
 - Codex Agent 규칙 파일을 2개에서 1개로 단일화하고, 사용자 결정 우선순위와 금지 필드 검사 기준을 문서화해 개발 규칙 위반 가능성을 낮춤.
 - 투표 템플릿 정책을 기본 제공 1개와 관리자 생성 3개 범주로 분리해 초기 데이터와 운영 권한 기준을 명확화.
+- 투표 자동 생성 책임을 템플릿 설정과 스케줄러 실행으로 분리해 반복 운영 자동화 설계 기준을 명확화.

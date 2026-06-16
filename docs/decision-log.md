@@ -46,6 +46,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Only the coffee poll template should be provided as a default template. Wednesday worship, Saturday shepherd meeting, and custom poll templates should be created by an admin.
 - Impact: Issue #37 and Codex Hook rules must treat coffee as the only default poll template. Other poll templates are admin-created and must not be silently seeded unless the user later approves a new decision.
 
+### 2026-06-16 - Poll Template Weekly Auto Generation Setting
+
+- Context: The user asked whether polls can be generated automatically every week, then decided that admins should be able to set this when creating custom/admin-created templates.
+- Decision: Poll templates can include a weekly auto-generation setting chosen by the admin at template creation time. Templates without auto-generation enabled are used only for manual poll creation.
+- Impact: Issue #37 must capture the template setting/API scope, and Issue #24 must execute enabled template schedules with duplicate prevention.
+
 ## Pending Decisions
 
 ### 2026-06-16 - Poll Comment Issue Split
