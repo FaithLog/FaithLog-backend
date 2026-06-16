@@ -40,6 +40,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: `AGENTS.md` is the single source of Agent instructions for Codex in this repository.
 - Impact: The former `AGENT.md` content was merged into `AGENTS.md`, and repository documentation now points to `AGENTS.md`.
 
+### 2026-06-16 - Poll Template Default Policy
+
+- Context: The user clarified which poll templates should exist by default.
+- Decision: Only the coffee poll template should be provided as a default template. Wednesday worship, Saturday shepherd meeting, and custom poll templates should be created by an admin.
+- Impact: Issue #37 and Codex Hook rules must treat coffee as the only default poll template. Other poll templates are admin-created and must not be silently seeded unless the user later approves a new decision.
+
 ## Pending Decisions
 
 ### 2026-06-16 - Poll Comment Issue Split
