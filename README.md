@@ -38,3 +38,19 @@ FaithLog는 MSA가 아닌 하나의 Spring Boot 애플리케이션 안에서 도
 - Controller에서 Entity 직접 반환 금지
 - PostgreSQL은 Spring Boot auto-configuration 사용
 - Redis 설정은 `global/config/RedisConfig.java`, 실제 Redis 구현체는 각 도메인의 `infrastructure/redis`에 배치
+
+## Codex 개발 규칙
+
+FaithLog 백엔드 개발은 단일 Agent 규칙과 Codex Hook 기준을 따른다.
+
+- [FaithLog Agent Rules](AGENTS.md)
+- [FaithLog Codex Hook](docs/codex/FAITHLOG_CODEX_HOOK.md)
+
+핵심 원칙:
+
+- TDD 방식으로 개발한다.
+- Notion 최종 기획/ERD/API 기준을 우선한다.
+- 경건생활 제출 시 벌금 청구는 자동 생성된다.
+- 커피 투표 응답 시 커피 청구는 자동 생성된다.
+- 기능 개발 후 Obsidian 개발 로그를 작성한다.
+- 작업은 GitHub Issue와 GitHub Projects 칸반보드 기준으로 관리한다.
