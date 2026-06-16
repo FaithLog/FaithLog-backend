@@ -52,6 +52,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Poll templates can include a weekly auto-generation setting chosen by the admin at template creation time. Templates without auto-generation enabled are used only for manual poll creation.
 - Impact: Issue #37 must capture the template setting/API scope, and Issue #24 must execute enabled template schedules with duplicate prevention.
 
+### 2026-06-16 - Coffee Duty Poll Time Settings
+
+- Context: The user clarified that Notion ERD includes coffee poll timing design.
+- Decision: The coffee duty assignee can set the weekly coffee poll auto-generation time and the coffee poll close time.
+- Impact: Issue #37 must store these timing settings on the coffee poll template according to the Notion ERD column names. Issue #24 must use those settings when generating and closing weekly coffee polls.
+
 ## Pending Decisions
 
 ### 2026-06-16 - Poll Comment Issue Split

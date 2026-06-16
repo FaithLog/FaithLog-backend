@@ -295,6 +295,13 @@ DELETE /api/v1/campuses/{campusId}/polls/{pollId}/comments/{commentId}
 
 커피 투표 템플릿은 기본으로 제공한다.
 
+커피 담당자는 기본 커피 투표 템플릿의 아래 시간을 설정할 수 있다.
+
+- 매주 커피 투표가 자동 생성되는 시간
+- 생성된 커피 투표가 마감되는 시간
+
+구현 시 실제 DB 칼럼명은 Notion ERD의 `poll_templates`/`polls` 설계를 따른다. Codex는 칼럼명을 추측해서 새로 정하지 않는다.
+
 커피 투표 응답 시 서버가 COFFEE 청구를 자동 생성 또는 갱신한다.
 
 별도 커피 청구 생성 API는 MVP에서 제공하지 않는다.
