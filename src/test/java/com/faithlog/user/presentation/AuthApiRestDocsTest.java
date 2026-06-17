@@ -273,6 +273,54 @@ class AuthApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_refresh_rejects_reused_refresh_token() throws Exception {
+		TokenPair tokens = signupAndLogin("docs-refresh-reuse@example.com");
+
+		mockMvc.perform(post("/api/v1/auth/refresh")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "refreshToken": "%s"
+					}
+					""".formatted(tokens.refreshToken())))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/auth/refresh")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "refreshToken": "%s"
+					}
+					""".formatted(tokens.refreshToken())))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andDo(document("auth-refresh-reused-token-unauthorized",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestFields(
+					fieldWithPath("refreshToken").description("이미 rotation으로 폐기된 이전 Refresh Token")
+				),
+				responseFields(unauthorizedResponseFields())
+			));
+	}
+
+	@Test
+	void documents_logout_unauthorized_without_access_token() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andDo(document("auth-logout-unauthorized",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				responseFields(unauthorizedResponseFields())
+			));
+	}
+
 	private RestDocumentationResultHandler unauthorizedDocument(String identifier) {
 		return document(identifier,
 			preprocessRequest(prettyPrint()),

@@ -92,6 +92,72 @@ include::{snippets}/auth-login-success/http-response.adoc[]
 
 include::{snippets}/auth-login-success/response-fields.adoc[]
 
+=== Refresh
+
+`POST /api/v1/auth/refresh`
+
+Refresh Token Rotation을 적용한다. 성공 시 기존 Refresh Token은 즉시 폐기되고, 같은 `sessionId`를 유지한 새 Access Token과 Refresh Token을 JSON response body로 반환한다.
+
+==== Request
+
+include::{snippets}/auth-refresh-success/http-request.adoc[]
+
+==== Request Fields
+
+include::{snippets}/auth-refresh-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/auth-refresh-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/auth-refresh-success/response-fields.adoc[]
+
+=== Refresh Unauthorized: Reused Refresh Token
+
+include::{snippets}/auth-refresh-reused-token-unauthorized/http-request.adoc[]
+
+include::{snippets}/auth-refresh-reused-token-unauthorized/request-fields.adoc[]
+
+include::{snippets}/auth-refresh-reused-token-unauthorized/http-response.adoc[]
+
+include::{snippets}/auth-refresh-reused-token-unauthorized/response-fields.adoc[]
+
+=== Logout
+
+`POST /api/v1/auth/logout`
+
+`Authorization: Bearer {accessToken}` 헤더가 필수다. `refreshToken`, `clientInstanceId`, `fcmToken`은 선택 입력이며, FCM 관련 필드가 없어도 인증 토큰 로그아웃은 성공한다.
+
+==== Request
+
+include::{snippets}/auth-logout-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/auth-logout-success/request-headers.adoc[]
+
+==== Request Fields
+
+include::{snippets}/auth-logout-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/auth-logout-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/auth-logout-success/response-fields.adoc[]
+
+=== Logout Unauthorized: Missing Access Token
+
+include::{snippets}/auth-logout-unauthorized/http-request.adoc[]
+
+include::{snippets}/auth-logout-unauthorized/http-response.adoc[]
+
+include::{snippets}/auth-logout-unauthorized/response-fields.adoc[]
+
 == Users
 
 === Get Current User
