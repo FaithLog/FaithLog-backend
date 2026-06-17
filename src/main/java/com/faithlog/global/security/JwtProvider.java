@@ -2,6 +2,7 @@ package com.faithlog.global.security;
 
 import com.faithlog.user.domain.User;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +19,10 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class JwtProvider {
+
+	private static final String TOKEN_TYPE_CLAIM = "tokenType";
+	private static final String ACCESS_TOKEN_TYPE = "ACCESS";
+	private static final String REFRESH_TOKEN_TYPE = "REFRESH";
 
 	private final SecretKey secretKey;
 	private final long accessTokenValiditySeconds;
@@ -53,11 +58,11 @@ public class JwtProvider {
 	}
 
 	public Claims parseAccessToken(String token) {
-		return parse(token);
+		return parse(token, ACCESS_TOKEN_TYPE);
 	}
 
 	public Claims parseRefreshToken(String token) {
-		return parse(token);
+		return parse(token, REFRESH_TOKEN_TYPE);
 	}
 
 	private String issueAccessToken(User user, String sessionId) {
@@ -68,6 +73,7 @@ public class JwtProvider {
 			.claim("userId", user.id())
 			.claim("role", user.role().name())
 			.claim("sessionId", sessionId)
+			.claim(TOKEN_TYPE_CLAIM, ACCESS_TOKEN_TYPE)
 			.issuedAt(Date.from(now))
 			.expiration(Date.from(now.plusSeconds(accessTokenValiditySeconds)))
 			.signWith(secretKey)
@@ -83,18 +89,24 @@ public class JwtProvider {
 			.claim("userId", user.id())
 			.claim("sessionId", sessionId)
 			.claim("refreshJti", refreshJti)
+			.claim(TOKEN_TYPE_CLAIM, REFRESH_TOKEN_TYPE)
 			.issuedAt(Date.from(now))
 			.expiration(Date.from(now.plusSeconds(refreshTokenValiditySeconds)))
 			.signWith(secretKey)
 			.compact();
 	}
 
-	private Claims parse(String token) {
-		return Jwts.parser()
+	private Claims parse(String token, String expectedTokenType) {
+		Claims claims = Jwts.parser()
 			.verifyWith(secretKey)
 			.build()
 			.parseSignedClaims(token)
 			.getPayload();
+		String tokenType = claims.get(TOKEN_TYPE_CLAIM, String.class);
+		if (!expectedTokenType.equals(tokenType)) {
+			throw new JwtException("Invalid token type");
+		}
+		return claims;
 	}
 
 	private byte[] sha256(String secret) {

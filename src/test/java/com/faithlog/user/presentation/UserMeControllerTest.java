@@ -59,6 +59,7 @@ class UserMeControllerTest {
 
 		JsonNode response = objectMapper.readTree(loginBody);
 		String accessToken = response.path("data").path("accessToken").asText();
+		String refreshToken = response.path("data").path("refreshToken").asText();
 
 		mockMvc.perform(get("/api/v1/users/me")
 				.header("Authorization", "Bearer " + accessToken))
@@ -72,6 +73,14 @@ class UserMeControllerTest {
 			.andExpect(jsonPath("$.data.role").value("USER"))
 			.andExpect(jsonPath("$.data.isActive").value(true))
 			.andExpect(jsonPath("$.data.campusMemberships").isArray())
+			.andExpect(jsonPath("$.timestamp").exists());
+
+		mockMvc.perform(get("/api/v1/users/me")
+				.header("Authorization", "Bearer " + refreshToken))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.data").doesNotExist())
 			.andExpect(jsonPath("$.timestamp").exists());
 	}
 }

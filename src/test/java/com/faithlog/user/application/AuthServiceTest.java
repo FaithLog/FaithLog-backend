@@ -62,9 +62,15 @@ class AuthServiceTest {
 		assertThat(accessClaims.get("userId", Long.class)).isEqualTo(user.id());
 		assertThat(accessClaims.get("role", String.class)).isEqualTo("USER");
 		assertThat(accessClaims.get("sessionId", String.class)).isNotBlank();
+		assertThat(accessClaims.get("tokenType", String.class)).isEqualTo("ACCESS");
 		assertThat(refreshClaims.get("userId", Long.class)).isEqualTo(user.id());
 		assertThat(refreshClaims.get("sessionId", String.class)).isEqualTo(accessClaims.get("sessionId", String.class));
 		assertThat(refreshClaims.get("refreshJti", String.class)).isNotBlank();
+		assertThat(refreshClaims.get("tokenType", String.class)).isEqualTo("REFRESH");
+		assertThatThrownBy(() -> jwtProvider.parseAccessToken(response.refreshToken()))
+			.hasMessage("Invalid token type");
+		assertThatThrownBy(() -> jwtProvider.parseRefreshToken(response.accessToken()))
+			.hasMessage("Invalid token type");
 		assertThat(user.lastLoginAt()).isNotNull();
 	}
 }
