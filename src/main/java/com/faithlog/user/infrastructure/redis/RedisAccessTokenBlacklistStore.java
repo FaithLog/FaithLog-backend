@@ -2,12 +2,12 @@ package com.faithlog.user.infrastructure.redis;
 
 import com.faithlog.user.application.port.AccessTokenBlacklistStore;
 import java.time.Duration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnBean(StringRedisTemplate.class)
+@Profile("!test")
 public class RedisAccessTokenBlacklistStore implements AccessTokenBlacklistStore {
 
 	private static final String KEY_PREFIX = "auth:access:blacklist:";
