@@ -136,6 +136,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: For local Docker development verification only, default `SPRING_JPA_HIBERNATE_DDL_AUTO` to `update` so Hibernate can create or update the local development schema. Keep the value environment-overridable.
 - Impact: Local Docker can boot and serve `GET /api/v1/health` during early feature development before final Flyway migration consolidation. This does not change the deferred Flyway policy or define a production migration strategy.
 
+### 2026-06-17 - API Documentation Uses Spring REST Docs For Detailed Contracts
+
+- Context: The user clarified that Swagger/springdoc should remain available for simple API exploration, but the codebase should not be cluttered with Swagger documentation annotations on Controllers, DTOs, or Entities.
+- Decision: Swagger/springdoc is kept. Swagger annotation-centered documentation is not used as the main documentation approach. Detailed request/response API contracts are verified and documented through Spring REST Docs tests and generated snippets/asciidoc.
+- Impact: New APIs or changed APIs should add MockMvc/WebMvc/Spring REST Docs tests where practical. Controllers, DTOs, and Entities must not be polluted with documentation-only Swagger annotations such as `@Operation`, `@Schema`, or `@ApiResponse`.
+
 ### 2026-06-17 - FCM Token Lifecycle Policy
 
 - Context: The user clarified that FCM tokens are issued by the frontend Firebase SDK, not by the backend, and asked whether token expiration/staleness handling is included in the plan.

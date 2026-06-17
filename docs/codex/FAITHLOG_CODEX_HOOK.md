@@ -374,6 +374,16 @@ GET /api/v1/admin/campuses/{campusId}/notification-logs
 9. 테스트 없이 기능 코드만 추가하지 않는다.
 10. 문서-only 작업은 테스트 추가를 생략할 수 있지만, 가능한 경우 기존 테스트 실행 여부를 확인한다.
 
+### 4.1 API 문서화 규칙
+
+1. FaithLog의 상세 API 계약 문서화는 Spring REST Docs를 주된 방식으로 사용한다.
+2. Swagger/springdoc은 간단한 API 탐색과 확인 용도로 유지한다.
+3. Swagger 문서화 어노테이션 중심 문서화는 사용하지 않는다.
+4. Controller, DTO, Entity는 `@Operation`, `@Schema`, `@ApiResponse` 같은 Swagger 문서화 어노테이션으로 오염시키지 않는다.
+5. 새 API 또는 변경 API의 상세 request/response 계약은 가능한 경우 MockMvc/WebMvc/Spring REST Docs 테스트로 검증하고 snippets를 생성한다.
+6. API 문서와 테스트가 어긋나지 않도록 문서 생성 테스트도 TDD 및 검증 범위에 포함한다.
+7. REST Docs 산출물은 `build/generated-snippets`와 `build/docs/asciidoc` 기준으로 확인한다.
+
 ## 5. 테스트 필수 영역
 
 다음 기능은 반드시 테스트를 작성한다.
