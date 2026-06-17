@@ -33,3 +33,12 @@
 - Fix: `application-local.yml`과 `docker-compose.yml`에 local ddl-auto 기본값 `update`를 설정했다.
 - Validation: `docker compose build app`, `docker compose up -d app`, `GET /api/v1/health` 모두 성공. Hibernate가 local Docker DB에 `users` 테이블을 생성했다.
 - Remaining risk: 운영/배포 DB migration 전략은 바꾸지 않았고, 최종 Flyway migration consolidation은 별도 후속 작업으로 유지한다.
+
+## 2026-06-17 #27 CI Test Profile Override
+
+- Problem: PR #47 Backend CI `Spring Boot build and test`에서 Spring context 기반 테스트가 실패.
+- Symptoms: `FaithLogApplicationTests`, `AuthServiceTest`, `AuthApiRestDocsTest`, `UserMeControllerTest`가 `HibernateException at DialectFactoryImpl`로 실패.
+- Root cause: CI job env가 `SPRING_DATASOURCE_URL=jdbc:postgresql://...`로 `application-test.yml`의 H2 datasource를 덮어썼지만, test profile의 `driver-class-name: org.h2.Driver`는 그대로 남아 PostgreSQL URL과 H2 driver가 섞였다. 또한 CI의 `JWT_ACCESS_TOKEN_VALIDITY_SECONDS=3600`은 #27 확정값 1800과 충돌할 수 있었다.
+- Fix: CI test job에서 datasource와 token validity env override를 제거해 `application-test.yml`이 H2/create-drop과 #27 확정 token TTL을 일관되게 사용하도록 했다.
+- Validation: CI env 재현 실패 확인 후, 수정된 env 조합에서 `./gradlew test --tests '*AuthServiceTest'` 성공, `./gradlew test --rerun-tasks` 성공, `./gradlew build` 성공.
+- Remaining risk: CI가 다시 돌기 전까지 GitHub Actions 원격 check 통과는 대기 상태다.
