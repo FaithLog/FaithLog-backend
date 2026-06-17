@@ -66,6 +66,11 @@ docs/{issueNumber}-{summary}
 - Redis에는 원본 token을 저장하지 않고 hash 또는 token identifier 기준으로 저장한다.
 - Access Token에는 `jti`, `userId`, `role`, `sessionId`를 포함한다.
 - Refresh Token에는 `userId`, `sessionId`, `refreshJti`를 포함한다.
+- Refresh Token Rotation 시 `sessionId`는 유지하고 refresh token identifier를 교체한다.
+- `POST /api/v1/auth/refresh`는 JSON request body의 `refreshToken`을 받는다.
+- `POST /api/v1/auth/logout`은 `Authorization: Bearer {accessToken}`을 필수로 사용하고, JSON request body의 `refreshToken`, `clientInstanceId`, `fcmToken`은 선택 입력으로 받는다.
+- 로그아웃은 `clientInstanceId`와 `fcmToken`이 없어도 인증 토큰 무효화는 성공해야 한다.
+- #28은 Notification Entity를 직접 구현하거나 조작하지 않는다. 현재 기기 FCM 토큰 비활성화는 Application port로 분리하고, 실제 `user_fcm_tokens` 저장소 구현은 #40 범위로 둔다.
 
 기준 API:
 
