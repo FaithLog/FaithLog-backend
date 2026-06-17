@@ -61,6 +61,9 @@ public class AuthService {
 	public UserMeResponse getCurrentUser(Long userId) {
 		User user = userRepository.findById(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+		if (!user.isActive()) {
+			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+		}
 		return UserMeResponse.from(user);
 	}
 }
