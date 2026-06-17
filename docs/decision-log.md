@@ -130,6 +130,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Remove Flyway Gradle dependencies, remove `spring.flyway` runtime configuration, and remove the placeholder Flyway migration file from the active codebase. Flyway remains deferred until the main feature development work is complete.
 - Impact: Early feature development will rely on approved schema requirements and persistence tests instead of active Flyway migration scripts. A later infra/build task should reintroduce consolidated migrations when the domain model stabilizes.
 
+### 2026-06-17 - Local Docker Uses JPA DDL Auto Update During Development
+
+- Context: #27 Docker verification reached the application boot step after the local Postgres credential mismatch was resolved, but the app could not start against an empty local Docker database while Flyway remains deferred and `ddl-auto=validate` was active.
+- Decision: For local Docker development verification only, default `SPRING_JPA_HIBERNATE_DDL_AUTO` to `update` so Hibernate can create or update the local development schema. Keep the value environment-overridable.
+- Impact: Local Docker can boot and serve `GET /api/v1/health` during early feature development before final Flyway migration consolidation. This does not change the deferred Flyway policy or define a production migration strategy.
+
 ### 2026-06-17 - FCM Token Lifecycle Policy
 
 - Context: The user clarified that FCM tokens are issued by the frontend Firebase SDK, not by the backend, and asked whether token expiration/staleness handling is included in the plan.

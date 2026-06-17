@@ -26,3 +26,10 @@
 - Fix: 승인 없이 volume 삭제나 DB credential 변경은 하지 않음.
 - Validation: `docker compose build` 성공, `docker compose ps -a`로 app 종료와 postgres/redis healthy 상태 확인.
 - Remaining risk: 사용자가 Docker volume 초기화 또는 기존 DB credential 사용 방침을 결정한 뒤 앱 헬스체크 재검증 필요.
+
+### Follow-up Resolution
+
+- Decision: 로컬 Docker 개발 검증 중에는 `SPRING_JPA_HIBERNATE_DDL_AUTO=update`를 기본값으로 사용해 Hibernate가 개발 DB 스키마를 자동 생성 또는 갱신한다.
+- Fix: `application-local.yml`과 `docker-compose.yml`에 local ddl-auto 기본값 `update`를 설정했다.
+- Validation: `docker compose build app`, `docker compose up -d app`, `GET /api/v1/health` 모두 성공. Hibernate가 local Docker DB에 `users` 테이블을 생성했다.
+- Remaining risk: 운영/배포 DB migration 전략은 바꾸지 않았고, 최종 Flyway migration consolidation은 별도 후속 작업으로 유지한다.
