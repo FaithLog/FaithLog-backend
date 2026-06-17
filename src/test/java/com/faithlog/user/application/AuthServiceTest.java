@@ -8,7 +8,6 @@ import com.faithlog.global.security.JwtProvider;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import com.faithlog.user.presentation.dto.LoginResponse;
-import com.faithlog.user.presentation.dto.SignupRequest;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,21 +33,21 @@ class AuthServiceTest {
 
 	@Test
 	void signup_hashes_password_and_rejects_duplicate_email() {
-		authService.signup(new SignupRequest("이승욱", "signup@example.com", "1234"));
+		authService.signup(new SignupCommand("이승욱", "signup@example.com", "1234"));
 
 		User user = userRepository.findByEmail("signup@example.com").orElseThrow();
 		assertThat(user.passwordHash()).isNotEqualTo("1234");
 		assertThat(passwordEncoder.matches("1234", user.passwordHash())).isTrue();
 		assertThat(user.role().name()).isEqualTo("USER");
 
-		assertThatThrownBy(() -> authService.signup(new SignupRequest("다른사용자", "signup@example.com", "1234")))
+		assertThatThrownBy(() -> authService.signup(new SignupCommand("다른사용자", "signup@example.com", "1234")))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("이미 가입된 이메일입니다.");
 	}
 
 	@Test
 	void login_returns_tokens_with_required_claims_and_updates_last_login_at() {
-		authService.signup(new SignupRequest("이승욱", "login@example.com", "1234"));
+		authService.signup(new SignupCommand("이승욱", "login@example.com", "1234"));
 
 		LoginResponse response = authService.login(new LoginCommand("login@example.com", "1234"));
 

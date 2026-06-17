@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.faithlog.global.security.AccessTokenBlacklistChecker;
+import com.faithlog.global.security.JwtProvider;
 import com.faithlog.user.application.AuthService;
 import com.faithlog.user.presentation.dto.LoginResponse;
 import com.faithlog.user.presentation.dto.SignupResponse;
@@ -28,6 +30,12 @@ class AuthControllerTest {
 
 	@MockBean
 	private AuthService authService;
+
+	@MockBean
+	private JwtProvider jwtProvider;
+
+	@MockBean
+	private AccessTokenBlacklistChecker accessTokenBlacklistChecker;
 
 	@Test
 	void signup_creates_user_and_returns_api_response() throws Exception {
