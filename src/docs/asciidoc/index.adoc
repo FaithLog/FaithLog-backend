@@ -1,0 +1,145 @@
+= FaithLog API
+:doctype: book
+:icons: font
+:source-highlighter: highlightjs
+:toc: left
+:toclevels: 3
+:sectlinks:
+
+FaithLog의 상세 API 계약은 Spring REST Docs 테스트가 검증한 request/response snippets를 기준으로 문서화한다.
+Swagger/springdoc은 간단한 API 탐색용으로 유지하지만, 정확한 계약 문서는 이 REST Docs 산출물을 기준으로 본다.
+
+== Common Response Envelope
+
+모든 API 응답은 현재 공통 `ApiResponse` envelope를 사용한다.
+
+|===
+|Field |Description
+
+|`success`
+|요청 성공 여부
+
+|`code`
+|공통 응답 코드
+
+|`message`
+|응답 메시지
+
+|`data`
+|응답 데이터. 실패 응답에서는 생략될 수 있다.
+
+|`timestamp`
+|응답 생성 시각
+|===
+
+== Auth
+
+=== Signup
+
+`POST /api/v1/auth/signup`
+
+==== Request
+
+include::{snippets}/auth-signup-success/http-request.adoc[]
+
+==== Request Fields
+
+include::{snippets}/auth-signup-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/auth-signup-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/auth-signup-success/response-fields.adoc[]
+
+=== Login
+
+`POST /api/v1/auth/login`
+
+로그인 성공 시 토큰은 JSON response body로 반환한다.
+모바일 클라이언트는 `accessToken`을 `Authorization: Bearer {accessToken}` 인증에 사용하고, `refreshToken`은 Keychain, Keystore, SecureStore 같은 플랫폼 보안 저장소에 저장한다.
+
+토큰 만료 기준:
+
+|===
+|Field |Value
+
+|`accessTokenExpiresIn`
+|`1800`
+
+|`refreshTokenExpiresIn`
+|`1209600`
+
+|`tokenType`
+|`Bearer`
+|===
+
+==== Request
+
+include::{snippets}/auth-login-success/http-request.adoc[]
+
+==== Request Fields
+
+include::{snippets}/auth-login-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/auth-login-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/auth-login-success/response-fields.adoc[]
+
+== Users
+
+=== Get Current User
+
+`GET /api/v1/users/me`
+
+이 API는 Access Token만 허용한다. Refresh Token을 `Authorization: Bearer`로 보내면 인증 실패로 처리한다.
+
+==== Success Request
+
+include::{snippets}/users-me-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/users-me-success/request-headers.adoc[]
+
+==== Success Response
+
+include::{snippets}/users-me-success/http-response.adoc[]
+
+==== Success Response Fields
+
+include::{snippets}/users-me-success/response-fields.adoc[]
+
+=== Unauthorized: Missing Token
+
+include::{snippets}/users-me-unauthorized/http-request.adoc[]
+
+include::{snippets}/users-me-unauthorized/http-response.adoc[]
+
+include::{snippets}/users-me-unauthorized/response-fields.adoc[]
+
+=== Unauthorized: Refresh Token Used As Bearer
+
+include::{snippets}/users-me-refresh-token-unauthorized/http-request.adoc[]
+
+include::{snippets}/users-me-refresh-token-unauthorized/request-headers.adoc[]
+
+include::{snippets}/users-me-refresh-token-unauthorized/http-response.adoc[]
+
+include::{snippets}/users-me-refresh-token-unauthorized/response-fields.adoc[]
+
+=== Unauthorized: Inactive User
+
+include::{snippets}/users-me-inactive-user-unauthorized/http-request.adoc[]
+
+include::{snippets}/users-me-inactive-user-unauthorized/request-headers.adoc[]
+
+include::{snippets}/users-me-inactive-user-unauthorized/http-response.adoc[]
+
+include::{snippets}/users-me-inactive-user-unauthorized/response-fields.adoc[]

@@ -55,6 +55,15 @@ Redis TTL policy:
 - Final Flyway migration scripts should be consolidated after the domain model stabilizes near the end of development.
 - Do not block early feature implementation on final Flyway migration authoring unless the user later approves a different migration policy.
 
+## API Documentation
+
+- Swagger/springdoc is kept for simple API exploration and quick checks.
+- Do not use Swagger annotation-centered documentation as the main API documentation strategy.
+- Do not pollute Controllers, DTOs, or Entities with documentation-only Swagger annotations such as `@Operation`, `@Schema`, or `@ApiResponse`.
+- Detailed API request/response contracts are verified and documented with Spring REST Docs tests.
+- New APIs or changed APIs should add MockMvc/WebMvc/Spring REST Docs coverage where practical so tests generate snippets from the real contract.
+- REST Docs generated snippets live under `build/generated-snippets`, and rendered Asciidoc output lives under `build/docs/asciidoc`.
+
 ## Campus Onboarding
 
 - Campus creation must also create the active `PENALTY` payment account for the campus.

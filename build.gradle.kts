@@ -2,6 +2,7 @@ plugins {
 	java
 	id("org.springframework.boot") version "3.5.0"
 	id("io.spring.dependency-management") version "1.1.7"
+	id("org.asciidoctor.jvm.convert") version "4.0.5"
 }
 
 group = "com.faithlog"
@@ -17,6 +18,8 @@ java {
 repositories {
 	mavenCentral()
 }
+
+val snippetsDir = layout.buildDirectory.dir("generated-snippets")
 
 configurations.configureEach {
 	resolutionStrategy.eachDependency {
@@ -42,10 +45,20 @@ dependencies {
 	runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
+	testImplementation("org.springframework.restdocs:spring-restdocs-mockmvc")
 	testImplementation("org.springframework.security:spring-security-test")
+	testRuntimeOnly("com.h2database:h2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+	outputs.dir(snippetsDir)
+}
+
+tasks.named<org.asciidoctor.gradle.jvm.AsciidoctorTask>("asciidoctor") {
+	dependsOn(tasks.test)
+	inputs.dir(snippetsDir)
+	baseDirFollowsSourceDir()
+	attributes(mapOf("snippets" to snippetsDir.get().asFile))
 }
