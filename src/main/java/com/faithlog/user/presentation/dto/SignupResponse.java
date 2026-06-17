@@ -1,6 +1,6 @@
 package com.faithlog.user.presentation.dto;
 
-import com.faithlog.user.domain.User;
+import com.faithlog.user.application.SignupResult;
 
 public record SignupResponse(
 	Long id,
@@ -10,13 +10,13 @@ public record SignupResponse(
 	boolean isActive
 ) {
 
-	public static SignupResponse from(User user) {
+	public static SignupResponse from(SignupResult result) {
 		return new SignupResponse(
-			user.id(),
-			user.name(),
-			user.email(),
-			user.role().name(),
-			user.isActive()
+			result.id(),
+			result.name(),
+			result.email(),
+			result.role(),
+			result.isActive()
 		);
 	}
 }

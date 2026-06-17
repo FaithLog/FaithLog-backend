@@ -3,6 +3,7 @@ package com.faithlog.user.presentation;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.user.application.AuthService;
+import com.faithlog.user.application.UserMeResult;
 import com.faithlog.user.presentation.dto.UserMeResponse;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,7 @@ public class UserMeController {
 
 	@GetMapping("/me")
 	public ApiResponse<UserMeResponse> me(@AuthenticationPrincipal AuthenticatedUser authenticatedUser) {
-		return ApiResponse.success(authService.getCurrentUser(authenticatedUser.userId()));
+		UserMeResult result = authService.getCurrentUser(authenticatedUser.userId());
+		return ApiResponse.success(UserMeResponse.from(result));
 	}
 }

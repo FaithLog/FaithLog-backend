@@ -7,7 +7,6 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.security.JwtProvider;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
-import com.faithlog.user.presentation.dto.LoginResponse;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,7 +48,7 @@ class AuthServiceTest {
 	void login_returns_tokens_with_required_claims_and_updates_last_login_at() {
 		authService.signup(new SignupCommand("이승욱", "login@example.com", "1234"));
 
-		LoginResponse response = authService.login(new LoginCommand("login@example.com", "1234"));
+		LoginResult response = authService.login(new LoginCommand("login@example.com", "1234"));
 
 		Claims accessClaims = jwtProvider.parseAccessToken(response.accessToken());
 		Claims refreshClaims = jwtProvider.parseRefreshToken(response.refreshToken());

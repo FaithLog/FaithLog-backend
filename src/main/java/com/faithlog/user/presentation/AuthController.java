@@ -2,6 +2,8 @@ package com.faithlog.user.presentation;
 
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.user.application.AuthService;
+import com.faithlog.user.application.LoginResult;
+import com.faithlog.user.application.SignupResult;
 import com.faithlog.user.presentation.dto.LoginRequest;
 import com.faithlog.user.presentation.dto.LoginResponse;
 import com.faithlog.user.presentation.dto.SignupRequest;
@@ -26,15 +28,15 @@ public class AuthController {
 
 	@PostMapping("/signup")
 	public ResponseEntity<ApiResponse<SignupResponse>> signup(@Valid @RequestBody SignupRequest request) {
-		SignupResponse response = authService.signup(request.toCommand());
+		SignupResult result = authService.signup(request.toCommand());
 		return ResponseEntity
 			.status(HttpStatus.CREATED)
-			.body(ApiResponse.success(response, "회원가입이 완료되었습니다."));
+			.body(ApiResponse.success(SignupResponse.from(result), "회원가입이 완료되었습니다."));
 	}
 
 	@PostMapping("/login")
 	public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-		LoginResponse response = authService.login(request.toCommand());
-		return ApiResponse.success(response, "로그인되었습니다.");
+		LoginResult result = authService.login(request.toCommand());
+		return ApiResponse.success(LoginResponse.from(result), "로그인되었습니다.");
 	}
 }

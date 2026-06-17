@@ -9,9 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.faithlog.global.security.AccessTokenBlacklistChecker;
 import com.faithlog.global.security.JwtProvider;
 import com.faithlog.user.application.AuthService;
-import com.faithlog.user.presentation.dto.LoginResponse;
-import com.faithlog.user.presentation.dto.SignupResponse;
-import com.faithlog.user.presentation.dto.UserMeResponse;
+import com.faithlog.user.application.LoginResult;
+import com.faithlog.user.application.SignupResult;
+import com.faithlog.user.application.UserMeResult;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,7 +39,7 @@ class AuthControllerTest {
 
 	@Test
 	void signup_creates_user_and_returns_api_response() throws Exception {
-		when(authService.signup(any())).thenReturn(new SignupResponse(
+		when(authService.signup(any())).thenReturn(new SignupResult(
 			1L,
 			"이승욱",
 			"user@example.com",
@@ -70,7 +70,7 @@ class AuthControllerTest {
 
 	@Test
 	void login_returns_access_and_refresh_tokens_in_response_body() throws Exception {
-		UserMeResponse user = new UserMeResponse(
+		UserMeResult user = new UserMeResult(
 			1L,
 			"이승욱",
 			"user@example.com",
@@ -79,7 +79,7 @@ class AuthControllerTest {
 			null,
 			List.of()
 		);
-		when(authService.login(any())).thenReturn(new LoginResponse(
+		when(authService.login(any())).thenReturn(new LoginResult(
 			user,
 			"access-token",
 			"refresh-token",

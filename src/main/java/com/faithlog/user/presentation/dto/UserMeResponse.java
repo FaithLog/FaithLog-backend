@@ -1,6 +1,6 @@
 package com.faithlog.user.presentation.dto;
 
-import com.faithlog.user.domain.User;
+import com.faithlog.user.application.UserMeResult;
 import java.time.Instant;
 import java.util.List;
 
@@ -14,15 +14,18 @@ public record UserMeResponse(
 	List<CampusMembershipResponse> campusMemberships
 ) {
 
-	public static UserMeResponse from(User user) {
+	public static UserMeResponse from(UserMeResult result) {
 		return new UserMeResponse(
-			user.id(),
-			user.name(),
-			user.email(),
-			user.role().name(),
-			user.isActive(),
-			user.lastLoginAt(),
-			List.of()
+			result.id(),
+			result.name(),
+			result.email(),
+			result.role(),
+			result.isActive(),
+			result.lastLoginAt(),
+			result.campusMemberships()
+				.stream()
+				.map(CampusMembershipResponse::from)
+				.toList()
 		);
 	}
 }

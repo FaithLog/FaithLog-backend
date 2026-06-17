@@ -1,6 +1,6 @@
 package com.faithlog.user.presentation.dto;
 
-import com.faithlog.global.security.JwtProvider.IssuedTokens;
+import com.faithlog.user.application.LoginResult;
 
 public record LoginResponse(
 	UserMeResponse user,
@@ -11,14 +11,14 @@ public record LoginResponse(
 	String tokenType
 ) {
 
-	public static LoginResponse of(UserMeResponse user, IssuedTokens tokens) {
+	public static LoginResponse from(LoginResult result) {
 		return new LoginResponse(
-			user,
-			tokens.accessToken(),
-			tokens.refreshToken(),
-			tokens.accessTokenExpiresIn(),
-			tokens.refreshTokenExpiresIn(),
-			"Bearer"
+			UserMeResponse.from(result.user()),
+			result.accessToken(),
+			result.refreshToken(),
+			result.accessTokenExpiresIn(),
+			result.refreshTokenExpiresIn(),
+			result.tokenType()
 		);
 	}
 }
