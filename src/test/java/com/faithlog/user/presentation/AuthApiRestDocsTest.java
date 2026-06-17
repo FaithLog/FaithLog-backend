@@ -16,13 +16,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.user.application.port.AccessTokenBlacklistStore;
+import com.faithlog.user.application.port.CurrentDeviceFcmTokenDeactivationPort;
+import com.faithlog.user.application.port.RefreshTokenStore;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import com.faithlog.user.support.InMemoryAccessTokenBlacklistStore;
+import com.faithlog.user.support.InMemoryRefreshTokenStore;
+import com.faithlog.user.support.RecordingCurrentDeviceFcmTokenDeactivationPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.restdocs.mockmvc.RestDocumentationResultHandler;
 import org.springframework.test.context.ActiveProfiles;
@@ -201,6 +210,69 @@ class AuthApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void refresh_and_logout_generate_rest_docs_snippets() throws Exception {
+		TokenPair tokens = signupAndLogin("docs-refresh-logout@example.com");
+
+		String refreshBody = mockMvc.perform(post("/api/v1/auth/refresh")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "refreshToken": "%s"
+					}
+					""".formatted(tokens.refreshToken())))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.message").value("토큰이 재발급되었습니다."))
+			.andExpect(jsonPath("$.data.accessToken").isString())
+			.andExpect(jsonPath("$.data.refreshToken").isString())
+			.andExpect(jsonPath("$.data.accessTokenExpiresIn").value(1800))
+			.andExpect(jsonPath("$.data.refreshTokenExpiresIn").value(1209600))
+			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+			.andDo(document("auth-refresh-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestFields(
+					fieldWithPath("refreshToken").description("모바일 보안 저장소에 저장된 Refresh Token")
+				),
+				responseFields(apiResponseFields(tokenResponseFields()))
+			))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+
+		JsonNode refreshResponse = objectMapper.readTree(refreshBody);
+		String rotatedAccessToken = refreshResponse.path("data").path("accessToken").asText();
+		String rotatedRefreshToken = refreshResponse.path("data").path("refreshToken").asText();
+
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.header("Authorization", "Bearer " + rotatedAccessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "refreshToken": "%s",
+					  "clientInstanceId": "dummy-client-instance-id",
+					  "fcmToken": "dummy-fcm-token"
+					}
+					""".formatted(rotatedRefreshToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.message").value("로그아웃되었습니다."))
+			.andDo(document("auth-logout-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("refreshToken").optional().description("현재 session의 Refresh Token. 없으면 access token 기준으로 로그아웃한다."),
+					fieldWithPath("clientInstanceId").optional().description("현재 기기 식별자. 제공되면 현재 사용자 소유 기기 FCM 비활성화 port에 전달한다."),
+					fieldWithPath("fcmToken").optional().description("현재 기기 FCM token. 제공되면 현재 사용자 소유 기기 FCM 비활성화 port에 전달한다.")
+				),
+				responseFields(apiResponseFields())
+			));
+	}
+
 	private RestDocumentationResultHandler unauthorizedDocument(String identifier) {
 		return document(identifier,
 			preprocessRequest(prettyPrint()),
@@ -255,6 +327,16 @@ class AuthApiRestDocsTest {
 		return fields;
 	}
 
+	private static org.springframework.restdocs.payload.FieldDescriptor[] tokenResponseFields() {
+		return new org.springframework.restdocs.payload.FieldDescriptor[] {
+			fieldWithPath("data.accessToken").description("Authorization Bearer 인증에 사용할 새 Access Token"),
+			fieldWithPath("data.refreshToken").description("기존 Refresh Token을 대체할 새 Refresh Token"),
+			fieldWithPath("data.accessTokenExpiresIn").description("Access Token 만료 시간(초). 기본값은 1800"),
+			fieldWithPath("data.refreshTokenExpiresIn").description("Refresh Token 만료 시간(초). 기본값은 1209600"),
+			fieldWithPath("data.tokenType").description("토큰 타입. `Bearer` 고정")
+		};
+	}
+
 	private static org.springframework.restdocs.payload.FieldDescriptor[] unauthorizedResponseFields() {
 		return new org.springframework.restdocs.payload.FieldDescriptor[] {
 			fieldWithPath("success").description("요청 성공 여부. 실패 응답에서는 `false`"),
@@ -266,5 +348,27 @@ class AuthApiRestDocsTest {
 	}
 
 	private record TokenPair(String accessToken, String refreshToken) {
+	}
+
+	@TestConfiguration
+	static class TestAuthApiRestDocsPortConfig {
+
+		@Bean
+		@Primary
+		RefreshTokenStore refreshTokenStore() {
+			return new InMemoryRefreshTokenStore();
+		}
+
+		@Bean
+		@Primary
+		AccessTokenBlacklistStore accessTokenBlacklistStore() {
+			return new InMemoryAccessTokenBlacklistStore();
+		}
+
+		@Bean
+		@Primary
+		CurrentDeviceFcmTokenDeactivationPort fcmTokenDeactivationPort() {
+			return new RecordingCurrentDeviceFcmTokenDeactivationPort();
+		}
 	}
 }
