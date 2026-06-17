@@ -14,7 +14,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
 | 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-17) | 100% |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test` | 1 test source, 1 test resource | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test` | 4 test sources, 1 test resource (2026-06-17, #27) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-17) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
@@ -137,6 +137,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-06-17 | `./gradlew build` 재검증 | 성공 | 8초, 8개 task up-to-date, 빌드 성공률 기준선 100% | 앱 코드 변경이 생기면 오늘 수치와 비교 |
 | 2026-06-17 | Local repo structure audit 재검증 | 성공 | 실구현 Java 9개, top-level 모듈 7개, CI workflow 2개, Docker Compose 서비스 5개, 마이그레이션 0개 | 헬스 체크 기준 환경 승인 전까지 운영 지표는 보류 |
 | 2026-06-17 | Flyway runtime removal validation | 성공 | `./gradlew test` 35초 성공, `./gradlew build` 26초 성공, `runtimeClasspath` Flyway 항목 0개, active migration file 0개 | 최종 도메인 모델 안정화 후 Flyway migration consolidation task로 재도입 |
+| 2026-06-17 | #27 auth JWT TDD validation | 성공 | `./gradlew test` 18초 성공, 테스트 파일 1개 -> 4개, 회원가입/로그인/JWT claim/Bearer `/users/me` 검증 추가 | #28 refresh/logout/Redis rotation 구현 시 인증 테스트 확장 |
 
 ## Resume Bullet Candidates
 
@@ -150,6 +151,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 투표 템플릿 정책을 기본 제공 1개와 관리자 생성 3개 범주로 분리해 초기 데이터와 운영 권한 기준을 명확화.
 - 투표 자동 생성 책임을 템플릿 설정과 스케줄러 실행으로 분리해 반복 운영 자동화 설계 기준을 명확화.
 - 커피 담당자가 자동 생성 시간과 마감 시간을 설정하도록 투표 운영 권한과 반복 생성 정책을 구체화.
+- 회원가입/로그인/JWT 인증 흐름을 TDD로 구현하고, Bearer 인증 `/api/v1/users/me`와 JWT 필수 claim 검증을 포함한 테스트 파일을 1개에서 4개로 확대.
 
 <!-- daily-resume-monitor:start:resume-metrics:2026-06-16 -->
 ### 2026-06-16 Automated Resume Monitor
