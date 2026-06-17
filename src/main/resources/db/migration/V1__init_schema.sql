@@ -1,2 +1,0 @@
--- Initial FaithLog schema migration.
--- Domain tables will be added through future Flyway migrations.
