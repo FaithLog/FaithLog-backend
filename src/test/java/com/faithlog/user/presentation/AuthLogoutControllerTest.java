@@ -170,7 +170,6 @@ class AuthLogoutControllerTest {
 	static class TestAuthLogoutPortConfig {
 
 		@Bean
-		@Primary
 		InMemoryRefreshTokenStore refreshTokenStore() {
 			return new InMemoryRefreshTokenStore();
 		}
@@ -182,7 +181,6 @@ class AuthLogoutControllerTest {
 		}
 
 		@Bean
-		@Primary
 		InMemoryAccessTokenBlacklistStore accessTokenBlacklistStore() {
 			return new InMemoryAccessTokenBlacklistStore();
 		}
@@ -196,7 +194,6 @@ class AuthLogoutControllerTest {
 		}
 
 		@Bean
-		@Primary
 		RecordingCurrentDeviceFcmTokenDeactivationPort fcmTokenDeactivationPort() {
 			return new RecordingCurrentDeviceFcmTokenDeactivationPort();
 		}

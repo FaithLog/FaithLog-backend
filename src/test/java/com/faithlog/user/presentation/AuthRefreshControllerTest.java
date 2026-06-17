@@ -144,7 +144,6 @@ class AuthRefreshControllerTest {
 	static class TestAuthTokenStoreConfig {
 
 		@Bean
-		@Primary
 		InMemoryRefreshTokenStore refreshTokenStore() {
 			return new InMemoryRefreshTokenStore();
 		}

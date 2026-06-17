@@ -52,9 +52,22 @@ public class JwtProvider {
 
 	public IssuedTokens issueTokens(User user) {
 		String sessionId = UUID.randomUUID().toString();
+		return issueTokens(user, sessionId);
+	}
+
+	public IssuedTokens issueTokens(User user, String sessionId) {
+		String refreshJti = UUID.randomUUID().toString();
 		String accessToken = issueAccessToken(user, sessionId);
-		String refreshToken = issueRefreshToken(user, sessionId);
-		return new IssuedTokens(accessToken, refreshToken, accessTokenValiditySeconds, refreshTokenValiditySeconds);
+		String refreshToken = issueRefreshToken(user, sessionId, refreshJti);
+		return new IssuedTokens(
+			accessToken,
+			refreshToken,
+			accessTokenValiditySeconds,
+			refreshTokenValiditySeconds,
+			user.id(),
+			sessionId,
+			refreshJti
+		);
 	}
 
 	public Claims parseAccessToken(String token) {
@@ -80,9 +93,8 @@ public class JwtProvider {
 			.compact();
 	}
 
-	private String issueRefreshToken(User user, String sessionId) {
+	private String issueRefreshToken(User user, String sessionId, String refreshJti) {
 		Instant now = clock.instant();
-		String refreshJti = UUID.randomUUID().toString();
 		return Jwts.builder()
 			.subject(String.valueOf(user.id()))
 			.id(refreshJti)
@@ -121,7 +133,10 @@ public class JwtProvider {
 		String accessToken,
 		String refreshToken,
 		long accessTokenExpiresIn,
-		long refreshTokenExpiresIn
+		long refreshTokenExpiresIn,
+		Long userId,
+		String sessionId,
+		String refreshJti
 	) {
 	}
 }
