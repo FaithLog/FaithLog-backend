@@ -9,6 +9,8 @@ public interface CampusRepositoryPort {
 
 	Optional<Campus> findById(Long campusId);
 
+	Optional<Campus> findByIdForUpdate(Long campusId);
+
 	Optional<Campus> findByInviteCode(String inviteCode);
 
 	boolean existsByInviteCode(String inviteCode);

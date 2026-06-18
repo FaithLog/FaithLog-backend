@@ -107,6 +107,10 @@ public class CampusMember {
 		this.joinedAt = Instant.now();
 	}
 
+	public void changeCampusRole(CampusRole campusRole) {
+		this.campusRole = campusRole;
+	}
+
 	public Long id() {
 		return id;
 	}

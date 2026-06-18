@@ -10,11 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-18 - Issue 30 Same-Level Campus Role Assignment And Coffee Duty Permission
+
+- Context: Issue #30 role hierarchy wording could be read as "only roles below the requester can be changed or assigned." The user clarified the final behavior during the development session.
+- Decision: A campus manager can assign campus roles up to the manager's own campus role level, but cannot change or assign roles above that level. `MINISTER` can change another user to `MINISTER`, `ELDER`, `CAMPUS_LEADER`, or `MEMBER`. `ELDER` can change another user to `ELDER`, `CAMPUS_LEADER`, or `MEMBER`, but cannot change an existing `MINISTER` or assign `MINISTER`. `CAMPUS_LEADER` can change another user to `CAMPUS_LEADER` or `MEMBER`, but cannot change an existing `ELDER` or `MINISTER` or assign those roles. `MEMBER` cannot change roles. Service-level `ADMIN` can change all campus roles, and service-level `MANAGER` alone does not grant campus role change permission. Coffee duty management is allowed for service-level `ADMIN` and active campus members whose campus role is not `MEMBER`; service-level `MANAGER` alone does not grant coffee duty management permission.
+- Impact: Issue #30 implementation, tests, and REST Docs must use same-level assignment semantics and non-`MEMBER` coffee duty management permission. Any earlier "below only" interpretation is superseded.
+
 ### 2026-06-18 - Issue 30 Campus Role Hierarchy And Coffee Duty Contract
 
 - Context: Issue #30 needed final confirmation before development because the campus role update API path, coffee duty assignment cardinality, and campus role downgrade rules were ambiguous.
 - Decision: Issue #30 must follow the latest Notion API contract. Campus role changes use `PATCH /api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role`, where `campusMemberId` means `campus_members.id`. Coffee duty assignment is limited to one active `DutyType.COFFEE` assignee per campus and uses `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee` to assign/replace the active assignee and `DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}` to revoke. The campus role hierarchy is `MINISTER > ELDER > CAMPUS_LEADER > MEMBER`. A campus manager may change roles only below their own role: `MINISTER` can change `ELDER`, `CAMPUS_LEADER`, and `MEMBER`; `ELDER` can change `CAMPUS_LEADER` and `MEMBER`, but not `MINISTER`; `CAMPUS_LEADER` can change `MEMBER`, but not `MINISTER` or `ELDER`; `MEMBER` cannot change roles. Service-level `ADMIN` can change any campus member role in any campus. The last campus management role holder may still be downgraded to `MEMBER`; do not block it with a last-manager guard in Issue #30.
 - Impact: Issue #30, Notion planning, API documentation, REST Docs tests, and implementation must use these paths and authorization rules. Development must not use the older `members/{memberId}/role`, generic `POST duty-assignments`, or `PATCH revoke` API drafts for #30.
+- Status: Role assignment hierarchy wording is superseded by the later 2026-06-18 decision `Issue 30 Same-Level Campus Role Assignment And Coffee Duty Permission`: same-level assignment is allowed. API paths, `campusMemberId`, coffee duty cardinality, and last-manager downgrade policy remain valid.
 
 ### 2026-06-18 - Campus Member Delete And Management Permission For Issue 29
 
