@@ -3,13 +3,13 @@ package com.faithlog.campus.application;
 import com.faithlog.campus.domain.Campus;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusMemberStatus;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
-import com.faithlog.campus.infrastructure.jpa.CampusRepository;
+import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.application.port.CampusRepositoryPort;
+import com.faithlog.campus.application.port.CampusUserLookupPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
-import com.faithlog.user.infrastructure.jpa.UserRepository;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,20 +19,20 @@ public class CampusService {
 
 	private static final int INVITE_CODE_MAX_ATTEMPTS = 20;
 
-	private final CampusRepository campusRepository;
-	private final CampusMemberRepository campusMemberRepository;
-	private final UserRepository userRepository;
+	private final CampusRepositoryPort campusRepository;
+	private final CampusMemberRepositoryPort campusMemberRepository;
+	private final CampusUserLookupPort userLookupPort;
 	private final InviteCodeGenerator inviteCodeGenerator;
 
 	public CampusService(
-		CampusRepository campusRepository,
-		CampusMemberRepository campusMemberRepository,
-		UserRepository userRepository,
+		CampusRepositoryPort campusRepository,
+		CampusMemberRepositoryPort campusMemberRepository,
+		CampusUserLookupPort userLookupPort,
 		InviteCodeGenerator inviteCodeGenerator
 	) {
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
-		this.userRepository = userRepository;
+		this.userLookupPort = userLookupPort;
 		this.inviteCodeGenerator = inviteCodeGenerator;
 	}
 
@@ -94,7 +94,7 @@ public class CampusService {
 	}
 
 	private User getActiveUser(Long userId) {
-		User user = userRepository.findById(userId)
+		User user = userLookupPort.findCampusUserById(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.UNAUTHORIZED);

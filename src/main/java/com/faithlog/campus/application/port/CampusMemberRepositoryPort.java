@@ -1,13 +1,13 @@
-package com.faithlog.campus.infrastructure.jpa;
+package com.faithlog.campus.application.port;
 
-import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusMemberStatus;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface CampusMemberRepository extends JpaRepository<CampusMember, Long>, CampusMemberRepositoryPort {
+public interface CampusMemberRepositoryPort {
+
+	CampusMember save(CampusMember campusMember);
 
 	boolean existsByCampusIdAndUserId(Long campusId, Long userId);
 
