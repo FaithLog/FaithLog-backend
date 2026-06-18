@@ -4,6 +4,7 @@ import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentCategory;
+import java.time.Instant;
 import java.time.LocalDate;
 
 public record ChargeItemResult(
@@ -21,7 +22,8 @@ public record ChargeItemResult(
 	String reason,
 	int amount,
 	ChargeStatus status,
-	LocalDate dueDate
+	LocalDate dueDate,
+	Instant paidAt
 ) {
 
 	public static ChargeItemResult from(ChargeItem chargeItem) {
@@ -40,7 +42,8 @@ public record ChargeItemResult(
 			chargeItem.reason(),
 			chargeItem.amount(),
 			chargeItem.status(),
-			chargeItem.dueDate()
+			chargeItem.dueDate(),
+			chargeItem.paidAt()
 		);
 	}
 }

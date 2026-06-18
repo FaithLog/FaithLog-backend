@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
+import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentAccount;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
@@ -20,7 +21,9 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -513,6 +516,193 @@ class BillingServiceTest {
 	}
 
 	@Test
+	void completeMyChargePayment_marks_only_own_unpaid_charge_paid_with_requested_paid_at() {
+		User manager = saveUser("billing-paid-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-paid-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "49캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-006");
+		ChargeItem charge = saveCharge(campus.campusId(), member.id(), account, 5001L);
+		Instant paidAt = Instant.parse("2026-06-12T12:30:00Z");
+
+		ChargeItemResult result = billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+			campus.campusId(),
+			charge.id(),
+			member.id(),
+			paidAt
+		));
+
+		assertThat(result.status()).isEqualTo(ChargeStatus.PAID);
+		assertThat(result.paidAt()).isEqualTo(paidAt);
+		assertThat(chargeItemRepository.findById(charge.id())).get().satisfies(saved -> {
+			assertThat(saved.status()).isEqualTo(ChargeStatus.PAID);
+			assertThat(saved.paidAt()).isEqualTo(paidAt);
+		});
+	}
+
+	@Test
+	void completeMyChargePayment_uses_server_time_when_paid_at_is_omitted() {
+		User manager = saveUser("billing-paid-now-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-paid-now-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "50캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-007");
+		ChargeItem charge = saveCharge(campus.campusId(), member.id(), account, 5002L);
+		Instant before = Instant.now().minus(1, ChronoUnit.SECONDS);
+
+		ChargeItemResult result = billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+			campus.campusId(),
+			charge.id(),
+			member.id(),
+			null
+		));
+
+		Instant after = Instant.now().plus(1, ChronoUnit.SECONDS);
+		assertThat(result.status()).isEqualTo(ChargeStatus.PAID);
+		assertThat(result.paidAt()).isBetween(before, after);
+	}
+
+	@Test
+	void completeMyChargePayment_rejects_other_user_other_campus_and_terminal_statuses() {
+		User manager = saveUser("billing-paid-auth-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-paid-auth-member@example.com", UserRole.USER);
+		User otherMember = saveUser("billing-paid-auth-other@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "51캠");
+		CampusCreateResult otherCampus = createCampus(manager, "52캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(otherMember.id(), campus.inviteCode()));
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-008");
+		ChargeItem charge = saveCharge(campus.campusId(), member.id(), account, 5003L);
+		ChargeItem paid = saveCharge(campus.campusId(), member.id(), account, 5004L);
+		paid.markPaid(Instant.parse("2026-06-12T12:30:00Z"));
+		ChargeItem waived = saveCharge(campus.campusId(), member.id(), account, 5005L);
+		waived.waive();
+		ChargeItem canceled = saveCharge(campus.campusId(), member.id(), account, 5006L);
+		canceled.cancel();
+
+		assertThatThrownBy(() -> billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+			campus.campusId(),
+			charge.id(),
+			otherMember.id(),
+			null
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("본인 청구 항목만 납부 완료 처리할 수 있습니다.");
+		assertThatThrownBy(() -> billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+			otherCampus.campusId(),
+			charge.id(),
+			member.id(),
+			null
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("청구 항목의 캠퍼스가 요청 캠퍼스와 일치하지 않습니다.");
+		assertThatThrownBy(() -> billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+			campus.campusId(),
+			paid.id(),
+			member.id(),
+			null
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("미납 상태의 청구만 납부 완료 처리할 수 있습니다.");
+		assertThatThrownBy(() -> billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+			campus.campusId(),
+			waived.id(),
+			member.id(),
+			null
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("미납 상태의 청구만 납부 완료 처리할 수 있습니다.");
+		assertThatThrownBy(() -> billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+			campus.campusId(),
+			canceled.id(),
+			member.id(),
+			null
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("미납 상태의 청구만 납부 완료 처리할 수 있습니다.");
+	}
+
+	@Test
+	void changeChargeStatus_allows_admin_waive_cancel_and_reopen_with_paid_at_cleared() {
+		User manager = saveUser("billing-status-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-status-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "53캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-009");
+		ChargeItem waiveTarget = saveCharge(campus.campusId(), member.id(), account, 5007L);
+		ChargeItem cancelTarget = saveCharge(campus.campusId(), member.id(), account, 5008L);
+		ChargeItem paidTarget = saveCharge(campus.campusId(), member.id(), account, 5009L);
+		paidTarget.markPaid(Instant.parse("2026-06-12T12:30:00Z"));
+
+		ChargeItemResult waived = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			waiveTarget.id(),
+			manager.id(),
+			ChargeStatus.WAIVED
+		));
+		ChargeItemResult canceled = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			cancelTarget.id(),
+			manager.id(),
+			ChargeStatus.CANCELED
+		));
+		ChargeItemResult reopened = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			paidTarget.id(),
+			manager.id(),
+			ChargeStatus.UNPAID
+		));
+
+		assertThat(waived.status()).isEqualTo(ChargeStatus.WAIVED);
+		assertThat(canceled.status()).isEqualTo(ChargeStatus.CANCELED);
+		assertThat(reopened.status()).isEqualTo(ChargeStatus.UNPAID);
+		assertThat(reopened.paidAt()).isNull();
+		assertThat(chargeItemRepository.findById(paidTarget.id())).get().satisfies(saved -> {
+			assertThat(saved.status()).isEqualTo(ChargeStatus.UNPAID);
+			assertThat(saved.paidAt()).isNull();
+		});
+	}
+
+	@Test
+	void changeChargeStatus_rejects_paid_target_normal_member_manager_without_membership_and_invalid_transition() {
+		User manager = saveUser("billing-status-auth-manager@example.com", UserRole.MANAGER);
+		User serviceManager = saveUser("billing-status-auth-service-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-status-auth-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "54캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-010");
+		ChargeItem charge = saveCharge(campus.campusId(), member.id(), account, 5010L);
+		ChargeItem waived = saveCharge(campus.campusId(), member.id(), account, 5011L);
+		waived.waive();
+
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(),
+			manager.id(),
+			ChargeStatus.PAID
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("관리자는 청구를 PAID로 변경할 수 없습니다.");
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(),
+			member.id(),
+			ChargeStatus.WAIVED
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("청구 상태 변경 권한이 없습니다.");
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(),
+			serviceManager.id(),
+			ChargeStatus.WAIVED
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("청구 상태 변경 권한이 없습니다.");
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			waived.id(),
+			manager.id(),
+			ChargeStatus.CANCELED
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("허용되지 않는 청구 상태 전이입니다.");
+	}
+
+	@Test
 	void duplicateCharge_is_prevented_by_unique_key() {
 		User manager = saveUser("billing-unique-manager@example.com", UserRole.MANAGER);
 		User member = saveUser("billing-unique-member@example.com", UserRole.USER);
@@ -563,6 +753,37 @@ class BillingServiceTest {
 
 	private CampusCreateResult createCampus(User manager, String name) {
 		return campusService.createCampus(new CreateCampusCommand(manager.id(), name, "분당", "분당 " + name));
+	}
+
+	private PaymentAccountResult createPenaltyAccount(Long campusId, Long managerId, String accountNumber) {
+		return billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			managerId,
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"하나은행",
+			accountNumber,
+			"벌금회계",
+			null
+		));
+	}
+
+	private ChargeItem saveCharge(Long campusId, Long userId, PaymentAccountResult account, Long sourceId) {
+		return chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			userId,
+			PaymentCategory.PENALTY,
+			account.id(),
+			account.bankName(),
+			account.accountNumber(),
+			account.accountHolder(),
+			ChargeSourceType.DEVOTION_RECORD,
+			sourceId,
+			"경건생활 벌금",
+			"2026-06-15 주간",
+			2500,
+			LocalDate.of(2026, 6, 22)
+		));
 	}
 
 	private User saveUser(String email, UserRole role) {

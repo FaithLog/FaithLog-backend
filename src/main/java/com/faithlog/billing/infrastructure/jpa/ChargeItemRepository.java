@@ -11,6 +11,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, ChargeItemRepositoryPort {
 
+	@Override
+	default Optional<ChargeItem> findChargeItemById(Long chargeItemId) {
+		return findById(chargeItemId);
+	}
+
 	List<ChargeItem> findByCampusIdAndPaymentCategoryAndStatus(
 		Long campusId,
 		PaymentCategory paymentCategory,
