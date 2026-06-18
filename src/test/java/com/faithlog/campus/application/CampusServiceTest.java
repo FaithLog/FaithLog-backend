@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusMemberStatus;
 import com.faithlog.campus.domain.CampusRole;
+import com.faithlog.campus.domain.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.jpa.CampusRepository;
@@ -181,6 +182,231 @@ class CampusServiceTest {
 		assertThat(rejoined.membershipId()).isEqualTo(membership.membershipId());
 		assertThat(rejoined.campusRole()).isEqualTo("MEMBER");
 		assertThat(rejoined.status()).isEqualTo("ACTIVE");
+	}
+
+	@Test
+	void changeCampusRole_allows_same_or_lower_role_assignment_by_campus_hierarchy() {
+		User manager = saveUser("role-manager@example.com", UserRole.MANAGER);
+		User minister = saveUser("role-minister@example.com", UserRole.USER);
+		User elder = saveUser("role-elder@example.com", UserRole.USER);
+		User leader = saveUser("role-leader@example.com", UserRole.USER);
+		User member = saveUser("role-member@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"30캠",
+			"분당",
+			"분당 30캠퍼스"
+		));
+		CampusMembershipResult ministerMembership = campusService.joinCampus(new JoinCampusCommand(minister.id(), campus.inviteCode()));
+		CampusMembershipResult elderMembership = campusService.joinCampus(new JoinCampusCommand(elder.id(), campus.inviteCode()));
+		CampusMembershipResult leaderMembership = campusService.joinCampus(new JoinCampusCommand(leader.id(), campus.inviteCode()));
+		CampusMembershipResult memberMembership = campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		updateCampusRole(ministerMembership.membershipId(), CampusRole.MINISTER);
+		updateCampusRole(elderMembership.membershipId(), CampusRole.ELDER);
+		updateCampusRole(leaderMembership.membershipId(), CampusRole.CAMPUS_LEADER);
+
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), minister.id(), CampusRole.MINISTER
+		)).campusRole()).isEqualTo("MINISTER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), minister.id(), CampusRole.ELDER
+		)).campusRole()).isEqualTo("ELDER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), minister.id(), CampusRole.CAMPUS_LEADER
+		)).campusRole()).isEqualTo("CAMPUS_LEADER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), minister.id(), CampusRole.MEMBER
+		)).campusRole()).isEqualTo("MEMBER");
+
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), elder.id(), CampusRole.ELDER
+		)).campusRole()).isEqualTo("ELDER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), elder.id(), CampusRole.CAMPUS_LEADER
+		)).campusRole()).isEqualTo("CAMPUS_LEADER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), elder.id(), CampusRole.MEMBER
+		)).campusRole()).isEqualTo("MEMBER");
+
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), leader.id(), CampusRole.CAMPUS_LEADER
+		)).campusRole()).isEqualTo("CAMPUS_LEADER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), memberMembership.membershipId(), leader.id(), CampusRole.MEMBER
+		)).campusRole()).isEqualTo("MEMBER");
+	}
+
+	@Test
+	void changeCampusRole_rejects_member_higher_target_role_and_manager_role_only() {
+		User manager = saveUser("role-reject-manager@example.com", UserRole.MANAGER);
+		User elder = saveUser("role-reject-elder@example.com", UserRole.USER);
+		User leader = saveUser("role-reject-leader@example.com", UserRole.USER);
+		User member = saveUser("role-reject-member@example.com", UserRole.USER);
+		User target = saveUser("role-reject-target@example.com", UserRole.USER);
+		User outsiderManager = saveUser("role-reject-outsider-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"31캠",
+			"분당",
+			"분당 31캠퍼스"
+		));
+		CampusMembershipResult elderMembership = campusService.joinCampus(new JoinCampusCommand(elder.id(), campus.inviteCode()));
+		CampusMembershipResult leaderMembership = campusService.joinCampus(new JoinCampusCommand(leader.id(), campus.inviteCode()));
+		CampusMembershipResult memberMembership = campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		CampusMembershipResult targetMembership = campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+		CampusMember ministerMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), manager.id())
+			.orElseThrow();
+		updateCampusRole(elderMembership.membershipId(), CampusRole.ELDER);
+		updateCampusRole(leaderMembership.membershipId(), CampusRole.CAMPUS_LEADER);
+
+		assertThatThrownBy(() -> campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), ministerMembership.id(), elder.id(), CampusRole.MEMBER
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("상위 캠퍼스 역할은 변경할 수 없습니다.");
+		assertThatThrownBy(() -> campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), elder.id(), CampusRole.MINISTER
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("상위 캠퍼스 역할은 변경할 수 없습니다.");
+		assertThatThrownBy(() -> campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), elderMembership.membershipId(), leader.id(), CampusRole.MEMBER
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("상위 캠퍼스 역할은 변경할 수 없습니다.");
+		assertThatThrownBy(() -> campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), leader.id(), CampusRole.ELDER
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("상위 캠퍼스 역할은 변경할 수 없습니다.");
+		assertThatThrownBy(() -> campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), ministerMembership.id(), leader.id(), CampusRole.MEMBER
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("상위 캠퍼스 역할은 변경할 수 없습니다.");
+		assertThatThrownBy(() -> campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), leader.id(), CampusRole.MINISTER
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("상위 캠퍼스 역할은 변경할 수 없습니다.");
+		assertThatThrownBy(() -> campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), member.id(), CampusRole.MEMBER
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 역할 변경 권한이 없습니다.");
+		assertThatThrownBy(() -> campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), outsiderManager.id(), CampusRole.MEMBER
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 역할 변경 권한이 없습니다.");
+
+		assertThat(campusMemberRepository.findById(memberMembership.membershipId())).isPresent();
+	}
+
+	@Test
+	void changeCampusRole_allows_service_admin_and_last_manager_role_downgrade() {
+		User manager = saveUser("role-admin-manager@example.com", UserRole.MANAGER);
+		User admin = saveUser("role-admin@example.com", UserRole.ADMIN);
+		User target = saveUser("role-admin-target@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"32캠",
+			"분당",
+			"분당 32캠퍼스"
+		));
+		CampusMembershipResult targetMembership = campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+		updateCampusRole(targetMembership.membershipId(), CampusRole.MINISTER);
+
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), admin.id(), CampusRole.ELDER
+		)).campusRole()).isEqualTo("ELDER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), admin.id(), CampusRole.MINISTER
+		)).campusRole()).isEqualTo("MINISTER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), admin.id(), CampusRole.CAMPUS_LEADER
+		)).campusRole()).isEqualTo("CAMPUS_LEADER");
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), targetMembership.membershipId(), admin.id(), CampusRole.MEMBER
+		)).campusRole()).isEqualTo("MEMBER");
+
+		CampusMember creatorMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), manager.id()).orElseThrow();
+		assertThat(campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campus.campusId(), creatorMembership.id(), admin.id(), CampusRole.MEMBER
+		)).campusRole()).isEqualTo("MEMBER");
+	}
+
+	@Test
+	void assignCoffeeDuty_replaces_active_assignment_and_revoke_marks_it_inactive() {
+		User manager = saveUser("coffee-manager@example.com", UserRole.MANAGER);
+		User elder = saveUser("coffee-elder@example.com", UserRole.USER);
+		User first = saveUser("coffee-first@example.com", UserRole.USER);
+		User second = saveUser("coffee-second@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"33캠",
+			"분당",
+			"분당 33캠퍼스"
+		));
+		CampusMembershipResult elderMembership = campusService.joinCampus(new JoinCampusCommand(elder.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(first.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(second.id(), campus.inviteCode()));
+		updateCampusRole(elderMembership.membershipId(), CampusRole.ELDER);
+
+		DutyAssignmentResult firstAssignment = campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), elder.id(), first.id()
+		));
+		DutyAssignmentResult secondAssignment = campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), elder.id(), second.id()
+		));
+
+		assertThat(firstAssignment.dutyType()).isEqualTo(DutyType.COFFEE.name());
+		assertThat(secondAssignment.userId()).isEqualTo(second.id());
+		assertThat(campusService.getDutyAssignments(campus.campusId(), elder.id()))
+			.extracting(DutyAssignmentResult::userId)
+			.containsExactly(second.id());
+
+		campusService.revokeCoffeeDuty(campus.campusId(), secondAssignment.assignmentId(), elder.id());
+
+		assertThat(campusService.getDutyAssignments(campus.campusId(), elder.id())).isEmpty();
+	}
+
+	@Test
+	void assignCoffeeDuty_requires_non_member_campus_role_or_admin_and_existing_target_membership() {
+		User manager = saveUser("coffee-permission-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("coffee-permission-member@example.com", UserRole.USER);
+		User target = saveUser("coffee-permission-target@example.com", UserRole.USER);
+		User outsiderManager = saveUser("coffee-permission-outsider-manager@example.com", UserRole.MANAGER);
+		User admin = saveUser("coffee-permission-admin@example.com", UserRole.ADMIN);
+		User outsider = saveUser("coffee-permission-outsider@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"34캠",
+			"분당",
+			"분당 34캠퍼스"
+		));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+
+		assertThatThrownBy(() -> campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), member.id(), target.id()
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("커피 담당자 관리 권한이 없습니다.");
+		assertThatThrownBy(() -> campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), outsiderManager.id(), target.id()
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("커피 담당자 관리 권한이 없습니다.");
+		assertThatThrownBy(() -> campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), admin.id(), outsider.id()
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("커피 담당자로 지정할 캠퍼스 멤버를 찾을 수 없습니다.");
+
+		assertThat(campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), admin.id(), target.id()
+		)).userId()).isEqualTo(target.id());
 	}
 
 	private void updateCampusRole(Long membershipId, CampusRole campusRole) {

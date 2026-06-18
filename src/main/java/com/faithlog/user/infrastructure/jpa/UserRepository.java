@@ -11,7 +11,13 @@ public interface UserRepository extends JpaRepository<User, Long>, CampusUserLoo
 	@Override
 	default Optional<CampusUserLookupResult> findCampusUserById(Long userId) {
 		return findById(userId)
-			.map(user -> new CampusUserLookupResult(user.id(), user.role().name(), user.isActive()));
+			.map(user -> new CampusUserLookupResult(
+				user.id(),
+				user.name(),
+				user.email(),
+				user.role().name(),
+				user.isActive()
+			));
 	}
 
 	Optional<User> findByEmail(String email);

@@ -14,12 +14,17 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.requestF
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.domain.CampusRole;
+import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
@@ -48,6 +53,9 @@ class CampusApiRestDocsTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Autowired
+	private CampusMemberRepository campusMemberRepository;
 
 	@Test
 	void documents_campus_create_join_me_and_detail_contracts() throws Exception {
@@ -242,6 +250,152 @@ class CampusApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_admin_campus_role_change_success() throws Exception {
+		String managerToken = signupAndLogin("docs-role-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampusForDocs(managerToken, "32캠");
+		long campusId = campus.path("campusId").asLong();
+		String elderToken = signupAndLogin("docs-role-elder@example.com", UserRole.USER);
+		User elder = userRepository.findByEmail("docs-role-elder@example.com").orElseThrow();
+		joinCampusForDocs(elderToken, campus.path("inviteCode").asText());
+		updateCampusRole(campusId, elder.id(), CampusRole.ELDER);
+		String memberToken = signupAndLogin("docs-role-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-role-member@example.com").orElseThrow();
+		JsonNode memberMembership = joinCampusForDocs(memberToken, campus.path("inviteCode").asText());
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/members", campusId)
+				.header("Authorization", "Bearer " + elderToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(3))
+			.andDo(document("admin-campus-members-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID")
+				),
+				responseFields(apiResponseFields(
+					fieldWithPath("data[]").description("캠퍼스 ACTIVE 멤버 목록"),
+					fieldWithPath("data[].membershipId").description("캠퍼스 멤버십 ID"),
+					fieldWithPath("data[].campusId").description("캠퍼스 ID"),
+					fieldWithPath("data[].userId").description("사용자 ID"),
+					fieldWithPath("data[].name").description("사용자 이름"),
+					fieldWithPath("data[].email").description("사용자 이메일"),
+					fieldWithPath("data[].campusRole").description("캠퍼스 내부 역할"),
+					fieldWithPath("data[].status").description("캠퍼스 멤버십 상태")
+				))
+			));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role",
+				campusId,
+				memberMembership.path("membershipId").asLong())
+				.header("Authorization", "Bearer " + elderToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "campusRole": "ELDER"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.campusRole").value("ELDER"))
+			.andDo(document("admin-campus-role-change-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("campusMemberId").description("역할을 변경할 campus_members.id")
+				),
+				requestFields(
+					fieldWithPath("campusRole").description("새 캠퍼스 역할. `MINISTER`, `ELDER`, `CAMPUS_LEADER`, `MEMBER`")
+				),
+				responseFields(apiResponseFields(adminCampusMemberFields("data.")))
+			));
+	}
+
+	@Test
+	void documents_admin_coffee_duty_assignment_contracts() throws Exception {
+		String managerToken = signupAndLogin("docs-coffee-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampusForDocs(managerToken, "33캠");
+		long campusId = campus.path("campusId").asLong();
+		String leaderToken = signupAndLogin("docs-coffee-leader@example.com", UserRole.USER);
+		User leader = userRepository.findByEmail("docs-coffee-leader@example.com").orElseThrow();
+		joinCampusForDocs(leaderToken, campus.path("inviteCode").asText());
+		updateCampusRole(campusId, leader.id(), CampusRole.CAMPUS_LEADER);
+		String memberToken = signupAndLogin("docs-coffee-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-coffee-member@example.com").orElseThrow();
+		joinCampusForDocs(memberToken, campus.path("inviteCode").asText());
+
+		String assignBody = mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee", campusId)
+				.header("Authorization", "Bearer " + leaderToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(member.id())))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.dutyType").value("COFFEE"))
+			.andExpect(jsonPath("$.data.isActive").value(true))
+			.andDo(document("admin-coffee-duty-assign-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID")
+				),
+				requestFields(
+					fieldWithPath("userId").description("커피 담당자로 지정할 캠퍼스 멤버의 사용자 ID")
+				),
+				responseFields(apiResponseFields(dutyAssignmentFields("data.")))
+			))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long assignmentId = objectMapper.readTree(assignBody).path("data").path("assignmentId").asLong();
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/duty-assignments", campusId)
+				.header("Authorization", "Bearer " + leaderToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andDo(document("admin-duty-assignments-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID")
+				),
+				responseFields(apiResponseFields(
+					fieldWithPath("data[]").description("캠퍼스의 활성 담당자 배정 목록"),
+					fieldWithPath("data[].assignmentId").description("담당자 배정 ID"),
+					fieldWithPath("data[].campusId").description("캠퍼스 ID"),
+					fieldWithPath("data[].userId").description("담당자 사용자 ID"),
+					fieldWithPath("data[].name").description("담당자 이름"),
+					fieldWithPath("data[].email").description("담당자 이메일"),
+					fieldWithPath("data[].dutyType").description("담당 유형"),
+					fieldWithPath("data[].isActive").description("활성 여부"),
+					fieldWithPath("data[].assignedAt").description("담당 지정 시각")
+				))
+			));
+
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}",
+				campusId,
+				assignmentId)
+				.header("Authorization", "Bearer " + leaderToken))
+			.andExpect(status().isNoContent())
+			.andDo(document("admin-coffee-duty-revoke-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("assignmentId").description("해제할 커피 담당자 배정 ID")
+				)
+			));
+	}
+
 	private String signupAndLogin(String email, UserRole role) throws Exception {
 		mockMvc.perform(post("/api/v1/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -274,6 +428,46 @@ class CampusApiRestDocsTest {
 		return objectMapper.readTree(loginBody).path("data").path("accessToken").asText();
 	}
 
+	private JsonNode createCampusForDocs(String accessToken, String name) throws Exception {
+		String createBody = mockMvc.perform(post("/api/v1/campuses")
+				.header("Authorization", "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "%s",
+					  "region": "분당",
+					  "description": "분당 %s퍼스"
+					}
+					""".formatted(name, name)))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		return objectMapper.readTree(createBody).path("data");
+	}
+
+	private JsonNode joinCampusForDocs(String accessToken, String inviteCode) throws Exception {
+		String joinBody = mockMvc.perform(post("/api/v1/campuses/join")
+				.header("Authorization", "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "inviteCode": "%s"
+					}
+					""".formatted(inviteCode)))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		return objectMapper.readTree(joinBody).path("data");
+	}
+
+	private void updateCampusRole(long campusId, long userId, CampusRole campusRole) {
+		CampusMember member = campusMemberRepository.findByCampusIdAndUserId(campusId, userId).orElseThrow();
+		ReflectionTestUtils.setField(member, "campusRole", campusRole);
+		campusMemberRepository.saveAndFlush(member);
+	}
+
 	private static org.springframework.restdocs.headers.RequestHeadersSnippet authHeader() {
 		return requestHeaders(
 			headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
@@ -299,6 +493,31 @@ class CampusApiRestDocsTest {
 			fieldWithPath(prefix + "region").optional().description("캠퍼스 지역"),
 			fieldWithPath(prefix + "campusRole").description("현재 사용자의 캠퍼스 내부 역할"),
 			fieldWithPath(prefix + "status").description("멤버십 상태")
+		};
+	}
+
+	private static FieldDescriptor[] adminCampusMemberFields(String prefix) {
+		return new FieldDescriptor[] {
+			fieldWithPath(prefix + "membershipId").description("캠퍼스 멤버십 ID"),
+			fieldWithPath(prefix + "campusId").description("캠퍼스 ID"),
+			fieldWithPath(prefix + "userId").description("사용자 ID"),
+			fieldWithPath(prefix + "name").description("사용자 이름"),
+			fieldWithPath(prefix + "email").description("사용자 이메일"),
+			fieldWithPath(prefix + "campusRole").description("변경된 캠퍼스 내부 역할"),
+			fieldWithPath(prefix + "status").description("캠퍼스 멤버십 상태")
+		};
+	}
+
+	private static FieldDescriptor[] dutyAssignmentFields(String prefix) {
+		return new FieldDescriptor[] {
+			fieldWithPath(prefix + "assignmentId").description("담당자 배정 ID"),
+			fieldWithPath(prefix + "campusId").description("캠퍼스 ID"),
+			fieldWithPath(prefix + "userId").description("담당자 사용자 ID"),
+			fieldWithPath(prefix + "name").description("담당자 이름"),
+			fieldWithPath(prefix + "email").description("담당자 이메일"),
+			fieldWithPath(prefix + "dutyType").description("담당 유형"),
+			fieldWithPath(prefix + "isActive").description("활성 여부"),
+			fieldWithPath(prefix + "assignedAt").description("담당 지정 시각")
 		};
 	}
 
