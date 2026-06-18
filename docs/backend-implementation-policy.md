@@ -71,10 +71,11 @@ Redis TTL policy:
 
 ## Campus Onboarding
 
-- Campus creation must also create the active `PENALTY` payment account for the campus.
-- Campus creation must initialize the default devotion penalty rules from the approved penalty table.
-- The campus creation request/flow must include enough penalty account information to create the account.
-- Devotion penalty charge generation should still return a clear error if a legacy or corrupted campus has no active `PENALTY` account.
+- Campus creation and account registration are separate flows.
+- Campus creation must not receive `penaltyAccount`.
+- Campus creation must not create `PaymentAccount`.
+- Campus creation must not create default `penalty_rules`.
+- Devotion penalty charge generation should return a clear error if the campus has no active `PENALTY` account.
 
 ## FCM And Notifications
 

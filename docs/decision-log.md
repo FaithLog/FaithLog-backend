@@ -10,6 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-18 - Campus API Response And Error Contract For Issue 29
+
+- Context: Issue #29 needed final confirmation for ambiguous campus response fields, admin campus-detail behavior, and user-facing error messages before implementation.
+- Decision: `GET /api/v1/campuses/me` returns only the current user's `ACTIVE` memberships, with each item containing `membershipId`, `campusId`, `campusName`, `region`, `campusRole`, and `status`; `joinedAt` is excluded. Campus detail returns `campusId`, `name`, `region`, `description`, `isActive`, `myCampusRole`, `membershipStatus`, and conditionally `inviteCode`. `ADMIN` can see all campus details and invite codes; when an admin is not a member of the campus, `myCampusRole` and `membershipStatus` are `null`. Error messages are `유효하지 않은 초대코드입니다.`, `이미 가입된 캠퍼스입니다.`, `캠퍼스 조회 권한이 없습니다.`, and `캠퍼스 생성 권한이 없습니다.`.
+- Impact: Issue #29 implementation and REST Docs must follow these response shapes and messages. Older endpoint drafts with different field names or creator roles are superseded by this decision and the latest Issue #29 scope.
+
+### 2026-06-18 - Campus Creation Does Not Create Payment Account Or Penalty Rules
+
+- Context: Older local docs still said campus creation should create a `PENALTY` payment account and default `penalty_rules`, while the latest Issue #29, Notion integrated document, and current development delegation state that campus creation and account/rule setup are separate.
+- Decision: Campus creation must not receive `penaltyAccount`, must not create `PaymentAccount`, and must not create default `penalty_rules`.
+- Impact: Issue #29 tests must guard that campus creation only creates the campus and creator membership. Billing prerequisites are configured through separate admin setup flows.
+
 ### 2026-06-16 - User Owns All Project Decisions
 
 - Context: The user stated that Codex must not develop or implement based on guesses.
