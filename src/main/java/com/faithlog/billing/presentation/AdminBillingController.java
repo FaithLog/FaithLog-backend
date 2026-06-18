@@ -1,7 +1,10 @@
 package com.faithlog.billing.presentation;
 
 import com.faithlog.billing.application.BillingService;
+import com.faithlog.billing.application.ChargeItemResult;
 import com.faithlog.billing.application.PaymentAccountResult;
+import com.faithlog.billing.presentation.dto.ChangeChargeStatusRequest;
+import com.faithlog.billing.presentation.dto.ChargeItemResponse;
 import com.faithlog.billing.presentation.dto.CreatePaymentAccountRequest;
 import com.faithlog.billing.presentation.dto.PaymentAccountAdminResponse;
 import com.faithlog.global.response.ApiResponse;
@@ -46,5 +49,15 @@ public class AdminBillingController {
 	) {
 		PaymentAccountResult result = billingService.deactivatePaymentAccount(accountId, authenticatedUser.userId());
 		return ApiResponse.success(PaymentAccountAdminResponse.from(result), "납부 계좌가 비활성화되었습니다.");
+	}
+
+	@PatchMapping("/charges/{chargeItemId}/status")
+	public ApiResponse<ChargeItemResponse> changeChargeStatus(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long chargeItemId,
+		@Valid @RequestBody ChangeChargeStatusRequest request
+	) {
+		ChargeItemResult result = billingService.changeChargeStatus(request.toCommand(chargeItemId, authenticatedUser));
+		return ApiResponse.success(ChargeItemResponse.from(result), "청구 상태가 변경되었습니다.");
 	}
 }

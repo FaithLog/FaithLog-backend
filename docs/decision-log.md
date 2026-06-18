@@ -10,6 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-18 - Issue #35 Charge Status Transition Policy
+
+- Context: Issue #35 needed final clarification for charge payment completion, waiver, cancellation, and administrator correction behavior before development. The earlier issue draft and Notion API page allowed an administrator to set `PAID`, but the user chose a stricter rule.
+- Decision: User payment completion is the only path that changes an `UNPAID` charge to `PAID`. Administrators must not mark a charge as `PAID`. Administrators may change a charge to `WAIVED` or `CANCELED`, and may revert an incorrectly handled `PAID`, `WAIVED`, or `CANCELED` charge back to `UNPAID`. Issue #35 does not store an administrator status-change reason and does not add `statusChangedReason`, `waivedAt`, `canceledAt`, or a status history table.
+- Impact: Issue #35 implementation, tests, REST Docs, GitHub issue body, and Notion API documentation must use admin target statuses `UNPAID`, `WAIVED`, and `CANCELED` only. `paidAt` is used for user payment completion; when an administrator reverts a `PAID` charge to `UNPAID`, `paidAt` should be cleared. Automatic source rerun behavior for terminal charges remains outside this decision and must still be confirmed when wiring Issue #33/#39.
+
+### 2026-06-18 - Issue #35 Payment Completion Request Contract
+
+- Context: Issue #35 specified that `paidAt` is optional for `PATCH /api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid`, but left the empty-body contract and timestamp format to be fixed before TDD implementation.
+- Decision: The user payment completion API accepts both an omitted request body and an empty JSON body. If `paidAt` is omitted, the server time is used. When `paidAt` is provided, the request must use an offset-aware instant format such as `2026-06-12T12:30:00Z`.
+- Impact: Issue #35 controller tests and REST Docs must document optional `paidAt`, omitted-body support, and offset-aware `Instant` parsing. The response should expose `paidAt` as an instant value.
+
 ### 2026-06-18 - Issue #34 Admin Account List And Penalty Charge Rerun Policy
 
 - Context: PM review found that service-level `ADMIN` could not list campus payment accounts without campus membership, and `BillingService.createPenaltyCharge` raised a unique constraint error when the same penalty charge source was executed again.

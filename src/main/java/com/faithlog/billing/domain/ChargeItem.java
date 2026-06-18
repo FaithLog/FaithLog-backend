@@ -194,16 +194,45 @@ public class ChargeItem {
 	}
 
 	public void markPaid() {
+		markPaid(Instant.now());
+	}
+
+	public void markPaid(Instant paidAt) {
+		if (!isUnpaid()) {
+			throw new IllegalStateException("Only unpaid charges can be marked as paid.");
+		}
 		this.status = ChargeStatus.PAID;
-		this.paidAt = Instant.now();
+		this.paidAt = paidAt == null ? Instant.now() : paidAt;
 	}
 
 	public void markWaived() {
-		this.status = ChargeStatus.WAIVED;
+		waive();
 	}
 
 	public void markCanceled() {
+		cancel();
+	}
+
+	public void waive() {
+		if (!isUnpaid()) {
+			throw new IllegalStateException("Only unpaid charges can be waived.");
+		}
+		this.status = ChargeStatus.WAIVED;
+	}
+
+	public void cancel() {
+		if (!isUnpaid()) {
+			throw new IllegalStateException("Only unpaid charges can be canceled.");
+		}
 		this.status = ChargeStatus.CANCELED;
+	}
+
+	public void reopenAsUnpaid() {
+		if (isUnpaid()) {
+			throw new IllegalStateException("Only terminal charges can be reopened.");
+		}
+		this.status = ChargeStatus.UNPAID;
+		this.paidAt = null;
 	}
 
 	public Long id() {
@@ -264,5 +293,9 @@ public class ChargeItem {
 
 	public LocalDate dueDate() {
 		return dueDate;
+	}
+
+	public Instant paidAt() {
+		return paidAt;
 	}
 }

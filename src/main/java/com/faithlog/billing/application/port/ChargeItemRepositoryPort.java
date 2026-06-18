@@ -11,6 +11,8 @@ public interface ChargeItemRepositoryPort {
 
 	ChargeItem save(ChargeItem chargeItem);
 
+	Optional<ChargeItem> findChargeItemById(Long chargeItemId);
+
 	List<ChargeItem> findByCampusIdAndPaymentCategoryAndStatus(
 		Long campusId,
 		PaymentCategory paymentCategory,
