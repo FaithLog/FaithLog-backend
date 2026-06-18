@@ -67,7 +67,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 				return;
 			}
 
-			AuthenticatedUser principal = new AuthenticatedUser(userId, role, sessionId, jti);
+			AuthenticatedUser principal = new AuthenticatedUser(
+				userId,
+				role,
+				sessionId,
+				jti,
+				claims.getExpiration().toInstant()
+			);
 			UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
 				principal,
 				null,

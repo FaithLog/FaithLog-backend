@@ -13,15 +13,63 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-17) | 100% |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test` | 4 test sources, 1 test resource (2026-06-17, #27) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-17) | 성공 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-18, 21 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 11 test sources, 1 test resource (2026-06-18) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 10 snippet groups (2026-06-18) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-18) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 7 top-level modules (2026-06-17) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-17) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 7 top-level modules (2026-06-18) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-06-18
+
+- 브랜치/작업트리:
+  - 현재 브랜치: `feat/28-auth-refresh-logout-redis`
+  - `git status --short --branch`: `docs/resume-metrics.md`와 wiki 문서 변경/추가가 남아 있던 상태에서 검증했고, 이 중 `docs/resume-metrics.md`는 별도 docs 커밋 대상으로 정리
+  - `develop` 대비 추가 커밋: 6개 (`0b7cc7a`, `f14ffb7`, `ea5bd3d`, `59d89b0`, `3885808`, `9a910ba`)
+- 변경 범위 수치:
+  - `git diff --stat origin/develop..HEAD`: 33 files changed, 1,099 insertions, 12 deletions
+  - 앱 코드 변경 파일: 22개
+  - 테스트 코드 변경 파일: 7개
+  - 프로젝트 문서 변경 파일: 3개 (`docs/backend-implementation-policy.md`, `docs/codex/FAITHLOG_CODEX_HOOK.md`, `docs/decision-log.md`)
+  - API 문서 변경 파일: 1개 (`src/docs/asciidoc/index.adoc`)
+  - 변경 모듈: 2개 (`global`, `user`)
+  - 의존성/DB 마이그레이션 변경: 0건
+- 코드베이스 구조 수치:
+  - `src/main/java/com/faithlog` top-level 모듈: 7개 (`billing`, `campus`, `devotion`, `global`, `notification`, `poll`, `user`)
+  - Java 소스 파일: 74개
+  - 실구현 Java 파일(`package-info.java` 제외): 47개
+  - `package-info.java`: 27개
+  - 테스트 소스 파일: 11개
+  - 테스트 리소스 파일: 1개
+  - 테스트 스위트: 7개
+  - 테스트 케이스: 21개
+  - DB 마이그레이션 파일: 0개 (Flyway deferred)
+- 검증 신호:
+  - `./gradlew test --rerun-tasks`: 성공, 20초, 5 tasks executed, 21 tests / 0 failures / 0 errors / 0 skipped
+  - `./gradlew asciidoctor --rerun-tasks`: 성공, 39초, 6 tasks executed, REST Docs snippets 재생성
+  - `./gradlew build`: 성공, 5초, 3 tasks executed / 5 tasks up-to-date
+  - 빌드 아티팩트: `build/libs/faithlog-backend-0.0.1-SNAPSHOT.jar`, `build/libs/faithlog-backend-0.0.1-SNAPSHOT-plain.jar`
+  - Spring REST Docs 스니펫 묶음: 10개
+  - 생성 문서 확인: `build/docs/asciidoc/index.html` 91,078 bytes
+- 운영/문서 신호:
+  - 인증 상세 계약 문서 파일 유지: `src/docs/asciidoc/index.adoc`
+  - 코드상 헬스 엔드포인트 존재: `GET /api/v1/health`
+  - 응답 시간/헬스 성공률은 측정 대상 환경이 승인되지 않아 오늘도 수치 미기록
+- 오늘 리스크/관찰:
+  - Gradle 실행은 성공했지만 deprecated feature 경고가 남아 있어 Gradle 9 업그레이드 전에 원인 정리가 필요하다.
+  - 현재 브랜치 변경은 인증(`user`, `global`)에 집중되어 있고 나머지 5개 top-level 모듈은 이번 브랜치에서 직접 변경되지 않았다.
+  - #40의 실제 FCM port 구현이 추가될 때 NoOp FCM adapter가 충돌하거나 우선 사용되지 않도록 `@ConditionalOnMissingBean(CurrentDeviceFcmTokenDeactivationPort.class)` 기반 configuration bean으로 정리했다.
+- 오늘 테스트 후보:
+  - `./gradlew test --warning-mode all`
+  - 이유: 오늘 `test`/`build` 모두 Gradle deprecated feature 경고를 출력했지만 원인 플러그인/스크립트가 식별되지 않았다.
+  - 기대 지표: 경고 발생 항목 수, 소유 위치(빌드 스크립트/플러그인), Gradle 9 호환성 정리 backlog
+  - `docker compose up -d postgres redis app` 후 `curl /api/v1/health` 반복 측정
+  - 이유: 헬스 엔드포인트는 존재하지만 승인된 일일 측정 대상이 아직 없다.
+  - 기대 지표: 앱 기동 성공 여부, HTTP 200 여부, 응답 시간(ms), 연속 성공률(%)
 
 ### 2026-06-17
 
@@ -110,6 +158,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 날짜 | 문제 | 원인 | 해결 | 전후 수치 | 재발 방지 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-06-18 | 샌드박스에서 `./gradlew asciidoctor` 실행 실패 | `~/.gradle/wrapper` 락 파일이 샌드박스 쓰기 범위 밖에 있어 Gradle wrapper가 `.zip.lck` 파일을 열지 못함 | 권한 상승으로 동일 명령 재실행 후 성공 | 전: `./gradlew asciidoctor` 즉시 실패, 후: 3초 성공 + `build/docs/asciidoc/index.html` 생성 확인 | Gradle 기반 문서 생성 검증은 샌드박스 실패 시 권한 상승 재시도 |
 | 2026-06-17 | 샌드박스에서 Gradle wrapper lock 파일 접근 실패 | `~/.gradle/wrapper` 락 파일이 샌드박스 쓰기 범위 밖에 있어 `./gradlew test`가 `FileNotFoundException`으로 중단 | 권한 상승으로 동일 명령 재실행 후 성공 | 전: 테스트 실행 실패, 후: `./gradlew test` 21.29초 성공 / `./gradlew build` 7.58초 성공 | 자동화 리포트에서 Gradle 검증은 필요 시 권한 상승 재시도 |
 | TBD | TBD | TBD | TBD | TBD | TBD |
 
@@ -117,6 +166,10 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 날짜 | 명령/방법 | 결과 | 주요 수치 | 후속 조치 |
 | --- | --- | --- | --- | --- |
+| 2026-06-18 | `./gradlew test --rerun-tasks` | 성공 | 20초, 5 tasks executed, 21 tests / 0 failures / 0 errors / 0 skipped, 테스트 통과율 100% | `--warning-mode all`로 deprecated feature 원인 식별 필요 |
+| 2026-06-18 | `./gradlew asciidoctor --rerun-tasks` | 성공 | 39초, 6 tasks executed, REST Docs 스니펫 10개, HTML 1개 생성 | 새 API 추가 시 문서 스니펫 수와 HTML 생성 여부 비교 |
+| 2026-06-18 | `./gradlew build` | 성공 | 5초, 3 tasks executed / 5 tasks up-to-date, 빌드 성공률 기준선 100%, JAR 2개 유지 | 앱 코드 변경이 생기면 오늘 수치와 비교 |
+| 2026-06-18 | Branch monitoring audit | 성공 | `origin/develop` 대비 6커밋, 33파일, +1,099/-12, 앱 코드 22파일, 테스트 코드 7파일, DB migration 0개 | 헬스/응답시간 측정 대상 환경 결정 필요 |
 | 2026-06-16 | `./gradlew test` | 성공 | 18초, 5개 task up-to-date, 테스트 통과율 100% | 기능별 테스트 수 확대 |
 | 2026-06-16 | `./gradlew build` | 성공 | 3초, 8개 task up-to-date, 빌드 성공률 기준선 100% | 배포 전 빌드 체크 유지 |
 | 2026-06-16 | GitHub issue policy audit | 성공 | #17~#41 `칸반 상태:` 잔여 0개, 핵심 이슈 7개 정책 반영 | Project Board 조회에는 `read:project` scope 필요 |
@@ -148,7 +201,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 - Spring Boot 기반 FaithLog 프로젝트의 테스트 기준선을 수립하고, `./gradlew test` 기준 테스트 통과율 100%를 확보.
 - `./gradlew build` 기준 빌드 성공 상태를 확보해 배포 전 안정성 검증 기준선을 수립.
-- FaithLog 백엔드의 일일 모니터링 기준선을 정리해 7개 도메인 모듈, 36개 Java 소스, Flyway deferred 상태, 100% 테스트/빌드 성공 상태를 지속 추적할 수 있게 함.
+- FaithLog 백엔드의 일일 모니터링 기준선을 정리해 7개 도메인 모듈, 74개 Java 소스, Flyway deferred 상태, 100% 테스트/빌드 성공 상태를 지속 추적할 수 있게 함.
 - GitHub Issues #17~#41의 기획/구현 기준을 최신 백엔드 정책과 정합화하고, 수동 칸반 상태 잔여 0개로 Project Board 중심 운영 기준을 정리.
 - GitHub Project Board의 누락/불일치 필드 24개를 정리해 이슈 본문과 칸반 운영 데이터의 정합성을 개선.
 - Codex Hook 개발 규칙을 문서화하고 GitHub Issue #43 및 Project 카드와 연결해 TDD/보안/아키텍처/Obsidian 기록 기준을 표준화.
@@ -158,6 +211,8 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 커피 담당자가 자동 생성 시간과 마감 시간을 설정하도록 투표 운영 권한과 반복 생성 정책을 구체화.
 - 회원가입/로그인/JWT 인증 흐름을 TDD로 구현하고, Bearer 인증 `/api/v1/users/me`와 JWT 필수 claim 검증을 포함한 테스트 파일을 1개에서 4개로 확대.
 - Swagger/springdoc은 API 탐색용으로 유지하면서, 회원가입/로그인/내 정보 조회의 상세 계약을 Spring REST Docs 문서 생성 테스트로 검증하도록 확장.
+- Redis allowlist/blacklist 기반 refresh/logout 흐름을 추가하고, 인증 테스트 스위트를 7개·21개 케이스까지 확장해 토큰 회전과 로그아웃 계약을 검증.
+- 인증 문서화를 Spring REST Docs 중심으로 유지하면서 스니펫 묶음 10개와 AsciiDoc 계약 문서를 계속 생성 가능한 상태로 검증.
 
 <!-- daily-resume-monitor:start:resume-metrics:2026-06-16 -->
 ### 2026-06-16 Automated Resume Monitor
@@ -174,3 +229,20 @@ Metric candidates:
 - Health check success rate: measure against a user-approved local or deployed URL with repeated requests.
 - API response time: measure with a user-approved endpoint and command so daily values are comparable.
 <!-- daily-resume-monitor:end:resume-metrics:2026-06-16 -->
+
+<!-- daily-resume-monitor:start:resume-metrics:2026-06-17 -->
+### 2026-06-17 Automated Resume Monitor
+
+- Evidence source: `docs/prompts/daily-resume-monitor.md` read at runtime.
+- Commits reviewed: 5
+- Changed files reviewed: 32
+- Dependency/config changes reviewed: 0
+- DB migration changes reviewed: 0
+- Local test result: 21 tests, 0 failures/errors/skips. Measurement method: Gradle XML under `build/test-results/test`. Confidence: verified.
+- Local build result: `./gradlew build` success in 25s with 8 up-to-date tasks. Confidence: verified.
+- API contract docs: `./gradlew asciidoctor` success in 3s, 10 snippet directories, `build/docs/asciidoc/index.html` present. Confidence: verified.
+
+Metric candidates:
+- Health check success rate: run `docker compose up -d postgres redis app` and repeat `curl /api/v1/health` against one approved runtime.
+- API response time: measure `GET /api/v1/health` or another user-approved endpoint with a fixed local or deployed target.
+<!-- daily-resume-monitor:end:resume-metrics:2026-06-17 -->

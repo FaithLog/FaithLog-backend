@@ -42,3 +42,14 @@
 - Fix: CI test job에서 datasource와 token validity env override를 제거해 `application-test.yml`이 H2/create-drop과 #27 확정 token TTL을 일관되게 사용하도록 했다.
 - Validation: CI env 재현 실패 확인 후, 수정된 env 조합에서 `./gradlew test --tests '*AuthServiceTest'` 성공, `./gradlew test --rerun-tasks` 성공, `./gradlew build` 성공.
 - Remaining risk: CI가 다시 돌기 전까지 GitHub Actions 원격 check 통과는 대기 상태다.
+
+<!-- daily-resume-monitor:start:troubleshooting:2026-06-17 -->
+## 2026-06-17 Automated Review
+
+- Problem: `./gradlew asciidoctor` could not complete inside the sandbox.
+- Symptoms: Gradle wrapper raised `FileNotFoundException` for `.gradle/wrapper/...zip.lck`.
+- Root cause: the wrapper lock path under the user Gradle directory was outside the sandbox write scope.
+- Fix: reran the same command with elevated permissions.
+- Validation: `./gradlew asciidoctor` succeeded in 3s and `build/docs/asciidoc/index.html` was present afterward.
+- Remaining risk: Gradle deprecated feature warnings are still present, and health/latency measurement scope remains a pending decision.
+<!-- daily-resume-monitor:end:troubleshooting:2026-06-17 -->
