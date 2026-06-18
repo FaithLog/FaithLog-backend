@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -179,8 +180,8 @@ class CampusControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.campusId").value(campusId))
 			.andExpect(jsonPath("$.data.inviteCode").value(inviteCode))
-			.andExpect(jsonPath("$.data.myCampusRole").doesNotExist())
-			.andExpect(jsonPath("$.data.membershipStatus").doesNotExist());
+			.andExpect(jsonPath("$.data.myCampusRole").value(Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.membershipStatus").value(Matchers.nullValue()));
 	}
 
 	@Test
