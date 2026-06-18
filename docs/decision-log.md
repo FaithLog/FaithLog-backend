@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-18 - Issue #34 Member Payment Account Response Contract
+
+- Context: The Issue #34 payment account list API is available to every ACTIVE campus member, but older Notion endpoint detail examples included admin-oriented fields such as `ownerUserId` and `isActive`.
+- Decision: `GET /api/v1/campuses/{campusId}/payment-accounts` returns active accounts only and exposes the member-facing fields required for payment: `id`, `accountType`, `nickname`, `bankName`, `accountNumber`, and `accountHolder`. It does not expose admin-only metadata such as `ownerUserId`, `isActive`, `createdAt`, or `deactivatedAt` in the member-facing response.
+- Impact: Issue #34 REST Docs and controller tests must document the reduced member-facing response. Account numbers remain fully visible because they are required for bank transfer payment.
+
 ### 2026-06-18 - Issue 30 Same-Level Campus Role Assignment And Coffee Duty Permission
 
 - Context: Issue #30 role hierarchy wording could be read as "only roles below the requester can be changed or assigned." The user clarified the final behavior during the development session.
