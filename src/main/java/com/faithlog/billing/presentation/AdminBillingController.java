@@ -14,15 +14,9 @@ import com.faithlog.billing.presentation.dto.ChangeChargeStatusRequest;
 import com.faithlog.billing.presentation.dto.ChargeItemResponse;
 import com.faithlog.billing.presentation.dto.CreatePaymentAccountRequest;
 import com.faithlog.billing.presentation.dto.PaymentAccountAdminResponse;
-import com.faithlog.global.exception.BusinessException;
-import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import jakarta.validation.Valid;
-import java.util.List;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -97,7 +91,7 @@ public class AdminBillingController {
 				status,
 				userId,
 				keyword,
-				pageable(page, size, sort)
+				BillingPageRequests.adminMembers(page, size, sort)
 			))
 		);
 		return ApiResponse.success(response);
@@ -121,31 +115,9 @@ public class AdminBillingController {
 				authenticatedUser.userId(),
 				paymentCategory,
 				status,
-				pageable(page, size, sort)
+				BillingPageRequests.chargeItems(page, size, sort)
 			))
 		);
 		return ApiResponse.success(response);
-	}
-
-	private Pageable pageable(int page, int size, String sort) {
-		int safePage = Math.max(page, 0);
-		int safeSize = Math.min(Math.max(size, 1), 100);
-		return PageRequest.of(safePage, safeSize, sort(sort));
-	}
-
-	private Sort sort(String sort) {
-		String sortValue = sort == null || sort.isBlank() ? "createdAt,desc" : sort;
-		String[] tokens = sortValue.split(",");
-		String property = tokens[0].trim();
-		if (!List.of(
-			"createdAt", "dueDate", "paidAt", "amount", "status", "paymentCategory",
-			"userId", "name", "email", "totalAmount", "unpaidAmount", "paidAmount", "waivedAmount", "canceledAmount"
-		).contains(property)) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 기준입니다.");
-		}
-		Sort.Direction direction = tokens.length > 1 && "asc".equalsIgnoreCase(tokens[1].trim())
-			? Sort.Direction.ASC
-			: Sort.Direction.DESC;
-		return Sort.by(direction, property);
 	}
 }

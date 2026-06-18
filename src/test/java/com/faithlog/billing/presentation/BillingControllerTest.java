@@ -24,6 +24,7 @@ import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -366,6 +367,53 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data.items.length()").value(2))
 			.andExpect(jsonPath("$.data.items[0].account.accountNumber").value("123-456789-017"))
 			.andExpect(jsonPath("$.data.items[0].source.sourceType").value("DEVOTION_RECORD"));
+	}
+
+	@Test
+	void admin_campus_charge_query_with_unpaid_status_returns_only_members_having_unpaid_charges() throws Exception {
+		String managerToken = signupAndLogin("billing-http-unpaid-filter-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-unpaid-filter-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "59캠");
+		long campusId = campus.path("campusId").asLong();
+		String unpaidMemberToken = signupAndLogin("billing-http-unpaid-filter-target@example.com", UserRole.USER);
+		User unpaidMember = userRepository.findByEmail("billing-http-unpaid-filter-target@example.com").orElseThrow();
+		joinCampus(unpaidMemberToken, campus.path("inviteCode").asText());
+		String settledMemberToken = signupAndLogin("billing-http-unpaid-filter-settled@example.com", UserRole.USER);
+		User settledMember = userRepository.findByEmail("billing-http-unpaid-filter-settled@example.com").orElseThrow();
+		joinCampus(settledMemberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-019");
+		ChargeItemResult unpaid = createPenaltyCharge(campusId, unpaidMember.id(), 6201L);
+		ChargeItemResult paidResult = createPenaltyCharge(campusId, settledMember.id(), 6202L);
+		ChargeItemResult waivedResult = createPenaltyCharge(campusId, settledMember.id(), 6203L);
+		ChargeItemResult canceledResult = createPenaltyCharge(campusId, settledMember.id(), 6204L);
+		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
+		paid.markPaid();
+		ChargeItem waived = chargeItemRepository.findById(waivedResult.id()).orElseThrow();
+		waived.markWaived();
+		ChargeItem canceled = chargeItemRepository.findById(canceledResult.id()).orElseThrow();
+		canceled.markCanceled();
+		chargeItemRepository.saveAllAndFlush(List.of(paid, waived, canceled));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("status", "UNPAID")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2500))
+			.andExpect(jsonPath("$.data.summary.unpaidAmount").value(2500))
+			.andExpect(jsonPath("$.data.summary.paidAmount").value(0))
+			.andExpect(jsonPath("$.data.summary.waivedAmount").value(0))
+			.andExpect(jsonPath("$.data.summary.canceledAmount").value(0))
+			.andExpect(jsonPath("$.data.members.length()").value(1))
+			.andExpect(jsonPath("$.data.members[0].userId").value(unpaidMember.id()))
+			.andExpect(jsonPath("$.data.members[0].email").value("billing-http-unpaid-filter-target@example.com"))
+			.andExpect(jsonPath("$.data.members[0].unpaidAmount").value(unpaid.amount()))
+			.andExpect(jsonPath("$.data.members[0].paidAmount").value(0))
+			.andExpect(jsonPath("$.data.members[0].waivedAmount").value(0))
+			.andExpect(jsonPath("$.data.members[0].canceledAmount").value(0))
+			.andExpect(jsonPath("$.data.members[0].items").doesNotExist());
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {

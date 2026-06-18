@@ -302,6 +302,7 @@ class BillingApiRestDocsTest {
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
 				.header("Authorization", "Bearer " + managerToken)
+				.param("status", "UNPAID")
 				.param("keyword", "docs-billing-query-member")
 				.param("page", "0")
 				.param("size", "20")

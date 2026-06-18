@@ -12,14 +12,9 @@ import com.faithlog.billing.presentation.dto.CompleteChargePaymentRequest;
 import com.faithlog.billing.presentation.dto.MyChargeSummaryResponse;
 import com.faithlog.billing.presentation.dto.MyChargesResponse;
 import com.faithlog.billing.presentation.dto.PaymentAccountMemberResponse;
-import com.faithlog.global.exception.BusinessException;
-import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import java.util.List;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -69,7 +64,7 @@ public class BillingController {
 			authenticatedUser.userId(),
 			paymentCategory,
 			status,
-			pageable(page, size, sort)
+			BillingPageRequests.chargeItems(page, size, sort)
 		)));
 		return ApiResponse.success(response);
 	}
@@ -101,24 +96,5 @@ public class BillingController {
 			CompleteChargePaymentRequest.toCommand(request, campusId, chargeItemId, authenticatedUser)
 		);
 		return ApiResponse.success(ChargeItemResponse.from(result), "청구가 납부 완료 처리되었습니다.");
-	}
-
-	private Pageable pageable(int page, int size, String sort) {
-		int safePage = Math.max(page, 0);
-		int safeSize = Math.min(Math.max(size, 1), 100);
-		return PageRequest.of(safePage, safeSize, sort(sort));
-	}
-
-	private Sort sort(String sort) {
-		String sortValue = sort == null || sort.isBlank() ? "createdAt,desc" : sort;
-		String[] tokens = sortValue.split(",");
-		String property = tokens[0].trim();
-		if (!List.of("createdAt", "dueDate", "paidAt", "amount", "status", "paymentCategory").contains(property)) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 기준입니다.");
-		}
-		Sort.Direction direction = tokens.length > 1 && "asc".equalsIgnoreCase(tokens[1].trim())
-			? Sort.Direction.ASC
-			: Sort.Direction.DESC;
-		return Sort.by(direction, property);
 	}
 }
