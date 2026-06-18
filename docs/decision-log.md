@@ -132,6 +132,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Issue #34 follows the Notion billing foundation model: implement `PaymentAccount`, `ChargeItem`, `PaymentCategory`, `ChargeSourceType`, `ChargeStatus`, payment account list/create/deactivate APIs, account snapshot support, missing-account failure behavior, and duplicate charge prevention. Campus creation does not create accounts or default penalty rules. Manual admin charge creation is not MVP scope.
 - Impact: Detailed API contracts must be verified through Spring REST Docs tests, while Swagger/springdoc remains for simple API exploration. Later charge-producing flows must use the billing foundation instead of manipulating another domain's entity directly.
 
+### 2026-06-18 - Issue #34 Payment Account Activation And Visibility Policy
+
+- Context: The user finalized the remaining account-management behavior before Issue #34 development.
+- Decision: Each campus can have only one active payment account per `account_type`. All active campus members can view campus payment accounts, and account numbers are fully visible because users need them for bank transfer payment. Creating a new active account automatically deactivates the previous active account for the same campus and account type. Accounts can be deactivated even if unpaid charge items are linked to them. When a new active account replaces the old one, existing `UNPAID` charge items for that campus and payment category are re-linked to the new active account and their account snapshots are updated. Terminal `PAID`, `WAIVED`, and `CANCELED` charge items keep their historical snapshots. Issue #34 implements only the billing foundation service; actual devotion and coffee auto-charge flow integration remains in Issue #33 and Issue #39.
+- Impact: Issue #34 tests must cover one-active-account-per-type behavior, member account list access, full account-number exposure in payment account responses, deactivation with unpaid charges, unpaid charge re-linking on account replacement, and preservation of terminal charge snapshots.
+
 ### 2026-06-17 - Coffee Poll Requires Coffee Duty Assignment
 
 - Context: The user decided that coffee poll behavior should fail clearly when no coffee duty assignee exists.
