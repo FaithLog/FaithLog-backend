@@ -176,6 +176,23 @@ public class ChargeItem {
 		this.accountHolderSnapshot = account.accountHolder();
 	}
 
+	public void updateUnpaidCharge(
+		PaymentAccount account,
+		String title,
+		String reason,
+		int amount,
+		LocalDate dueDate
+	) {
+		if (!isUnpaid()) {
+			throw new IllegalStateException("Only unpaid charges can be updated.");
+		}
+		reconnectPaymentAccount(account);
+		this.title = title;
+		this.reason = reason;
+		this.amount = amount;
+		this.dueDate = dueDate;
+	}
+
 	public void markPaid() {
 		this.status = ChargeStatus.PAID;
 		this.paidAt = Instant.now();

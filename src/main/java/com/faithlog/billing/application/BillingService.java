@@ -23,6 +23,7 @@ public class BillingService {
 	private static final String ACCOUNT_MANAGE_FORBIDDEN = "납부 계좌 관리 권한이 없습니다.";
 	private static final String ACCOUNT_LIST_FORBIDDEN = "캠퍼스 납부 계좌 조회 권한이 없습니다.";
 	private static final String CONTACT_ADMIN = "관리자에게 문의하세요";
+	private static final String TERMINAL_CHARGE_UPDATE_FORBIDDEN = "이미 종료된 청구는 갱신할 수 없습니다.";
 
 	private final PaymentAccountRepositoryPort paymentAccountRepository;
 	private final ChargeItemRepositoryPort chargeItemRepository;
@@ -79,7 +80,7 @@ public class BillingService {
 
 	@Transactional(readOnly = true)
 	public List<PaymentAccountResult> listPaymentAccounts(Long campusId, Long requesterId) {
-		requireActiveCampusMember(campusId, requesterId);
+		requirePaymentAccountListAccess(campusId, requesterId);
 		return paymentAccountRepository.findByCampusIdAndIsActiveTrueOrderByIdAsc(campusId)
 			.stream()
 			.map(PaymentAccountResult::from)
@@ -91,6 +92,29 @@ public class BillingService {
 		PaymentAccount account = paymentAccountRepository
 			.findByCampusIdAndAccountTypeAndIsActiveTrue(command.campusId(), PaymentCategory.PENALTY)
 			.orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST, CONTACT_ADMIN));
+
+		ChargeItem existingCharge = chargeItemRepository
+			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+				command.campusId(),
+				command.userId(),
+				PaymentCategory.PENALTY,
+				command.sourceType(),
+				command.sourceId()
+			)
+			.orElse(null);
+		if (existingCharge != null && existingCharge.isUnpaid()) {
+			existingCharge.updateUnpaidCharge(
+				account,
+				command.title(),
+				command.reason(),
+				command.amount(),
+				command.dueDate()
+			);
+			return ChargeItemResult.from(existingCharge);
+		}
+		if (existingCharge != null) {
+			throw new BusinessException(ErrorCode.INVALID_REQUEST, TERMINAL_CHARGE_UPDATE_FORBIDDEN);
+		}
 
 		ChargeItem chargeItem = ChargeItem.create(
 			command.campusId(),
@@ -132,8 +156,11 @@ public class BillingService {
 		}
 	}
 
-	private void requireActiveCampusMember(Long campusId, Long requesterId) {
+	private void requirePaymentAccountListAccess(Long campusId, Long requesterId) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin()) {
+			return;
+		}
 		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, ACCOUNT_LIST_FORBIDDEN));

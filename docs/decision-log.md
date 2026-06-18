@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-18 - Issue #34 Admin Account List And Penalty Charge Rerun Policy
+
+- Context: PM review found that service-level `ADMIN` could not list campus payment accounts without campus membership, and `BillingService.createPenaltyCharge` raised a unique constraint error when the same penalty charge source was executed again.
+- Decision: `GET /api/v1/campuses/{campusId}/payment-accounts` allows either service-level `ADMIN` or an ACTIVE campus member. `BillingService.createPenaltyCharge` behaves as create-or-update for an existing `UNPAID` `PENALTY` charge with the same `(campusId, userId, paymentCategory, sourceType, sourceId)`: it updates the latest active PENALTY account snapshot, title, reason, amount, and due date, then returns the same row. Existing terminal `PAID`, `WAIVED`, and `CANCELED` charges are not overwritten; the service returns a clear invalid request error instead.
+- Impact: Issue #34 service and controller tests must cover service-admin account list access and service-level penalty charge reruns. The DB unique key remains a safety net, but normal service reruns should not surface unique constraint exceptions for existing `UNPAID` charges.
+
 ### 2026-06-18 - Issue #34 Member Payment Account Response Contract
 
 - Context: The Issue #34 payment account list API is available to every ACTIVE campus member, but older Notion endpoint detail examples included admin-oriented fields such as `ownerUserId` and `isActive`.

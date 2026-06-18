@@ -99,6 +99,7 @@ class BillingServiceTest {
 	void listPaymentAccounts_allows_only_active_campus_members_and_returns_active_accounts() {
 		User manager = saveUser("billing-list-manager@example.com", UserRole.MANAGER);
 		User member = saveUser("billing-list-member@example.com", UserRole.USER);
+		User admin = saveUser("billing-list-admin@example.com", UserRole.ADMIN);
 		User inactive = saveUser("billing-list-inactive@example.com", UserRole.USER);
 		User outsider = saveUser("billing-list-outsider@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "41캠");
@@ -132,6 +133,9 @@ class BillingServiceTest {
 		));
 
 		assertThat(billingService.listPaymentAccounts(campus.campusId(), member.id()))
+			.extracting(PaymentAccountResult::id)
+			.containsExactly(replacement.id());
+		assertThat(billingService.listPaymentAccounts(campus.campusId(), admin.id()))
 			.extracting(PaymentAccountResult::id)
 			.containsExactly(replacement.id());
 		assertThatThrownBy(() -> billingService.listPaymentAccounts(campus.campusId(), inactive.id()))
@@ -342,6 +346,170 @@ class BillingServiceTest {
 		assertThat(charge.bankNameSnapshot()).isEqualTo("하나은행");
 		assertThat(charge.accountNumberSnapshot()).isEqualTo("123-456789-001");
 		assertThat(charge.accountHolderSnapshot()).isEqualTo("벌금회계");
+	}
+
+	@Test
+	void createPenaltyCharge_updates_existing_unpaid_charge_for_same_source_without_creating_duplicate_row() {
+		User manager = saveUser("billing-upsert-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-upsert-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "46캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"하나은행",
+			"123-456789-003",
+			"벌금회계",
+			null
+		));
+		LocalDate firstDueDate = LocalDate.of(2026, 6, 22);
+		LocalDate secondDueDate = LocalDate.of(2026, 6, 29);
+
+		ChargeItemResult first = billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
+			campus.campusId(),
+			member.id(),
+			ChargeSourceType.DEVOTION_RECORD,
+			4001L,
+			"이전 벌금",
+			"이전 사유",
+			2500,
+			firstDueDate
+		));
+		ChargeItemResult second = billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
+			campus.campusId(),
+			member.id(),
+			ChargeSourceType.DEVOTION_RECORD,
+			4001L,
+			"수정 벌금",
+			"수정 사유",
+			3500,
+			secondDueDate
+		));
+
+		assertThat(second.id()).isEqualTo(first.id());
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
+		assertThat(second.title()).isEqualTo("수정 벌금");
+		assertThat(second.reason()).isEqualTo("수정 사유");
+		assertThat(second.amount()).isEqualTo(3500);
+		assertThat(second.dueDate()).isEqualTo(secondDueDate);
+		assertThat(second.bankNameSnapshot()).isEqualTo("하나은행");
+		assertThat(second.accountNumberSnapshot()).isEqualTo("123-456789-003");
+		assertThat(second.accountHolderSnapshot()).isEqualTo("벌금회계");
+	}
+
+	@Test
+	void createPenaltyCharge_updates_existing_unpaid_charge_with_latest_active_penalty_account_snapshot() {
+		User manager = saveUser("billing-upsert-account-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-upsert-account-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "47캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult firstAccount = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"기존 벌금 계좌",
+			"하나은행",
+			"123-456789-004",
+			"기존회계",
+			null
+		));
+		ChargeItemResult first = billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
+			campus.campusId(),
+			member.id(),
+			ChargeSourceType.DEVOTION_RECORD,
+			4002L,
+			"경건생활 벌금",
+			"이전 주간",
+			2500,
+			LocalDate.of(2026, 6, 22)
+		));
+		assertThat(first.paymentAccountId()).isEqualTo(firstAccount.id());
+
+		PaymentAccountResult secondAccount = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"새 벌금 계좌",
+			"우리은행",
+			"1002-444-666666",
+			"새회계",
+			null
+		));
+		ChargeItemResult updated = billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
+			campus.campusId(),
+			member.id(),
+			ChargeSourceType.DEVOTION_RECORD,
+			4002L,
+			"경건생활 벌금 수정",
+			"수정 주간",
+			4500,
+			LocalDate.of(2026, 6, 29)
+		));
+
+		assertThat(updated.id()).isEqualTo(first.id());
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
+		assertThat(updated.paymentAccountId()).isEqualTo(secondAccount.id());
+		assertThat(updated.bankNameSnapshot()).isEqualTo("우리은행");
+		assertThat(updated.accountNumberSnapshot()).isEqualTo("1002-444-666666");
+		assertThat(updated.accountHolderSnapshot()).isEqualTo("새회계");
+		assertThat(updated.title()).isEqualTo("경건생활 벌금 수정");
+		assertThat(updated.reason()).isEqualTo("수정 주간");
+		assertThat(updated.amount()).isEqualTo(4500);
+		assertThat(updated.dueDate()).isEqualTo(LocalDate.of(2026, 6, 29));
+	}
+
+	@Test
+	void createPenaltyCharge_rejects_existing_terminal_charge_without_overwriting_it() {
+		User manager = saveUser("billing-terminal-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-terminal-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "48캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"하나은행",
+			"123-456789-005",
+			"벌금회계",
+			null
+		));
+		ChargeItemResult paidCharge = billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
+			campus.campusId(),
+			member.id(),
+			ChargeSourceType.DEVOTION_RECORD,
+			4003L,
+			"경건생활 벌금",
+			"이전 주간",
+			2500,
+			LocalDate.of(2026, 6, 22)
+		));
+		ChargeItem chargeItem = chargeItemRepository.findById(paidCharge.id()).orElseThrow();
+		chargeItem.markPaid();
+		chargeItemRepository.saveAndFlush(chargeItem);
+
+		assertThatThrownBy(() -> billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
+			campus.campusId(),
+			member.id(),
+			ChargeSourceType.DEVOTION_RECORD,
+			4003L,
+			"덮어쓰기 시도",
+			"수정 주간",
+			4500,
+			LocalDate.of(2026, 6, 29)
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("이미 종료된 청구는 갱신할 수 없습니다.");
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
+		assertThat(chargeItemRepository.findById(paidCharge.id())).get().satisfies(charge -> {
+			assertThat(charge.paymentAccountId()).isEqualTo(account.id());
+			assertThat(charge.title()).isEqualTo("경건생활 벌금");
+			assertThat(charge.reason()).isEqualTo("이전 주간");
+			assertThat(charge.amount()).isEqualTo(2500);
+			assertThat(charge.dueDate()).isEqualTo(LocalDate.of(2026, 6, 22));
+		});
 	}
 
 	@Test

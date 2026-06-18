@@ -86,6 +86,16 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data[0].createdAt").doesNotExist())
 			.andExpect(jsonPath("$.data[0].deactivatedAt").doesNotExist());
 
+		String adminToken = signupAndLogin("billing-http-admin@example.com", UserRole.ADMIN);
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + adminToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(accountId))
+			.andExpect(jsonPath("$.data[0].accountNumber").value("3333-00-5555555"))
+			.andExpect(jsonPath("$.data[0].ownerUserId").doesNotExist())
+			.andExpect(jsonPath("$.data[0].isActive").doesNotExist());
+
 		mockMvc.perform(patch("/api/v1/admin/payment-accounts/{accountId}/deactivate", accountId)
 				.header("Authorization", "Bearer " + managerToken))
 			.andExpect(status().isOk())
