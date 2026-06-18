@@ -14,6 +14,11 @@ This document records the current backend implementation source of truth.
 - Redis must not store raw tokens. Store a hash or token identifier.
 - Access Token must include `jti`, `userId`, `role`, and `sessionId`.
 - Refresh Token must include `userId`, `sessionId`, and `refreshJti`.
+- Refresh rotation keeps the same `sessionId` and replaces the refresh token identifier.
+- `POST /api/v1/auth/refresh` receives `refreshToken` in the JSON request body and returns the same token response shape as login.
+- `POST /api/v1/auth/logout` requires `Authorization: Bearer {accessToken}` and accepts optional JSON body fields `refreshToken`, `clientInstanceId`, and `fcmToken`.
+- Logout must succeed even when `clientInstanceId` and `fcmToken` are omitted.
+- Auth must not directly implement or manipulate Notification entities. For issue #28, use an application port for current-device FCM deactivation; issue #40 owns the actual `user_fcm_tokens` persistence implementation.
 
 Final auth APIs:
 
