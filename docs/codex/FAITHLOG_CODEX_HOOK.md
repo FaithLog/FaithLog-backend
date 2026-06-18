@@ -213,6 +213,18 @@ PAYMENT_REQUESTED
 
 사용자가 계좌이체 후 앱에서 `납부했어요`를 누르면 즉시 `PAID` 처리한다.
 
+`UNPAID -> PAID`는 사용자 납부 API에서만 가능하다.
+
+관리자는 청구를 `PAID`로 변경할 수 없다.
+
+관리자는 청구를 `WAIVED`, `CANCELED`로 변경할 수 있다.
+
+관리자는 잘못 처리된 `PAID`, `WAIVED`, `CANCELED` 청구를 `UNPAID`로 되돌릴 수 있다.
+
+관리자가 `PAID -> UNPAID`로 되돌릴 때는 `paidAt`을 비운다.
+
+관리자 상태 변경 사유는 Issue #35에서 저장하지 않는다.
+
 관리자 승인/반려 흐름은 MVP에서 제공하지 않는다.
 
 사용자 납부 API:

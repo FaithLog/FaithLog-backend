@@ -253,6 +253,12 @@ Issue #34 is P0.
 - `PaymentCategory` values are `PENALTY` and `COFFEE`.
 - `ChargeSourceType` values are `DEVOTION_RECORD` and `POLL_RESPONSE`.
 - `ChargeStatus` values are `UNPAID`, `PAID`, `WAIVED`, and `CANCELED`.
+- User payment completion is the only path from `UNPAID` to `PAID`.
+- Administrators must not mark a charge as `PAID`.
+- Administrators may change a charge to `WAIVED` or `CANCELED`.
+- Administrators may revert an incorrectly handled `PAID`, `WAIVED`, or `CANCELED` charge back to `UNPAID`.
+- When an administrator reverts `PAID` to `UNPAID`, clear `paidAt`.
+- Do not store administrator status-change reasons in Issue #35.
 - Charge creation must save `payment_account_id`, `bank_name_snapshot`, `account_number_snapshot`, and `account_holder_snapshot`.
 - Do not create incomplete `charge_items` rows when a required account is missing.
 - If the active `PENALTY` account is missing during penalty charge creation, fail with the user-facing message `관리자에게 문의하세요`.
