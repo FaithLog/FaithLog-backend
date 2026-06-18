@@ -34,6 +34,13 @@
 - Validation: `docker compose build app`, `docker compose up -d app`, `GET /api/v1/health` 모두 성공. Hibernate가 local Docker DB에 `users` 테이블을 생성했다.
 - Remaining risk: 운영/배포 DB migration 전략은 바꾸지 않았고, 최종 Flyway migration consolidation은 별도 후속 작업으로 유지한다.
 
+### 2026-06-18 Follow-up Resolution
+
+- Problem: #29 Docker validation에서 app 컨테이너가 다시 `FATAL: password authentication failed for user "faithlog"`로 종료했다.
+- Root cause: app 컨테이너의 `SPRING_DATASOURCE_PASSWORD`는 compose 기본값이었지만, 기존 로컬 Docker volume의 `faithlog` role 비밀번호가 compose 네트워크 접속 기준과 어긋나 있었다. 컨테이너 내부 localhost 접속은 통과했지만, 같은 compose 네트워크에서 `postgres` 호스트로 접속하면 실패했다.
+- Fix: Docker volume을 삭제하지 않고 로컬 개발 DB에서 `ALTER USER faithlog WITH PASSWORD 'faithlog';`를 실행한 뒤 app 컨테이너만 `docker compose up -d --force-recreate app`으로 재생성했다.
+- Validation: compose 네트워크에서 `select 1` 성공, `faithlog-backend` 기동 성공, host 기준 `GET /api/v1/health` 200 확인.
+
 ## 2026-06-17 #27 CI Test Profile Override
 
 - Problem: PR #47 Backend CI `Spring Boot build and test`에서 Spring context 기반 테스트가 실패.

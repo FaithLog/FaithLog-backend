@@ -71,10 +71,54 @@ Redis TTL policy:
 
 ## Campus Onboarding
 
-- Campus creation must also create the active `PENALTY` payment account for the campus.
-- Campus creation must initialize the default devotion penalty rules from the approved penalty table.
-- The campus creation request/flow must include enough penalty account information to create the account.
-- Devotion penalty charge generation should still return a clear error if a legacy or corrupted campus has no active `PENALTY` account.
+- Campus creation and account registration are separate flows.
+- Campus creation is allowed only for service roles `MANAGER` and `ADMIN`.
+- When a `MANAGER` creates a campus, the creator is registered in that campus as `ACTIVE + MINISTER`.
+- Campus creation must not receive `penaltyAccount`.
+- Campus creation must not create `PaymentAccount`.
+- Campus creation must not create default `penalty_rules`.
+- Campus management authority is based on `campus_members.campus_role`, not `users.role = MANAGER`.
+- `ADMIN` can access all campus details.
+- Campus creation responses include `inviteCode`.
+- `ADMIN`, `MINISTER`, `ELDER`, and `CAMPUS_LEADER` can view invite codes.
+- Normal `MEMBER` campus detail responses must not expose `inviteCode`.
+- `GET /api/v1/campuses/me` returns only the current user's `ACTIVE` memberships.
+- Campus member delete uses `DELETE /api/v1/campuses/{campusId}/members/{membershipId}`.
+- Campus member delete soft-deletes membership by setting `campus_members.status = INACTIVE`.
+- Campus member management is allowed for service-level `ADMIN` and active campus members whose campus role is `MINISTER`, `ELDER`, or `CAMPUS_LEADER`.
+- Normal campus `MEMBER` users cannot manage or delete campus members.
+- If an inactive/deleted member joins again by invite code, reactivate the existing membership as `ACTIVE + MEMBER`.
+- Devotion penalty charge generation should return a clear error if the campus has no active `PENALTY` account.
+
+## Role Management
+
+- Service-level roles live on `users.role`:
+  - `USER`
+  - `MANAGER`
+  - `ADMIN`
+- Campus-level roles live on `campus_members.campus_role`:
+  - `MINISTER`
+  - `ELDER`
+  - `CAMPUS_LEADER`
+  - `MEMBER`
+- `MANAGER` is a service-level role that can create campuses. It is not a campus-management role by itself.
+- Campus management permission must be derived from the user's membership and `campus_members.campus_role`.
+- Campus member management excludes only normal campus `MEMBER` users; `MINISTER`, `ELDER`, `CAMPUS_LEADER`, and service-level `ADMIN` can manage campus members.
+- Issue #30 role changes use `PATCH /api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role`; `campusMemberId` is `campus_members.id`.
+- Campus role hierarchy for role changes is `MINISTER > ELDER > CAMPUS_LEADER > MEMBER`.
+- `MINISTER` can change `ELDER`, `CAMPUS_LEADER`, and `MEMBER`; `ELDER` can change `CAMPUS_LEADER` and `MEMBER`; `CAMPUS_LEADER` can change `MEMBER`; `MEMBER` cannot change roles.
+- Service-level `ADMIN` can change any campus member role in any campus.
+- Issue #30 must not block downgrading the last campus management role holder to `MEMBER`.
+- Service-level admin user-role management APIs are not part of issue #29 and must be handled in a separate admin role-management issue.
+- Last `ADMIN` protection remains a pending policy question until the user approves its exact behavior.
+
+## Campus Duty Assignment
+
+- Coffee duty is not a `CampusRole`.
+- Coffee duty uses `CampusDutyAssignment` with `DutyType.COFFEE`.
+- A campus has at most one active `DutyType.COFFEE` assignee.
+- Issue #30 assigns or replaces the active coffee assignee with `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee`.
+- Issue #30 revokes the active coffee assignee with `DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}`.
 
 ## FCM And Notifications
 
