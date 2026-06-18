@@ -273,6 +273,28 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.message").value("미납 상태의 청구만 납부 완료 처리할 수 있습니다."));
 	}
 
+	@Test
+	void charge_paid_api_rejects_inactive_member_even_for_own_charge() throws Exception {
+		String managerToken = signupAndLogin("billing-http-paid-inactive-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-paid-inactive-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "57캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-paid-inactive-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-paid-inactive-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-016");
+		ChargeItemResult charge = createPenaltyCharge(campusId, member.id(), 6005L);
+		CampusMember membership = campusMemberRepository.findByCampusIdAndUserId(campusId, member.id()).orElseThrow();
+		membership.deactivate();
+		campusMemberRepository.saveAndFlush(membership);
+
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid", campusId, charge.id())
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}"))
+			.andExpect(status().isForbidden());
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)

@@ -661,6 +661,62 @@ class BillingServiceTest {
 	}
 
 	@Test
+	void changeChargeStatus_allows_service_admin_without_campus_membership() {
+		User manager = saveUser("billing-status-service-admin-manager@example.com", UserRole.MANAGER);
+		User serviceAdmin = saveUser("billing-status-service-admin@example.com", UserRole.ADMIN);
+		User member = saveUser("billing-status-service-admin-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "57캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-014");
+		ChargeItem charge = saveCharge(campus.campusId(), member.id(), account, 5012L);
+
+		ChargeItemResult result = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(),
+			serviceAdmin.id(),
+			ChargeStatus.WAIVED
+		));
+
+		assertThat(result.status()).isEqualTo(ChargeStatus.WAIVED);
+	}
+
+	@Test
+	void changeChargeStatus_allows_elder_and_campus_leader() {
+		User manager = saveUser("billing-status-campus-admin-manager@example.com", UserRole.MANAGER);
+		User elder = saveUser("billing-status-elder@example.com", UserRole.USER);
+		User campusLeader = saveUser("billing-status-campus-leader@example.com", UserRole.USER);
+		User member = saveUser("billing-status-campus-admin-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "58캠");
+		campusService.joinCampus(new JoinCampusCommand(elder.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(campusLeader.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		CampusMember elderMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), elder.id())
+			.orElseThrow();
+		CampusMember leaderMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), campusLeader.id())
+			.orElseThrow();
+		ReflectionTestUtils.setField(elderMembership, "campusRole", CampusRole.ELDER);
+		ReflectionTestUtils.setField(leaderMembership, "campusRole", CampusRole.CAMPUS_LEADER);
+		campusMemberRepository.saveAndFlush(elderMembership);
+		campusMemberRepository.saveAndFlush(leaderMembership);
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-015");
+		ChargeItem waiveTarget = saveCharge(campus.campusId(), member.id(), account, 5013L);
+		ChargeItem cancelTarget = saveCharge(campus.campusId(), member.id(), account, 5014L);
+
+		ChargeItemResult waived = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			waiveTarget.id(),
+			elder.id(),
+			ChargeStatus.WAIVED
+		));
+		ChargeItemResult canceled = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			cancelTarget.id(),
+			campusLeader.id(),
+			ChargeStatus.CANCELED
+		));
+
+		assertThat(waived.status()).isEqualTo(ChargeStatus.WAIVED);
+		assertThat(canceled.status()).isEqualTo(ChargeStatus.CANCELED);
+	}
+
+	@Test
 	void changeChargeStatus_rejects_paid_target_normal_member_manager_without_membership_and_invalid_transition() {
 		User manager = saveUser("billing-status-auth-manager@example.com", UserRole.MANAGER);
 		User serviceManager = saveUser("billing-status-auth-service-manager@example.com", UserRole.MANAGER);
