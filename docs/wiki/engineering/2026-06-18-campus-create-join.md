@@ -39,9 +39,9 @@
 - Docker PostgreSQL validation:
   - `docker compose up -d postgres redis app` built the app image and started postgres/redis successfully.
   - postgres and redis healthchecks became healthy.
-  - app container failed at DB authentication with `FATAL: password authentication failed for user "faithlog"`.
-  - Direct Postgres check inside the container succeeded with `PGPASSWORD=faithlog psql -h 127.0.0.1 -U faithlog -d faithlog -c "select 1"`.
-  - Follow-up: local compose environment is injecting an app DB password whose hash differs from the compose default. No Docker volume reset was performed.
+  - Initial app startup failed at DB authentication with `FATAL: password authentication failed for user "faithlog"` because the existing local Docker volume had a network-connection password mismatch for the `faithlog` role.
+  - Fixed without deleting the Docker volume by resetting the local development role password to the compose default, then force-recreating only the app container.
+  - Validation succeeded with `docker compose run --rm --no-deps postgres ... select 1`, `docker compose up -d --force-recreate app`, and `GET /api/v1/health` 200.
 
 ## Evidence
 
