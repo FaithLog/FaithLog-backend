@@ -14,6 +14,7 @@ import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.application.CreatePenaltyChargeCommand;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
+import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.campus.domain.CampusMember;
@@ -293,6 +294,78 @@ class BillingControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{}"))
 			.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void charge_query_api_maps_my_summary_admin_campus_and_admin_member_responses() throws Exception {
+		String managerToken = signupAndLogin("billing-http-query-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-query-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "58캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-query-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-query-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-017");
+		ChargeItemResult unpaid = createPenaltyCharge(campusId, member.id(), 6101L);
+		ChargeItemResult paidResult = createPenaltyCharge(campusId, member.id(), 6102L);
+		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
+		paid.markPaid();
+		chargeItemRepository.saveAndFlush(paid);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("status", "UNPAID")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.campusId").value(campusId))
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2500))
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].id").value(unpaid.id()))
+			.andExpect(jsonPath("$.data.items[0].account.paymentAccountId").isNumber())
+			.andExpect(jsonPath("$.data.items[0].account.accountNumber").value("123-456789-017"))
+			.andExpect(jsonPath("$.data.items[0].source.sourceType").value("DEVOTION_RECORD"))
+			.andExpect(jsonPath("$.data.items[0].source.sourceId").value(6101));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me/summary", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("year", "2026")
+				.param("month", "6"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.name").value("빌링테스트"))
+			.andExpect(jsonPath("$.data.totalPaidAmount").value(2500))
+			.andExpect(jsonPath("$.data.monthlyPaidAmount").value(2500))
+			.andExpect(jsonPath("$.data.monthlyTotalChargeAmount").value(5000))
+			.andExpect(jsonPath("$.data.monthlyByCategory[0].paymentCategory").value("PENALTY"));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("keyword", "billing-http-query-member")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(5000))
+			.andExpect(jsonPath("$.data.members.length()").value(1))
+			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()))
+			.andExpect(jsonPath("$.data.members[0].email").value("billing-http-query-member@example.com"))
+			.andExpect(jsonPath("$.data.members[0].items").doesNotExist());
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/members/{userId}/charges", campusId, member.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.param("paymentCategory", "PENALTY")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.name").value("빌링테스트"))
+			.andExpect(jsonPath("$.data.email").value("billing-http-query-member@example.com"))
+			.andExpect(jsonPath("$.data.items.length()").value(2))
+			.andExpect(jsonPath("$.data.items[0].account.accountNumber").value("123-456789-017"))
+			.andExpect(jsonPath("$.data.items[0].source.sourceType").value("DEVOTION_RECORD"));
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {

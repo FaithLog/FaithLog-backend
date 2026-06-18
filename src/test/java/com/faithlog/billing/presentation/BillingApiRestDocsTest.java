@@ -11,6 +11,7 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.requestF
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
 import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.restdocs.request.RequestDocumentation.pathParameters;
+import static org.springframework.restdocs.request.RequestDocumentation.queryParameters;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -23,8 +24,10 @@ import com.faithlog.billing.application.BillingService;
 import com.faithlog.billing.application.ChargeItemResult;
 import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.application.CreatePenaltyChargeCommand;
+import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
@@ -64,6 +67,9 @@ class BillingApiRestDocsTest {
 
 	@Autowired
 	private BillingService billingService;
+
+	@Autowired
+	private ChargeItemRepository chargeItemRepository;
 
 	@Test
 	void documents_payment_account_create_list_and_deactivate_contracts() throws Exception {
@@ -211,6 +217,173 @@ class BillingApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_charge_query_contracts() throws Exception {
+		String managerToken = signupAndLogin("docs-billing-query-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-billing-query-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "50캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-billing-query-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-billing-query-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-018");
+		ChargeItemResult unpaid = createPenaltyCharge(campusId, member.id(), 7101L);
+		ChargeItemResult paidResult = createPenaltyCharge(campusId, member.id(), 7102L);
+		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
+		paid.markPaid();
+		chargeItemRepository.saveAndFlush(paid);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("status", "UNPAID")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.items[0].id").value(unpaid.id()))
+			.andDo(document("charge-my-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("청구 목록을 조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
+					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
+					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
+					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
+				),
+				responseFields(apiResponseFields(combine(
+					fields(
+						fieldWithPath("data.campusId").description("캠퍼스 ID"),
+						fieldWithPath("data.campusName").description("캠퍼스명"),
+						fieldWithPath("data.region").optional().description("캠퍼스 지역")
+					),
+					chargeAmountSummaryFields("data.summary."),
+					fields(fieldWithPath("data.items[]").description("청구 항목 목록")),
+					chargeListItemFields("data.items[].")
+				)))
+			));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me/summary", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("year", "2026")
+				.param("month", "6"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andDo(document("charge-my-summary-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("납부 요약을 조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("year").description("조회 연도"),
+					parameterWithName("month").description("조회 월")
+				),
+				responseFields(apiResponseFields(
+					fieldWithPath("data.campusId").description("캠퍼스 ID"),
+					fieldWithPath("data.campusName").description("캠퍼스명"),
+					fieldWithPath("data.region").optional().description("캠퍼스 지역"),
+					fieldWithPath("data.userId").description("사용자 ID"),
+					fieldWithPath("data.name").description("사용자 이름"),
+					fieldWithPath("data.totalPaidAmount").description("전체 납부 완료 금액"),
+					fieldWithPath("data.monthlyPaidAmount").description("선택 월에 납부 완료된 금액. `paidAt` 기준"),
+					fieldWithPath("data.monthlyUnpaidAmount").description("선택 월에 청구 생성된 미납 금액. `createdAt` 기준"),
+					fieldWithPath("data.monthlyTotalChargeAmount").description("선택 월에 청구 생성된 전체 청구 금액. `createdAt` 기준"),
+					fieldWithPath("data.monthlyByCategory[]").description("선택 월 청구 유형별 집계"),
+					fieldWithPath("data.monthlyByCategory[].paymentCategory").description("청구 유형"),
+					fieldWithPath("data.monthlyByCategory[].paidAmount").description("해당 월 생성 청구 중 납부 완료 금액"),
+					fieldWithPath("data.monthlyByCategory[].unpaidAmount").description("해당 월 생성 청구 중 미납 금액"),
+					fieldWithPath("data.monthlyByCategory[].totalAmount").description("해당 월 생성 청구 중 전체 금액")
+				))
+			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("keyword", "docs-billing-query-member")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.members[0].items").doesNotExist())
+			.andDo(document("charge-admin-campus-summary-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("청구 집계를 조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
+					parameterWithName("userId").optional().description("사용자 ID 필터"),
+					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
+					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
+					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
+					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
+				),
+				responseFields(apiResponseFields(combine(
+					fields(
+						fieldWithPath("data.campusId").description("캠퍼스 ID"),
+						fieldWithPath("data.campusName").description("캠퍼스명"),
+						fieldWithPath("data.region").optional().description("캠퍼스 지역")
+					),
+					chargeAmountSummaryFields("data.summary."),
+					fields(
+						fieldWithPath("data.members[]").description("회원별 청구 집계 목록. 개별 청구 item 목록은 포함하지 않음"),
+						fieldWithPath("data.members[].userId").description("사용자 ID"),
+						fieldWithPath("data.members[].name").description("사용자 이름"),
+						fieldWithPath("data.members[].email").description("사용자 이메일"),
+						fieldWithPath("data.members[].totalAmount").description("회원별 전체 청구 금액"),
+						fieldWithPath("data.members[].unpaidAmount").description("회원별 미납 금액"),
+						fieldWithPath("data.members[].paidAmount").description("회원별 납부 완료 금액"),
+						fieldWithPath("data.members[].waivedAmount").description("회원별 면제 금액"),
+						fieldWithPath("data.members[].canceledAmount").description("회원별 취소 금액")
+					)
+				)))
+			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/members/{userId}/charges", campusId, member.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.param("paymentCategory", "PENALTY")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andDo(document("charge-admin-member-detail-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("청구 상세를 조회할 캠퍼스 ID"),
+					parameterWithName("userId").description("청구 대상 사용자 ID")
+				),
+				queryParameters(
+					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
+					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
+					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
+					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
+				),
+				responseFields(apiResponseFields(combine(
+					fields(
+						fieldWithPath("data.campusId").description("캠퍼스 ID"),
+						fieldWithPath("data.campusName").description("캠퍼스명"),
+						fieldWithPath("data.region").optional().description("캠퍼스 지역"),
+						fieldWithPath("data.userId").description("청구 대상 사용자 ID"),
+						fieldWithPath("data.name").description("청구 대상 사용자 이름"),
+						fieldWithPath("data.email").description("청구 대상 사용자 이메일")
+					),
+					chargeAmountSummaryFields("data.summary."),
+					fields(fieldWithPath("data.items[]").description("회원별 청구 항목 목록")),
+					chargeListItemFields("data.items[].")
+				)))
+			));
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)
@@ -343,5 +516,52 @@ class BillingApiRestDocsTest {
 			fieldWithPath(prefix + "status").description("청구 상태"),
 			fieldWithPath(prefix + "paidAt").type(JsonFieldType.STRING).optional().description("납부 완료 시각. 미납, 면제, 취소 상태에서는 없거나 null")
 		};
+	}
+
+	private static FieldDescriptor[] chargeAmountSummaryFields(String prefix) {
+		return new FieldDescriptor[] {
+			fieldWithPath(prefix + "totalAmount").description("전체 청구 금액"),
+			fieldWithPath(prefix + "unpaidAmount").description("미납 금액"),
+			fieldWithPath(prefix + "paidAmount").description("납부 완료 금액"),
+			fieldWithPath(prefix + "waivedAmount").description("면제 금액"),
+			fieldWithPath(prefix + "canceledAmount").description("취소 금액")
+		};
+	}
+
+	private static FieldDescriptor[] chargeListItemFields(String prefix) {
+		return new FieldDescriptor[] {
+			fieldWithPath(prefix + "id").description("청구 항목 ID"),
+			fieldWithPath(prefix + "paymentCategory").description("청구 유형. `PENALTY` 또는 `COFFEE`"),
+			fieldWithPath(prefix + "title").description("청구 제목"),
+			fieldWithPath(prefix + "reason").optional().description("청구 사유"),
+			fieldWithPath(prefix + "amount").description("청구 금액"),
+			fieldWithPath(prefix + "status").description("청구 상태"),
+			fieldWithPath(prefix + "dueDate").optional().description("납부 기한"),
+			fieldWithPath(prefix + "paidAt").type(JsonFieldType.STRING).optional().description("납부 완료 시각"),
+			fieldWithPath(prefix + "account.paymentAccountId").description("연결된 납부 계좌 ID"),
+			fieldWithPath(prefix + "account.bankName").description("은행명 snapshot"),
+			fieldWithPath(prefix + "account.accountNumber").description("계좌번호 snapshot"),
+			fieldWithPath(prefix + "account.accountHolder").description("예금주 snapshot"),
+			fieldWithPath(prefix + "source.sourceType").description("청구 생성 출처 유형"),
+			fieldWithPath(prefix + "source.sourceId").description("청구 생성 출처 ID")
+		};
+	}
+
+	private static FieldDescriptor[] fields(FieldDescriptor... descriptors) {
+		return descriptors;
+	}
+
+	private static FieldDescriptor[] combine(FieldDescriptor[]... groups) {
+		int size = 0;
+		for (FieldDescriptor[] group : groups) {
+			size += group.length;
+		}
+		FieldDescriptor[] combined = new FieldDescriptor[size];
+		int index = 0;
+		for (FieldDescriptor[] group : groups) {
+			System.arraycopy(group, 0, combined, index, group.length);
+			index += group.length;
+		}
+		return combined;
 	}
 }
