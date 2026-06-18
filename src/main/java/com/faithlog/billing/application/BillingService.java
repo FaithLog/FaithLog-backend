@@ -22,6 +22,12 @@ public class BillingService {
 
 	private static final String ACCOUNT_MANAGE_FORBIDDEN = "납부 계좌 관리 권한이 없습니다.";
 	private static final String ACCOUNT_LIST_FORBIDDEN = "캠퍼스 납부 계좌 조회 권한이 없습니다.";
+	private static final String CHARGE_STATUS_MANAGE_FORBIDDEN = "청구 상태 변경 권한이 없습니다.";
+	private static final String MY_CHARGE_PAYMENT_FORBIDDEN = "본인 청구 항목만 납부 완료 처리할 수 있습니다.";
+	private static final String MY_CHARGE_CAMPUS_MISMATCH = "청구 항목의 캠퍼스가 요청 캠퍼스와 일치하지 않습니다.";
+	private static final String MY_CHARGE_PAYMENT_CONFLICT = "미납 상태의 청구만 납부 완료 처리할 수 있습니다.";
+	private static final String ADMIN_PAID_FORBIDDEN = "관리자는 청구를 PAID로 변경할 수 없습니다.";
+	private static final String CHARGE_STATUS_TRANSITION_CONFLICT = "허용되지 않는 청구 상태 전이입니다.";
 	private static final String CONTACT_ADMIN = "관리자에게 문의하세요";
 	private static final String TERMINAL_CHARGE_UPDATE_FORBIDDEN = "이미 종료된 청구는 갱신할 수 없습니다.";
 
@@ -134,6 +140,54 @@ public class BillingService {
 		return ChargeItemResult.from(chargeItemRepository.save(chargeItem));
 	}
 
+	@Transactional
+	public ChargeItemResult completeMyChargePayment(CompleteChargePaymentCommand command) {
+		CampusUserLookupResult requester = getActiveUser(command.requesterId());
+		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "청구 항목을 찾을 수 없습니다."));
+
+		if (!chargeItem.userId().equals(requester.userId())) {
+			throw new BusinessException(ErrorCode.FORBIDDEN, MY_CHARGE_PAYMENT_FORBIDDEN);
+		}
+		if (!chargeItem.campusId().equals(command.campusId())) {
+			throw new BusinessException(ErrorCode.FORBIDDEN, MY_CHARGE_CAMPUS_MISMATCH);
+		}
+		requireActiveCampusMember(command.campusId(), requester.userId(), MY_CHARGE_PAYMENT_FORBIDDEN);
+		if (!chargeItem.isUnpaid()) {
+			throw new BusinessException(ErrorCode.CONFLICT, MY_CHARGE_PAYMENT_CONFLICT);
+		}
+
+		chargeItem.markPaid(command.paidAt());
+		return ChargeItemResult.from(chargeItem);
+	}
+
+	@Transactional
+	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
+		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "청구 항목을 찾을 수 없습니다."));
+		requireChargeStatusManager(chargeItem.campusId(), command.requesterId());
+
+		if (command.status() == ChargeStatus.PAID) {
+			throw new BusinessException(ErrorCode.INVALID_REQUEST, ADMIN_PAID_FORBIDDEN);
+		}
+
+		try {
+			if (command.status() == ChargeStatus.WAIVED) {
+				chargeItem.waive();
+			} else if (command.status() == ChargeStatus.CANCELED) {
+				chargeItem.cancel();
+			} else if (command.status() == ChargeStatus.UNPAID) {
+				chargeItem.reopenAsUnpaid();
+			} else {
+				throw new BusinessException(ErrorCode.INVALID_REQUEST);
+			}
+		} catch (IllegalStateException exception) {
+			throw new BusinessException(ErrorCode.CONFLICT, CHARGE_STATUS_TRANSITION_CONFLICT);
+		}
+
+		return ChargeItemResult.from(chargeItem);
+	}
+
 	private void reconnectUnpaidCharges(PaymentAccount account) {
 		chargeItemRepository.findByCampusIdAndPaymentCategoryAndStatus(
 				account.campusId(),
@@ -161,9 +215,26 @@ public class BillingService {
 		if (requester.isAdmin()) {
 			return;
 		}
-		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+		requireActiveCampusMember(campusId, requester.userId(), ACCOUNT_LIST_FORBIDDEN);
+	}
+
+	private void requireChargeStatusManager(Long campusId, Long requesterId) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin()) {
+			return;
+		}
+		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, ACCOUNT_LIST_FORBIDDEN));
+			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, CHARGE_STATUS_MANAGE_FORBIDDEN));
+		if (!requesterMembership.canManageCampusMembers()) {
+			throw new BusinessException(ErrorCode.FORBIDDEN, CHARGE_STATUS_MANAGE_FORBIDDEN);
+		}
+	}
+
+	private void requireActiveCampusMember(Long campusId, Long userId, String message) {
+		campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, message));
 	}
 
 	private CampusUserLookupResult getActiveUser(Long userId) {

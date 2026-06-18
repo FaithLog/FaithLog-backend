@@ -19,12 +19,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.billing.application.BillingService;
+import com.faithlog.billing.application.ChargeItemResult;
+import com.faithlog.billing.application.CreatePaymentAccountCommand;
+import com.faithlog.billing.application.CreatePenaltyChargeCommand;
+import com.faithlog.billing.domain.ChargeSourceType;
+import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
@@ -32,6 +39,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.restdocs.payload.FieldDescriptor;
+import org.springframework.restdocs.payload.JsonFieldType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -53,6 +61,9 @@ class BillingApiRestDocsTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private BillingService billingService;
 
 	@Test
 	void documents_payment_account_create_list_and_deactivate_contracts() throws Exception {
@@ -138,6 +149,68 @@ class BillingApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_charge_payment_completion_and_admin_status_change_contracts() throws Exception {
+		String managerToken = signupAndLogin("docs-billing-status-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-billing-status-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "49캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-billing-status-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-billing-status-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-013");
+		ChargeItemResult paidTarget = createPenaltyCharge(campusId, member.id(), 7001L);
+		ChargeItemResult waiveTarget = createPenaltyCharge(campusId, member.id(), 7002L);
+
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid", campusId, paidTarget.id())
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "paidAt": "2026-06-12T12:30:00Z"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.status").value("PAID"))
+			.andExpect(jsonPath("$.data.paidAt").value("2026-06-12T12:30:00Z"))
+			.andDo(document("charge-my-paid-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("납부 완료 처리할 청구의 캠퍼스 ID"),
+					parameterWithName("chargeItemId").description("납부 완료 처리할 청구 항목 ID")
+				),
+				requestFields(
+					fieldWithPath("paidAt").optional().description("선택 입력 납부 완료 시각. 없으면 서버 시간이 사용되며, `2026-06-12T12:30:00Z` 같은 Instant 형식을 사용")
+				),
+				responseFields(apiResponseFields(chargeFields("data.")))
+			));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", waiveTarget.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "WAIVED"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.status").value("WAIVED"))
+			.andDo(document("charge-admin-status-change-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description("상태를 변경할 청구 항목 ID")),
+				requestFields(
+					fieldWithPath("status").description("변경할 청구 상태. 관리자 요청은 `UNPAID`, `WAIVED`, `CANCELED`만 허용")
+				),
+				responseFields(apiResponseFields(chargeFields("data.")))
+			));
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)
@@ -199,6 +272,32 @@ class BillingApiRestDocsTest {
 		return objectMapper.readTree(loginBody).path("data").path("accessToken").asText();
 	}
 
+	private void createPenaltyAccount(Long campusId, Long managerId, String accountNumber) {
+		billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			managerId,
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"하나은행",
+			accountNumber,
+			"벌금회계",
+			null
+		));
+	}
+
+	private ChargeItemResult createPenaltyCharge(Long campusId, Long memberId, Long sourceId) {
+		return billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
+			campusId,
+			memberId,
+			ChargeSourceType.DEVOTION_RECORD,
+			sourceId,
+			"경건생활 벌금",
+			"2026-06-15 주간",
+			2500,
+			LocalDate.of(2026, 6, 22)
+		));
+	}
+
 	private static org.springframework.restdocs.headers.RequestHeadersSnippet authHeader() {
 		return requestHeaders(
 			headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
@@ -229,6 +328,20 @@ class BillingApiRestDocsTest {
 			fieldWithPath(prefix + "accountHolder").description("예금주"),
 			fieldWithPath(prefix + "ownerUserId").optional().description("계좌 소유 사용자 ID"),
 			fieldWithPath(prefix + "isActive").description("계좌 활성 여부")
+		};
+	}
+
+	private static FieldDescriptor[] chargeFields(String prefix) {
+		return new FieldDescriptor[] {
+			fieldWithPath(prefix + "id").description("청구 항목 ID"),
+			fieldWithPath(prefix + "campusId").description("캠퍼스 ID"),
+			fieldWithPath(prefix + "userId").description("청구 대상 사용자 ID"),
+			fieldWithPath(prefix + "paymentCategory").description("청구 유형. `PENALTY` 또는 `COFFEE`"),
+			fieldWithPath(prefix + "title").description("청구 제목"),
+			fieldWithPath(prefix + "reason").optional().description("청구 사유"),
+			fieldWithPath(prefix + "amount").description("청구 금액"),
+			fieldWithPath(prefix + "status").description("청구 상태"),
+			fieldWithPath(prefix + "paidAt").type(JsonFieldType.STRING).optional().description("납부 완료 시각. 미납, 면제, 취소 상태에서는 없거나 null")
 		};
 	}
 }

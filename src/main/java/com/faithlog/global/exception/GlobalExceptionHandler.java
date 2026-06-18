@@ -2,6 +2,7 @@ package com.faithlog.global.exception;
 
 import com.faithlog.global.response.ApiResponse;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -29,5 +30,12 @@ public class GlobalExceptionHandler {
 		return ResponseEntity
 			.badRequest()
 			.body(ApiResponse.failure(ErrorCode.INVALID_REQUEST.name(), message));
+	}
+
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	public ResponseEntity<ApiResponse<Void>> handleUnreadableMessage(HttpMessageNotReadableException exception) {
+		return ResponseEntity
+			.badRequest()
+			.body(ApiResponse.failure(ErrorCode.INVALID_REQUEST.name(), ErrorCode.INVALID_REQUEST.message()));
 	}
 }
