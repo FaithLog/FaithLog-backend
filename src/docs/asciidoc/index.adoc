@@ -347,3 +347,139 @@ include::{snippets}/campus-member-delete-success/path-parameters.adoc[]
 ==== Response
 
 include::{snippets}/campus-member-delete-success/http-response.adoc[]
+
+== Admin Campuses
+
+=== Get Campus Members
+
+`GET /api/v1/admin/campuses/{campusId}/members`
+
+`ADMIN`, `MINISTER`, `ELDER`, `CAMPUS_LEADER`는 캠퍼스의 ACTIVE 멤버 목록을 조회할 수 있다.
+
+==== Request
+
+include::{snippets}/admin-campus-members-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-campus-members-list-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-campus-members-list-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/admin-campus-members-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-campus-members-list-success/response-fields.adoc[]
+
+=== Change Campus Role
+
+`PATCH /api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role`
+
+`campusMemberId`는 `campus_members.id`다. 캠퍼스 관리자는 자기 캠퍼스 역할과 같은 단계까지 대상 유저에게 부여할 수 있고, 자기보다 높은 역할은 변경하거나 부여할 수 없다. 전역 `ADMIN`은 모든 캠퍼스 역할을 변경할 수 있다.
+
+==== Request
+
+include::{snippets}/admin-campus-role-change-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-campus-role-change-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-campus-role-change-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/admin-campus-role-change-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/admin-campus-role-change-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-campus-role-change-success/response-fields.adoc[]
+
+=== Get Duty Assignments
+
+`GET /api/v1/admin/campuses/{campusId}/duty-assignments`
+
+캠퍼스의 활성 담당자 배정 목록을 조회한다.
+
+==== Request
+
+include::{snippets}/admin-duty-assignments-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-duty-assignments-list-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-duty-assignments-list-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/admin-duty-assignments-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-duty-assignments-list-success/response-fields.adoc[]
+
+=== Assign Coffee Duty
+
+`PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee`
+
+캠퍼스당 활성 `DutyType.COFFEE` 담당자는 1명만 유지한다. 새 담당자를 지정하면 기존 활성 커피 담당자 배정은 inactive 처리된다.
+
+==== Request
+
+include::{snippets}/admin-coffee-duty-assign-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-coffee-duty-assign-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-coffee-duty-assign-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/admin-coffee-duty-assign-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/admin-coffee-duty-assign-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-coffee-duty-assign-success/response-fields.adoc[]
+
+=== Revoke Coffee Duty
+
+`DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}`
+
+커피 담당자 배정을 inactive 처리하고 `204 No Content`를 반환한다.
+
+==== Request
+
+include::{snippets}/admin-coffee-duty-revoke-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-coffee-duty-revoke-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-coffee-duty-revoke-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/admin-coffee-duty-revoke-success/http-response.adoc[]

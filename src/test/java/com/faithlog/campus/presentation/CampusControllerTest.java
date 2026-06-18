@@ -3,7 +3,9 @@ package com.faithlog.campus.presentation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -288,6 +290,116 @@ class CampusControllerTest {
 
 		CampusMember deletedMember = campusMemberRepository.findByCampusIdAndUserId(campusId, member.id()).orElseThrow();
 		assertThat(deletedMember.status()).isEqualTo(CampusMemberStatus.INACTIVE);
+	}
+
+	@Test
+	void admin_change_campus_role_maps_request_and_response() throws Exception {
+		String managerToken = signupAndLogin("role-http-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("role-http-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "17캠");
+		long campusId = campus.path("campusId").asLong();
+		CampusMember ministerMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, manager.id()).orElseThrow();
+		String elderToken = signupAndLogin("role-http-elder@example.com", UserRole.USER);
+		User elder = userRepository.findByEmail("role-http-elder@example.com").orElseThrow();
+		JsonNode elderMembership = joinCampus(elderToken, campus.path("inviteCode").asText());
+		updateCampusRole(campusId, elder.id(), CampusRole.ELDER);
+		String memberToken = signupAndLogin("role-http-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("role-http-member@example.com").orElseThrow();
+		JsonNode memberMembership = joinCampus(memberToken, campus.path("inviteCode").asText());
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role",
+				campusId,
+				memberMembership.path("membershipId").asLong())
+				.header("Authorization", "Bearer " + elderToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "campusRole": "ELDER"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.membershipId").value(memberMembership.path("membershipId").asLong()))
+			.andExpect(jsonPath("$.data.campusId").value(campusId))
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.name").value("캠퍼스테스트"))
+			.andExpect(jsonPath("$.data.email").value("role-http-member@example.com"))
+			.andExpect(jsonPath("$.data.campusRole").value("ELDER"))
+			.andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role",
+				campusId,
+				ministerMembership.id())
+				.header("Authorization", "Bearer " + elderToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "campusRole": "MEMBER"
+					}
+					"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("상위 캠퍼스 역할은 변경할 수 없습니다."));
+	}
+
+	@Test
+	void admin_coffee_duty_assignment_maps_request_response_list_and_delete() throws Exception {
+		String managerToken = signupAndLogin("coffee-http-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "18캠");
+		long campusId = campus.path("campusId").asLong();
+		String leaderToken = signupAndLogin("coffee-http-leader@example.com", UserRole.USER);
+		User leader = userRepository.findByEmail("coffee-http-leader@example.com").orElseThrow();
+		joinCampus(leaderToken, campus.path("inviteCode").asText());
+		updateCampusRole(campusId, leader.id(), CampusRole.CAMPUS_LEADER);
+		String firstToken = signupAndLogin("coffee-http-first@example.com", UserRole.USER);
+		User first = userRepository.findByEmail("coffee-http-first@example.com").orElseThrow();
+		joinCampus(firstToken, campus.path("inviteCode").asText());
+		String secondToken = signupAndLogin("coffee-http-second@example.com", UserRole.USER);
+		User second = userRepository.findByEmail("coffee-http-second@example.com").orElseThrow();
+		joinCampus(secondToken, campus.path("inviteCode").asText());
+
+		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee", campusId)
+				.header("Authorization", "Bearer " + leaderToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(first.id())))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(first.id()))
+			.andExpect(jsonPath("$.data.dutyType").value("COFFEE"))
+			.andExpect(jsonPath("$.data.isActive").value(true));
+
+		String replaceBody = mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee", campusId)
+				.header("Authorization", "Bearer " + leaderToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(second.id())))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(second.id()))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long assignmentId = objectMapper.readTree(replaceBody).path("data").path("assignmentId").asLong();
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/duty-assignments", campusId)
+				.header("Authorization", "Bearer " + leaderToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].assignmentId").value(assignmentId))
+			.andExpect(jsonPath("$.data[0].userId").value(second.id()));
+
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}", campusId, assignmentId)
+				.header("Authorization", "Bearer " + leaderToken))
+			.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/duty-assignments", campusId)
+				.header("Authorization", "Bearer " + leaderToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(0));
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {

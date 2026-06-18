@@ -2,6 +2,8 @@ package com.faithlog.campus.application.port;
 
 public record CampusUserLookupResult(
 	Long userId,
+	String name,
+	String email,
 	String role,
 	boolean active
 ) {
