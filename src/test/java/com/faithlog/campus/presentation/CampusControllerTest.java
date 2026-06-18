@@ -7,6 +7,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.domain.CampusRole;
+import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
@@ -33,6 +36,9 @@ class CampusControllerTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Autowired
+	private CampusMemberRepository campusMemberRepository;
 
 	@Test
 	void create_campus_requires_manager_or_admin_and_returns_invite_code_and_creator_membership() throws Exception {
@@ -72,6 +78,25 @@ class CampusControllerTest {
 			.andExpect(jsonPath("$.data.name").value("10캠"))
 			.andExpect(jsonPath("$.data.region").value("분당"))
 			.andExpect(jsonPath("$.data.description").value("분당 10캠퍼스"))
+			.andExpect(jsonPath("$.data.inviteCode").isString())
+			.andExpect(jsonPath("$.data.myCampusRole").value("MINISTER"))
+			.andExpect(jsonPath("$.data.membershipStatus").value("ACTIVE"));
+
+		String adminToken = signupAndLogin("campus-admin@example.com", UserRole.ADMIN);
+
+		mockMvc.perform(post("/api/v1/campuses")
+				.header("Authorization", "Bearer " + adminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "10-관리캠",
+					  "region": "분당",
+					  "description": "어드민 생성 캠퍼스"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.name").value("10-관리캠"))
 			.andExpect(jsonPath("$.data.inviteCode").isString())
 			.andExpect(jsonPath("$.data.myCampusRole").value("MINISTER"))
 			.andExpect(jsonPath("$.data.membershipStatus").value("ACTIVE"));
@@ -162,6 +187,7 @@ class CampusControllerTest {
 		long campusId = campus.path("campusId").asLong();
 		String inviteCode = campus.path("inviteCode").asText();
 		String memberToken = signupAndLogin("detail-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("detail-member@example.com").orElseThrow();
 		joinCampus(memberToken, inviteCode);
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}", campusId)
@@ -172,6 +198,22 @@ class CampusControllerTest {
 			.andExpect(jsonPath("$.data.inviteCode").doesNotExist())
 			.andExpect(jsonPath("$.data.myCampusRole").value("MEMBER"))
 			.andExpect(jsonPath("$.data.membershipStatus").value("ACTIVE"));
+
+		updateCampusRole(campusId, member.id(), CampusRole.ELDER);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}", campusId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.inviteCode").value(inviteCode))
+			.andExpect(jsonPath("$.data.myCampusRole").value("ELDER"));
+
+		updateCampusRole(campusId, member.id(), CampusRole.CAMPUS_LEADER);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}", campusId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.inviteCode").value(inviteCode))
+			.andExpect(jsonPath("$.data.myCampusRole").value("CAMPUS_LEADER"));
 
 		String adminToken = signupAndLogin("detail-admin@example.com", UserRole.ADMIN);
 
@@ -214,6 +256,12 @@ class CampusControllerTest {
 			.getResponse()
 			.getContentAsString();
 		return objectMapper.readTree(body).path("data");
+	}
+
+	private void updateCampusRole(long campusId, long userId, CampusRole campusRole) {
+		CampusMember member = campusMemberRepository.findByCampusIdAndUserId(campusId, userId).orElseThrow();
+		ReflectionTestUtils.setField(member, "campusRole", campusRole);
+		campusMemberRepository.saveAndFlush(member);
 	}
 
 	private void joinCampus(String accessToken, String inviteCode) throws Exception {
