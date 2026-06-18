@@ -406,11 +406,14 @@ PATCH /api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role
 MINISTER > ELDER > CAMPUS_LEADER > MEMBER
 ```
 
-- `MINISTER`는 `ELDER`, `CAMPUS_LEADER`, `MEMBER` 역할을 변경할 수 있다.
-- `ELDER`는 `CAMPUS_LEADER`, `MEMBER` 역할을 변경할 수 있지만 `MINISTER`는 변경할 수 없다.
-- `CAMPUS_LEADER`는 `MEMBER` 역할만 변경할 수 있고 `MINISTER`, `ELDER`는 변경할 수 없다.
+최신 Issue #30 결정 기준은 same-level assignment이다. 즉 캠퍼스 관리자는 자기 역할과 같은 단계까지 대상 유저에게 부여할 수 있고, 자기보다 높은 역할은 변경하거나 부여할 수 없다. 이전의 "자기보다 아래 역할만 변경 가능" 해석은 이 최신 결정으로 대체한다.
+
+- `MINISTER`는 다른 유저를 `MINISTER`, `ELDER`, `CAMPUS_LEADER`, `MEMBER`로 변경할 수 있다.
+- `ELDER`는 다른 유저를 `ELDER`, `CAMPUS_LEADER`, `MEMBER`로 변경할 수 있지만, 기존 `MINISTER`를 변경하거나 `MINISTER`를 부여할 수 없다.
+- `CAMPUS_LEADER`는 다른 유저를 `CAMPUS_LEADER`, `MEMBER`로 변경할 수 있지만, 기존 `MINISTER`/`ELDER`를 변경하거나 `MINISTER`/`ELDER`를 부여할 수 없다.
 - `MEMBER`는 역할을 변경할 수 없다.
 - 서비스 전체 `ADMIN`은 모든 캠퍼스 멤버 역할을 변경할 수 있다.
+- 서비스 전체 `MANAGER`만으로는 캠퍼스 역할 변경 권한이 생기지 않는다.
 - 마지막 캠퍼스 관리 역할 보유자를 `MEMBER`로 내리는 것은 막지 않는다.
 
 ### 3.12 FCM 알림 기준

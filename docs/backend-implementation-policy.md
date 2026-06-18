@@ -106,8 +106,13 @@ Redis TTL policy:
 - Campus member management excludes only normal campus `MEMBER` users; `MINISTER`, `ELDER`, `CAMPUS_LEADER`, and service-level `ADMIN` can manage campus members.
 - Issue #30 role changes use `PATCH /api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role`; `campusMemberId` is `campus_members.id`.
 - Campus role hierarchy for role changes is `MINISTER > ELDER > CAMPUS_LEADER > MEMBER`.
-- `MINISTER` can change `ELDER`, `CAMPUS_LEADER`, and `MEMBER`; `ELDER` can change `CAMPUS_LEADER` and `MEMBER`; `CAMPUS_LEADER` can change `MEMBER`; `MEMBER` cannot change roles.
+- Issue #30 uses same-level assignment. A campus manager can assign roles up to the manager's own campus role level, but cannot change or assign roles above that level. Any earlier "below only" interpretation is superseded by this same-level assignment decision.
+- `MINISTER` can change another user to `MINISTER`, `ELDER`, `CAMPUS_LEADER`, or `MEMBER`.
+- `ELDER` can change another user to `ELDER`, `CAMPUS_LEADER`, or `MEMBER`, but cannot change an existing `MINISTER` or assign `MINISTER`.
+- `CAMPUS_LEADER` can change another user to `CAMPUS_LEADER` or `MEMBER`, but cannot change an existing `MINISTER`/`ELDER` or assign `MINISTER`/`ELDER`.
+- `MEMBER` cannot change roles.
 - Service-level `ADMIN` can change any campus member role in any campus.
+- Service-level `MANAGER` alone does not grant campus role change permission.
 - Issue #30 must not block downgrading the last campus management role holder to `MEMBER`.
 - Service-level admin user-role management APIs are not part of issue #29 and must be handled in a separate admin role-management issue.
 - Last `ADMIN` protection remains a pending policy question until the user approves its exact behavior.
