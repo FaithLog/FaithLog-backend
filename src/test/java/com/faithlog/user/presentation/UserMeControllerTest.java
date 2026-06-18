@@ -66,6 +66,7 @@ class UserMeControllerTest {
 		JsonNode response = objectMapper.readTree(loginBody);
 		String accessToken = response.path("data").path("accessToken").asText();
 		String refreshToken = response.path("data").path("refreshToken").asText();
+		User user = userRepository.findByEmail("me@example.com").orElseThrow();
 
 		mockMvc.perform(get("/api/v1/users/me")
 				.header("Authorization", "Bearer " + accessToken))
@@ -73,7 +74,7 @@ class UserMeControllerTest {
 			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.code").value("SUCCESS"))
 			.andExpect(jsonPath("$.message").value("요청이 성공했습니다."))
-			.andExpect(jsonPath("$.data.id").value(1))
+			.andExpect(jsonPath("$.data.id").value(user.id()))
 			.andExpect(jsonPath("$.data.name").value("이승욱"))
 			.andExpect(jsonPath("$.data.email").value("me@example.com"))
 			.andExpect(jsonPath("$.data.role").value("USER"))
