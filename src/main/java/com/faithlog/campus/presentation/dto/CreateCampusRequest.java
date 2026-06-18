@@ -19,7 +19,6 @@ public record CreateCampusRequest(
 	public CreateCampusCommand toCommand(AuthenticatedUser authenticatedUser) {
 		return new CreateCampusCommand(
 			authenticatedUser.userId(),
-			authenticatedUser.role(),
 			name,
 			region,
 			description

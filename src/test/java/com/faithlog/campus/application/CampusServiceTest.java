@@ -53,14 +53,12 @@ class CampusServiceTest {
 
 		CampusCreateResult first = campusService.createCampus(new CreateCampusCommand(
 			manager.id(),
-			manager.role().name(),
 			"20캠",
 			"분당",
 			"분당 20캠퍼스"
 		));
 		CampusCreateResult second = campusService.createCampus(new CreateCampusCommand(
 			manager.id(),
-			manager.role().name(),
 			"21캠",
 			"분당",
 			"분당 21캠퍼스"
@@ -86,14 +84,12 @@ class CampusServiceTest {
 		User member = saveUser("active-member@example.com", UserRole.USER);
 		CampusCreateResult activeCampus = campusService.createCampus(new CreateCampusCommand(
 			manager.id(),
-			manager.role().name(),
 			"22캠",
 			"분당",
 			"분당 22캠퍼스"
 		));
 		CampusCreateResult inactiveCampus = campusService.createCampus(new CreateCampusCommand(
 			manager.id(),
-			manager.role().name(),
 			"23캠",
 			"분당",
 			"분당 23캠퍼스"

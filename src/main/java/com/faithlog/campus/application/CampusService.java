@@ -6,10 +6,9 @@ import com.faithlog.campus.domain.CampusMemberStatus;
 import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.application.port.CampusRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
+import com.faithlog.campus.application.port.CampusUserLookupResult;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
-import com.faithlog.user.domain.User;
-import com.faithlog.user.domain.UserRole;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,8 +37,8 @@ public class CampusService {
 
 	@Transactional
 	public CampusCreateResult createCampus(CreateCampusCommand command) {
-		User requester = getActiveUser(command.requesterId());
-		if (!canCreateCampus(requester.role())) {
+		CampusUserLookupResult requester = getActiveUser(command.requesterId());
+		if (!requester.canCreateCampus()) {
 			throw new BusinessException(ErrorCode.FORBIDDEN, "캠퍼스 생성 권한이 없습니다.");
 		}
 
@@ -49,28 +48,28 @@ public class CampusService {
 			command.description(),
 			generateUniqueInviteCode()
 		));
-		CampusMember creatorMembership = campusMemberRepository.save(CampusMember.createMinister(campus.id(), requester.id()));
+		CampusMember creatorMembership = campusMemberRepository.save(CampusMember.createMinister(campus.id(), requester.userId()));
 		return CampusCreateResult.of(campus, creatorMembership);
 	}
 
 	@Transactional
 	public CampusMembershipResult joinCampus(JoinCampusCommand command) {
-		User requester = getActiveUser(command.requesterId());
+		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		Campus campus = campusRepository.findByInviteCode(command.inviteCode())
 			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "유효하지 않은 초대코드입니다."));
 
-		if (campusMemberRepository.existsByCampusIdAndUserId(campus.id(), requester.id())) {
+		if (campusMemberRepository.existsByCampusIdAndUserId(campus.id(), requester.userId())) {
 			throw new BusinessException(ErrorCode.INVALID_REQUEST, "이미 가입된 캠퍼스입니다.");
 		}
 
-		CampusMember member = campusMemberRepository.save(CampusMember.createMember(campus.id(), requester.id()));
+		CampusMember member = campusMemberRepository.save(CampusMember.createMember(campus.id(), requester.userId()));
 		return CampusMembershipResult.of(campus, member);
 	}
 
 	@Transactional(readOnly = true)
 	public List<CampusMembershipResult> getMyCampuses(Long requesterId) {
-		User requester = getActiveUser(requesterId);
-		return campusMemberRepository.findByUserIdAndStatusOrderByIdDesc(requester.id(), CampusMemberStatus.ACTIVE)
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		return campusMemberRepository.findByUserIdAndStatusOrderByIdDesc(requester.userId(), CampusMemberStatus.ACTIVE)
 			.stream()
 			.map(member -> CampusMembershipResult.of(getCampusOrThrow(member.campusId()), member))
 			.toList();
@@ -78,11 +77,11 @@ public class CampusService {
 
 	@Transactional(readOnly = true)
 	public CampusDetailResult getCampus(Long campusId, Long requesterId) {
-		User requester = getActiveUser(requesterId);
+		CampusUserLookupResult requester = getActiveUser(requesterId);
 		Campus campus = getCampusOrThrow(campusId);
-		CampusMember membership = campusMemberRepository.findByCampusIdAndUserId(campus.id(), requester.id()).orElse(null);
+		CampusMember membership = campusMemberRepository.findByCampusIdAndUserId(campus.id(), requester.userId()).orElse(null);
 
-		if (requester.role() == UserRole.ADMIN) {
+		if (requester.isAdmin()) {
 			return CampusDetailResult.of(campus, membership, true);
 		}
 
@@ -93,10 +92,10 @@ public class CampusService {
 		return CampusDetailResult.of(campus, membership, membership.canViewInviteCode());
 	}
 
-	private User getActiveUser(Long userId) {
-		User user = userLookupPort.findCampusUserById(userId)
+	private CampusUserLookupResult getActiveUser(Long userId) {
+		CampusUserLookupResult user = userLookupPort.findCampusUserById(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
-		if (!user.isActive()) {
+		if (!user.active()) {
 			throw new BusinessException(ErrorCode.UNAUTHORIZED);
 		}
 		return user;
@@ -105,10 +104,6 @@ public class CampusService {
 	private Campus getCampusOrThrow(Long campusId) {
 		return campusRepository.findById(campusId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-	}
-
-	private boolean canCreateCampus(UserRole role) {
-		return role == UserRole.MANAGER || role == UserRole.ADMIN;
 	}
 
 	private String generateUniqueInviteCode() {
