@@ -234,6 +234,32 @@ Issue #39 is P0.
 - Poll must not directly reference Billing Entity. Keep the flow in the application layer.
 - If coffee poll setup or charge generation requires a coffee duty assignee and no active `CampusDutyAssignment` with `DutyType.COFFEE` exists for the campus, fail clearly with the user-facing message `관리자에게 문의하세요`.
 
+## Payment Account And Charge Foundation
+
+Issue #34 is P0.
+
+- Campus creation must not create `PaymentAccount` or default `penalty_rules`.
+- Admins manage campus payment accounts through:
+  - `GET /api/v1/campuses/{campusId}/payment-accounts`
+  - `POST /api/v1/admin/campuses/{campusId}/payment-accounts`
+  - `PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate`
+- All active campus members can list payment accounts for their campus.
+- Only campus admin roles can create or deactivate payment accounts.
+- Account numbers are fully visible in account list responses because members need them for bank transfer payment. Do not expose unnecessary admin-only metadata in member-facing responses.
+- A campus can have only one active payment account per `account_type`.
+- Creating a new active account automatically deactivates the previous active account for the same campus and `account_type`.
+- Payment accounts can be deactivated even if unpaid charge items are linked to them.
+- When a new active account replaces the previous active account, existing `UNPAID` charge items for that campus and payment category must be re-linked to the new active account and their account snapshots updated. Already terminal `PAID`, `WAIVED`, and `CANCELED` charge items keep their historical snapshots.
+- `PaymentCategory` values are `PENALTY` and `COFFEE`.
+- `ChargeSourceType` values are `DEVOTION_RECORD` and `POLL_RESPONSE`.
+- `ChargeStatus` values are `UNPAID`, `PAID`, `WAIVED`, and `CANCELED`.
+- Charge creation must save `payment_account_id`, `bank_name_snapshot`, `account_number_snapshot`, and `account_holder_snapshot`.
+- Do not create incomplete `charge_items` rows when a required account is missing.
+- If the active `PENALTY` account is missing during penalty charge creation, fail with the user-facing message `관리자에게 문의하세요`.
+- Manual admin charge creation is not part of the MVP.
+- Issue #34 implements the billing foundation service only. Devotion and poll flows connect to it in Issue #33 and Issue #39.
+- Detailed API contracts must be documented with Spring REST Docs tests. Swagger/springdoc remains only for simple API exploration.
+
 ## Poll Response
 
 - Poll response requests must use `optionIds`.

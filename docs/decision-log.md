@@ -10,6 +10,19 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-18 - Issue #34 Admin Account List And Penalty Charge Rerun Policy
+
+- Context: PM review found that service-level `ADMIN` could not list campus payment accounts without campus membership, and `BillingService.createPenaltyCharge` raised a unique constraint error when the same penalty charge source was executed again.
+- Decision: `GET /api/v1/campuses/{campusId}/payment-accounts` allows either service-level `ADMIN` or an ACTIVE campus member. `BillingService.createPenaltyCharge` behaves as create-or-update for an existing `UNPAID` `PENALTY` charge with the same `(campusId, userId, paymentCategory, sourceType, sourceId)`: it updates the latest active PENALTY account snapshot, title, reason, amount, and due date, then returns the same row.
+- Implementation guard / unresolved policy: The user has not yet finalized how an already terminal `PAID`, `WAIVED`, or `CANCELED` charge should behave when the same source is submitted again. To prevent historical payment data from being overwritten in the Issue #34 foundation, terminal charges are guarded with a clear invalid request error instead of being updated. Confirm the final product policy with the user before wiring the real resubmission/payment flows in Issue #33/#35.
+- Impact: Issue #34 service and controller tests must cover service-admin account list access and service-level penalty charge reruns for existing `UNPAID` charges. The DB unique key remains a safety net, but normal service reruns should not surface unique constraint exceptions for existing `UNPAID` charges.
+
+### 2026-06-18 - Issue #34 Member Payment Account Response Contract
+
+- Context: The Issue #34 payment account list API is available to every ACTIVE campus member, but older Notion endpoint detail examples included admin-oriented fields such as `ownerUserId` and `isActive`.
+- Decision: `GET /api/v1/campuses/{campusId}/payment-accounts` returns active accounts only and exposes the member-facing fields required for payment: `id`, `accountType`, `nickname`, `bankName`, `accountNumber`, and `accountHolder`. It does not expose admin-only metadata such as `ownerUserId`, `isActive`, `createdAt`, or `deactivatedAt` in the member-facing response.
+- Impact: Issue #34 REST Docs and controller tests must document the reduced member-facing response. Account numbers remain fully visible because they are required for bank transfer payment.
+
 ### 2026-06-18 - Issue 30 Same-Level Campus Role Assignment And Coffee Duty Permission
 
 - Context: Issue #30 role hierarchy wording could be read as "only roles below the requester can be changed or assigned." The user clarified the final behavior during the development session.
@@ -125,6 +138,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Campus creation must also create the campus penalty account and default penalty rules. The campus creation request/flow must collect or receive enough penalty account information to create the active `PENALTY` payment account, and must initialize the default devotion penalty rules from the approved penalty table.
 - Impact: Issue #29 and Issue #34 must be aligned so campus onboarding creates the required billing prerequisites. Issue #33 can assume a properly onboarded campus has an active `PENALTY` account, while still returning a clear error if the account is missing due to legacy or corrupted data.
 - Status: Superseded. This is a historical record only. The later 2026-06-18 decision `Campus Creation Does Not Create Payment Account Or Penalty Rules` and the latest Issue #29 scope take precedence: campus creation and account/rule setup are separate, and campus creation must not receive `penaltyAccount`, create `PaymentAccount`, or create default `penalty_rules`.
+
+### 2026-06-18 - Issue #34 Payment Account And Charge Foundation Scope
+
+- Context: Issue #34 was checked against the latest Notion integrated plan, final ERD, and API design before development.
+- Decision: Issue #34 follows the Notion billing foundation model: implement `PaymentAccount`, `ChargeItem`, `PaymentCategory`, `ChargeSourceType`, `ChargeStatus`, payment account list/create/deactivate APIs, account snapshot support, missing-account failure behavior, and duplicate charge prevention. Campus creation does not create accounts or default penalty rules. Manual admin charge creation is not MVP scope.
+- Impact: Detailed API contracts must be verified through Spring REST Docs tests, while Swagger/springdoc remains for simple API exploration. Later charge-producing flows must use the billing foundation instead of manipulating another domain's entity directly.
+
+### 2026-06-18 - Issue #34 Payment Account Activation And Visibility Policy
+
+- Context: The user finalized the remaining account-management behavior before Issue #34 development.
+- Decision: Each campus can have only one active payment account per `account_type`. All active campus members can view campus payment accounts, and account numbers are fully visible because users need them for bank transfer payment. Creating a new active account automatically deactivates the previous active account for the same campus and account type. Accounts can be deactivated even if unpaid charge items are linked to them. When a new active account replaces the old one, existing `UNPAID` charge items for that campus and payment category are re-linked to the new active account and their account snapshots are updated. Terminal `PAID`, `WAIVED`, and `CANCELED` charge items keep their historical snapshots. Issue #34 implements only the billing foundation service; actual devotion and coffee auto-charge flow integration remains in Issue #33 and Issue #39.
+- Impact: Issue #34 tests must cover one-active-account-per-type behavior, member account list access, full account-number exposure in payment account responses, deactivation with unpaid charges, unpaid charge re-linking on account replacement, and preservation of terminal charge snapshots.
 
 ### 2026-06-17 - Coffee Poll Requires Coffee Duty Assignment
 

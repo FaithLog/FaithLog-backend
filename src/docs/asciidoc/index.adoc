@@ -483,3 +483,87 @@ include::{snippets}/admin-coffee-duty-revoke-success/path-parameters.adoc[]
 ==== Response
 
 include::{snippets}/admin-coffee-duty-revoke-success/http-response.adoc[]
+
+== Billing
+
+=== Create Payment Account
+
+`POST /api/v1/admin/campuses/{campusId}/payment-accounts`
+
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`만 납부 계좌를 등록할 수 있다. 같은 캠퍼스와 같은 `accountType`에 이미 활성 계좌가 있으면 기존 활성 계좌를 자동 비활성화하고 새 계좌만 활성 상태로 둔다.
+
+==== Request
+
+include::{snippets}/payment-account-create-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/payment-account-create-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/payment-account-create-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/payment-account-create-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/payment-account-create-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/payment-account-create-success/response-fields.adoc[]
+
+=== List Payment Accounts
+
+`GET /api/v1/campuses/{campusId}/payment-accounts`
+
+해당 캠퍼스의 모든 ACTIVE 멤버가 활성 납부 계좌를 조회할 수 있다. 납부에 필요하므로 `accountNumber`는 전체 노출한다. 멤버 조회 응답에는 `ownerUserId`, `isActive`, `createdAt`, `deactivatedAt` 같은 관리용 메타데이터를 노출하지 않는다.
+
+==== Request
+
+include::{snippets}/payment-account-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/payment-account-list-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/payment-account-list-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/payment-account-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/payment-account-list-success/response-fields.adoc[]
+
+=== Deactivate Payment Account
+
+`PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate`
+
+캠퍼스 관리자는 기존 미납 청구가 있어도 납부 계좌를 비활성화할 수 있다. 새 활성 계좌 등록 시 기존 `UNPAID` 청구는 새 계좌로 재연결되고 snapshot이 갱신되며, `PAID`, `WAIVED`, `CANCELED` 청구 snapshot은 과거 기록으로 유지된다.
+
+==== Request
+
+include::{snippets}/payment-account-deactivate-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/payment-account-deactivate-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/payment-account-deactivate-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/payment-account-deactivate-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/payment-account-deactivate-success/response-fields.adoc[]
