@@ -140,6 +140,7 @@ public class CampusService {
 	@Transactional
 	public DutyAssignmentResult assignCoffeeDuty(AssignCoffeeDutyCommand command) {
 		requireCampusManager(command.campusId(), command.requesterId(), "커피 담당자 관리 권한이 없습니다.");
+		lockCampusOrThrow(command.campusId());
 		CampusMember targetMember = campusMemberRepository.findByCampusIdAndUserId(command.campusId(), command.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(
@@ -221,6 +222,11 @@ public class CampusService {
 
 	private Campus getCampusOrThrow(Long campusId) {
 		return campusRepository.findById(campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+	}
+
+	private void lockCampusOrThrow(Long campusId) {
+		campusRepository.findByIdForUpdate(campusId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 	}
 

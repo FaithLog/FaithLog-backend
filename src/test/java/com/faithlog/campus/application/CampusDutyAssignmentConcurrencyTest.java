@@ -2,8 +2,6 @@ package com.faithlog.campus.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
@@ -28,9 +26,6 @@ class CampusDutyAssignmentConcurrencyTest {
 
 	@Autowired
 	private CampusService campusService;
-
-	@Autowired
-	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
 	private UserRepository userRepository;
