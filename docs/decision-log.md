@@ -10,6 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-18 - Issue 30 Campus Role Hierarchy And Coffee Duty Contract
+
+- Context: Issue #30 needed final confirmation before development because the campus role update API path, coffee duty assignment cardinality, and campus role downgrade rules were ambiguous.
+- Decision: Issue #30 must follow the latest Notion API contract. Campus role changes use `PATCH /api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role`, where `campusMemberId` means `campus_members.id`. Coffee duty assignment is limited to one active `DutyType.COFFEE` assignee per campus and uses `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee` to assign/replace the active assignee and `DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}` to revoke. The campus role hierarchy is `MINISTER > ELDER > CAMPUS_LEADER > MEMBER`. A campus manager may change roles only below their own role: `MINISTER` can change `ELDER`, `CAMPUS_LEADER`, and `MEMBER`; `ELDER` can change `CAMPUS_LEADER` and `MEMBER`, but not `MINISTER`; `CAMPUS_LEADER` can change `MEMBER`, but not `MINISTER` or `ELDER`; `MEMBER` cannot change roles. Service-level `ADMIN` can change any campus member role in any campus. The last campus management role holder may still be downgraded to `MEMBER`; do not block it with a last-manager guard in Issue #30.
+- Impact: Issue #30, Notion planning, API documentation, REST Docs tests, and implementation must use these paths and authorization rules. Development must not use the older `members/{memberId}/role`, generic `POST duty-assignments`, or `PATCH revoke` API drafts for #30.
+
+### 2026-06-18 - Campus Member Delete And Management Permission For Issue 29
+
+- Context: PR #50 / Issue #29 needed an additional campus member delete feature. The user approved adding the feature and clarified that everyone except normal users can manage campus members.
+- Decision: Add `DELETE /api/v1/campuses/{campusId}/members/{membershipId}`. The endpoint soft-deletes the campus membership by changing `campus_members.status` to `INACTIVE` and returns `204 No Content` on success. Campus member management is allowed for service-level `ADMIN` and active campus members whose `campus_role` is not `MEMBER` (`MINISTER`, `ELDER`, `CAMPUS_LEADER`). A normal campus `MEMBER` cannot manage or delete campus members. If an inactive/deleted user joins again by invite code, the existing membership is reactivated as `ACTIVE + MEMBER` to respect the `(campus_id, user_id)` uniqueness rule.
+- Impact: Issue #29 and PR #50 now include campus member delete in addition to campus creation, invite-code join, my-campus list, and campus detail APIs. Tests and REST Docs must cover delete permission, soft delete status transition, service-admin delete without campus membership, and rejoin after inactive membership.
+
 ### 2026-06-18 - Campus API Response And Error Contract For Issue 29
 
 - Context: Issue #29 needed final confirmation for ambiguous campus response fields, admin campus-detail behavior, and user-facing error messages before implementation.
