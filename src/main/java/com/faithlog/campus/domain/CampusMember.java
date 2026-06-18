@@ -93,6 +93,20 @@ public class CampusMember {
 			|| campusRole == CampusRole.CAMPUS_LEADER;
 	}
 
+	public boolean canManageCampusMembers() {
+		return isActive() && campusRole.canManageCampusMembers();
+	}
+
+	public void deactivate() {
+		this.status = CampusMemberStatus.INACTIVE;
+	}
+
+	public void reactivateAsMember() {
+		this.campusRole = CampusRole.MEMBER;
+		this.status = CampusMemberStatus.ACTIVE;
+		this.joinedAt = Instant.now();
+	}
+
 	public Long id() {
 		return id;
 	}

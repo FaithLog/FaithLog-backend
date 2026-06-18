@@ -1,9 +1,12 @@
 package com.faithlog.campus.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusMemberStatus;
+import com.faithlog.campus.domain.CampusRole;
+import com.faithlog.global.exception.BusinessException;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.jpa.CampusRepository;
 import com.faithlog.user.domain.User;
@@ -108,6 +111,82 @@ class CampusServiceTest {
 			.extracting(CampusMembershipResult::campusId)
 			.containsExactly(activeCampus.campusId());
 		assertThat(memberships.getFirst().status()).isEqualTo("ACTIVE");
+	}
+
+	@Test
+	void deleteCampusMember_deactivates_member_when_requester_can_manage_members() {
+		User manager = saveUser("delete-manager@example.com", UserRole.MANAGER);
+		User elder = saveUser("delete-elder@example.com", UserRole.USER);
+		User member = saveUser("delete-member@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"24캠",
+			"분당",
+			"분당 24캠퍼스"
+		));
+		CampusMembershipResult elderMembership = campusService.joinCampus(new JoinCampusCommand(elder.id(), campus.inviteCode()));
+		CampusMembershipResult memberMembership = campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		updateCampusRole(elderMembership.membershipId(), CampusRole.ELDER);
+
+		campusService.deleteCampusMember(campus.campusId(), memberMembership.membershipId(), elder.id());
+
+		assertThat(campusMemberRepository.findById(memberMembership.membershipId()))
+			.get()
+			.extracting(CampusMember::status)
+			.isEqualTo(CampusMemberStatus.INACTIVE);
+	}
+
+	@Test
+	void deleteCampusMember_rejects_normal_member_and_allows_admin_without_membership() {
+		User manager = saveUser("delete-admin-manager@example.com", UserRole.MANAGER);
+		User normalMember = saveUser("delete-normal-member@example.com", UserRole.USER);
+		User target = saveUser("delete-target@example.com", UserRole.USER);
+		User admin = saveUser("delete-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"25캠",
+			"분당",
+			"분당 25캠퍼스"
+		));
+		campusService.joinCampus(new JoinCampusCommand(normalMember.id(), campus.inviteCode()));
+		CampusMembershipResult targetMembership = campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+
+		assertThatThrownBy(() -> campusService.deleteCampusMember(campus.campusId(), targetMembership.membershipId(), normalMember.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 멤버 관리 권한이 없습니다.");
+
+		campusService.deleteCampusMember(campus.campusId(), targetMembership.membershipId(), admin.id());
+
+		assertThat(campusMemberRepository.findById(targetMembership.membershipId()))
+			.get()
+			.extracting(CampusMember::status)
+			.isEqualTo(CampusMemberStatus.INACTIVE);
+	}
+
+	@Test
+	void joinCampus_reactivates_inactive_membership_as_member() {
+		User manager = saveUser("reactivate-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("reactivate-member@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"26캠",
+			"분당",
+			"분당 26캠퍼스"
+		));
+		CampusMembershipResult membership = campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.deleteCampusMember(campus.campusId(), membership.membershipId(), manager.id());
+
+		CampusMembershipResult rejoined = campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+
+		assertThat(rejoined.membershipId()).isEqualTo(membership.membershipId());
+		assertThat(rejoined.campusRole()).isEqualTo("MEMBER");
+		assertThat(rejoined.status()).isEqualTo("ACTIVE");
+	}
+
+	private void updateCampusRole(Long membershipId, CampusRole campusRole) {
+		CampusMember member = campusMemberRepository.findById(membershipId).orElseThrow();
+		ReflectionTestUtils.setField(member, "campusRole", campusRole);
+		campusMemberRepository.saveAndFlush(member);
 	}
 
 	private User saveUser(String email, UserRole role) {

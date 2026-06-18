@@ -9,6 +9,7 @@
   - `POST /api/v1/campuses/join`
   - `GET /api/v1/campuses/me`
   - `GET /api/v1/campuses/{campusId}`
+  - `DELETE /api/v1/campuses/{campusId}/members/{membershipId}`
 
 ## Decisions Recorded
 
@@ -18,6 +19,9 @@
 - Campus creation does not create default `penalty_rules`.
 - `GET /api/v1/campuses/me` returns only ACTIVE memberships with `membershipId`, `campusId`, `campusName`, `region`, `campusRole`, and `status`.
 - `ADMIN` can see all campus details and invite codes. If the admin is not a campus member, `myCampusRole` and `membershipStatus` are `null`.
+- Campus member delete is a soft delete that changes `campus_members.status` to `INACTIVE`.
+- Campus member management is allowed for `ADMIN`, `MINISTER`, `ELDER`, and `CAMPUS_LEADER`; normal `MEMBER` users cannot manage campus members.
+- If an inactive/deleted member joins again with an invite code, the existing membership is reactivated as `ACTIVE + MEMBER`.
 
 ## Implementation Notes
 
@@ -28,13 +32,15 @@
 - Invite-code joins immediately create `MEMBER + ACTIVE` membership.
 - Duplicate campus membership is blocked by both application check and a `(campus_id, user_id)` unique constraint.
 - `CampusDetailResponse.inviteCode` is omitted when null so general `MEMBER` responses do not expose the invite code.
+- `CampusMember.deactivate()` handles member removal without deleting historical membership rows.
+- `CampusMember.reactivateAsMember()` keeps invite-code rejoin compatible with the unique campus-user membership constraint.
 
 ## Verification
 
-- `./gradlew test`: success, 31 tests / 0 failures / 0 errors / 0 skipped.
+- `./gradlew test`: success, 37 tests / 0 failures / 0 errors / 0 skipped.
 - `./gradlew build`: success.
 - `./gradlew asciidoctor`: success.
-- Spring REST Docs snippet groups: 16.
+- Spring REST Docs snippet groups: 17.
 - Forbidden-term scan: no source/test/API-doc violations for the configured forbidden terms or single `optionId` request field.
 - Docker PostgreSQL validation:
   - `docker compose up -d postgres redis app` built the app image and started postgres/redis successfully.

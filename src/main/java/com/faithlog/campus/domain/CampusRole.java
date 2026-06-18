@@ -4,5 +4,9 @@ public enum CampusRole {
 	MINISTER,
 	ELDER,
 	CAMPUS_LEADER,
-	MEMBER
+	MEMBER;
+
+	public boolean canManageCampusMembers() {
+		return this != MEMBER;
+	}
 }

@@ -1,5 +1,7 @@
 package com.faithlog.campus.presentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -8,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.domain.CampusMemberStatus;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.user.domain.User;
@@ -240,6 +243,53 @@ class CampusControllerTest {
 			.andExpect(jsonPath("$.message").value("캠퍼스 조회 권한이 없습니다."));
 	}
 
+	@Test
+	void delete_member_requires_campus_management_role_and_deactivates_membership() throws Exception {
+		String managerToken = signupAndLogin("delete-http-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "15캠");
+		long campusId = campus.path("campusId").asLong();
+		String inviteCode = campus.path("inviteCode").asText();
+		String elderToken = signupAndLogin("delete-http-elder@example.com", UserRole.USER);
+		User elder = userRepository.findByEmail("delete-http-elder@example.com").orElseThrow();
+		JsonNode elderMembership = joinCampus(elderToken, inviteCode);
+		updateCampusRole(campusId, elder.id(), CampusRole.ELDER);
+		String memberToken = signupAndLogin("delete-http-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("delete-http-member@example.com").orElseThrow();
+		JsonNode memberMembership = joinCampus(memberToken, inviteCode);
+
+		mockMvc.perform(delete("/api/v1/campuses/{campusId}/members/{membershipId}", campusId, elderMembership.path("membershipId").asLong())
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("FORBIDDEN"))
+			.andExpect(jsonPath("$.message").value("캠퍼스 멤버 관리 권한이 없습니다."));
+
+		mockMvc.perform(delete("/api/v1/campuses/{campusId}/members/{membershipId}", campusId, memberMembership.path("membershipId").asLong())
+				.header("Authorization", "Bearer " + elderToken))
+			.andExpect(status().isNoContent());
+
+		CampusMember deletedMember = campusMemberRepository.findByCampusIdAndUserId(campusId, member.id()).orElseThrow();
+		assertThat(deletedMember.status()).isEqualTo(CampusMemberStatus.INACTIVE);
+	}
+
+	@Test
+	void delete_member_allows_service_admin_without_campus_membership() throws Exception {
+		String managerToken = signupAndLogin("delete-http-admin-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "16캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("delete-http-admin-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("delete-http-admin-member@example.com").orElseThrow();
+		JsonNode memberMembership = joinCampus(memberToken, campus.path("inviteCode").asText());
+		String adminToken = signupAndLogin("delete-http-admin@example.com", UserRole.ADMIN);
+
+		mockMvc.perform(delete("/api/v1/campuses/{campusId}/members/{membershipId}", campusId, memberMembership.path("membershipId").asLong())
+				.header("Authorization", "Bearer " + adminToken))
+			.andExpect(status().isNoContent());
+
+		CampusMember deletedMember = campusMemberRepository.findByCampusIdAndUserId(campusId, member.id()).orElseThrow();
+		assertThat(deletedMember.status()).isEqualTo(CampusMemberStatus.INACTIVE);
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)
@@ -264,8 +314,8 @@ class CampusControllerTest {
 		campusMemberRepository.saveAndFlush(member);
 	}
 
-	private void joinCampus(String accessToken, String inviteCode) throws Exception {
-		mockMvc.perform(post("/api/v1/campuses/join")
+	private JsonNode joinCampus(String accessToken, String inviteCode) throws Exception {
+		String body = mockMvc.perform(post("/api/v1/campuses/join")
 				.header("Authorization", "Bearer " + accessToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -273,7 +323,11 @@ class CampusControllerTest {
 					  "inviteCode": "%s"
 					}
 					""".formatted(inviteCode)))
-			.andExpect(status().isCreated());
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		return objectMapper.readTree(body).path("data");
 	}
 
 	private String signupAndLogin(String email, UserRole role) throws Exception {

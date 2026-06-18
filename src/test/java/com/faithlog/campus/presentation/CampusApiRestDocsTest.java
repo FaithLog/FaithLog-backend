@@ -7,9 +7,12 @@ import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.docu
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessRequest;
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessResponse;
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.prettyPrint;
+import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
+import static org.springframework.restdocs.request.RequestDocumentation.pathParameters;
 import static org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath;
 import static org.springframework.restdocs.payload.PayloadDocumentation.requestFields;
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -188,6 +191,54 @@ class CampusApiRestDocsTest {
 					fieldWithPath("inviteCode").description("존재하지 않는 초대코드")
 				),
 				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_campus_member_delete_success() throws Exception {
+		String managerToken = signupAndLogin("docs-campus-delete-manager@example.com", UserRole.MANAGER);
+		String createBody = mockMvc.perform(post("/api/v1/campuses")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "31캠",
+					  "region": "분당",
+					  "description": "분당 31캠퍼스"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		JsonNode campus = objectMapper.readTree(createBody).path("data");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-campus-delete-member@example.com", UserRole.USER);
+		String joinBody = mockMvc.perform(post("/api/v1/campuses/join")
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "inviteCode": "%s"
+					}
+					""".formatted(campus.path("inviteCode").asText())))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long membershipId = objectMapper.readTree(joinBody).path("data").path("membershipId").asLong();
+
+		mockMvc.perform(delete("/api/v1/campuses/{campusId}/members/{membershipId}", campusId, membershipId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNoContent())
+			.andDo(document("campus-member-delete-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("membershipId").description("삭제할 캠퍼스 멤버십 ID")
+				)
 			));
 	}
 
