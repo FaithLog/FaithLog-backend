@@ -125,6 +125,14 @@ status = UNPAID
 
 관리자는 캠퍼스별 납부 계좌를 미리 등록한다.
 
+Issue #34 계좌 관리 API 기준:
+
+```text
+GET   /api/v1/campuses/{campusId}/payment-accounts
+POST  /api/v1/admin/campuses/{campusId}/payment-accounts
+PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate
+```
+
 벌금 청구 생성 시 활성 PENALTY 계좌를 자동 연결한다.
 
 ```text
@@ -203,6 +211,15 @@ PATCH /api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid
 
 ```text
 PATCH /api/v1/admin/charges/{chargeItemId}/status
+```
+
+청구 조회 API:
+
+```text
+GET /api/v1/campuses/{campusId}/charges/me
+GET /api/v1/campuses/{campusId}/charges/me/summary
+GET /api/v1/admin/campuses/{campusId}/charges
+GET /api/v1/admin/campuses/{campusId}/members/{userId}/charges
 ```
 
 금지:

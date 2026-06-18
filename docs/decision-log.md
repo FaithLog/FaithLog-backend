@@ -126,6 +126,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Impact: Issue #29 and Issue #34 must be aligned so campus onboarding creates the required billing prerequisites. Issue #33 can assume a properly onboarded campus has an active `PENALTY` account, while still returning a clear error if the account is missing due to legacy or corrupted data.
 - Status: Superseded. This is a historical record only. The later 2026-06-18 decision `Campus Creation Does Not Create Payment Account Or Penalty Rules` and the latest Issue #29 scope take precedence: campus creation and account/rule setup are separate, and campus creation must not receive `penaltyAccount`, create `PaymentAccount`, or create default `penalty_rules`.
 
+### 2026-06-18 - Issue #34 Payment Account And Charge Foundation Scope
+
+- Context: Issue #34 was checked against the latest Notion integrated plan, final ERD, and API design before development.
+- Decision: Issue #34 follows the Notion billing foundation model: implement `PaymentAccount`, `ChargeItem`, `PaymentCategory`, `ChargeSourceType`, `ChargeStatus`, payment account list/create/deactivate APIs, account snapshot support, missing-account failure behavior, and duplicate charge prevention. Campus creation does not create accounts or default penalty rules. Manual admin charge creation is not MVP scope.
+- Impact: Detailed API contracts must be verified through Spring REST Docs tests, while Swagger/springdoc remains for simple API exploration. Later charge-producing flows must use the billing foundation instead of manipulating another domain's entity directly.
+
 ### 2026-06-17 - Coffee Poll Requires Coffee Duty Assignment
 
 - Context: The user decided that coffee poll behavior should fail clearly when no coffee duty assignee exists.
