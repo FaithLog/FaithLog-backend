@@ -323,6 +323,24 @@ MVP에서 커피 주문 투표는 단일 선택 기본이다.
 
 ### 3.11 캠퍼스 역할 기준
 
+서비스 전체 역할은 `users.role`로 관리한다.
+
+```text
+USER
+MANAGER
+ADMIN
+```
+
+`MANAGER`와 `ADMIN`은 캠퍼스를 생성할 수 있다.
+
+`MANAGER`가 캠퍼스를 생성하면 해당 사용자는 생성한 캠퍼스에 `MINISTER + ACTIVE` 멤버십으로 등록된다.
+
+`MANAGER`는 캠퍼스 생성 가능 전역 역할이며, 캠퍼스 내부 관리 권한 자체가 아니다.
+
+캠퍼스 내부 관리 권한은 `users.role = MANAGER`가 아니라 `campus_members.campus_role` 기준으로 판단한다.
+
+`ADMIN`은 전체 캠퍼스 상세에 접근할 수 있다.
+
 `CampusRole`은 아래 값만 사용한다.
 
 ```text
@@ -331,6 +349,14 @@ ELDER
 CAMPUS_LEADER
 MEMBER
 ```
+
+초대코드 노출 기준:
+
+- 캠퍼스 생성 응답에는 `inviteCode`를 포함한다.
+- `ADMIN`, `MINISTER`, `ELDER`, `CAMPUS_LEADER`는 초대코드를 조회할 수 있다.
+- 일반 `MEMBER`의 캠퍼스 상세 조회 응답에는 `inviteCode`를 노출하지 않는다.
+
+`GET /api/v1/campuses/me`는 MVP에서 현재 사용자의 `ACTIVE` 캠퍼스 멤버십만 반환한다.
 
 커피 담당자는 `CampusRole`로 처리하지 않는다.
 

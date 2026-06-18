@@ -72,10 +72,34 @@ Redis TTL policy:
 ## Campus Onboarding
 
 - Campus creation and account registration are separate flows.
+- Campus creation is allowed only for service roles `MANAGER` and `ADMIN`.
+- When a `MANAGER` creates a campus, the creator is registered in that campus as `ACTIVE + MINISTER`.
 - Campus creation must not receive `penaltyAccount`.
 - Campus creation must not create `PaymentAccount`.
 - Campus creation must not create default `penalty_rules`.
+- Campus management authority is based on `campus_members.campus_role`, not `users.role = MANAGER`.
+- `ADMIN` can access all campus details.
+- Campus creation responses include `inviteCode`.
+- `ADMIN`, `MINISTER`, `ELDER`, and `CAMPUS_LEADER` can view invite codes.
+- Normal `MEMBER` campus detail responses must not expose `inviteCode`.
+- `GET /api/v1/campuses/me` returns only the current user's `ACTIVE` memberships.
 - Devotion penalty charge generation should return a clear error if the campus has no active `PENALTY` account.
+
+## Role Management
+
+- Service-level roles live on `users.role`:
+  - `USER`
+  - `MANAGER`
+  - `ADMIN`
+- Campus-level roles live on `campus_members.campus_role`:
+  - `MINISTER`
+  - `ELDER`
+  - `CAMPUS_LEADER`
+  - `MEMBER`
+- `MANAGER` is a service-level role that can create campuses. It is not a campus-management role by itself.
+- Campus management permission must be derived from the user's membership and `campus_members.campus_role`.
+- Service-level admin user-role management APIs are not part of issue #29 and must be handled in a separate admin role-management issue.
+- Last `ADMIN` protection and last campus manager protection are pending policy questions until the user approves their exact behavior.
 
 ## FCM And Notifications
 

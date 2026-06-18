@@ -22,6 +22,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Campus creation must not receive `penaltyAccount`, must not create `PaymentAccount`, and must not create default `penalty_rules`.
 - Impact: Issue #29 tests must guard that campus creation only creates the campus and creator membership. Billing prerequisites are configured through separate admin setup flows.
 
+### 2026-06-18 - Issue 29 Campus Role And Invite Code Visibility Clarification
+
+- Context: Issue #29 needed a documentation-only clarification so the service-level role, campus-level role, campus creation permission, campus management permission, and invite-code visibility rules are consistently recorded without overwriting the existing #29 decisions.
+- Decision: `users.role` is the service-level role set and uses `USER`, `MANAGER`, and `ADMIN`. `campus_members.campus_role` is the campus-level role set and uses `MINISTER`, `ELDER`, `CAMPUS_LEADER`, and `MEMBER`. `MANAGER` and `ADMIN` can create campuses. When a `MANAGER` creates a campus, that user is registered in the new campus as `ACTIVE + MINISTER`. `MANAGER` is not itself a campus-management role; campus management must be based on `campus_members.campus_role`. `ADMIN` can access all campus details. Invite codes are included in campus creation responses, and can be viewed by `ADMIN`, `MINISTER`, `ELDER`, and `CAMPUS_LEADER`, but must not be exposed in normal `MEMBER` campus detail responses. `GET /api/v1/campuses/me` returns only the current user's `ACTIVE` memberships.
+- Impact: Issue #29 documentation and implementation must keep service roles and campus roles separate. Service-level admin user-role management APIs, last `ADMIN` protection, and last campus manager protection are separate pending/admin issues and are not implemented as part of #29.
+
 ### 2026-06-16 - User Owns All Project Decisions
 
 - Context: The user stated that Codex must not develop or implement based on guesses.
@@ -99,6 +105,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Context: The user identified that creating the campus penalty account and penalty rules at campus creation time reduces later runtime exceptions in devotion submission.
 - Decision: Campus creation must also create the campus penalty account and default penalty rules. The campus creation request/flow must collect or receive enough penalty account information to create the active `PENALTY` payment account, and must initialize the default devotion penalty rules from the approved penalty table.
 - Impact: Issue #29 and Issue #34 must be aligned so campus onboarding creates the required billing prerequisites. Issue #33 can assume a properly onboarded campus has an active `PENALTY` account, while still returning a clear error if the account is missing due to legacy or corrupted data.
+- Status: Superseded. This is a historical record only. The later 2026-06-18 decision `Campus Creation Does Not Create Payment Account Or Penalty Rules` and the latest Issue #29 scope take precedence: campus creation and account/rule setup are separate, and campus creation must not receive `penaltyAccount`, create `PaymentAccount`, or create default `penalty_rules`.
 
 ### 2026-06-17 - Coffee Poll Requires Coffee Duty Assignment
 
