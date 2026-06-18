@@ -24,22 +24,27 @@
 - Coffee duty is stored separately from `CampusRole`.
 - `CampusRole` owns the hierarchy comparison logic.
 - `CampusService` coordinates membership lookup, permission checks, role updates, and active coffee assignment replacement.
+- `CampusService.assignCoffeeDuty()` locks the `campuses` row with JPA `PESSIMISTIC_WRITE` before replacing the active `DutyType.COFFEE` assignment, so concurrent requests serialize per campus without adding a new schema policy.
 - Controllers return DTOs only; no Entity is returned from Controller methods.
 - Swagger documentation annotations were not added.
 
 ## Verification
 
 - TDD failure check: new tests failed at `compileTestJava` before implementation because `DutyType`, role/duty commands, duty result, and service methods did not exist.
-- `./gradlew test`: success, 46 tests / 0 failures / 0 errors / 0 skipped.
+- Concurrency failure check: `CampusDutyAssignmentConcurrencyTest` failed before lock implementation with `NonUniqueResultException` caused by duplicate active coffee assignments under concurrent requests.
+- `./gradlew test`: success, 47 tests / 0 failures / 0 errors / 0 skipped.
 - `./gradlew build`: success.
 - `./gradlew asciidoctor`: success.
 - Spring REST Docs snippet groups: 22.
 - Admin campus snippet groups added: 5.
+- Docker validation: `docker compose build app`, `docker compose up -d postgres redis app`, and `GET /api/v1/health` succeeded.
+- Documentation sync: Hook/backend policy/GitHub Issue #30/Notion role and API docs updated to same-level assignment semantics.
 - Forbidden-term scan: no source/test/API-doc violations for the configured forbidden terms or single `optionId` request field.
 
 ## Evidence
 
 - API tests: `CampusControllerTest`
 - Application tests: `CampusServiceTest`
+- Concurrency tests: `CampusDutyAssignmentConcurrencyTest`
 - REST Docs tests: `CampusApiRestDocsTest`
 - API docs index: `src/docs/asciidoc/index.adoc`
