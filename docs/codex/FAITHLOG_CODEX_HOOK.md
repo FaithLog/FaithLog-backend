@@ -125,6 +125,26 @@ status = UNPAID
 
 관리자는 캠퍼스별 납부 계좌를 미리 등록한다.
 
+Issue #34 계좌 관리 API 기준:
+
+```text
+GET   /api/v1/campuses/{campusId}/payment-accounts
+POST  /api/v1/admin/campuses/{campusId}/payment-accounts
+PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate
+```
+
+계좌 조회는 해당 캠퍼스의 모든 ACTIVE 멤버가 사용할 수 있다.
+
+계좌 등록과 비활성화는 캠퍼스 관리자 권한이 필요하다.
+
+캠퍼스별 활성 계좌는 `account_type`별로 1개만 허용한다.
+
+새 계좌를 활성으로 등록하면 같은 캠퍼스와 같은 `account_type`의 기존 활성 계좌는 자동 비활성화하고, 새 계좌만 활성 상태로 둔다.
+
+계좌 조회 응답은 납부에 필요하므로 계좌번호를 전체 노출한다. 단, 일반 멤버 조회 응답에는 관리용 정보가 필요 이상으로 노출되지 않게 한다.
+
+계좌는 기존 미납 청구가 있어도 비활성화할 수 있다. 새 활성 계좌가 등록되면 기존 `UNPAID` 청구는 새 활성 계좌로 재연결하고 계좌 snapshot도 새 계좌 정보로 갱신한다. 이미 종료된 `PAID`, `WAIVED`, `CANCELED` 청구의 snapshot은 과거 기록으로 유지한다.
+
 벌금 청구 생성 시 활성 PENALTY 계좌를 자동 연결한다.
 
 ```text
@@ -150,6 +170,8 @@ account_holder_snapshot
 ```
 
 활성 계좌가 없는 경우에는 조용히 청구를 생성하지 말고, 명확한 예외 또는 실패 결과를 반환한다.
+
+Issue #34는 청구 기반 서비스까지만 구현하고, 실제 경건생활 제출과 커피 투표 응답 흐름 연결은 각각 Issue #33과 Issue #39에서 처리한다.
 
 ### 3.6 청구 타입 기준
 
@@ -203,6 +225,15 @@ PATCH /api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid
 
 ```text
 PATCH /api/v1/admin/charges/{chargeItemId}/status
+```
+
+청구 조회 API:
+
+```text
+GET /api/v1/campuses/{campusId}/charges/me
+GET /api/v1/campuses/{campusId}/charges/me/summary
+GET /api/v1/admin/campuses/{campusId}/charges
+GET /api/v1/admin/campuses/{campusId}/members/{userId}/charges
 ```
 
 금지:
