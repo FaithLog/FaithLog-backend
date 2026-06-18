@@ -323,6 +323,24 @@ MVP에서 커피 주문 투표는 단일 선택 기본이다.
 
 ### 3.11 캠퍼스 역할 기준
 
+서비스 전체 역할은 `users.role`로 관리한다.
+
+```text
+USER
+MANAGER
+ADMIN
+```
+
+`MANAGER`와 `ADMIN`은 캠퍼스를 생성할 수 있다.
+
+`MANAGER`가 캠퍼스를 생성하면 해당 사용자는 생성한 캠퍼스에 `MINISTER + ACTIVE` 멤버십으로 등록된다.
+
+`MANAGER`는 캠퍼스 생성 가능 전역 역할이며, 캠퍼스 내부 관리 권한 자체가 아니다.
+
+캠퍼스 내부 관리 권한은 `users.role = MANAGER`가 아니라 `campus_members.campus_role` 기준으로 판단한다.
+
+`ADMIN`은 전체 캠퍼스 상세에 접근할 수 있다.
+
 `CampusRole`은 아래 값만 사용한다.
 
 ```text
@@ -332,6 +350,28 @@ CAMPUS_LEADER
 MEMBER
 ```
 
+초대코드 노출 기준:
+
+- 캠퍼스 생성 응답에는 `inviteCode`를 포함한다.
+- `ADMIN`, `MINISTER`, `ELDER`, `CAMPUS_LEADER`는 초대코드를 조회할 수 있다.
+- 일반 `MEMBER`의 캠퍼스 상세 조회 응답에는 `inviteCode`를 노출하지 않는다.
+
+`GET /api/v1/campuses/me`는 MVP에서 현재 사용자의 `ACTIVE` 캠퍼스 멤버십만 반환한다.
+
+캠퍼스 멤버 삭제 API:
+
+```text
+DELETE /api/v1/campuses/{campusId}/members/{membershipId}
+```
+
+캠퍼스 멤버 삭제는 `campus_members.status = INACTIVE`로 처리한다.
+
+캠퍼스 멤버 관리는 `ADMIN`, `MINISTER`, `ELDER`, `CAMPUS_LEADER`가 할 수 있다.
+
+일반 캠퍼스 `MEMBER`는 캠퍼스 멤버를 관리하거나 삭제할 수 없다.
+
+비활성화된 멤버가 초대코드로 다시 가입하면 기존 멤버십을 `ACTIVE + MEMBER`로 재활성화한다.
+
 커피 담당자는 `CampusRole`로 처리하지 않는다.
 
 커피 담당자는 아래 구조로 분리한다.
@@ -340,6 +380,38 @@ MEMBER
 CampusDutyAssignment
 DutyType.COFFEE
 ```
+
+캠퍼스당 활성 `DutyType.COFFEE` 담당자는 1명만 둔다.
+
+Issue #30 커피 담당자 API 기준:
+
+```text
+GET    /api/v1/admin/campuses/{campusId}/duty-assignments
+PUT    /api/v1/admin/campuses/{campusId}/duty-assignments/coffee
+DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}
+```
+
+Issue #30 캠퍼스 역할 변경 API 기준:
+
+```text
+GET   /api/v1/admin/campuses/{campusId}/members
+PATCH /api/v1/admin/campuses/{campusId}/members/{campusMemberId}/campus-role
+```
+
+`campusMemberId`는 `campus_members.id`를 의미한다.
+
+캠퍼스 역할 변경 위계는 아래 순서를 따른다.
+
+```text
+MINISTER > ELDER > CAMPUS_LEADER > MEMBER
+```
+
+- `MINISTER`는 `ELDER`, `CAMPUS_LEADER`, `MEMBER` 역할을 변경할 수 있다.
+- `ELDER`는 `CAMPUS_LEADER`, `MEMBER` 역할을 변경할 수 있지만 `MINISTER`는 변경할 수 없다.
+- `CAMPUS_LEADER`는 `MEMBER` 역할만 변경할 수 있고 `MINISTER`, `ELDER`는 변경할 수 없다.
+- `MEMBER`는 역할을 변경할 수 없다.
+- 서비스 전체 `ADMIN`은 모든 캠퍼스 멤버 역할을 변경할 수 있다.
+- 마지막 캠퍼스 관리 역할 보유자를 `MEMBER`로 내리는 것은 막지 않는다.
 
 ### 3.12 FCM 알림 기준
 
@@ -407,6 +479,7 @@ GET /api/v1/admin/campuses/{campusId}/notification-logs
 - 커피 투표 응답 시 COFFEE 청구 자동 생성 또는 갱신
 - 커피 투표 계좌 snapshot 저장
 - CampusRole 권한 변경
+- CampusMember 삭제 권한 검증 및 INACTIVE 상태 전이
 - CampusDutyAssignment 커피 담당자 지정/해제
 
 ## 6. 아키텍처 규칙
