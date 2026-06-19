@@ -248,6 +248,13 @@ Penalty rule APIs for issue #32:
 
 Issue #32 implements penalty rule management and fine calculation only. It must not create or update `charge_items`; weekly devotion submission to `PENALTY` charge integration belongs to issue #33.
 
+Penalty calculation integration note:
+
+- `DevotionFineCalculator` is a calculation-only Domain Service and assumes validated weekly summary input.
+- Issue #31 rejects negative `saturdayLateMinutes` values at the weekly save/submit request boundary.
+- Issue #33 must keep or add tests proving negative `saturdayLateMinutes` cannot reach the calculator when weekly devotion submission is wired to `PENALTY` charge generation.
+- If needed during issue #33, add an application-layer guard immediately before calculator invocation without changing the issue #32 calculator contract.
+
 Penalty rule replacement and validation:
 
 - Creating a new ACTIVE penalty rule for the same campus and `rule_type` automatically deactivates the previous ACTIVE rule and leaves only the new rule active.
