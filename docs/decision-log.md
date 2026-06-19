@@ -163,6 +163,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Issue #31 includes both daily check and weekly save/submit flows. The daily check API is `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}` and creates or updates the matching `devotion_daily_checks` row while synchronizing the weekly row if missing. Daily checks never update `submitted_at` and never create or update `PENALTY` charges. The weekly API remains `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}` and uses request field `dailyChecks`. Weekly submission creates or updates Monday-Sunday daily rows, fills missing submission dates with false defaults, updates `weekly_devotion_records.submitted_at` when `submit = true`, and uses `weekly_devotion_records.submitted_at` as the submission/missing-user source of truth.
 - Impact: Issue #31 development must implement the daily API and weekly API together. Issue #33 remains responsible for the final penalty charge integration, but #31 tests must prove daily checks do not trigger submission or billing behavior.
 
+### 2026-06-19 - Monthly Devotion Statistics Split From Issue #31
+
+- Context: Notion includes a monthly devotion statistics page, but Issue #31 already covers daily check, weekly save/submit, weekly read, and admin missing-user lookup.
+- Decision: Monthly devotion statistics are excluded from Issue #31 and must be tracked as a separate GitHub Issue.
+- Impact: Issue #31 stays focused on the daily/weekly submission flow. Monthly statistics development must verify the final Notion 10.5 API and response contract before implementation instead of guessing the API path or aggregation rules.
+
 ### 2026-06-17 - Pagination Sorting Redis TTL And Notification Failure Policies
 
 - Context: The user approved the recommended implementation policies for list APIs, Redis token TTLs, and notification failure handling.
