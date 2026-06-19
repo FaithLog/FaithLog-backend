@@ -49,6 +49,14 @@ docs/{issueNumber}-{summary}
 10. Issue 본문에 수동 상태 줄을 쓰지 않는다. Project Board Status를 상태의 진실 원천으로 사용한다.
 11. 최종 보고에는 Issue 번호, 카드 생성/연결 여부, 카드 상태 변경 여부를 반드시 포함한다.
 
+## 2.1 커밋 메시지 Hook 규칙
+
+1. 저장소의 `core.hooksPath`는 `.githooks`를 사용한다.
+2. `.githooks/commit-msg`는 버전 관리 대상이며 실행 권한을 유지한다.
+3. 커밋 제목은 `<분류>: #<이슈번호> <한국어 작업 요약>` 형식을 따른다.
+4. 허용 분류는 `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `build`, `style`, `release`이다.
+5. 커밋 제목에는 `#숫자` 이슈 번호와 한글 작업 요약이 반드시 포함되어야 한다.
+
 ## 3. FaithLog 최종 설계 기준
 
 ### 3.1 운영 단위
