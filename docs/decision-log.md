@@ -22,6 +22,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: If `weekly_devotion_records.submitted_at` already exists for the same campus, user, and week, both duplicate `submit = true` requests and post-submission `submit = false` saves fail with `DEVOTION_WEEKLY_ALREADY_SUBMITTED`, HTTP `409 CONFLICT`, and the user-facing message `이미 제출된 주간 경건생활은 수정할 수 없습니다.`
 - Impact: The devotion submission boundary blocks same-week resubmission before billing reruns. The generated `PENALTY` charge for the first submission is not recalculated or overwritten through the normal weekly devotion API.
 
+### 2026-06-19 - Issue #33 Daily Devotion Check After Weekly Submission
+
+- Context: The one-time weekly devotion submission policy also needs to prevent the daily check API from changing the same week's source rows after final submission. Otherwise the weekly summary and generated `PENALTY` charge can diverge.
+- Decision: If `weekly_devotion_records.submitted_at` already exists for the campus, user, and week containing `recordDate`, `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}` must fail with `DEVOTION_WEEKLY_ALREADY_SUBMITTED`, HTTP `409 CONFLICT`, and the existing user-facing message `이미 제출된 주간 경건생활은 수정할 수 없습니다.`
+- Impact: After final weekly submission, daily check requests for the same week must not create or update `weekly_devotion_records`, `devotion_daily_checks`, or `charge_items`. This preserves the MVP rule that same-week record modification, recalculation, and delta charge flows are excluded.
+
 ### 2026-06-19 - Issue #33 One-Time Weekly Devotion Submission
 
 - Context: Issue #33 connects weekly devotion submission to automatic `PENALTY` charge creation. A previous open question asked how to handle resubmitting a weekly devotion record after the generated charge became terminal.

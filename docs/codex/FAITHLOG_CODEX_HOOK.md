@@ -99,6 +99,7 @@ POST /api/v1/auth/reissue
 - `weekly_devotion_records`는 주간 요약 및 벌금 계산용이다.
 - 하루 경건생활 체크 API는 해당 날짜의 daily row를 생성 또는 수정하고, 해당 주차의 weekly row가 없으면 함께 생성한다.
 - 하루 체크만으로는 `submitted_at`을 변경하지 않고 벌금 계산이나 `PENALTY` 청구 생성/갱신을 수행하지 않는다.
+- 단, 해당 주차의 `weekly_devotion_records.submitted_at`이 이미 있으면 하루 체크 API도 `DEVOTION_WEEKLY_ALREADY_SUBMITTED`로 실패하며 weekly/daily/charge row를 생성하거나 수정하지 않는다.
 - 주간 경건생활 제출 API는 월요일부터 일요일까지 7일치 daily row를 생성 또는 수정한다.
 - 주간 저장/제출 요청 필드명은 `dailyChecks`를 사용한다.
 - 주간 제출 시 요청에 없는 날짜는 false 기본값으로 채운다.
