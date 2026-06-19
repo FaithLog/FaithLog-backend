@@ -9,8 +9,15 @@ import com.faithlog.campus.domain.Campus;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusMemberStatus;
 import com.faithlog.devotion.domain.DevotionDailyCheck;
+import com.faithlog.devotion.domain.DevotionFineCalculationInput;
+import com.faithlog.devotion.domain.DevotionFineCalculationResult;
+import com.faithlog.devotion.domain.DevotionFineCalculator;
+import com.faithlog.devotion.domain.PenaltyRule;
 import com.faithlog.devotion.domain.WeeklyDevotionRecord;
+import com.faithlog.devotion.application.port.DevotionPenaltyChargeCommand;
+import com.faithlog.devotion.application.port.DevotionPenaltyChargePort;
 import com.faithlog.devotion.infrastructure.jpa.DevotionDailyCheckRepository;
+import com.faithlog.devotion.infrastructure.jpa.PenaltyRuleRepository;
 import com.faithlog.devotion.infrastructure.jpa.WeeklyDevotionRecordRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -29,24 +36,35 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class DevotionService {
 
+	private static final String PENALTY_CHARGE_TITLE = "경건생활 벌금";
+
 	private final WeeklyDevotionRecordRepository weeklyRecordRepository;
 	private final DevotionDailyCheckRepository dailyCheckRepository;
+	private final PenaltyRuleRepository penaltyRuleRepository;
 	private final CampusRepositoryPort campusRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
+	private final DevotionFineCalculator fineCalculator;
+	private final DevotionPenaltyChargePort penaltyChargePort;
 
 	public DevotionService(
 		WeeklyDevotionRecordRepository weeklyRecordRepository,
 		DevotionDailyCheckRepository dailyCheckRepository,
+		PenaltyRuleRepository penaltyRuleRepository,
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
-		CampusUserLookupPort userLookupPort
+		CampusUserLookupPort userLookupPort,
+		DevotionFineCalculator fineCalculator,
+		DevotionPenaltyChargePort penaltyChargePort
 	) {
 		this.weeklyRecordRepository = weeklyRecordRepository;
 		this.dailyCheckRepository = dailyCheckRepository;
+		this.penaltyRuleRepository = penaltyRuleRepository;
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
+		this.fineCalculator = fineCalculator;
+		this.penaltyChargePort = penaltyChargePort;
 	}
 
 	@Transactional
@@ -54,7 +72,17 @@ public class DevotionService {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		requireActiveCampusMember(command.campusId(), requester.userId());
 		LocalDate weekStartDate = command.recordDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-		WeeklyDevotionRecord weeklyRecord = getOrCreateWeeklyRecord(command.campusId(), requester.userId(), weekStartDate);
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(command.campusId(), requester.userId(), weekStartDate)
+			.orElse(null);
+		validateNotSubmitted(weeklyRecord);
+		if (weeklyRecord == null) {
+			weeklyRecord = weeklyRecordRepository.save(WeeklyDevotionRecord.create(
+				command.campusId(),
+				requester.userId(),
+				weekStartDate
+			));
+		}
 		DevotionDailyCheck dailyCheck = upsertDailyCheck(
 			weeklyRecord.id(),
 			command.recordDate(),
@@ -74,7 +102,21 @@ public class DevotionService {
 		validateDailyChecksInWeek(command.weekStartDate(), command.dailyChecks());
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		requireActiveCampusMember(command.campusId(), requester.userId());
-		WeeklyDevotionRecord weeklyRecord = getOrCreateWeeklyRecord(command.campusId(), requester.userId(), command.weekStartDate());
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(command.campusId(), requester.userId(), command.weekStartDate())
+			.orElse(null);
+		validateNotSubmitted(weeklyRecord);
+		if (command.submit()) {
+			penaltyChargePort.requireActivePenaltyAccount(command.campusId());
+		}
+		if (weeklyRecord == null) {
+			weeklyRecord = weeklyRecordRepository.save(WeeklyDevotionRecord.create(
+				command.campusId(),
+				requester.userId(),
+				command.weekStartDate()
+			));
+		}
+		WeeklyDevotionRecord targetWeeklyRecord = weeklyRecord;
 		Map<LocalDate, DevotionDailyCheckCommand> requestedChecks = command.dailyChecks().stream()
 			.collect(Collectors.toMap(
 				DevotionDailyCheckCommand::recordDate,
@@ -88,7 +130,7 @@ public class DevotionService {
 				new DevotionDailyCheckCommand(recordDate, false, false, false)
 			);
 			upsertDailyCheck(
-				weeklyRecord.id(),
+				targetWeeklyRecord.id(),
 				recordDate,
 				dailyCommand.quietTimeChecked(),
 				dailyCommand.prayerChecked(),
@@ -96,11 +138,45 @@ public class DevotionService {
 			);
 		});
 
-		List<DevotionDailyCheck> dailyChecks = refreshWeeklySummary(weeklyRecord, command.saturdayLateMinutes());
+		List<DevotionDailyCheck> dailyChecks = refreshWeeklySummary(targetWeeklyRecord, command.saturdayLateMinutes());
 		if (command.submit()) {
-			weeklyRecord.submit(Instant.now());
+			targetWeeklyRecord.submit(Instant.now());
+			createPenaltyCharge(command, requester.userId(), targetWeeklyRecord);
 		}
-		return WeeklyDevotionResult.of(weeklyRecord, getCampusOrThrow(command.campusId()), dailyChecks);
+		return WeeklyDevotionResult.of(targetWeeklyRecord, getCampusOrThrow(command.campusId()), dailyChecks);
+	}
+
+	private void validateNotSubmitted(WeeklyDevotionRecord weeklyRecord) {
+		if (weeklyRecord != null && weeklyRecord.submittedAt() != null) {
+			throw new BusinessException(ErrorCode.DEVOTION_WEEKLY_ALREADY_SUBMITTED);
+		}
+	}
+
+	private void createPenaltyCharge(
+		UpdateWeeklyDevotionCommand command,
+		Long userId,
+		WeeklyDevotionRecord weeklyRecord
+	) {
+		List<PenaltyRule> activeRules = penaltyRuleRepository.findByCampusIdOrderByIdAsc(command.campusId())
+			.stream()
+			.filter(PenaltyRule::isActive)
+			.toList();
+		DevotionFineCalculationResult calculation = fineCalculator.calculate(new DevotionFineCalculationInput(
+			weeklyRecord.quietTimeCount(),
+			weeklyRecord.prayerCount(),
+			weeklyRecord.bibleReadingCount(),
+			weeklyRecord.saturdayLateMinutes()
+		), activeRules);
+
+		penaltyChargePort.createPenaltyCharge(new DevotionPenaltyChargeCommand(
+			command.campusId(),
+			userId,
+			weeklyRecord.id(),
+			PENALTY_CHARGE_TITLE,
+			command.weekStartDate() + " 주간",
+			calculation.totalAmount(),
+			command.weekStartDate().plusDays(7)
+		));
 	}
 
 	@Transactional(readOnly = true)

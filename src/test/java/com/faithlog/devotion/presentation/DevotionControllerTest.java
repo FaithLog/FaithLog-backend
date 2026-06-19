@@ -9,11 +9,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.billing.application.BillingService;
+import com.faithlog.billing.application.CreatePaymentAccountCommand;
+import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
+import com.faithlog.devotion.domain.PenaltyCalculationType;
+import com.faithlog.devotion.domain.PenaltyRule;
+import com.faithlog.devotion.domain.PenaltyRuleType;
 import com.faithlog.devotion.infrastructure.jpa.DevotionDailyCheckRepository;
+import com.faithlog.devotion.infrastructure.jpa.PenaltyRuleRepository;
 import com.faithlog.devotion.infrastructure.jpa.WeeklyDevotionRecordRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
@@ -42,6 +49,9 @@ class DevotionControllerTest {
 	private UserRepository userRepository;
 
 	@Autowired
+	private BillingService billingService;
+
+	@Autowired
 	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
@@ -51,16 +61,22 @@ class DevotionControllerTest {
 	private DevotionDailyCheckRepository dailyCheckRepository;
 
 	@Autowired
+	private PenaltyRuleRepository penaltyRuleRepository;
+
+	@Autowired
 	private ChargeItemRepository chargeItemRepository;
 
 	@Test
 	void daily_and_weekly_devotion_apis_create_update_and_read_my_week() throws Exception {
 		String managerToken = signupAndLogin("devotion-http-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("devotion-http-manager@example.com").orElseThrow();
 		JsonNode campus = createCampus(managerToken, "70캠");
 		long campusId = campus.path("campusId").asLong();
 		String memberToken = signupAndLogin("devotion-http-member@example.com", UserRole.USER);
 		User member = userRepository.findByEmail("devotion-http-member@example.com").orElseThrow();
 		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-201");
+		long chargeCountBeforeDailyCheck = chargeItemRepository.count();
 
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/days/{recordDate}", campusId, "2026-06-17")
 				.header("Authorization", "Bearer " + memberToken)
@@ -89,7 +105,7 @@ class DevotionControllerTest {
 			member.id(),
 			java.time.LocalDate.of(2026, 6, 15)
 		)).isPresent();
-		assertThat(chargeItemRepository.count()).isZero();
+		assertThat(chargeItemRepository.count()).isEqualTo(chargeCountBeforeDailyCheck);
 
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
 				.header("Authorization", "Bearer " + memberToken)
@@ -130,7 +146,7 @@ class DevotionControllerTest {
 			.orElseThrow()
 			.id();
 		assertThat(dailyCheckRepository.findByWeeklyRecordIdOrderByRecordDateAsc(weeklyRecordId)).hasSize(7);
-		assertThat(chargeItemRepository.count()).isZero();
+		assertThat(chargeItemRepository.count()).isEqualTo(chargeCountBeforeDailyCheck + 1);
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
 				.header("Authorization", "Bearer " + memberToken))
@@ -224,6 +240,48 @@ class DevotionControllerTest {
 			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_SATURDAY_LATE_MINUTES"))
 			.andExpect(jsonPath("$.message").value("saturdayLateMinutes는 0 이상이어야 합니다."));
+	}
+
+	@Test
+	void daily_api_rejects_same_week_change_after_weekly_record_was_submitted() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-daily-after-submit-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("devotion-http-daily-after-submit-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "77캠");
+		long campusId = campus.path("campusId").asLong();
+		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-203");
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-17",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 0,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/days/{recordDate}", campusId, "2026-06-17")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "quietTimeChecked": false,
+					  "prayerChecked": false,
+					  "bibleReadingChecked": false
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("DEVOTION_WEEKLY_ALREADY_SUBMITTED"))
+			.andExpect(jsonPath("$.message").value("이미 제출된 주간 경건생활은 수정할 수 없습니다."));
 	}
 
 	@Test
@@ -325,6 +383,7 @@ class DevotionControllerTest {
 	@Test
 	void admin_missing_uses_submitted_at_and_requires_campus_manager() throws Exception {
 		String managerToken = signupAndLogin("devotion-http-missing-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("devotion-http-missing-manager@example.com").orElseThrow();
 		JsonNode campus = createCampus(managerToken, "72캠");
 		long campusId = campus.path("campusId").asLong();
 		String submittedToken = signupAndLogin("devotion-http-submitted@example.com", UserRole.USER);
@@ -335,6 +394,7 @@ class DevotionControllerTest {
 		joinCampus(unsubmittedToken, campus.path("inviteCode").asText());
 		String normalToken = signupAndLogin("devotion-http-normal@example.com", UserRole.USER);
 		joinCampus(normalToken, campus.path("inviteCode").asText());
+		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-202");
 
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
 				.header("Authorization", "Bearer " + managerToken)
@@ -437,6 +497,25 @@ class DevotionControllerTest {
 			.getResponse()
 			.getContentAsString();
 		return objectMapper.readTree(body).path("data");
+	}
+
+	private void createPenaltyPrerequisites(long campusId, long managerId, String accountNumber) {
+		penaltyRuleRepository.saveAllAndFlush(java.util.List.of(
+			PenaltyRule.create(campusId, PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.PRAYER, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.BIBLE_READING, PenaltyCalculationType.MISSING_COUNT, 5, 0, 300),
+			PenaltyRule.create(campusId, PenaltyRuleType.SATURDAY_LATE, PenaltyCalculationType.LATE_MINUTE, 0, 1000, 100)
+		));
+		billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			managerId,
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"하나은행",
+			accountNumber,
+			"벌금회계",
+			null
+		));
 	}
 
 	private String signupAndLogin(String email, UserRole role) throws Exception {
