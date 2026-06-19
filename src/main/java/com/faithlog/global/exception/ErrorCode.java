@@ -22,6 +22,11 @@ public enum ErrorCode {
 	CAMPUS_NOT_FOUND(HttpStatus.NOT_FOUND, "캠퍼스를 찾을 수 없습니다."),
 	CAMPUS_INVITE_CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "초대코드 생성에 실패했습니다."),
 
+	DEVOTION_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
+	DEVOTION_WEEKLY_RECORD_NOT_FOUND(HttpStatus.NOT_FOUND, "주간 경건생활 기록을 찾을 수 없습니다."),
+	DEVOTION_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "경건생활 접근 권한이 없습니다."),
+	DEVOTION_ADMIN_FORBIDDEN(HttpStatus.FORBIDDEN, "경건생활 관리자 권한이 없습니다."),
+
 	BILLING_INVALID_PAGE(HttpStatus.BAD_REQUEST, "페이지 번호는 0 이상이어야 합니다."),
 	BILLING_INVALID_SIZE(HttpStatus.BAD_REQUEST, "페이지 크기는 1 이상 100 이하이어야 합니다."),
 	BILLING_INVALID_SORT_FORMAT(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 형식입니다."),

@@ -484,6 +484,132 @@ include::{snippets}/admin-coffee-duty-revoke-success/path-parameters.adoc[]
 
 include::{snippets}/admin-coffee-duty-revoke-success/http-response.adoc[]
 
+== Devotion
+
+=== Update Daily Devotion Check
+
+`PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}`
+
+하루 체크는 해당 날짜의 `devotion_daily_checks` row를 생성 또는 수정하고, 같은 주차의 `weekly_devotion_records` row가 없으면 함께 생성한다. 하루 체크만으로는 `submittedAt`을 변경하지 않고 벌금 계산이나 `PENALTY` 청구 생성/갱신을 수행하지 않는다.
+
+==== Request
+
+include::{snippets}/devotion-daily-check-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-daily-check-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-daily-check-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/devotion-daily-check-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-daily-check-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-daily-check-success/response-fields.adoc[]
+
+=== Save Or Submit Weekly Devotion
+
+`PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
+
+`weekStartDate`는 월요일만 허용한다. 주간 저장/제출은 월요일부터 일요일까지 7일치 daily row를 생성 또는 수정하고, 요청에 없는 날짜는 false 기본값으로 채운다. #31에서는 `submit = true`일 때 `submittedAt`과 주간 요약값만 갱신하며, 실제 `PENALTY` 청구 생성/갱신은 #33 범위로 분리한다.
+
+==== Request
+
+include::{snippets}/devotion-weekly-save-submit-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-weekly-save-submit-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-weekly-save-submit-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/devotion-weekly-save-submit-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-weekly-save-submit-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-weekly-save-submit-success/response-fields.adoc[]
+
+=== Get My Weekly Devotion
+
+`GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
+
+현재 로그인 사용자의 특정 주차 경건생활 기록을 조회한다.
+
+==== Request
+
+include::{snippets}/devotion-my-week-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-my-week-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-my-week-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-my-week-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-my-week-success/response-fields.adoc[]
+
+=== Get Admin Missing Devotion Members
+
+`GET /api/v1/admin/campuses/{campusId}/devotions/missing?weekStartDate={weekStartDate}`
+
+캠퍼스 관리자 또는 전역 `ADMIN`이 특정 주차 경건생활 미제출자를 조회한다. 미제출 기준은 daily row 존재 여부가 아니라 `weekly_devotion_records.submitted_at`이다.
+
+==== Request
+
+include::{snippets}/devotion-admin-missing-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-admin-missing-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-admin-missing-success/path-parameters.adoc[]
+
+==== Query Parameters
+
+include::{snippets}/devotion-admin-missing-success/query-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-admin-missing-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-admin-missing-success/response-fields.adoc[]
+
+=== Invalid Week Start Date
+
+include::{snippets}/devotion-invalid-week-start-date/http-request.adoc[]
+
+include::{snippets}/devotion-invalid-week-start-date/http-response.adoc[]
+
+include::{snippets}/devotion-invalid-week-start-date/response-fields.adoc[]
+
 == Billing
 
 === Create Payment Account
