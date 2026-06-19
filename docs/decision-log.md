@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #37 Compose Coffee Seed Source Override
+
+- Context: Issue #37 originally required seeding Compose Coffee menu prices only from official Compose Coffee menu boards, official app data, or official menu images. During development, official web access was blocked and the user provided a 2026 Compose Coffee menu/price text list from a blog source after being told the official-source requirement was blocking implementation.
+- Decision: For Issue #37, use the user-provided 2026 Compose Coffee menu/price list as the approved seed source. Record that this is a user-approved override of the earlier official-source-only seed constraint for this implementation session.
+- Impact: `coffee_menu_catalog` seed data for Issue #37 should reflect the user-provided menu names and prices. The implementation record must mention that the seed source was user-provided and not independently verified from an official Compose Coffee endpoint.
+
 ### 2026-06-19 - Issue #61 Service Admin User And Campus Management API Contract
 
 - Context: Issue #61 implements service-level `ADMIN` user and campus management APIs. The issue had approved behavior but left several REST Docs contract details open, including response field names, allowed sort fields, and the last-admin protection query basis.
