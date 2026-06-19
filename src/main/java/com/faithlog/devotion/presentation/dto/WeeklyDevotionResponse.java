@@ -1,12 +1,10 @@
 package com.faithlog.devotion.presentation.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.faithlog.devotion.application.WeeklyDevotionResult;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public record WeeklyDevotionResponse(
 	Long weeklyRecordId,
 	Long campusId,

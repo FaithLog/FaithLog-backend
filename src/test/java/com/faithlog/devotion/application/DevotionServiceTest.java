@@ -214,6 +214,55 @@ class DevotionServiceTest {
 	}
 
 	@Test
+	void getMyWeeklyCheck_returns_default_week_without_creating_rows_when_record_is_missing() {
+		User manager = saveUser("devotion-empty-week-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "67캠");
+		User member = saveUser("devotion-empty-week-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		WeeklyDevotionResult result = devotionService.getMyWeeklyCheck(new GetMyWeeklyDevotionQuery(
+			campus.campusId(),
+			member.id(),
+			weekStartDate
+		));
+
+		assertThat(result.weeklyRecordId()).isNull();
+		assertThat(result.userId()).isEqualTo(member.id());
+		assertThat(result.weekStartDate()).isEqualTo(weekStartDate);
+		assertThat(result.weekEndDate()).isEqualTo(LocalDate.of(2026, 6, 21));
+		assertThat(result.quietTimeCount()).isZero();
+		assertThat(result.prayerCount()).isZero();
+		assertThat(result.bibleReadingCount()).isZero();
+		assertThat(result.saturdayLateMinutes()).isZero();
+		assertThat(result.submittedAt()).isNull();
+		assertThat(result.dailyChecks())
+			.hasSize(7)
+			.allSatisfy(check -> {
+				assertThat(check.id()).isNull();
+				assertThat(check.quietTimeChecked()).isFalse();
+				assertThat(check.prayerChecked()).isFalse();
+				assertThat(check.bibleReadingChecked()).isFalse();
+			})
+			.extracting(DailyDevotionCheckResult::recordDate)
+			.containsExactly(
+				weekStartDate,
+				weekStartDate.plusDays(1),
+				weekStartDate.plusDays(2),
+				weekStartDate.plusDays(3),
+				weekStartDate.plusDays(4),
+				weekStartDate.plusDays(5),
+				weekStartDate.plusDays(6)
+			);
+		assertThat(weeklyRecordRepository.findByCampusIdAndUserIdAndWeekStartDate(
+			campus.campusId(),
+			member.id(),
+			weekStartDate
+		)).isEmpty();
+		assertThat(dailyCheckRepository.count()).isZero();
+	}
+
+	@Test
 	void weeklyCheck_rejects_non_monday_and_devotion_apis_require_active_campus_member() {
 		User manager = saveUser("devotion-auth-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "63캠");

@@ -108,12 +108,16 @@ public class DevotionService {
 		validateMonday(query.weekStartDate());
 		CampusUserLookupResult requester = getActiveUser(query.requesterId());
 		requireActiveCampusMember(query.campusId(), requester.userId());
+		Campus campus = getCampusOrThrow(query.campusId());
 		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
 			.findByCampusIdAndUserIdAndWeekStartDate(query.campusId(), requester.userId(), query.weekStartDate())
-			.orElseThrow(() -> new BusinessException(ErrorCode.DEVOTION_WEEKLY_RECORD_NOT_FOUND));
+			.orElse(null);
+		if (weeklyRecord == null) {
+			return WeeklyDevotionResult.defaultOf(campus, requester.userId(), query.weekStartDate());
+		}
 		return WeeklyDevotionResult.of(
 			weeklyRecord,
-			getCampusOrThrow(query.campusId()),
+			campus,
 			dailyCheckRepository.findByWeeklyRecordIdOrderByRecordDateAsc(weeklyRecord.id())
 		);
 	}

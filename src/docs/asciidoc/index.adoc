@@ -550,7 +550,7 @@ include::{snippets}/devotion-weekly-save-submit-success/response-fields.adoc[]
 
 `GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
 
-현재 로그인 사용자의 특정 주차 경건생활 기록을 조회한다.
+현재 로그인 사용자의 특정 주차 경건생활 기록을 조회한다. 해당 주차 row가 아직 없으면 404를 반환하지 않고 월요일부터 일요일까지 7일치 기본 응답을 반환한다. 기본 응답은 체크값이 모두 false이고, 요약 count와 `saturdayLateMinutes`는 0이며, `weeklyRecordId`, `submittedAt`, `dailyChecks[].id`는 null이다. 조회 API는 기본 응답을 만들기 위해 DB row를 생성하지 않는다.
 
 ==== Request
 
@@ -571,6 +571,30 @@ include::{snippets}/devotion-my-week-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/devotion-my-week-success/response-fields.adoc[]
+
+=== Get My Weekly Devotion Default
+
+`GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
+
+==== Request
+
+include::{snippets}/devotion-my-week-default-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-my-week-default-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-my-week-default-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-my-week-default-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-my-week-default-success/response-fields.adoc[]
 
 === Get Admin Missing Devotion Members
 

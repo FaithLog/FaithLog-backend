@@ -13,9 +13,9 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 98 tests / 0 failures) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 101 tests / 0 failures) | 100% |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 23 test files (2026-06-19) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 39 snippet groups (2026-06-19) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 40 snippet groups (2026-06-19) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-19) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
@@ -44,6 +44,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 추가 테스트: 서비스 검증 2개, 컨트롤러 400 응답 2개, REST Docs 에러 계약 2개.
   - 재검증: 대상 테스트 묶음 성공, `./gradlew test --rerun-tasks` 성공(98 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
   - REST Docs 결과: `devotion-daily-check-date-out-of-week`, `devotion-invalid-saturday-late-minutes` snippet 추가, 전체 snippet group 39개.
+- #31 빈 주간 경건생활 조회 기본 응답 결정 반영:
+  - 문서 결정 포함: `origin/docs/31-devotion-planning-sync`의 `52b82b2 docs: #31 빈 주간 경건생활 조회 기본값 결정 기록`을 개발 브랜치에 병합.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest --tests com.faithlog.devotion.presentation.DevotionControllerTest --tests com.faithlog.devotion.presentation.DevotionApiRestDocsTest`가 19 tests / 3 failed로 실패. 서비스는 기존 `DEVOTION_WEEKLY_RECORD_NOT_FOUND` 예외를 던졌고 HTTP/REST Docs는 기본 응답 기대에서 실패.
+  - 수정: 본인 주간 조회에서 weekly row가 없으면 DB row를 생성하지 않고 월요일-일요일 7일치 false 기본 응답을 반환. `weeklyRecordId`, `submittedAt`, `dailyChecks[].id`는 null로 응답에 포함.
+  - 추가 테스트: 서비스 기본 조회/DB 미생성 1개, 컨트롤러 200 기본 응답/DB count 불변 1개, REST Docs 기본 성공 계약 1개.
+  - 재검증: 대상 테스트 묶음 성공, `./gradlew test --rerun-tasks` 성공(101 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
+  - REST Docs 결과: `devotion-my-week-default-success` snippet 추가, 전체 snippet group 40개.
 - #55 공통 에러 코드와 요청 검증 구조 리팩토링:
   - 브랜치: `refactor/55-error-validation-structure`
   - TDD 실패 확인: 세부 error code, 잘못된 `page`/`size`/`sort` 400 응답, Bean Validation 실패 code, billing/campus/auth 주요 예외 code, REST Docs 대표 에러 응답 계약 테스트를 먼저 추가. 구현 전 대상 테스트 묶음은 28 tests / 12 failed로 실패.

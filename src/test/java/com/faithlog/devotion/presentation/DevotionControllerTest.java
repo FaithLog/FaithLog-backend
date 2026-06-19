@@ -227,6 +227,56 @@ class DevotionControllerTest {
 	}
 
 	@Test
+	void my_week_api_returns_default_week_when_record_is_missing() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-empty-week-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "75캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("devotion-http-empty-week-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("devotion-http-empty-week-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		long weeklyRecordCountBefore = weeklyRecordRepository.count();
+		long dailyCheckCountBefore = dailyCheckRepository.count();
+
+		String body = mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campusId,
+				"2026-06-15")
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.weekStartDate").value("2026-06-15"))
+			.andExpect(jsonPath("$.data.weekEndDate").value("2026-06-21"))
+			.andExpect(jsonPath("$.data.quietTimeCount").value(0))
+			.andExpect(jsonPath("$.data.prayerCount").value(0))
+			.andExpect(jsonPath("$.data.bibleReadingCount").value(0))
+			.andExpect(jsonPath("$.data.saturdayLateMinutes").value(0))
+			.andExpect(jsonPath("$.data.dailyChecks.length()").value(7))
+			.andExpect(jsonPath("$.data.dailyChecks[0].recordDate").value("2026-06-15"))
+			.andExpect(jsonPath("$.data.dailyChecks[6].recordDate").value("2026-06-21"))
+			.andExpect(jsonPath("$.data.dailyChecks[0].quietTimeChecked").value(false))
+			.andExpect(jsonPath("$.data.dailyChecks[0].prayerChecked").value(false))
+			.andExpect(jsonPath("$.data.dailyChecks[0].bibleReadingChecked").value(false))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+
+		JsonNode data = objectMapper.readTree(body).path("data");
+		assertThat(data.has("weeklyRecordId")).isTrue();
+		assertThat(data.path("weeklyRecordId").isNull()).isTrue();
+		assertThat(data.has("submittedAt")).isTrue();
+		assertThat(data.path("submittedAt").isNull()).isTrue();
+		assertThat(data.path("dailyChecks").get(0).has("id")).isTrue();
+		assertThat(data.path("dailyChecks").get(0).path("id").isNull()).isTrue();
+		assertThat(weeklyRecordRepository.findByCampusIdAndUserIdAndWeekStartDate(
+			campusId,
+			member.id(),
+			java.time.LocalDate.of(2026, 6, 15)
+		)).isEmpty();
+		assertThat(weeklyRecordRepository.count()).isEqualTo(weeklyRecordCountBefore);
+		assertThat(dailyCheckRepository.count()).isEqualTo(dailyCheckCountBefore);
+	}
+
+	@Test
 	void admin_missing_uses_submitted_at_and_requires_campus_manager() throws Exception {
 		String managerToken = signupAndLogin("devotion-http-missing-manager@example.com", UserRole.MANAGER);
 		JsonNode campus = createCampus(managerToken, "72캠");

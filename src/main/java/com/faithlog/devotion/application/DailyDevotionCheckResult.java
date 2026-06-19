@@ -20,4 +20,14 @@ public record DailyDevotionCheckResult(
 			dailyCheck.bibleReadingChecked()
 		);
 	}
+
+	public static DailyDevotionCheckResult unchecked(LocalDate recordDate) {
+		return new DailyDevotionCheckResult(
+			null,
+			recordDate,
+			false,
+			false,
+			false
+		);
+	}
 }

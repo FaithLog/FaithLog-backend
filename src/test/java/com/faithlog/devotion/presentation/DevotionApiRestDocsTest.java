@@ -180,6 +180,50 @@ class DevotionApiRestDocsTest {
 	}
 
 	@Test
+	void documents_devotion_my_week_default_success() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-empty-week-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "84캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-devotion-empty-week-member@example.com", UserRole.USER);
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+
+		String body = mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campusId,
+				"2026-06-15")
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.weekStartDate").value("2026-06-15"))
+			.andExpect(jsonPath("$.data.dailyChecks.length()").value(7))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+
+		JsonNode data = objectMapper.readTree(body).path("data");
+		org.assertj.core.api.Assertions.assertThat(data.has("weeklyRecordId")).isTrue();
+		org.assertj.core.api.Assertions.assertThat(data.path("weeklyRecordId").isNull()).isTrue();
+		org.assertj.core.api.Assertions.assertThat(data.has("submittedAt")).isTrue();
+		org.assertj.core.api.Assertions.assertThat(data.path("submittedAt").isNull()).isTrue();
+		org.assertj.core.api.Assertions.assertThat(data.path("dailyChecks").get(0).has("id")).isTrue();
+		org.assertj.core.api.Assertions.assertThat(data.path("dailyChecks").get(0).path("id").isNull()).isTrue();
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campusId,
+				"2026-06-15")
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andDo(document("devotion-my-week-default-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("조회할 캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("조회할 주 시작일. 월요일만 허용")
+				),
+				responseFields(apiResponseFields(weeklyResponseFields()))
+			));
+	}
+
+	@Test
 	void documents_devotion_invalid_week_start_date() throws Exception {
 		String managerToken = signupAndLogin("docs-devotion-invalid-manager@example.com", UserRole.MANAGER);
 		JsonNode campus = createCampus(managerToken, "81캠");
@@ -315,7 +359,7 @@ class DevotionApiRestDocsTest {
 
 	private FieldDescriptor[] weeklyResponseFields() {
 		return new FieldDescriptor[] {
-			fieldWithPath("data.weeklyRecordId").description("주간 경건생활 기록 ID"),
+			fieldWithPath("data.weeklyRecordId").description("주간 경건생활 기록 ID. 아직 DB row가 없는 기본 조회 응답에서는 null"),
 			fieldWithPath("data.campusId").description("캠퍼스 ID"),
 			fieldWithPath("data.campusName").description("캠퍼스 이름"),
 			fieldWithPath("data.region").optional().description("캠퍼스 지역"),
@@ -326,9 +370,9 @@ class DevotionApiRestDocsTest {
 			fieldWithPath("data.prayerCount").description("주간 기도 체크 수"),
 			fieldWithPath("data.bibleReadingCount").description("주간 말씀 읽기 체크 수"),
 			fieldWithPath("data.saturdayLateMinutes").description("토요 목자모임 지각 시간(분)"),
-			fieldWithPath("data.submittedAt").optional().description("제출 시각. 저장만 한 경우 생략될 수 있음"),
+			fieldWithPath("data.submittedAt").description("제출 시각. 미제출 또는 기본 조회 응답에서는 null"),
 			fieldWithPath("data.dailyChecks").description("월요일부터 일요일까지 7일치 일별 체크"),
-			fieldWithPath("data.dailyChecks[].id").description("일별 체크 ID"),
+			fieldWithPath("data.dailyChecks[].id").description("일별 체크 ID. 아직 DB row가 없는 기본 조회 응답에서는 null"),
 			fieldWithPath("data.dailyChecks[].recordDate").description("체크 날짜"),
 			fieldWithPath("data.dailyChecks[].quietTimeChecked").description("큐티 체크 여부"),
 			fieldWithPath("data.dailyChecks[].prayerChecked").description("기도 체크 여부"),
