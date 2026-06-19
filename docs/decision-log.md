@@ -169,6 +169,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Monthly devotion statistics are excluded from Issue #31 and must be tracked as a separate GitHub Issue.
 - Impact: Issue #31 stays focused on the daily/weekly submission flow. Monthly statistics development must verify the final Notion 10.5 API and response contract before implementation instead of guessing the API path or aggregation rules.
 
+### 2026-06-19 - Empty Weekly Devotion Lookup Returns Defaults
+
+- Context: The user chose the mobile-friendly behavior for `GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}` when the user has no record for the requested week.
+- Decision: My weekly devotion lookup must not return 404 just because the weekly record does not exist yet. Instead, it returns a default weekly response with Monday-Sunday `dailyChecks`, all check fields false, summary counts 0, `saturdayLateMinutes = 0`, and `submittedAt = null`.
+- Impact: Issue #31 development must update tests and implementation so the weekly screen can render immediately before the user creates any daily checks or weekly submission. Missing-user admin lookup still treats absent weekly records as missing submissions.
+
 ### 2026-06-17 - Pagination Sorting Redis TTL And Notification Failure Policies
 
 - Context: The user approved the recommended implementation policies for list APIs, Redis token TTLs, and notification failure handling.
