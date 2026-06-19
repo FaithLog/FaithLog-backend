@@ -67,6 +67,108 @@ class DevotionControllerTest {
 	private ChargeItemRepository chargeItemRepository;
 
 	@Test
+	void my_monthly_summary_api_returns_current_users_monthly_devotion_statistics() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-monthly-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "78캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("devotion-http-monthly-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("devotion-http-monthly-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-29")
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-29",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": false
+					    },
+					    {
+					      "recordDate": "2026-06-30",
+					      "quietTimeChecked": true,
+					      "prayerChecked": false,
+					      "bibleReadingChecked": false
+					    },
+					    {
+					      "recordDate": "2026-07-01",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 8,
+					  "submit": false
+					}
+					"""))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campusId)
+				.param("year", "2026")
+				.param("month", "6")
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.campusId").value(campusId))
+			.andExpect(jsonPath("$.data.campusName").value("78캠"))
+			.andExpect(jsonPath("$.data.region").value("분당"))
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.name").value("경건HTTP"))
+			.andExpect(jsonPath("$.data.year").value(2026))
+			.andExpect(jsonPath("$.data.month").value(6))
+			.andExpect(jsonPath("$.data.devotion.quietTimeCount").value(2))
+			.andExpect(jsonPath("$.data.devotion.prayerCount").value(1))
+			.andExpect(jsonPath("$.data.devotion.bibleReadingCount").value(0))
+			.andExpect(jsonPath("$.data.devotion.saturdayLateMinutes").value(0))
+			.andExpect(jsonPath("$.data.weeklyRecords.length()").value(1))
+			.andExpect(jsonPath("$.data.weeklyRecords[0].weeklyRecordId").isNumber())
+			.andExpect(jsonPath("$.data.weeklyRecords[0].weekStartDate").value("2026-06-29"))
+			.andExpect(jsonPath("$.data.weeklyRecords[0].weekEndDate").value("2026-07-05"))
+			.andExpect(jsonPath("$.data.weeklyRecords[0].quietTimeCount").value(2))
+			.andExpect(jsonPath("$.data.weeklyRecords[0].prayerCount").value(1))
+			.andExpect(jsonPath("$.data.weeklyRecords[0].bibleReadingCount").value(0))
+			.andExpect(jsonPath("$.data.weeklyRecords[0].saturdayLateMinutes").value(0))
+			.andExpect(jsonPath("$.data.weeklyRecords[0].submittedAt").doesNotExist());
+	}
+
+	@Test
+	void my_monthly_summary_api_rejects_invalid_month_and_non_member() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-monthly-invalid-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "79캠");
+		long campusId = campus.path("campusId").asLong();
+		String outsiderToken = signupAndLogin("devotion-http-monthly-outsider@example.com", UserRole.USER);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campusId)
+				.param("year", "2026")
+				.param("month", "13")
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_YEAR_MONTH"))
+			.andExpect(jsonPath("$.message").value("조회 연월이 올바르지 않습니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campusId)
+				.param("year", "0")
+				.param("month", "6")
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_YEAR_MONTH"))
+			.andExpect(jsonPath("$.message").value("조회 연월이 올바르지 않습니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campusId)
+				.param("year", "2026")
+				.param("month", "6")
+				.header("Authorization", "Bearer " + outsiderToken))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("DEVOTION_ACCESS_FORBIDDEN"));
+	}
+
+	@Test
 	void daily_and_weekly_devotion_apis_create_update_and_read_my_week() throws Exception {
 		String managerToken = signupAndLogin("devotion-http-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("devotion-http-manager@example.com").orElseThrow();
