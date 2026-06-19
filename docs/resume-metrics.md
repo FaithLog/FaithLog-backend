@@ -34,6 +34,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 수정: Devotion 애플리케이션 계층에 `DevotionPenaltyChargePort`/command를 두고 Billing 어댑터가 기존 `BillingService.createPenaltyCharge`를 호출하도록 분리. Devotion 도메인은 Billing Entity를 직접 참조하지 않는다.
   - 검증 범위: 첫 제출 청구 생성, `submit=false` 청구 미생성/미갱신, 제출 후 `submit=false` 저장 실패, 중복 `submit=true` 실패, 활성 PENALTY 계좌 없음 전체 실패 및 row 미생성, `weekly_devotion_records.id` sourceId 검증, account snapshot 검증, 음수 `saturdayLateMinutes` 차단 유지.
   - API 에러 계약: 계좌 없음 `BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING` 400 `관리자에게 문의하세요`, 중복 제출 `DEVOTION_WEEKLY_ALREADY_SUBMITTED` 409 `이미 제출된 주간 경건생활은 수정할 수 없습니다.`
+  - API 응답 계약: `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}` 성공 응답은 기존 `WeeklyDevotionResponse` 구조를 유지하고, `generatedCharges` 같은 청구 요약 필드는 추가하지 않음. 생성된 청구 확인은 기존 청구 조회 API를 사용.
   - REST Docs 결과: `devotion-missing-penalty-account`, `devotion-weekly-already-submitted` snippets 추가, 전체 snippet group 48개.
   - 재검증: `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest` 성공, `./gradlew test --tests com.faithlog.devotion.presentation.DevotionControllerTest --tests com.faithlog.devotion.presentation.DevotionApiRestDocsTest` 성공, `./gradlew test` 성공(121 tests / 0 failures / 0 errors / 0 skipped).
   - 코드베이스 수치: Java 소스 203개, 테스트 파일 26개.

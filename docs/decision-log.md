@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #33 Weekly Devotion Submission Response Shape
+
+- Context: Issue #33 creates a `PENALTY` charge as a side effect of the first weekly devotion final submission. The remaining API contract question was whether the existing weekly devotion response should add a new field such as `generatedCharges`.
+- Decision: Keep the existing `WeeklyDevotionResponse` structure unchanged for Issue #33. Do not add `generatedCharges` or another generated-charge summary field to `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`. Clients should confirm generated charges through the existing charge query APIs when needed.
+- Impact: Issue #33 preserves the current devotion response contract while adding billing side effects. REST Docs should continue to document the existing weekly devotion response fields and verify that generated-charge response fields are not part of the contract.
+
 ### 2026-06-19 - Issue #33 Weekly Devotion Duplicate Submission Error Contract
 
 - Context: Issue #33 needed a stable API error contract for requests after a weekly devotion record has already been finally submitted.
