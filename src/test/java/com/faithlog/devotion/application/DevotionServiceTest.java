@@ -3,6 +3,12 @@ package com.faithlog.devotion.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.faithlog.billing.application.BillingService;
+import com.faithlog.billing.application.CreatePaymentAccountCommand;
+import com.faithlog.billing.application.PaymentAccountResult;
+import com.faithlog.billing.domain.ChargeSourceType;
+import com.faithlog.billing.domain.ChargeStatus;
+import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.campus.application.CampusCreateResult;
 import com.faithlog.campus.application.CampusService;
@@ -12,8 +18,12 @@ import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.devotion.domain.DevotionDailyCheck;
+import com.faithlog.devotion.domain.PenaltyCalculationType;
+import com.faithlog.devotion.domain.PenaltyRule;
+import com.faithlog.devotion.domain.PenaltyRuleType;
 import com.faithlog.devotion.domain.WeeklyDevotionRecord;
 import com.faithlog.devotion.infrastructure.jpa.DevotionDailyCheckRepository;
+import com.faithlog.devotion.infrastructure.jpa.PenaltyRuleRepository;
 import com.faithlog.devotion.infrastructure.jpa.WeeklyDevotionRecordRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -41,6 +51,9 @@ class DevotionServiceTest {
 	private CampusService campusService;
 
 	@Autowired
+	private BillingService billingService;
+
+	@Autowired
 	private UserRepository userRepository;
 
 	@Autowired
@@ -51,6 +64,9 @@ class DevotionServiceTest {
 
 	@Autowired
 	private DevotionDailyCheckRepository dailyCheckRepository;
+
+	@Autowired
+	private PenaltyRuleRepository penaltyRuleRepository;
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
@@ -157,6 +173,115 @@ class DevotionServiceTest {
 				assertThat(check.bibleReadingChecked()).isFalse();
 			});
 		assertThat(chargeItemRepository.count()).isZero();
+	}
+
+	@Test
+	void updateWeeklyCheck_first_submit_creates_one_penalty_charge_with_weekly_record_source_and_account_snapshot() {
+		User manager = saveUser("devotion-charge-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "69캠");
+		User member = saveUser("devotion-charge-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-101");
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		WeeklyDevotionResult result = devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(
+				new DevotionDailyCheckCommand(weekStartDate, true, true, false),
+				new DevotionDailyCheckCommand(weekStartDate.plusDays(1), true, false, true)
+			),
+			5,
+			true
+		));
+
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(campus.campusId(), member.id(), weekStartDate)
+			.orElseThrow();
+		assertThat(result.weeklyRecordId()).isEqualTo(weeklyRecord.id());
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
+		assertThat(chargeItemRepository.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+			campus.campusId(),
+			member.id(),
+			PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD,
+			weeklyRecord.id()
+		))
+			.get()
+			.satisfies(charge -> {
+				assertThat(charge.paymentAccountId()).isEqualTo(account.id());
+				assertThat(charge.bankNameSnapshot()).isEqualTo("하나은행");
+				assertThat(charge.accountNumberSnapshot()).isEqualTo("123-456789-101");
+				assertThat(charge.accountHolderSnapshot()).isEqualTo("벌금회계");
+				assertThat(charge.paymentCategory()).isEqualTo(PaymentCategory.PENALTY);
+				assertThat(charge.sourceType()).isEqualTo(ChargeSourceType.DEVOTION_RECORD);
+				assertThat(charge.sourceId()).isEqualTo(weeklyRecord.id());
+				assertThat(charge.status()).isEqualTo(ChargeStatus.UNPAID);
+				assertThat(charge.amount()).isEqualTo(4700);
+			});
+	}
+
+	@Test
+	void updateWeeklyCheck_submit_false_does_not_create_or_update_penalty_charge() {
+		User manager = saveUser("devotion-draft-charge-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "70캠");
+		User member = saveUser("devotion-draft-charge-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-102");
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		WeeklyDevotionResult result = devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(weekStartDate, false, false, false)),
+			3,
+			false
+		));
+
+		assertThat(result.submittedAt()).isNull();
+		assertThat(chargeItemRepository.count()).isZero();
+		assertThat(weeklyRecordRepository.findByCampusIdAndUserIdAndWeekStartDate(
+			campus.campusId(),
+			member.id(),
+			weekStartDate
+		))
+			.get()
+			.satisfies(weeklyRecord -> assertThat(weeklyRecord.submittedAt()).isNull());
+	}
+
+	@Test
+	void updateWeeklyCheck_without_active_penalty_account_fails_whole_submission_without_submittedAt_or_charge() {
+		User manager = saveUser("devotion-no-account-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "71캠");
+		User member = saveUser("devotion-no-account-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		assertThatThrownBy(() -> devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(weekStartDate, true, true, true)),
+			0,
+			true
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+			)
+			.hasMessage("관리자에게 문의하세요");
+
+		assertThat(chargeItemRepository.count()).isZero();
+		assertThat(weeklyRecordRepository.findByCampusIdAndUserIdAndWeekStartDate(
+			campus.campusId(),
+			member.id(),
+			weekStartDate
+		)).isEmpty();
+		assertThat(dailyCheckRepository.count()).isZero();
 	}
 
 	@Test
@@ -441,6 +566,28 @@ class DevotionServiceTest {
 
 	private void joinCampus(CampusCreateResult campus, User user) {
 		campusService.joinCampus(new JoinCampusCommand(user.id(), campus.inviteCode()));
+	}
+
+	private PaymentAccountResult createPenaltyAccount(Long campusId, Long managerId, String accountNumber) {
+		return billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			managerId,
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"하나은행",
+			accountNumber,
+			"벌금회계",
+			null
+		));
+	}
+
+	private void createPenaltyRules(Long campusId) {
+		penaltyRuleRepository.saveAllAndFlush(List.of(
+			PenaltyRule.create(campusId, PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.PRAYER, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.BIBLE_READING, PenaltyCalculationType.MISSING_COUNT, 5, 0, 300),
+			PenaltyRule.create(campusId, PenaltyRuleType.SATURDAY_LATE, PenaltyCalculationType.LATE_MINUTE, 0, 1000, 100)
+		));
 	}
 
 	private User saveUser(String email, UserRole role) {
