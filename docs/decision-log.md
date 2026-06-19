@@ -278,6 +278,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Normal poll results are visible to all active campus members, not only admins. If `polls.is_anonymous = false`, the result response may show who voted for each option. If `polls.is_anonymous = true`, nobody should be able to identify who voted for which option through result APIs; return aggregate counts only and hide respondent user identifiers/names. The backend still stores `poll_responses.user_id` for duplicate response prevention, response editing, and missing-member calculation, but does not expose voter identity for anonymous poll results.
 - Impact: Issue #38 must use a member-facing result endpoint, such as `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`, and tests must cover both non-anonymous identity exposure and anonymous identity hiding. Admin-only missing-member lookup can remain separate.
 
+### 2026-06-19 - Issue #38 Poll Result And Past Poll Visibility Window
+
+- Context: The user clarified how long poll results and past polls should remain visible after a poll ends.
+- Decision: Visibility windows are based on `polls.ends_at`. User-facing poll history, poll detail, and poll result lookup are visible to active campus members only until 3 days after `ends_at`. Admin-facing poll history, poll detail, and poll result lookup are visible in the admin page only until 7 days after `ends_at`. After the visibility window expires, expired polls should be hidden from lists and direct lookup should not expose the poll/result data.
+- Impact: Issue #38 must add tests for member visibility before and after `ends_at + 3 days`, and admin visibility before and after `ends_at + 7 days`. The anonymous poll identity-hiding rule still applies during the visible window.
+
 ### 2026-06-17 - Prayer Requests Group Board
 
 - Context: The user described a weekly Saturday prayer request workflow where each sharing group collects member prayer requests and currently posts them as one KakaoTalk message. The user decided the app should replace the message view instead of generating KakaoTalk share text.

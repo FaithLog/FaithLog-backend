@@ -342,6 +342,9 @@ Issue #34 is P0.
 - For non-anonymous polls, result responses may expose who voted for each option.
 - For anonymous polls, result responses must expose aggregate counts only and must not expose voter user IDs, names, emails, or option-level respondent identity to any user.
 - `poll_responses.user_id` is still stored for duplicate response prevention, response editing, missing-member calculation, and internal auditing, but anonymous result APIs must not reveal it.
+- User-facing past poll, poll detail, and poll result visibility is limited to 3 days after `polls.ends_at`.
+- Admin-facing past poll, poll detail, and poll result visibility is limited to 7 days after `polls.ends_at`.
+- After the visibility window expires, expired polls must be excluded from lists and direct lookup must not expose poll/result data.
 
 ## Prayer Requests
 
