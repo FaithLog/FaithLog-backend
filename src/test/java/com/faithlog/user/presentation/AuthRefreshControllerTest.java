@@ -75,11 +75,11 @@ class AuthRefreshControllerTest {
 
 		refreshAction(tokens.refreshToken(), status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 
 		refreshAction(rotatedRefreshToken, status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 	}
 
 	private TokenPair signupAndLogin(String email) throws Exception {
