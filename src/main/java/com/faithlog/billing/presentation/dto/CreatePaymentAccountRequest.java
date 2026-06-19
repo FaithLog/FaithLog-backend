@@ -9,10 +9,10 @@ import jakarta.validation.constraints.Size;
 
 public record CreatePaymentAccountRequest(
 	@NotNull PaymentCategory accountType,
-	@NotBlank @Size(max = 100) String nickname,
-	@NotBlank @Size(max = 100) String bankName,
-	@NotBlank @Size(max = 100) String accountNumber,
-	@NotBlank @Size(max = 100) String accountHolder,
+	@NotBlank(message = "공백일 수 없습니다") @Size(max = 100, message = "100자 이하여야 합니다") String nickname,
+	@NotBlank(message = "공백일 수 없습니다") @Size(max = 100, message = "100자 이하여야 합니다") String bankName,
+	@NotBlank(message = "공백일 수 없습니다") @Size(max = 100, message = "100자 이하여야 합니다") String accountNumber,
+	@NotBlank(message = "공백일 수 없습니다") @Size(max = 100, message = "100자 이하여야 합니다") String accountHolder,
 	Long ownerUserId
 ) {
 

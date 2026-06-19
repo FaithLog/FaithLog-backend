@@ -1,6 +1,7 @@
 package com.faithlog.billing.application;
 
 import com.faithlog.billing.application.port.ChargeItemRepositoryPort;
+import com.faithlog.billing.application.policy.BillingAccessPolicy;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentCategory;
@@ -317,13 +318,13 @@ public class BillingQueryService {
 		try {
 			return YearMonth.of(year, month);
 		} catch (DateTimeException exception) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, "조회 연월이 올바르지 않습니다.");
+			throw new BusinessException(ErrorCode.BILLING_INVALID_YEAR_MONTH);
 		}
 	}
 
 	private Campus getCampus(Long campusId) {
 		return campusRepository.findById(campusId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "캠퍼스를 찾을 수 없습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 	}
 
 	private void requireCampusChargeManager(Long campusId, Long requesterId) {
@@ -333,23 +334,25 @@ public class BillingQueryService {
 		}
 		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN));
-		if (!requesterMembership.canManageCampusMembers()) {
-			throw new BusinessException(ErrorCode.FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
-		}
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN));
+		BillingAccessPolicy.requireCampusManager(
+			requesterMembership,
+			ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN,
+			ADMIN_CHARGE_LIST_FORBIDDEN
+		);
 	}
 
 	private void requireActiveCampusMember(Long campusId, Long userId, String message) {
 		campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, message));
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, message));
 	}
 
 	private CampusUserLookupResult getActiveUser(Long userId) {
 		CampusUserLookupResult user = userLookupPort.findCampusUserById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
 		if (!user.active()) {
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 		return user;
 	}

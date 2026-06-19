@@ -2,6 +2,8 @@ package com.faithlog.billing.application;
 
 import com.faithlog.billing.application.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.application.port.PaymentAccountRepositoryPort;
+import com.faithlog.billing.application.policy.BillingAccessPolicy;
+import com.faithlog.billing.application.policy.ChargeStatusPolicy;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentAccount;
@@ -20,16 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class BillingService {
 
-	private static final String ACCOUNT_MANAGE_FORBIDDEN = "납부 계좌 관리 권한이 없습니다.";
 	private static final String ACCOUNT_LIST_FORBIDDEN = "캠퍼스 납부 계좌 조회 권한이 없습니다.";
-	private static final String CHARGE_STATUS_MANAGE_FORBIDDEN = "청구 상태 변경 권한이 없습니다.";
-	private static final String MY_CHARGE_PAYMENT_FORBIDDEN = "본인 청구 항목만 납부 완료 처리할 수 있습니다.";
-	private static final String MY_CHARGE_CAMPUS_MISMATCH = "청구 항목의 캠퍼스가 요청 캠퍼스와 일치하지 않습니다.";
-	private static final String MY_CHARGE_PAYMENT_CONFLICT = "미납 상태의 청구만 납부 완료 처리할 수 있습니다.";
-	private static final String ADMIN_PAID_FORBIDDEN = "관리자는 청구를 PAID로 변경할 수 없습니다.";
-	private static final String CHARGE_STATUS_TRANSITION_CONFLICT = "허용되지 않는 청구 상태 전이입니다.";
-	private static final String CONTACT_ADMIN = "관리자에게 문의하세요";
-	private static final String TERMINAL_CHARGE_UPDATE_FORBIDDEN = "이미 종료된 청구는 갱신할 수 없습니다.";
 
 	private final PaymentAccountRepositoryPort paymentAccountRepository;
 	private final ChargeItemRepositoryPort chargeItemRepository;
@@ -77,7 +70,7 @@ public class BillingService {
 	@Transactional
 	public PaymentAccountResult deactivatePaymentAccount(Long accountId, Long requesterId) {
 		PaymentAccount account = paymentAccountRepository.findById(accountId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "납부 계좌를 찾을 수 없습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 		requireCampusManager(account.campusId(), requesterId);
 
 		account.deactivate();
@@ -97,7 +90,7 @@ public class BillingService {
 	public ChargeItemResult createPenaltyCharge(CreatePenaltyChargeCommand command) {
 		PaymentAccount account = paymentAccountRepository
 			.findByCampusIdAndAccountTypeAndIsActiveTrue(command.campusId(), PaymentCategory.PENALTY)
-			.orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST, CONTACT_ADMIN));
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
 
 		ChargeItem existingCharge = chargeItemRepository
 			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
@@ -119,7 +112,7 @@ public class BillingService {
 			return ChargeItemResult.from(existingCharge);
 		}
 		if (existingCharge != null) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, TERMINAL_CHARGE_UPDATE_FORBIDDEN);
+			throw new BusinessException(ErrorCode.BILLING_TERMINAL_CHARGE_UPDATE_FORBIDDEN);
 		}
 
 		ChargeItem chargeItem = ChargeItem.create(
@@ -144,17 +137,17 @@ public class BillingService {
 	public ChargeItemResult completeMyChargePayment(CompleteChargePaymentCommand command) {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "청구 항목을 찾을 수 없습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
 
 		if (!chargeItem.userId().equals(requester.userId())) {
-			throw new BusinessException(ErrorCode.FORBIDDEN, MY_CHARGE_PAYMENT_FORBIDDEN);
+			throw new BusinessException(ErrorCode.BILLING_MY_CHARGE_PAYMENT_FORBIDDEN);
 		}
 		if (!chargeItem.campusId().equals(command.campusId())) {
-			throw new BusinessException(ErrorCode.FORBIDDEN, MY_CHARGE_CAMPUS_MISMATCH);
+			throw new BusinessException(ErrorCode.BILLING_MY_CHARGE_CAMPUS_MISMATCH);
 		}
-		requireActiveCampusMember(command.campusId(), requester.userId(), MY_CHARGE_PAYMENT_FORBIDDEN);
+		requireActiveCampusMember(command.campusId(), requester.userId(), ErrorCode.BILLING_MY_CHARGE_PAYMENT_FORBIDDEN);
 		if (!chargeItem.isUnpaid()) {
-			throw new BusinessException(ErrorCode.CONFLICT, MY_CHARGE_PAYMENT_CONFLICT);
+			throw new BusinessException(ErrorCode.BILLING_MY_CHARGE_PAYMENT_CONFLICT);
 		}
 
 		chargeItem.markPaid(command.paidAt());
@@ -164,26 +157,9 @@ public class BillingService {
 	@Transactional
 	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
 		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "청구 항목을 찾을 수 없습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
 		requireChargeStatusManager(chargeItem.campusId(), command.requesterId());
-
-		if (command.status() == ChargeStatus.PAID) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, ADMIN_PAID_FORBIDDEN);
-		}
-
-		try {
-			if (command.status() == ChargeStatus.WAIVED) {
-				chargeItem.waive();
-			} else if (command.status() == ChargeStatus.CANCELED) {
-				chargeItem.cancel();
-			} else if (command.status() == ChargeStatus.UNPAID) {
-				chargeItem.reopenAsUnpaid();
-			} else {
-				throw new BusinessException(ErrorCode.INVALID_REQUEST);
-			}
-		} catch (IllegalStateException exception) {
-			throw new BusinessException(ErrorCode.CONFLICT, CHARGE_STATUS_TRANSITION_CONFLICT);
-		}
+		ChargeStatusPolicy.applyAdminStatusChange(chargeItem, command.status());
 
 		return ChargeItemResult.from(chargeItem);
 	}
@@ -204,10 +180,8 @@ public class BillingService {
 		}
 		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, ACCOUNT_MANAGE_FORBIDDEN));
-		if (!requesterMembership.canManageCampusMembers()) {
-			throw new BusinessException(ErrorCode.FORBIDDEN, ACCOUNT_MANAGE_FORBIDDEN);
-		}
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN));
+		BillingAccessPolicy.requirePaymentAccountManager(requesterMembership);
 	}
 
 	private void requirePaymentAccountListAccess(Long campusId, Long requesterId) {
@@ -215,7 +189,7 @@ public class BillingService {
 		if (requester.isAdmin()) {
 			return;
 		}
-		requireActiveCampusMember(campusId, requester.userId(), ACCOUNT_LIST_FORBIDDEN);
+		requireActiveCampusMember(campusId, requester.userId(), ErrorCode.BILLING_PAYMENT_ACCOUNT_LIST_FORBIDDEN, ACCOUNT_LIST_FORBIDDEN);
 	}
 
 	private void requireChargeStatusManager(Long campusId, Long requesterId) {
@@ -225,29 +199,31 @@ public class BillingService {
 		}
 		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, CHARGE_STATUS_MANAGE_FORBIDDEN));
-		if (!requesterMembership.canManageCampusMembers()) {
-			throw new BusinessException(ErrorCode.FORBIDDEN, CHARGE_STATUS_MANAGE_FORBIDDEN);
-		}
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN));
+		BillingAccessPolicy.requireChargeStatusManager(requesterMembership);
 	}
 
-	private void requireActiveCampusMember(Long campusId, Long userId, String message) {
+	private void requireActiveCampusMember(Long campusId, Long userId, ErrorCode errorCode) {
+		requireActiveCampusMember(campusId, userId, errorCode, errorCode.message());
+	}
+
+	private void requireActiveCampusMember(Long campusId, Long userId, ErrorCode errorCode, String message) {
 		campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, message));
+			.orElseThrow(() -> new BusinessException(errorCode, message));
 	}
 
 	private CampusUserLookupResult getActiveUser(Long userId) {
 		CampusUserLookupResult user = userLookupPort.findCampusUserById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
 		if (!user.active()) {
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 		return user;
 	}
 
 	private void lockCampusOrThrow(Long campusId) {
 		campusRepository.findByIdForUpdate(campusId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "캠퍼스를 찾을 수 없습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 	}
 }

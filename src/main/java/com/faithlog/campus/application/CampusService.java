@@ -10,6 +10,7 @@ import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.application.port.CampusRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
 import com.faithlog.campus.application.port.CampusUserLookupResult;
+import com.faithlog.campus.application.policy.CampusRolePolicy;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.util.List;
@@ -44,9 +45,7 @@ public class CampusService {
 	@Transactional
 	public CampusCreateResult createCampus(CreateCampusCommand command) {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
-		if (!requester.canCreateCampus()) {
-			throw new BusinessException(ErrorCode.FORBIDDEN, "캠퍼스 생성 권한이 없습니다.");
-		}
+		CampusRolePolicy.requireCampusCreator(requester);
 
 		Campus campus = campusRepository.save(Campus.create(
 			command.name(),
@@ -62,11 +61,11 @@ public class CampusService {
 	public CampusMembershipResult joinCampus(JoinCampusCommand command) {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		Campus campus = campusRepository.findByInviteCode(command.inviteCode())
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "유효하지 않은 초대코드입니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_INVALID_INVITE_CODE));
 
 		CampusMember existingMember = campusMemberRepository.findByCampusIdAndUserId(campus.id(), requester.userId()).orElse(null);
 		if (existingMember != null && existingMember.isActive()) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, "이미 가입된 캠퍼스입니다.");
+			throw new BusinessException(ErrorCode.CAMPUS_ALREADY_JOINED);
 		}
 		if (existingMember != null) {
 			existingMember.reactivateAsMember();
@@ -81,15 +80,13 @@ public class CampusService {
 	public void deleteCampusMember(Long campusId, Long membershipId, Long requesterId) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		CampusMember targetMember = campusMemberRepository.findByCampusIdAndId(campusId, membershipId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "캠퍼스 멤버를 찾을 수 없습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
 
 		if (!requester.isAdmin()) {
 			CampusMember requesterMembership = campusMemberRepository
 				.findByCampusIdAndUserId(campusId, requester.userId())
-				.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "캠퍼스 멤버 관리 권한이 없습니다."));
-			if (!requesterMembership.canManageCampusMembers()) {
-				throw new BusinessException(ErrorCode.FORBIDDEN, "캠퍼스 멤버 관리 권한이 없습니다.");
-			}
+				.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN));
+			CampusRolePolicy.requireCampusManager(requesterMembership, ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN);
 		}
 
 		targetMember.deactivate();
@@ -100,19 +97,18 @@ public class CampusService {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		CampusMember targetMember = campusMemberRepository.findByCampusIdAndId(command.campusId(), command.campusMemberId())
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "캠퍼스 멤버를 찾을 수 없습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
 
 		if (!requester.isAdmin()) {
 			CampusMember requesterMembership = campusMemberRepository
 				.findByCampusIdAndUserId(command.campusId(), requester.userId())
 				.filter(CampusMember::isActive)
-				.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "캠퍼스 역할 변경 권한이 없습니다."));
-			if (!requesterMembership.canManageCampusMembers()) {
-				throw new BusinessException(ErrorCode.FORBIDDEN, "캠퍼스 역할 변경 권한이 없습니다.");
-			}
-			if (!requesterMembership.campusRole().canChangeCampusRole(targetMember.campusRole(), command.campusRole())) {
-				throw new BusinessException(ErrorCode.FORBIDDEN, "상위 캠퍼스 역할은 변경할 수 없습니다.");
-			}
+				.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_ROLE_CHANGE_FORBIDDEN));
+			CampusRolePolicy.requireRoleChangeAllowed(
+				requesterMembership,
+				targetMember.campusRole(),
+				command.campusRole()
+			);
 		}
 
 		targetMember.changeCampusRole(command.campusRole());
@@ -144,7 +140,7 @@ public class CampusService {
 		CampusMember targetMember = campusMemberRepository.findByCampusIdAndUserId(command.campusId(), command.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(
-				ErrorCode.NOT_FOUND,
+				ErrorCode.CAMPUS_MEMBER_NOT_FOUND,
 				"커피 담당자로 지정할 캠퍼스 멤버를 찾을 수 없습니다."
 			));
 
@@ -163,7 +159,7 @@ public class CampusService {
 		CampusDutyAssignment assignment = dutyAssignmentRepository
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.COFFEE, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "커피 담당자 배정을 찾을 수 없습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND));
 		assignment.revoke();
 	}
 
@@ -187,7 +183,7 @@ public class CampusService {
 		}
 
 		if (membership == null || !membership.isActive()) {
-			throw new BusinessException(ErrorCode.FORBIDDEN, "캠퍼스 조회 권한이 없습니다.");
+			throw new BusinessException(ErrorCode.CAMPUS_VIEW_FORBIDDEN);
 		}
 
 		return CampusDetailResult.of(campus, membership, membership.canViewInviteCode());
@@ -195,16 +191,16 @@ public class CampusService {
 
 	private CampusUserLookupResult getActiveUser(Long userId) {
 		CampusUserLookupResult user = userLookupPort.findCampusUserById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
 		if (!user.active()) {
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 		return user;
 	}
 
 	private CampusUserLookupResult getUserOrThrow(Long userId) {
 		return userLookupPort.findCampusUserById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
 	}
 
 	private void requireCampusManager(Long campusId, Long requesterId, String message) {
@@ -214,20 +210,18 @@ public class CampusService {
 		}
 		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, message));
-		if (!requesterMembership.canManageCampusMembers()) {
-			throw new BusinessException(ErrorCode.FORBIDDEN, message);
-		}
+			.orElseThrow(() -> new BusinessException(campusManageErrorCode(message), message));
+		CampusRolePolicy.requireCampusManager(requesterMembership, campusManageErrorCode(message), message);
 	}
 
 	private Campus getCampusOrThrow(Long campusId) {
 		return campusRepository.findById(campusId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 	}
 
 	private void lockCampusOrThrow(Long campusId) {
 		campusRepository.findByIdForUpdate(campusId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 	}
 
 	private String generateUniqueInviteCode() {
@@ -237,6 +231,13 @@ public class CampusService {
 				return inviteCode;
 			}
 		}
-		throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "초대코드 생성에 실패했습니다.");
+		throw new BusinessException(ErrorCode.CAMPUS_INVITE_CODE_GENERATION_FAILED);
+	}
+
+	private ErrorCode campusManageErrorCode(String message) {
+		if ("커피 담당자 관리 권한이 없습니다.".equals(message)) {
+			return ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN;
+		}
+		return ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN;
 	}
 }

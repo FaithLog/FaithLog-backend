@@ -165,7 +165,7 @@ class AuthApiRestDocsTest {
 		mockMvc.perform(get("/api/v1/users/me"))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
 			.andDo(unauthorizedDocument("users-me-unauthorized"));
 	}
 
@@ -177,7 +177,7 @@ class AuthApiRestDocsTest {
 				.header("Authorization", "Bearer " + refreshToken))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
 			.andDo(document("users-me-refresh-token-unauthorized",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
@@ -199,7 +199,7 @@ class AuthApiRestDocsTest {
 				.header("Authorization", "Bearer " + tokens.accessToken()))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
 			.andDo(document("users-me-inactive-user-unauthorized",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
@@ -295,7 +295,7 @@ class AuthApiRestDocsTest {
 					""".formatted(tokens.refreshToken())))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
 			.andDo(document("auth-refresh-reused-token-unauthorized",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
@@ -313,7 +313,7 @@ class AuthApiRestDocsTest {
 				.content("{}"))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
 			.andDo(document("auth-logout-unauthorized",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
@@ -388,7 +388,7 @@ class AuthApiRestDocsTest {
 	private static org.springframework.restdocs.payload.FieldDescriptor[] unauthorizedResponseFields() {
 		return new org.springframework.restdocs.payload.FieldDescriptor[] {
 			fieldWithPath("success").description("요청 성공 여부. 실패 응답에서는 `false`"),
-			fieldWithPath("code").description("오류 코드. 인증 실패는 `UNAUTHORIZED`"),
+			fieldWithPath("code").description("오류 코드. 인증 실패는 `AUTH_UNAUTHORIZED`"),
 			fieldWithPath("message").description("오류 메시지"),
 			fieldWithPath("data").optional().description("실패 응답에서는 생략된다"),
 			fieldWithPath("timestamp").description("응답 생성 시각")

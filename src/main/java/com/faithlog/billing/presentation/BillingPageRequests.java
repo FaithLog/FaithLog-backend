@@ -1,15 +1,13 @@
 package com.faithlog.billing.presentation;
 
-import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
+import com.faithlog.global.presentation.PageSortRequestValidator;
+import com.faithlog.global.presentation.PageSortRequestValidator.SortValidationRule;
 import java.util.List;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 
 final class BillingPageRequests {
 
-	private static final String DEFAULT_SORT = "createdAt,desc";
 	private static final List<String> CHARGE_ITEM_SORT_PROPERTIES = List.of(
 		"createdAt", "dueDate", "paidAt", "amount", "status", "paymentCategory"
 	);
@@ -17,48 +15,28 @@ final class BillingPageRequests {
 		"createdAt", "userId", "name", "email", "totalAmount", "unpaidAmount", "paidAmount", "waivedAmount",
 		"canceledAmount"
 	);
+	private static final SortValidationRule CHARGE_ITEM_SORT_RULE = billingSortRule(CHARGE_ITEM_SORT_PROPERTIES);
+	private static final SortValidationRule ADMIN_MEMBER_SORT_RULE = billingSortRule(ADMIN_MEMBER_SORT_PROPERTIES);
 
 	private BillingPageRequests() {
 	}
 
 	static Pageable chargeItems(int page, int size, String sort) {
-		return pageable(page, size, sort, CHARGE_ITEM_SORT_PROPERTIES);
+		return PageSortRequestValidator.pageable(page, size, sort, CHARGE_ITEM_SORT_RULE);
 	}
 
 	static Pageable adminMembers(int page, int size, String sort) {
-		return pageable(page, size, sort, ADMIN_MEMBER_SORT_PROPERTIES);
+		return PageSortRequestValidator.pageable(page, size, sort, ADMIN_MEMBER_SORT_RULE);
 	}
 
-	private static Pageable pageable(int page, int size, String sort, List<String> allowedSortProperties) {
-		int safePage = Math.max(page, 0);
-		int safeSize = Math.min(Math.max(size, 1), 100);
-		return PageRequest.of(safePage, safeSize, sort(sort, allowedSortProperties));
-	}
-
-	private static Sort sort(String sort, List<String> allowedSortProperties) {
-		String sortValue = sort == null || sort.isBlank() ? DEFAULT_SORT : sort;
-		String[] tokens = sortValue.split(",");
-		if (tokens.length > 2) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 형식입니다.");
-		}
-		String property = tokens[0].trim();
-		if (!allowedSortProperties.contains(property)) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 기준입니다.");
-		}
-		return Sort.by(direction(tokens), property);
-	}
-
-	private static Sort.Direction direction(String[] tokens) {
-		if (tokens.length == 1 || tokens[1].isBlank()) {
-			return Sort.Direction.DESC;
-		}
-		String direction = tokens[1].trim();
-		if ("asc".equalsIgnoreCase(direction)) {
-			return Sort.Direction.ASC;
-		}
-		if ("desc".equalsIgnoreCase(direction)) {
-			return Sort.Direction.DESC;
-		}
-		throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 방향입니다.");
+	private static SortValidationRule billingSortRule(List<String> allowedSortProperties) {
+		return new SortValidationRule(
+			allowedSortProperties,
+			ErrorCode.BILLING_INVALID_PAGE,
+			ErrorCode.BILLING_INVALID_SIZE,
+			ErrorCode.BILLING_INVALID_SORT_FORMAT,
+			ErrorCode.BILLING_INVALID_SORT_PROPERTY,
+			ErrorCode.BILLING_INVALID_SORT_DIRECTION
+		);
 	}
 }
