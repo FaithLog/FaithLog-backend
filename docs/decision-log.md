@@ -10,6 +10,30 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #33 Weekly Devotion Submission Response Shape
+
+- Context: Issue #33 creates a `PENALTY` charge as a side effect of the first weekly devotion final submission. The remaining API contract question was whether the existing weekly devotion response should add a new field such as `generatedCharges`.
+- Decision: Keep the existing `WeeklyDevotionResponse` structure unchanged for Issue #33. Do not add `generatedCharges` or another generated-charge summary field to `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`. Clients should confirm generated charges through the existing charge query APIs when needed.
+- Impact: Issue #33 preserves the current devotion response contract while adding billing side effects. REST Docs should continue to document the existing weekly devotion response fields and verify that generated-charge response fields are not part of the contract.
+
+### 2026-06-19 - Issue #33 Weekly Devotion Duplicate Submission Error Contract
+
+- Context: Issue #33 needed a stable API error contract for requests after a weekly devotion record has already been finally submitted.
+- Decision: If `weekly_devotion_records.submitted_at` already exists for the same campus, user, and week, both duplicate `submit = true` requests and post-submission `submit = false` saves fail with `DEVOTION_WEEKLY_ALREADY_SUBMITTED`, HTTP `409 CONFLICT`, and the user-facing message `이미 제출된 주간 경건생활은 수정할 수 없습니다.`
+- Impact: The devotion submission boundary blocks same-week resubmission before billing reruns. The generated `PENALTY` charge for the first submission is not recalculated or overwritten through the normal weekly devotion API.
+
+### 2026-06-19 - Issue #33 Daily Devotion Check After Weekly Submission
+
+- Context: The one-time weekly devotion submission policy also needs to prevent the daily check API from changing the same week's source rows after final submission. Otherwise the weekly summary and generated `PENALTY` charge can diverge.
+- Decision: If `weekly_devotion_records.submitted_at` already exists for the campus, user, and week containing `recordDate`, `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}` must fail with `DEVOTION_WEEKLY_ALREADY_SUBMITTED`, HTTP `409 CONFLICT`, and the existing user-facing message `이미 제출된 주간 경건생활은 수정할 수 없습니다.`
+- Impact: After final weekly submission, daily check requests for the same week must not create or update `weekly_devotion_records`, `devotion_daily_checks`, or `charge_items`. This preserves the MVP rule that same-week record modification, recalculation, and delta charge flows are excluded.
+
+### 2026-06-19 - Issue #33 One-Time Weekly Devotion Submission
+
+- Context: Issue #33 connects weekly devotion submission to automatic `PENALTY` charge creation. A previous open question asked how to handle resubmitting a weekly devotion record after the generated charge became terminal.
+- Decision: Weekly devotion submission is one-time. Once `weekly_devotion_records.submitted_at` exists for a user/campus/week, the same weekly record cannot be submitted again. A later `submit = true` request for the same week must fail instead of recalculating or overwriting the existing devotion submission or charge. `submit = false` weekly saves are allowed only before final submission and must not create or update `PENALTY` charges.
+- Impact: Issue #33 does not need a terminal charge resubmission policy because same-week resubmission is blocked at the devotion submission boundary. Development must test that first `submit = true` creates one combined `PENALTY` charge, duplicate `submit = true` fails, missing active `PENALTY` account fails the whole submission without creating a charge, and pre-submit `submit = false` saves do not create charges.
+
 ### 2026-06-19 - Issue #32 Penalty Rule And Fine Calculation Scope
 
 - Context: Issue #32 still had an older API draft for devotion fine calculation, while the latest Notion integrated plan and API pages define penalty rule management APIs separately from the weekly devotion submission and charge creation flow.
@@ -62,7 +86,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 - Context: PM review found that service-level `ADMIN` could not list campus payment accounts without campus membership, and `BillingService.createPenaltyCharge` raised a unique constraint error when the same penalty charge source was executed again.
 - Decision: `GET /api/v1/campuses/{campusId}/payment-accounts` allows either service-level `ADMIN` or an ACTIVE campus member. `BillingService.createPenaltyCharge` behaves as create-or-update for an existing `UNPAID` `PENALTY` charge with the same `(campusId, userId, paymentCategory, sourceType, sourceId)`: it updates the latest active PENALTY account snapshot, title, reason, amount, and due date, then returns the same row.
-- Implementation guard / unresolved policy: The user has not yet finalized how an already terminal `PAID`, `WAIVED`, or `CANCELED` charge should behave when the same source is submitted again. To prevent historical payment data from being overwritten in the Issue #34 foundation, terminal charges are guarded with a clear invalid request error instead of being updated. Confirm the final product policy with the user before wiring the real resubmission/payment flows in Issue #33/#35.
+- Implementation guard: The Issue #34 billing foundation keeps terminal charges guarded so `PAID`, `WAIVED`, or `CANCELED` charges are not overwritten by a source rerun. For Issue #33 specifically, the later 2026-06-19 decision blocks same-week devotion resubmission at the devotion boundary, so terminal devotion charge reruns should not occur through the normal weekly submission flow.
 - Impact: Issue #34 service and controller tests must cover service-admin account list access and service-level penalty charge reruns for existing `UNPAID` charges. The DB unique key remains a safety net, but normal service reruns should not surface unique constraint exceptions for existing `UNPAID` charges.
 
 ### 2026-06-18 - Issue #34 Member Payment Account Response Contract
