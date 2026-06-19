@@ -266,6 +266,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: If a coffee poll flow requires a coffee duty assignee and no active `CampusDutyAssignment` with `DutyType.COFFEE` exists for the campus, the API must fail with a clear user-facing message: `관리자에게 문의하세요`.
 - Impact: Issue #30 must provide active coffee duty assignment management, and Issue #37/#39 must validate the assignment before coffee poll setup or coffee charge flow where required.
 
+### 2026-06-19 - Issue #37 Coffee Brand And Menu Catalog
+
+- Context: The user clarified that coffee ordering is initially limited to Compose Coffee, but the design should allow additional coffee brands later.
+- Decision: Do not store Compose Coffee menu names and prices in frontend-only data or Java enums. Issue #37 must add backend-managed coffee brand/menu catalog data. MVP seeds one active brand, Compose Coffee, and seeds all current Compose Coffee menu items into the catalog. The default coffee poll template starts with these five options: iced americano, americano, iced tea, iced latte, and latte. Additional template options are added by selecting from the backend coffee menu catalog. `poll_template_options` and `poll_options` store copied menu name/code/price snapshots so later catalog price changes do not mutate already-created polls or charges.
+- Impact: Issue #37 must include `coffee_brands`, `coffee_menu_catalog`, catalog lookup API, Compose Coffee full-menu seed, and default coffee template option seeding. Brand/menu admin CRUD and additional brand onboarding are excluded unless the user approves a separate issue. Development must verify the full Compose Coffee seed list and prices from an approved current source before implementation instead of guessing.
+
 ### 2026-06-17 - Prayer Requests Group Board
 
 - Context: The user described a weekly Saturday prayer request workflow where each sharing group collects member prayer requests and currently posts them as one KakaoTalk message. The user decided the app should replace the message view instead of generating KakaoTalk share text.

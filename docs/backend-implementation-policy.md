@@ -292,6 +292,14 @@ Issue #39 is P0.
 - Duplicate charge prevention must be covered by a unique index test.
 - Poll must not directly reference Billing Entity. Keep the flow in the application layer.
 - If coffee poll setup or charge generation requires a coffee duty assignee and no active `CampusDutyAssignment` with `DutyType.COFFEE` exists for the campus, fail clearly with the user-facing message `관리자에게 문의하세요`.
+- Issue #37 provides the coffee brand/menu catalog used by coffee poll templates.
+- MVP coffee ordering is limited to Compose Coffee.
+- Coffee menu names and prices must not be frontend-only data or Java enum constants because they affect billing.
+- Issue #37 must seed one active Compose Coffee brand and all current Compose Coffee menu items into backend catalog data.
+- The default coffee poll template starts with iced americano, americano, iced tea, iced latte, and latte options.
+- Additional coffee template options are selected from the backend menu catalog and copied into `poll_template_options`.
+- `poll_template_options` and `poll_options` keep copied `composeMenuCode`, display name, and `priceAmount` snapshots so later catalog price changes do not mutate existing templates, polls, or charges.
+- Brand/menu admin CRUD and additional brand onboarding are outside Issue #37 unless the user approves a separate issue.
 
 ## Payment Account And Charge Foundation
 

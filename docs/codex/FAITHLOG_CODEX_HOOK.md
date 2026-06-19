@@ -365,6 +365,29 @@ DELETE /api/v1/campuses/{campusId}/polls/{pollId}/comments/{commentId}
 
 커피 투표 템플릿은 기본으로 제공한다.
 
+커피 주문 브랜드는 MVP에서 컴포즈커피만 사용한다.
+
+커피 메뉴명과 가격은 청구 금액으로 이어지므로 프론트 전용 데이터나 Java enum 상수로 관리하지 않는다.
+
+Issue #37은 백엔드 기준 데이터로 아래 구조를 추가한다.
+
+```text
+coffee_brands
+coffee_menu_catalog
+```
+
+MVP seed 기준:
+
+- `coffee_brands`: 컴포즈커피 1개
+- `coffee_menu_catalog`: 현재 컴포즈커피 전체 메뉴
+- 기본 커피 투표 템플릿 옵션: 아이스 아메리카노, 아메리카노, 아이스티, 아이스 라떼, 라떼
+
+추가 선택지는 프론트가 백엔드 메뉴 카탈로그를 조회한 뒤 선택해서 `poll_template_options`에 복사 저장한다.
+
+`poll_template_options`와 `poll_options`는 생성 당시의 메뉴 코드, 메뉴명, 가격을 snapshot으로 저장한다. 이후 카탈로그 가격이 바뀌어도 이미 생성된 템플릿, 투표, 청구 금액은 조용히 변경하지 않는다.
+
+컴포즈커피 전체 메뉴 seed 목록과 가격은 개발 전에 공식 메뉴판 또는 사용자가 승인한 최신 자료로 검증해야 하며, Codex가 임의로 추측해서 채우지 않는다.
+
 커피 담당자는 기본 커피 투표 템플릿의 아래 시간을 설정할 수 있다.
 
 - 매주 커피 투표가 자동 생성되는 시간
