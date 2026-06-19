@@ -20,9 +20,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.billing.application.BillingService;
+import com.faithlog.billing.application.CreatePaymentAccountCommand;
+import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.devotion.domain.PenaltyCalculationType;
+import com.faithlog.devotion.domain.PenaltyRule;
+import com.faithlog.devotion.domain.PenaltyRuleType;
+import com.faithlog.devotion.infrastructure.jpa.PenaltyRuleRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
@@ -50,15 +58,23 @@ class DevotionApiRestDocsTest {
 	@Autowired
 	private UserRepository userRepository;
 
+	@Autowired
+	private PenaltyRuleRepository penaltyRuleRepository;
+
+	@Autowired
+	private BillingService billingService;
+
 	@Test
 	void documents_devotion_daily_weekly_my_week_and_admin_missing_contracts() throws Exception {
 		String managerToken = signupAndLogin("docs-devotion-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-devotion-manager@example.com").orElseThrow();
 		JsonNode campus = createCampus(managerToken, "80캠");
 		long campusId = campus.path("campusId").asLong();
 		String memberToken = signupAndLogin("docs-devotion-member@example.com", UserRole.USER);
 		joinCampus(memberToken, campus.path("inviteCode").asText());
 		String missingToken = signupAndLogin("docs-devotion-missing@example.com", UserRole.USER);
 		joinCampus(missingToken, campus.path("inviteCode").asText());
+		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-301");
 
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/days/{recordDate}", campusId, "2026-06-17")
 				.header("Authorization", "Bearer " + memberToken)
@@ -389,6 +405,93 @@ class DevotionApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_devotion_missing_penalty_account() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-no-account-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "86캠");
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campus.path("campusId").asLong(),
+				"2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-15",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 0,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING"))
+			.andExpect(jsonPath("$.message").value("관리자에게 문의하세요"))
+			.andDo(document("devotion-missing-penalty-account",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("주 시작일")
+				),
+				requestFields(weeklyRequestFields()),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_devotion_weekly_already_submitted() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-duplicate-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-devotion-duplicate-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "87캠");
+		long campusId = campus.path("campusId").asLong();
+		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-302");
+		String weeklyBody = """
+			{
+			  "dailyChecks": [
+			    {
+			      "recordDate": "2026-06-15",
+			      "quietTimeChecked": true,
+			      "prayerChecked": true,
+			      "bibleReadingChecked": true
+			    }
+			  ],
+			  "saturdayLateMinutes": 0,
+			  "submit": true
+			}
+			""";
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(weeklyBody))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(weeklyBody))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("DEVOTION_WEEKLY_ALREADY_SUBMITTED"))
+			.andExpect(jsonPath("$.message").value("이미 제출된 주간 경건생활은 수정할 수 없습니다."))
+			.andDo(document("devotion-weekly-already-submitted",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("이미 제출된 주 시작일")
+				),
+				requestFields(weeklyRequestFields()),
+				responseFields(errorResponseFields())
+			));
+	}
+
 	private FieldDescriptor[] dailyCheckRequestFields() {
 		return new FieldDescriptor[] {
 			fieldWithPath("quietTimeChecked").description("큐티 체크 여부"),
@@ -488,6 +591,25 @@ class DevotionApiRestDocsTest {
 					}
 					""".formatted(inviteCode)))
 			.andExpect(status().isCreated());
+	}
+
+	private void createPenaltyPrerequisites(long campusId, long managerId, String accountNumber) {
+		penaltyRuleRepository.saveAllAndFlush(List.of(
+			PenaltyRule.create(campusId, PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.PRAYER, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.BIBLE_READING, PenaltyCalculationType.MISSING_COUNT, 5, 0, 300),
+			PenaltyRule.create(campusId, PenaltyRuleType.SATURDAY_LATE, PenaltyCalculationType.LATE_MINUTE, 0, 1000, 100)
+		));
+		billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			managerId,
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"하나은행",
+			accountNumber,
+			"벌금회계",
+			null
+		));
 	}
 
 	private String signupAndLogin(String email, UserRole role) throws Exception {
