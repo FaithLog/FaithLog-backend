@@ -216,11 +216,17 @@ Final devotion APIs:
 - `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}`
 - `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
 - `GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
+- `GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}`
 - `GET /api/v1/admin/campuses/{campusId}/devotions/missing?weekStartDate={weekStartDate}`
 
 Rules:
 
 - `weekStartDate` must be Monday.
+- Monthly devotion summary follows Notion `10.5 내 월간 경건생활 통계 조회`.
+- Monthly devotion summary validates the authenticated user is an ACTIVE campus member and returns only the authenticated user's data.
+- Monthly devotion summary response includes campus/user identity, `year`, `month`, monthly `devotion` totals, and `weeklyRecords[]`.
+- Monthly devotion summary uses existing `weekly_devotion_records` summaries for the response and must not add a new persistence table.
+- Before implementing issue #57, ask the user how to include weekly records that cross a month boundary: by `weekStartDate`, by `weekEndDate`, or by overlap with the selected month.
 - A daily check creates or updates the `devotion_daily_checks` row for `recordDate` and creates the matching weekly row when missing.
 - A daily check must not update `submitted_at`, calculate penalties, or create/update `PENALTY` charges.
 - Weekly save/submit creates or updates Monday-Sunday `devotion_daily_checks`.

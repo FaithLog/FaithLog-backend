@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #57 My Monthly Devotion Summary Contract
+
+- Context: GitHub Issue #57 was split from Issue #31 for the Notion `10.5 내 월간 경건생활 통계 조회` API. The issue still said to verify the Notion source before choosing path, query parameters, and response shape.
+- Decision: Issue #57 follows Notion API `10.5`: `GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}`. The response keeps the common `ApiResponse` envelope and returns `campusId`, `campusName`, `region`, `userId`, `name`, `year`, `month`, a monthly `devotion` summary, and `weeklyRecords[]` with `weeklyRecordId`, `weekStartDate`, `weekEndDate`, `quietTimeCount`, `prayerCount`, `bibleReadingCount`, `saturdayLateMinutes`, and `submittedAt`.
+- Impact: Issue #57 does not add a new table. It aggregates existing `weekly_devotion_records` for the current authenticated user after ACTIVE campus membership validation. `devotion_daily_checks` remains the raw daily source, but monthly summary output uses weekly record summaries to match the Notion response. Controller must return DTOs, detailed contract must be covered with Spring REST Docs, and Swagger documentation annotations must not be added.
+- Pending: Before implementation, the user must confirm whether a weekly record that crosses a month boundary is included by `weekStartDate` month, `weekEndDate` month, or overlap with the selected month.
+
 ### 2026-06-19 - Issue #33 Weekly Devotion Submission Response Shape
 
 - Context: Issue #33 creates a `PENALTY` charge as a side effect of the first weekly devotion final submission. The remaining API contract question was whether the existing weekly devotion response should add a new field such as `generatedCharges`.
