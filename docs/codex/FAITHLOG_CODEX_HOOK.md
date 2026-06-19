@@ -507,6 +507,18 @@ GET /api/v1/admin/campuses/{campusId}/notification-logs
 6. API 문서와 테스트가 어긋나지 않도록 문서 생성 테스트도 TDD 및 검증 범위에 포함한다.
 7. REST Docs 산출물은 `build/generated-snippets`와 `build/docs/asciidoc` 기준으로 확인한다.
 
+### 4.2 에러 코드와 요청 검증 규칙
+
+1. 에러 응답은 `HTTP status + 세부 code`를 고정 API 계약으로 사용한다.
+2. `message`는 사용자 표시용 문구로 관리한다.
+3. `ErrorCode`는 글로벌 enum 하나를 유지하되, 도메인 prefix 기반 세부 코드로 나눈다.
+4. 넓은 `INVALID_REQUEST`, `NOT_FOUND`, `FORBIDDEN`만으로 새 도메인 예외를 표현하지 않는다.
+5. `page`, `size`, `sort`가 잘못된 경우 자동 보정하지 않고 `400`을 반환한다.
+6. 단순 DTO 검증은 Bean Validation을 사용한다.
+7. 페이지/정렬 파싱과 검증은 공통 요청 검증 컴포넌트로 분리한다.
+8. 비즈니스 규칙 검증은 `CampusRolePolicy`, `ChargeStatusPolicy`, `BillingAccessPolicy` 같은 정책 클래스로 분리한다.
+9. 새 API 또는 변경 API의 에러 응답 계약은 가능한 경우 Spring REST Docs 테스트로 문서화한다.
+
 ## 5. 테스트 필수 영역
 
 다음 기능은 반드시 테스트를 작성한다.
