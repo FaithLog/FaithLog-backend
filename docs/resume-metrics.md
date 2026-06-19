@@ -13,9 +13,9 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 82 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 20 test files (2026-06-19) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 32 snippet groups (2026-06-19) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 104 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 23 test files (2026-06-19) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 41 snippet groups (2026-06-19) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-19) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
@@ -26,6 +26,38 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-06-19
 
+- #31 주간 경건생활 제출과 일별 체크 구현:
+  - 브랜치: `feat/31-weekly-devotion-daily-check`
+  - 구현 API: `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}`, `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`, `GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`, `GET /api/v1/admin/campuses/{campusId}/devotions/missing?weekStartDate={weekStartDate}`
+  - 구현 모델/서비스: `WeeklyDevotionRecord`, `DevotionDailyCheck`, `DevotionService`, Command/Result DTO, member/admin devotion controllers
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest --tests com.faithlog.devotion.presentation.DevotionControllerTest`가 devotion 도메인/서비스/리포지토리 클래스 부재로 `compileTestJava` 실패.
+  - 검증 범위: 하루 체크 daily/weekly row 생성 및 수정, 하루 체크의 `submittedAt`/청구 미변경, 주간 PUT 7일치 생성/수정, `dailyChecks` 필드, 제출 시 누락 날짜 false 기본값, 월요일 검증 400, `submit=true` 제출시각/요약값 갱신, 본인 주간 조회, 관리자 미제출자 조회 `submittedAt` 기준, ACTIVE 캠퍼스 멤버 권한, 캠퍼스 관리자 권한.
+  - 제외 범위: 월간 경건생활 통계는 #57, 실제 `PENALTY charge_items` 생성/갱신은 #33으로 유지. #31 테스트는 `charge_items`가 생성되지 않음을 검증.
+  - 재검증: #31 서비스/컨트롤러/REST Docs 테스트 성공, `./gradlew test` 성공(92 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고, 권한 상승 재실행으로 성공.
+  - Docker 검증: `docker compose build app` 성공, `docker compose up -d postgres redis app` 성공, postgres/redis healthy, app started, 컨테이너 내부 `GET /api/v1/health` 응답 `status=UP` 확인, `docker compose down` 성공. 호스트 `curl localhost:8080`은 현재 세션에서 연결 실패했지만 컨테이너 내부 health는 정상.
+  - REST Docs 결과: devotion snippets 5개 묶음 추가(`devotion-daily-check-success`, `devotion-weekly-save-submit-success`, `devotion-my-week-success`, `devotion-admin-missing-success`, `devotion-invalid-week-start-date`), 전체 snippet group 37개.
+  - 코드베이스 수치: Java 소스 183개, 테스트 파일 22개.
+- #31 PM 리뷰 입력 검증 보강:
+  - TDD 실패 확인: 검증 구현 전 `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest --tests com.faithlog.devotion.presentation.DevotionControllerTest --tests com.faithlog.devotion.presentation.DevotionApiRestDocsTest`가 새 `DEVOTION_*` ErrorCode 부재로 `compileTestJava` 실패.
+  - 수정: 주간 PUT에서 `dailyChecks[].recordDate`가 `weekStartDate`부터 6일 뒤까지만 허용되도록 검증하고, `saturdayLateMinutes < 0` 요청을 도메인 에러 코드로 400 처리.
+  - 추가 에러 코드: `DEVOTION_DAILY_CHECK_DATE_OUT_OF_WEEK`, `DEVOTION_INVALID_SATURDAY_LATE_MINUTES`.
+  - 추가 테스트: 서비스 검증 2개, 컨트롤러 400 응답 2개, REST Docs 에러 계약 2개.
+  - 재검증: 대상 테스트 묶음 성공, `./gradlew test --rerun-tasks` 성공(98 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
+  - REST Docs 결과: `devotion-daily-check-date-out-of-week`, `devotion-invalid-saturday-late-minutes` snippet 추가, 전체 snippet group 39개.
+- #31 빈 주간 경건생활 조회 기본 응답 결정 반영:
+  - 문서 결정 포함: `origin/docs/31-devotion-planning-sync`의 `52b82b2 docs: #31 빈 주간 경건생활 조회 기본값 결정 기록`을 개발 브랜치에 병합.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest --tests com.faithlog.devotion.presentation.DevotionControllerTest --tests com.faithlog.devotion.presentation.DevotionApiRestDocsTest`가 19 tests / 3 failed로 실패. 서비스는 기존 `DEVOTION_WEEKLY_RECORD_NOT_FOUND` 예외를 던졌고 HTTP/REST Docs는 기본 응답 기대에서 실패.
+  - 수정: 본인 주간 조회에서 weekly row가 없으면 DB row를 생성하지 않고 월요일-일요일 7일치 false 기본 응답을 반환. `weeklyRecordId`, `submittedAt`, `dailyChecks[].id`는 null로 응답에 포함.
+  - 추가 테스트: 서비스 기본 조회/DB 미생성 1개, 컨트롤러 200 기본 응답/DB count 불변 1개, REST Docs 기본 성공 계약 1개.
+  - 재검증: 대상 테스트 묶음 성공, `./gradlew test --rerun-tasks` 성공(101 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
+  - REST Docs 결과: `devotion-my-week-default-success` snippet 추가, 전체 snippet group 40개.
+- #31 Docker QA 부분 주간 조회 7일 합성 수정:
+  - QA 증거: 빈 주간 조회는 7일 기본 응답과 DB row 미생성을 만족했지만, 하루 체크 후 주간 조회가 저장된 1일치(`2026-06-17`)만 반환.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest --tests com.faithlog.devotion.presentation.DevotionControllerTest --tests com.faithlog.devotion.presentation.DevotionApiRestDocsTest`가 22 tests / 3 failed로 실패. 부분 주간 조회가 7일이 아니라 저장된 daily row만 반환하는 문제 확인.
+  - 수정: 본인 주간 조회 결과 생성 시 weekly row가 있어도 월요일-일요일 7일치 `dailyChecks`를 합성. 저장된 날짜는 DB id/체크값을 사용하고, 누락 날짜는 `id = null`, false 기본값으로 반환. 조회 중 누락 daily row는 생성하지 않음.
+  - 추가 테스트: 서비스 부분 주간 조회/DB 미생성 1개, 컨트롤러 부분 주간 7일 응답 1개, REST Docs 부분 주간 성공 계약 1개.
+  - 재검증: 대상 devotion 테스트 묶음 성공, `./gradlew test --rerun-tasks` 성공(104 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
+  - REST Docs 결과: `devotion-my-week-partial-success` snippet 추가, 전체 snippet group 41개.
 - #55 공통 에러 코드와 요청 검증 구조 리팩토링:
   - 브랜치: `refactor/55-error-validation-structure`
   - TDD 실패 확인: 세부 error code, 잘못된 `page`/`size`/`sort` 400 응답, Bean Validation 실패 code, billing/campus/auth 주요 예외 code, REST Docs 대표 에러 응답 계약 테스트를 먼저 추가. 구현 전 대상 테스트 묶음은 28 tests / 12 failed로 실패.

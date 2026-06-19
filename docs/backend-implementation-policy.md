@@ -213,6 +213,7 @@ Final comment APIs:
 
 Final devotion APIs:
 
+- `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}`
 - `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
 - `GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
 - `GET /api/v1/admin/campuses/{campusId}/devotions/missing?weekStartDate={weekStartDate}`
@@ -220,9 +221,13 @@ Final devotion APIs:
 Rules:
 
 - `weekStartDate` must be Monday.
+- A daily check creates or updates the `devotion_daily_checks` row for `recordDate` and creates the matching weekly row when missing.
+- A daily check must not update `submitted_at`, calculate penalties, or create/update `PENALTY` charges.
 - Weekly save/submit creates or updates Monday-Sunday `devotion_daily_checks`.
+- Weekly save/submit request uses the `dailyChecks` field.
+- Missing dates in a weekly submission are filled with false defaults.
 - `weekly_devotion_records` is used for weekly summary and calculations.
-- The old single-day devotion check API is not the MVP implementation path.
+- Devotion submission and admin missing-user checks are based on `weekly_devotion_records.submitted_at`, not on daily row existence.
 - Penalty calculation and `PENALTY` charge creation follows issue #33.
 
 Penalty table:
