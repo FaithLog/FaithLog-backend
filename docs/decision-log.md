@@ -272,6 +272,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Do not store Compose Coffee menu names and prices in frontend-only data or Java enums. Issue #37 must add backend-managed coffee brand/menu catalog data. MVP seeds one active brand, Compose Coffee, and seeds all current Compose Coffee menu items into the catalog. The default coffee poll template starts with these five options: iced americano, americano, iced tea, iced latte, and latte. Additional template options are added by selecting from the backend coffee menu catalog. `poll_template_options` and `poll_options` store copied menu name/code/price snapshots so later catalog price changes do not mutate already-created polls or charges.
 - Impact: Issue #37 must include `coffee_brands`, `coffee_menu_catalog`, catalog lookup API, Compose Coffee full-menu seed, and default coffee template option seeding. Brand/menu admin CRUD and additional brand onboarding are excluded unless the user approves a separate issue. Development must verify the full Compose Coffee seed list and prices from an approved current source before implementation instead of guessing.
 
+### 2026-06-19 - Issue #38 Poll Result Visibility
+
+- Context: The user clarified how poll result visibility should work for normal and anonymous polls.
+- Decision: Normal poll results are visible to all active campus members, not only admins. If `polls.is_anonymous = false`, the result response may show who voted for each option. If `polls.is_anonymous = true`, nobody should be able to identify who voted for which option through result APIs; return aggregate counts only and hide respondent user identifiers/names. The backend still stores `poll_responses.user_id` for duplicate response prevention, response editing, and missing-member calculation, but does not expose voter identity for anonymous poll results.
+- Impact: Issue #38 must use a member-facing result endpoint, such as `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`, and tests must cover both non-anonymous identity exposure and anonymous identity hiding. Admin-only missing-member lookup can remain separate.
+
 ### 2026-06-17 - Prayer Requests Group Board
 
 - Context: The user described a weekly Saturday prayer request workflow where each sharing group collects member prayer requests and currently posts them as one KakaoTalk message. The user decided the app should replace the message view instead of generating KakaoTalk share text.
