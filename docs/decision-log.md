@@ -272,6 +272,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Do not store Compose Coffee menu names and prices in frontend-only data or Java enums. Issue #37 must add backend-managed coffee brand/menu catalog data. MVP seeds one active brand, Compose Coffee, and seeds all current Compose Coffee menu items into the catalog. The default coffee poll template starts with these five options: iced americano, americano, iced tea, iced latte, and latte. Additional template options are added by selecting from the backend coffee menu catalog. `poll_template_options` and `poll_options` store copied menu name/code/price snapshots so later catalog price changes do not mutate already-created polls or charges.
 - Impact: Issue #37 must include `coffee_brands`, `coffee_menu_catalog`, catalog lookup API, Compose Coffee full-menu seed, and default coffee template option seeding. Brand/menu admin CRUD and additional brand onboarding are excluded unless the user approves a separate issue. Development must verify the full Compose Coffee seed list and prices from an approved current source before implementation instead of guessing.
 
+### 2026-06-19 - Issue #37 Coffee Catalog Source And API Path
+
+- Context: The user approved the source of truth for Compose Coffee menu seed data and accepted the recommended catalog lookup API paths.
+- Decision: Issue #37 must seed Compose Coffee menu names and prices from the official Compose Coffee menu board/source available at implementation time. If the official website blocks automated access, the development session must use another official source provided by Compose Coffee, such as the official app/menu image/menu board, and record the source used. The catalog lookup APIs are `GET /api/v1/coffee-brands` and `GET /api/v1/coffee-brands/{brandId}/menus`.
+- Impact: Issue #37 development must not guess menu prices from blogs or unofficial lists. REST Docs tests must document both catalog lookup APIs, and the seed verification record must name the official source and capture date.
+
 ### 2026-06-19 - Issue #38 Poll Result Visibility
 
 - Context: The user clarified how poll result visibility should work for normal and anonymous polls.
@@ -283,6 +289,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Context: The user clarified how long poll results and past polls should remain visible after a poll ends.
 - Decision: Visibility windows are based on `polls.ends_at`. User-facing poll history, poll detail, and poll result lookup are visible to active campus members only until 3 days after `ends_at`. Admin-facing poll history, poll detail, and poll result lookup are visible in the admin page only until 7 days after `ends_at`. After the visibility window expires, expired polls should be hidden from lists and direct lookup should not expose the poll/result data.
 - Impact: Issue #38 must add tests for member visibility before and after `ends_at + 3 days`, and admin visibility before and after `ends_at + 7 days`. The anonymous poll identity-hiding rule still applies during the visible window.
+
+### 2026-06-19 - Issue #38 Poll-Level Result Query
+
+- Context: The user clarified that seeing who voted for what should be handled as a full result view for one poll, not as separate option-level result lookup APIs.
+- Decision: Issue #38 must provide one poll-level result API, `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`. Do not create option-level result endpoints such as `/options/{optionId}/results` for MVP. The poll-level result response contains poll metadata, all options, vote counts, and, when the poll is not anonymous, respondent lists grouped under each option. Anonymous polls return aggregate counts only and omit respondent identity fields.
+- Impact: API docs, tests, and frontend planning should treat the poll detail/result screen as a single poll-level result resource. Tests must verify that all options are returned in one response and that anonymous polls do not expose respondent identity.
 
 ### 2026-06-17 - Prayer Requests Group Board
 
