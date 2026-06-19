@@ -38,6 +38,9 @@ final class BillingPageRequests {
 	private static Sort sort(String sort, List<String> allowedSortProperties) {
 		String sortValue = sort == null || sort.isBlank() ? DEFAULT_SORT : sort;
 		String[] tokens = sortValue.split(",");
+		if (tokens.length > 2) {
+			throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 형식입니다.");
+		}
 		String property = tokens[0].trim();
 		if (!allowedSortProperties.contains(property)) {
 			throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 기준입니다.");

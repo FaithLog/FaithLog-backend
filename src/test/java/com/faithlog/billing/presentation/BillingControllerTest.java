@@ -455,6 +455,18 @@ class BillingControllerTest {
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
 				.header("Authorization", "Bearer " + memberToken)
+				.param("sort", "createdAt,desc,extra"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 형식입니다."));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("sort", "unpaidAmount,asc,ignored"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 형식입니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
 				.param("sort", "createdAt,asc"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items.length()").value(1))
