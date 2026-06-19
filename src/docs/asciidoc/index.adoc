@@ -1109,3 +1109,195 @@ include::{snippets}/admin-campus-member-add-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/admin-campus-member-add-success/response-fields.adoc[]
+
+== Poll And Coffee Catalog
+
+=== List Coffee Brands
+
+`GET /api/v1/coffee-brands`
+
+==== Request
+
+include::{snippets}/coffee-brands-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/coffee-brands-list-success/request-headers.adoc[]
+
+==== Response
+
+include::{snippets}/coffee-brands-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/coffee-brands-list-success/response-fields.adoc[]
+
+=== List Coffee Menus
+
+`GET /api/v1/coffee-brands/{brandId}/menus`
+
+기본 조회는 활성 메뉴만 반환한다.
+
+==== Request
+
+include::{snippets}/coffee-brand-menus-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/coffee-brand-menus-list-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/coffee-brand-menus-list-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/coffee-brand-menus-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/coffee-brand-menus-list-success/response-fields.adoc[]
+
+=== Create Poll Template
+
+`POST /api/v1/admin/campuses/{campusId}/poll-templates`
+
+커피 메뉴를 선택지로 사용할 때는 생성 당시의 메뉴 코드, 이름, 가격을 템플릿 선택지 snapshot으로 저장한다.
+
+==== Request
+
+include::{snippets}/poll-template-create-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-template-create-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-template-create-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-template-create-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-template-create-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-template-create-success/response-fields.adoc[]
+
+=== List Poll Templates
+
+`GET /api/v1/admin/campuses/{campusId}/poll-templates`
+
+==== Request
+
+include::{snippets}/poll-template-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-template-list-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-template-list-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/poll-template-list-success/http-response.adoc[]
+
+=== Get Poll Template
+
+`GET /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+
+==== Request
+
+include::{snippets}/poll-template-detail-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-template-detail-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-template-detail-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/poll-template-detail-success/http-response.adoc[]
+
+=== Update Poll Template
+
+`PATCH /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+
+==== Request
+
+include::{snippets}/poll-template-update-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-template-update-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-template-update-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-template-update-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-template-update-success/http-response.adoc[]
+
+=== Deactivate Poll Template
+
+`DELETE /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+
+==== Request
+
+include::{snippets}/poll-template-deactivate-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-template-deactivate-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-template-deactivate-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/poll-template-deactivate-success/http-response.adoc[]
+
+=== Create Poll
+
+`POST /api/v1/admin/campuses/{campusId}/polls`
+
+`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다.
+
+==== Request
+
+include::{snippets}/poll-create-direct-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-create-direct-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-create-direct-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-create-direct-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-create-direct-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-create-direct-success/response-fields.adoc[]
