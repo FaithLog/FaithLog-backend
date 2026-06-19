@@ -248,6 +248,13 @@ Penalty rule APIs for issue #32:
 
 Issue #32 implements penalty rule management and fine calculation only. It must not create or update `charge_items`; weekly devotion submission to `PENALTY` charge integration belongs to issue #33.
 
+Penalty rule replacement and validation:
+
+- Creating a new ACTIVE penalty rule for the same campus and `rule_type` automatically deactivates the previous ACTIVE rule and leaves only the new rule active.
+- `QUIET_TIME`, `PRAYER`, and `BIBLE_READING` must use `MISSING_COUNT`.
+- `SATURDAY_LATE` must use `LATE_MINUTE`.
+- Invalid `rule_type` and `calculation_type` pairings must return `400`.
+
 Do not use:
 
 - `POST /api/v1/campuses/{campusId}/devotions/weeks`
