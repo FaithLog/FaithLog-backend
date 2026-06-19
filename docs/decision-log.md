@@ -10,6 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-18 - Issue #36 Charge Query Date Filter And Monthly Summary Policy
+
+- Context: Issue #36 originally listed `startDate` and `endDate` query parameters for charge list APIs, but the user reconsidered the product behavior during development. The user preferred not to expose manual date-range filtering in the API contract and wanted the app to show recent paid/charged history without deleting older records.
+- Decision: Remove `startDate` and `endDate` from the four Issue #36 charge query APIs. The backend keeps charge history queryable through pagination, sorting, `paymentCategory`, `status`, `userId`, and `keyword` filters. The client may choose to emphasize recent paid items in the default screen, but backend records are not hidden or deleted by time. For `GET /api/v1/campuses/{campusId}/charges/me/summary`, `monthlyPaidAmount` is calculated by `paidAt` in the selected year/month, while `monthlyUnpaidAmount`, `monthlyTotalChargeAmount`, and `monthlyByCategory` use charge `createdAt` in the selected year/month as the "charged" period.
+- Impact: Issue #36 implementation, REST Docs, and tests must not document or bind `startDate`/`endDate`. Query tests must cover full-history pagination and the split monthly summary basis (`paidAt` for paid totals, `createdAt` for charged/unpaid totals). If a future UX needs explicit date-range search, it must be approved as a new API contract change.
+
+### 2026-06-18 - Issue #36 Charge List And Campus Summary Contract
+
+- Context: Issue #36 needed final charge query behavior for member-facing charge lists, member payment summary, campus-level administrator aggregation, and administrator member detail.
+- Decision: Use the latest Issue #36 API paths: `GET /api/v1/campuses/{campusId}/charges/me`, `GET /api/v1/campuses/{campusId}/charges/me/summary`, `GET /api/v1/admin/campuses/{campusId}/charges`, and `GET /api/v1/admin/campuses/{campusId}/members/{userId}/charges`. Do not implement `/api/v1/users/me/charges`, `/api/v1/campuses/{campusId}/charges`, or `/api/v1/campuses/{campusId}/charges/unpaid-users`. Administrator campus charge query returns `summary + members[]` aggregation only and does not include individual charge items. Administrator member detail includes target member `userId`, `name`, and `email`, and uses the same charge item `account`/`source` structure as the member-facing list.
+- Impact: Issue #36 controller responses must use DTOs and the common `ApiResponse` envelope, not Entity returns. Request/Response DTOs and application Result records remain separated. Detailed API contracts are verified through Spring REST Docs tests, without adding Swagger documentation annotations.
+
 ### 2026-06-18 - Issue #35 Charge Status Transition Policy
 
 - Context: Issue #35 needed final clarification for charge payment completion, waiver, cancellation, and administrator correction behavior before development. The earlier issue draft and Notion API page allowed an administrator to set `PAID`, but the user chose a stricter rule.

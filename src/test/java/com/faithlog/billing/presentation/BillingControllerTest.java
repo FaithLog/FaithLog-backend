@@ -14,6 +14,7 @@ import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.application.CreatePenaltyChargeCommand;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
+import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.campus.domain.CampusMember;
@@ -23,6 +24,7 @@ import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -293,6 +295,182 @@ class BillingControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{}"))
 			.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void charge_query_api_maps_my_summary_admin_campus_and_admin_member_responses() throws Exception {
+		String managerToken = signupAndLogin("billing-http-query-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-query-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "58캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-query-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-query-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-017");
+		ChargeItemResult unpaid = createPenaltyCharge(campusId, member.id(), 6101L);
+		ChargeItemResult paidResult = createPenaltyCharge(campusId, member.id(), 6102L);
+		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
+		paid.markPaid();
+		chargeItemRepository.saveAndFlush(paid);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("status", "UNPAID")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.campusId").value(campusId))
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2500))
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].id").value(unpaid.id()))
+			.andExpect(jsonPath("$.data.items[0].account.paymentAccountId").isNumber())
+			.andExpect(jsonPath("$.data.items[0].account.accountNumber").value("123-456789-017"))
+			.andExpect(jsonPath("$.data.items[0].source.sourceType").value("DEVOTION_RECORD"))
+			.andExpect(jsonPath("$.data.items[0].source.sourceId").value(6101));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me/summary", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("year", "2026")
+				.param("month", "6"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.name").value("빌링테스트"))
+			.andExpect(jsonPath("$.data.totalPaidAmount").value(2500))
+			.andExpect(jsonPath("$.data.monthlyPaidAmount").value(2500))
+			.andExpect(jsonPath("$.data.monthlyTotalChargeAmount").value(5000))
+			.andExpect(jsonPath("$.data.monthlyByCategory[0].paymentCategory").value("PENALTY"));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("keyword", "billing-http-query-member")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(5000))
+			.andExpect(jsonPath("$.data.members.length()").value(1))
+			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()))
+			.andExpect(jsonPath("$.data.members[0].email").value("billing-http-query-member@example.com"))
+			.andExpect(jsonPath("$.data.members[0].items").doesNotExist());
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/members/{userId}/charges", campusId, member.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.param("paymentCategory", "PENALTY")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.name").value("빌링테스트"))
+			.andExpect(jsonPath("$.data.email").value("billing-http-query-member@example.com"))
+			.andExpect(jsonPath("$.data.items.length()").value(2))
+			.andExpect(jsonPath("$.data.items[0].account.accountNumber").value("123-456789-017"))
+			.andExpect(jsonPath("$.data.items[0].source.sourceType").value("DEVOTION_RECORD"));
+	}
+
+	@Test
+	void admin_campus_charge_query_with_unpaid_status_returns_only_members_having_unpaid_charges() throws Exception {
+		String managerToken = signupAndLogin("billing-http-unpaid-filter-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-unpaid-filter-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "59캠");
+		long campusId = campus.path("campusId").asLong();
+		String unpaidMemberToken = signupAndLogin("billing-http-unpaid-filter-target@example.com", UserRole.USER);
+		User unpaidMember = userRepository.findByEmail("billing-http-unpaid-filter-target@example.com").orElseThrow();
+		joinCampus(unpaidMemberToken, campus.path("inviteCode").asText());
+		String settledMemberToken = signupAndLogin("billing-http-unpaid-filter-settled@example.com", UserRole.USER);
+		User settledMember = userRepository.findByEmail("billing-http-unpaid-filter-settled@example.com").orElseThrow();
+		joinCampus(settledMemberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-019");
+		ChargeItemResult unpaid = createPenaltyCharge(campusId, unpaidMember.id(), 6201L);
+		ChargeItemResult paidResult = createPenaltyCharge(campusId, settledMember.id(), 6202L);
+		ChargeItemResult waivedResult = createPenaltyCharge(campusId, settledMember.id(), 6203L);
+		ChargeItemResult canceledResult = createPenaltyCharge(campusId, settledMember.id(), 6204L);
+		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
+		paid.markPaid();
+		ChargeItem waived = chargeItemRepository.findById(waivedResult.id()).orElseThrow();
+		waived.markWaived();
+		ChargeItem canceled = chargeItemRepository.findById(canceledResult.id()).orElseThrow();
+		canceled.markCanceled();
+		chargeItemRepository.saveAllAndFlush(List.of(paid, waived, canceled));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("status", "UNPAID")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2500))
+			.andExpect(jsonPath("$.data.summary.unpaidAmount").value(2500))
+			.andExpect(jsonPath("$.data.summary.paidAmount").value(0))
+			.andExpect(jsonPath("$.data.summary.waivedAmount").value(0))
+			.andExpect(jsonPath("$.data.summary.canceledAmount").value(0))
+			.andExpect(jsonPath("$.data.members.length()").value(1))
+			.andExpect(jsonPath("$.data.members[0].userId").value(unpaidMember.id()))
+			.andExpect(jsonPath("$.data.members[0].email").value("billing-http-unpaid-filter-target@example.com"))
+			.andExpect(jsonPath("$.data.members[0].unpaidAmount").value(unpaid.amount()))
+			.andExpect(jsonPath("$.data.members[0].paidAmount").value(0))
+			.andExpect(jsonPath("$.data.members[0].waivedAmount").value(0))
+			.andExpect(jsonPath("$.data.members[0].canceledAmount").value(0))
+			.andExpect(jsonPath("$.data.members[0].items").doesNotExist());
+	}
+
+	@Test
+	void charge_query_apis_reject_unsupported_sort_properties_and_directions() throws Exception {
+		String managerToken = signupAndLogin("billing-http-admin-sort-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-admin-sort-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "60캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-admin-sort-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-admin-sort-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-020");
+		createPenaltyCharge(campusId, member.id(), 6301L);
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("sort", "amount,asc"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 기준입니다."));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("sort", "unpaidAmount,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.members.length()").value(1))
+			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("sort", "unpaidAmount,wrong"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 방향입니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("sort", "createdAt,ascending"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 방향입니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("sort", "createdAt,desc,extra"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 형식입니다."));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("sort", "unpaidAmount,asc,ignored"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 형식입니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("sort", "createdAt,asc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].id").isNumber());
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {

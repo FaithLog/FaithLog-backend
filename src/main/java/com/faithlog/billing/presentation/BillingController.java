@@ -1,9 +1,16 @@
 package com.faithlog.billing.presentation;
 
 import com.faithlog.billing.application.BillingService;
+import com.faithlog.billing.application.BillingQueryService;
 import com.faithlog.billing.application.ChargeItemResult;
+import com.faithlog.billing.application.MyChargeListQuery;
+import com.faithlog.billing.application.MyChargeSummaryQuery;
+import com.faithlog.billing.domain.ChargeStatus;
+import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.presentation.dto.ChargeItemResponse;
 import com.faithlog.billing.presentation.dto.CompleteChargePaymentRequest;
+import com.faithlog.billing.presentation.dto.MyChargeSummaryResponse;
+import com.faithlog.billing.presentation.dto.MyChargesResponse;
 import com.faithlog.billing.presentation.dto.PaymentAccountMemberResponse;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
@@ -22,9 +29,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class BillingController {
 
 	private final BillingService billingService;
+	private final BillingQueryService billingQueryService;
 
-	public BillingController(BillingService billingService) {
+	public BillingController(BillingService billingService, BillingQueryService billingQueryService) {
 		this.billingService = billingService;
+		this.billingQueryService = billingQueryService;
 	}
 
 	@GetMapping("/{campusId}/payment-accounts")
@@ -38,6 +47,39 @@ public class BillingController {
 			.map(PaymentAccountMemberResponse::from)
 			.toList();
 		return ApiResponse.success(responses);
+	}
+
+	@GetMapping("/{campusId}/charges/me")
+	public ApiResponse<MyChargesResponse> listMyCharges(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@org.springframework.web.bind.annotation.RequestParam(required = false) PaymentCategory paymentCategory,
+		@org.springframework.web.bind.annotation.RequestParam(required = false) ChargeStatus status,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
+	) {
+		MyChargesResponse response = MyChargesResponse.from(billingQueryService.listMyCharges(new MyChargeListQuery(
+			campusId,
+			authenticatedUser.userId(),
+			paymentCategory,
+			status,
+			BillingPageRequests.chargeItems(page, size, sort)
+		)));
+		return ApiResponse.success(response);
+	}
+
+	@GetMapping("/{campusId}/charges/me/summary")
+	public ApiResponse<MyChargeSummaryResponse> getMyChargeSummary(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@org.springframework.web.bind.annotation.RequestParam int year,
+		@org.springframework.web.bind.annotation.RequestParam int month
+	) {
+		MyChargeSummaryResponse response = MyChargeSummaryResponse.from(billingQueryService.getMyChargeSummary(
+			new MyChargeSummaryQuery(campusId, authenticatedUser.userId(), year, month)
+		));
+		return ApiResponse.success(response);
 	}
 
 	@PatchMapping(

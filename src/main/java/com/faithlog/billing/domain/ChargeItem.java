@@ -298,4 +298,8 @@ public class ChargeItem {
 	public Instant paidAt() {
 		return paidAt;
 	}
+
+	public Instant createdAt() {
+		return createdAt;
+	}
 }
