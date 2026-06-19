@@ -9,6 +9,7 @@ import com.faithlog.campus.presentation.dto.CampusDetailResponse;
 import com.faithlog.campus.presentation.dto.CampusMembershipResponse;
 import com.faithlog.campus.presentation.dto.CreateCampusRequest;
 import com.faithlog.campus.presentation.dto.JoinCampusRequest;
+import com.faithlog.campus.presentation.dto.UpdateCampusRequest;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -74,6 +76,16 @@ public class CampusController {
 	) {
 		CampusDetailResult result = campusService.getCampus(campusId, authenticatedUser.userId());
 		return ApiResponse.success(CampusDetailResponse.from(result));
+	}
+
+	@PatchMapping("/{campusId}")
+	public ApiResponse<CampusDetailResponse> updateCampus(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@Valid @RequestBody UpdateCampusRequest request
+	) {
+		CampusDetailResult result = campusService.updateCampus(request.toCommand(campusId, authenticatedUser));
+		return ApiResponse.success(CampusDetailResponse.from(result), "캠퍼스가 수정되었습니다.");
 	}
 
 	@DeleteMapping("/{campusId}/members/{membershipId}")

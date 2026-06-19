@@ -1,5 +1,6 @@
 package com.faithlog.campus.infrastructure.jpa;
 
+import com.faithlog.admin.application.port.AdminCampusMemberRepositoryPort;
 import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusMemberStatus;
@@ -7,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface CampusMemberRepository extends JpaRepository<CampusMember, Long>, CampusMemberRepositoryPort {
+public interface CampusMemberRepository extends JpaRepository<CampusMember, Long>, CampusMemberRepositoryPort, AdminCampusMemberRepositoryPort {
 
 	boolean existsByCampusIdAndUserId(Long campusId, Long userId);
 
@@ -18,4 +19,6 @@ public interface CampusMemberRepository extends JpaRepository<CampusMember, Long
 	List<CampusMember> findByCampusIdAndStatusOrderByIdAsc(Long campusId, CampusMemberStatus status);
 
 	List<CampusMember> findByUserIdAndStatusOrderByIdDesc(Long userId, CampusMemberStatus status);
+
+	List<CampusMember> findByUserIdOrderByIdAsc(Long userId);
 }
