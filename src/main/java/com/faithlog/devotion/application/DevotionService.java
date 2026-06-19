@@ -92,10 +92,21 @@ public class DevotionService {
 		validateDailyChecksInWeek(command.weekStartDate(), command.dailyChecks());
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		requireActiveCampusMember(command.campusId(), requester.userId());
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(command.campusId(), requester.userId(), command.weekStartDate())
+			.orElse(null);
+		validateNotSubmitted(weeklyRecord);
 		if (command.submit()) {
 			penaltyChargePort.requireActivePenaltyAccount(command.campusId());
 		}
-		WeeklyDevotionRecord weeklyRecord = getOrCreateWeeklyRecord(command.campusId(), requester.userId(), command.weekStartDate());
+		if (weeklyRecord == null) {
+			weeklyRecord = weeklyRecordRepository.save(WeeklyDevotionRecord.create(
+				command.campusId(),
+				requester.userId(),
+				command.weekStartDate()
+			));
+		}
+		WeeklyDevotionRecord targetWeeklyRecord = weeklyRecord;
 		Map<LocalDate, DevotionDailyCheckCommand> requestedChecks = command.dailyChecks().stream()
 			.collect(Collectors.toMap(
 				DevotionDailyCheckCommand::recordDate,
@@ -109,7 +120,7 @@ public class DevotionService {
 				new DevotionDailyCheckCommand(recordDate, false, false, false)
 			);
 			upsertDailyCheck(
-				weeklyRecord.id(),
+				targetWeeklyRecord.id(),
 				recordDate,
 				dailyCommand.quietTimeChecked(),
 				dailyCommand.prayerChecked(),
@@ -117,12 +128,18 @@ public class DevotionService {
 			);
 		});
 
-		List<DevotionDailyCheck> dailyChecks = refreshWeeklySummary(weeklyRecord, command.saturdayLateMinutes());
+		List<DevotionDailyCheck> dailyChecks = refreshWeeklySummary(targetWeeklyRecord, command.saturdayLateMinutes());
 		if (command.submit()) {
-			weeklyRecord.submit(Instant.now());
-			createPenaltyCharge(command, requester.userId(), weeklyRecord);
+			targetWeeklyRecord.submit(Instant.now());
+			createPenaltyCharge(command, requester.userId(), targetWeeklyRecord);
 		}
-		return WeeklyDevotionResult.of(weeklyRecord, getCampusOrThrow(command.campusId()), dailyChecks);
+		return WeeklyDevotionResult.of(targetWeeklyRecord, getCampusOrThrow(command.campusId()), dailyChecks);
+	}
+
+	private void validateNotSubmitted(WeeklyDevotionRecord weeklyRecord) {
+		if (weeklyRecord != null && weeklyRecord.submittedAt() != null) {
+			throw new BusinessException(ErrorCode.DEVOTION_WEEKLY_ALREADY_SUBMITTED);
+		}
 	}
 
 	private void createPenaltyCharge(
