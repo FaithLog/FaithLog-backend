@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #32 Penalty Rule And Fine Calculation Scope
+
+- Context: Issue #32 still had an older API draft for devotion fine calculation, while the latest Notion integrated plan and API pages define penalty rule management APIs separately from the weekly devotion submission and charge creation flow.
+- Decision: Issue #32 follows the latest Notion penalty rule API paths: `GET /api/v1/campuses/{campusId}/penalty-rules`, `POST /api/v1/admin/campuses/{campusId}/penalty-rules`, and `PATCH /api/v1/admin/penalty-rules/{ruleId}`. The issue also implements a `DevotionFineCalculator` domain service and calculation result model for `QUIET_TIME`, `PRAYER`, `BIBLE_READING`, and `SATURDAY_LATE` using the approved penalty table. The old draft endpoint `GET /api/v1/campuses/{campusId}/devotions/fines?weekStartDate=` is not part of Issue #32 unless the user explicitly approves a separate preview API later.
+- Impact: Issue #32 implementation must not create or update `charge_items`; the real weekly submission to `PENALTY` charge integration remains Issue #33. REST Docs are required for the penalty rule APIs, while the calculator is verified with focused domain/application tests. Swagger documentation annotations must not be added.
+
 ### 2026-06-19 - Issue #55 Billing Charge List Error Code
 
 - Context: During Issue #55 implementation, the existing billing charge query authorization failures had user-facing messages for "my charge list" and "campus charge list" access, but the approved detailed code list did not yet include a stable code for charge-list authorization errors.
