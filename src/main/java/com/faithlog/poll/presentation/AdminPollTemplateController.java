@@ -45,9 +45,10 @@ public class AdminPollTemplateController {
 	@GetMapping("/{templateId}")
 	public ApiResponse<PollTemplateResponse> getTemplate(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
 		@PathVariable Long templateId
 	) {
-		return ApiResponse.success(PollTemplateResponse.from(pollTemplateService.getTemplate(templateId, authenticatedUser.userId())));
+		return ApiResponse.success(PollTemplateResponse.from(pollTemplateService.getTemplate(campusId, templateId, authenticatedUser.userId())));
 	}
 
 	@PostMapping
@@ -66,21 +67,23 @@ public class AdminPollTemplateController {
 	@PatchMapping("/{templateId}")
 	public ApiResponse<PollTemplateResponse> updateTemplate(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
 		@PathVariable Long templateId,
 		@Valid @RequestBody UpdatePollTemplateRequest request
 	) {
 		return ApiResponse.success(PollTemplateResponse.from(pollTemplateService.updateTemplate(
-			request.toCommand(templateId, authenticatedUser)
+			request.toCommand(campusId, templateId, authenticatedUser)
 		)), "투표 템플릿이 수정되었습니다.");
 	}
 
 	@DeleteMapping("/{templateId}")
 	public ApiResponse<PollTemplateResponse> deactivateTemplate(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
 		@PathVariable Long templateId
 	) {
 		return ApiResponse.success(
-			PollTemplateResponse.from(pollTemplateService.deactivateTemplate(templateId, authenticatedUser.userId())),
+			PollTemplateResponse.from(pollTemplateService.deactivateTemplate(campusId, templateId, authenticatedUser.userId())),
 			"투표 템플릿이 비활성화되었습니다."
 		);
 	}

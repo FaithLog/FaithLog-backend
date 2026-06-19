@@ -175,6 +175,7 @@ class PollServiceTest {
 			.containsExactly(org.assertj.core.groups.Tuple.tuple("아메리카노", "AMERICANO_HOT", 1500));
 
 		PollTemplateResult updated = pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+			campus.campusId(),
 			created.id(),
 			manager.id(),
 			"수정된 템플릿",
@@ -199,9 +200,62 @@ class PollServiceTest {
 		assertThat(updated.options()).extracting(PollTemplateOptionResult::content)
 			.containsExactly("참석", "불참");
 
-		PollTemplateResult deactivated = pollTemplateService.deactivateTemplate(created.id(), manager.id());
+		PollTemplateResult deactivated = pollTemplateService.deactivateTemplate(campus.campusId(), created.id(), manager.id());
 
 		assertThat(deactivated.isActive()).isFalse();
+	}
+
+	@Test
+	void template_detail_update_deactivate_rejects_mismatched_campus_scope() {
+		User manager = saveUser("poll-template-scope-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campusA = createCampus(manager, "138A캠");
+		CampusCreateResult campusB = createCampus(manager, "138B캠");
+		PollTemplateResult templateA = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+			campusA.campusId(),
+			manager.id(),
+			"A 캠퍼스 템플릿",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			false,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand("참석", null, 0, 1))
+		));
+
+		assertThatThrownBy(() -> pollTemplateService.getTemplate(campusB.campusId(), templateA.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_NOT_FOUND)
+			);
+
+		assertThatThrownBy(() -> pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+			campusB.campusId(),
+			templateA.id(),
+			manager.id(),
+			"잘못된 캠퍼스 path 수정",
+			SelectionType.MULTIPLE,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			false,
+			DayOfWeek.TUESDAY,
+			LocalTime.of(10, 0),
+			DayOfWeek.TUESDAY,
+			LocalTime.of(19, 0),
+			List.of(new CreatePollTemplateOptionCommand("불참", null, 0, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_NOT_FOUND)
+			);
+
+		assertThatThrownBy(() -> pollTemplateService.deactivateTemplate(campusB.campusId(), templateA.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_NOT_FOUND)
+			);
 	}
 
 	@Test

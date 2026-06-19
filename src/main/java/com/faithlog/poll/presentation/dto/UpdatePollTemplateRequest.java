@@ -29,8 +29,9 @@ public record UpdatePollTemplateRequest(
 	@NotEmpty @Valid List<PollTemplateOptionRequest> options
 ) {
 
-	public UpdatePollTemplateCommand toCommand(Long templateId, AuthenticatedUser authenticatedUser) {
+	public UpdatePollTemplateCommand toCommand(Long campusId, Long templateId, AuthenticatedUser authenticatedUser) {
 		return new UpdatePollTemplateCommand(
+			campusId,
 			templateId,
 			authenticatedUser.userId(),
 			title,

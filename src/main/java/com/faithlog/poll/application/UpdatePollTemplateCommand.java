@@ -8,6 +8,7 @@ import java.time.LocalTime;
 import java.util.List;
 
 public record UpdatePollTemplateCommand(
+	Long campusId,
 	Long templateId,
 	Long requesterId,
 	String title,

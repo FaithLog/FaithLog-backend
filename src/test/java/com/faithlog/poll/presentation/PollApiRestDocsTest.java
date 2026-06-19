@@ -9,6 +9,7 @@ import static org.springframework.restdocs.operation.preprocess.Preprocessors.pr
 import static org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath;
 import static org.springframework.restdocs.payload.PayloadDocumentation.relaxedResponseFields;
 import static org.springframework.restdocs.payload.PayloadDocumentation.requestFields;
+import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
 import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.restdocs.request.RequestDocumentation.pathParameters;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -35,6 +36,7 @@ import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDoc
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.restdocs.payload.JsonFieldType;
 import org.springframework.restdocs.payload.FieldDescriptor;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -157,6 +159,8 @@ class PollApiRestDocsTest {
 			.getResponse()
 			.getContentAsString();
 		long templateId = objectMapper.readTree(templateBody).path("data").path("id").asLong();
+		JsonNode otherCampus = createCampus(managerToken, "37문서다른캠");
+		long otherCampusId = otherCampus.path("campusId").asLong();
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/poll-templates", campusId)
 				.header("Authorization", "Bearer " + managerToken))
@@ -181,6 +185,21 @@ class PollApiRestDocsTest {
 					parameterWithName("templateId").description("투표 템플릿 ID")
 				),
 				relaxedResponseFields(templateResponseFields())
+			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", otherCampusId, templateId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POLL_TEMPLATE_NOT_FOUND"))
+			.andDo(document("poll-template-detail-campus-scope-mismatch",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("templateId").description("투표 템플릿 ID")
+				),
+				responseFields(errorResponseFields())
 			));
 
 		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
@@ -364,6 +383,16 @@ class PollApiRestDocsTest {
 			fieldWithPath("data.status").description("투표 상태"),
 			fieldWithPath("data.options[]").description("선택지 목록")
 		);
+	}
+
+	private FieldDescriptor[] errorResponseFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("success").description("요청 성공 여부. 오류 응답에서는 false"),
+			fieldWithPath("code").description("HTTP status와 함께 고정 계약으로 사용하는 세부 오류 코드"),
+			fieldWithPath("message").description("사용자 표시용 오류 메시지"),
+			fieldWithPath("data").type(JsonFieldType.NULL).description("오류 응답에서는 null"),
+			fieldWithPath("timestamp").description("응답 시각")
+		};
 	}
 
 	private FieldDescriptor[] apiResponseFields(FieldDescriptor... dataFields) {

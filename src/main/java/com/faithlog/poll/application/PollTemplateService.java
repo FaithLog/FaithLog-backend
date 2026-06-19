@@ -65,8 +65,9 @@ public class PollTemplateService {
 	public PollTemplateResult updateTemplate(UpdatePollTemplateCommand command) {
 		PollTemplate template = pollTemplateRepository.findById(command.templateId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
-		pollAccessService.requireTemplateManager(template.campusId(), command.requesterId());
-		requirePaymentAccountIfNeeded(command.chargeGenerationType(), command.paymentCategory(), command.paymentAccountId(), template.campusId());
+		requireSameCampusScope(template, command.campusId());
+		pollAccessService.requireTemplateManager(command.campusId(), command.requesterId());
+		requirePaymentAccountIfNeeded(command.chargeGenerationType(), command.paymentCategory(), command.paymentAccountId(), command.campusId());
 		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolveTemplateOptions(command.options());
 		template.update(
 			command.title(),
@@ -86,10 +87,11 @@ public class PollTemplateService {
 	}
 
 	@Transactional
-	public PollTemplateResult deactivateTemplate(Long templateId, Long requesterId) {
+	public PollTemplateResult deactivateTemplate(Long campusId, Long templateId, Long requesterId) {
 		PollTemplate template = pollTemplateRepository.findById(templateId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
-		pollAccessService.requireTemplateManager(template.campusId(), requesterId);
+		requireSameCampusScope(template, campusId);
+		pollAccessService.requireTemplateManager(campusId, requesterId);
 		template.deactivate();
 		return toResult(template);
 	}
@@ -104,11 +106,18 @@ public class PollTemplateService {
 	}
 
 	@Transactional(readOnly = true)
-	public PollTemplateResult getTemplate(Long templateId, Long requesterId) {
+	public PollTemplateResult getTemplate(Long campusId, Long templateId, Long requesterId) {
 		PollTemplate template = pollTemplateRepository.findById(templateId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
-		pollAccessService.requireTemplateManager(template.campusId(), requesterId);
+		requireSameCampusScope(template, campusId);
+		pollAccessService.requireTemplateManager(campusId, requesterId);
 		return toResult(template);
+	}
+
+	private void requireSameCampusScope(PollTemplate template, Long campusId) {
+		if (!template.campusId().equals(campusId)) {
+			throw new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND);
+		}
 	}
 
 	private void saveOptions(Long templateId, List<PollOptionSnapshot> snapshots) {
