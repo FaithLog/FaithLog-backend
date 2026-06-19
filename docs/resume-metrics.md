@@ -13,9 +13,9 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 104 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 23 test files (2026-06-19) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 41 snippet groups (2026-06-19) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 114 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 25 test files (2026-06-19) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 46 snippet groups (2026-06-19) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-19) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
@@ -26,6 +26,17 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-06-19
 
+- #32 경건생활 벌금 규칙과 벌금 계산 구현:
+  - 브랜치: `feat/32-devotion-penalty-rules`
+  - 구현 API: `GET /api/v1/campuses/{campusId}/penalty-rules`, `POST /api/v1/admin/campuses/{campusId}/penalty-rules`, `PATCH /api/v1/admin/penalty-rules/{ruleId}`
+  - 구현 모델/서비스: `PenaltyRule`, `PenaltyRuleType`, `PenaltyCalculationType`, `PenaltyRuleRepository`, `PenaltyRuleService`, `DevotionFineCalculator`, 벌금 계산 input/item/result records.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests 'com.faithlog.devotion.domain.DevotionFineCalculatorTest' --tests 'com.faithlog.devotion.application.PenaltyRuleServiceTest' --tests 'com.faithlog.devotion.presentation.PenaltyRuleApiRestDocsTest'`가 `PenaltyRule`, enum, repository, service, calculator, #32 error code 부재로 `compileTestJava` 실패. 구현 후 최초 runtime 검증에서 계산 테스트 기대값 산술 오류(3,100원 기대)를 발견하고 승인된 공식 기준에 맞춰 3,400원으로 테스트를 보정.
+  - 검증 범위: 큐티/기도/말씀 부족 일수 `max(requiredCount - checkedCount, 0)`, `MISSING_COUNT` 금액, 토요 지각 0분 0원, 1분 이상 `baseAmount + minutes * amountPerUnit`, inactive rule 계산 제외, 같은 campus/ruleType ACTIVE 자동 교체, 수정/비활성화, 잘못된 rule/calculation 조합 400, 음수 기준값/금액 400, 관리자 권한, Controller DTO 응답.
+  - 제외 범위 준수: #31 하루 체크/주간 제출 흐름 변경 없음, #33 `PENALTY charge_items` 생성/갱신 연결 없음, #34/#35 청구/계좌 상태 변경 없음, #57 월간 통계 및 벌금 미리보기 API/관리자 수동 청구 API/Flyway migration 추가 없음.
+  - 재검증: #32 대상 테스트 묶음 성공, `./gradlew test` 성공(114 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
+  - Docker 검증: `docker compose up -d --build postgres redis app` 성공, `GET /api/v1/health` 200 `status=UP`, Docker Postgres QA 계정 1건을 `MANAGER`로 바꿔 캠퍼스 생성 후 #32 POST/GET/PATCH API 성공, `docker compose down` 성공.
+  - REST Docs 결과: `penalty-rule-create-success`, `penalty-rule-list-success`, `penalty-rule-update-success`, `penalty-rule-invalid-type-pair`, `penalty-rule-invalid-negative-value` snippets 생성, 전체 snippet group 46개.
+  - 코드베이스 수치: Java 소스 200개, 테스트 파일 25개.
 - #31 주간 경건생활 제출과 일별 체크 구현:
   - 브랜치: `feat/31-weekly-devotion-daily-check`
   - 구현 API: `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}`, `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`, `GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`, `GET /api/v1/admin/campuses/{campusId}/devotions/missing?weekStartDate={weekStartDate}`
