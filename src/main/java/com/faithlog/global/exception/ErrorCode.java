@@ -28,6 +28,11 @@ public enum ErrorCode {
 	DEVOTION_WEEKLY_RECORD_NOT_FOUND(HttpStatus.NOT_FOUND, "주간 경건생활 기록을 찾을 수 없습니다."),
 	DEVOTION_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "경건생활 접근 권한이 없습니다."),
 	DEVOTION_ADMIN_FORBIDDEN(HttpStatus.FORBIDDEN, "경건생활 관리자 권한이 없습니다."),
+	DEVOTION_PENALTY_RULE_NOT_FOUND(HttpStatus.NOT_FOUND, "벌금 규칙을 찾을 수 없습니다."),
+	DEVOTION_PENALTY_RULE_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "벌금 규칙 조회 권한이 없습니다."),
+	DEVOTION_PENALTY_RULE_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "벌금 규칙 관리 권한이 없습니다."),
+	DEVOTION_PENALTY_RULE_INVALID_TYPE_PAIR(HttpStatus.BAD_REQUEST, "벌금 규칙 타입과 계산 타입 조합이 올바르지 않습니다."),
+	DEVOTION_PENALTY_RULE_INVALID_VALUE(HttpStatus.BAD_REQUEST, "벌금 규칙 기준값과 금액은 0 이상이어야 합니다."),
 
 	BILLING_INVALID_PAGE(HttpStatus.BAD_REQUEST, "페이지 번호는 0 이상이어야 합니다."),
 	BILLING_INVALID_SIZE(HttpStatus.BAD_REQUEST, "페이지 크기는 1 이상 100 이하이어야 합니다."),
