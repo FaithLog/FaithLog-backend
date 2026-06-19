@@ -417,7 +417,7 @@ class BillingControllerTest {
 	}
 
 	@Test
-	void admin_campus_charge_query_rejects_charge_item_sort_fields_for_member_summary() throws Exception {
+	void charge_query_apis_reject_unsupported_sort_properties_and_directions() throws Exception {
 		String managerToken = signupAndLogin("billing-http-admin-sort-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("billing-http-admin-sort-manager@example.com").orElseThrow();
 		JsonNode campus = createCampus(managerToken, "60캠");
@@ -440,6 +440,25 @@ class BillingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.members.length()").value(1))
 			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("sort", "unpaidAmount,wrong"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 방향입니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("sort", "createdAt,ascending"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 방향입니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("sort", "createdAt,asc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].id").isNumber());
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {

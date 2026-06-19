@@ -42,9 +42,20 @@ final class BillingPageRequests {
 		if (!allowedSortProperties.contains(property)) {
 			throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 기준입니다.");
 		}
-		Sort.Direction direction = tokens.length > 1 && "asc".equalsIgnoreCase(tokens[1].trim())
-			? Sort.Direction.ASC
-			: Sort.Direction.DESC;
-		return Sort.by(direction, property);
+		return Sort.by(direction(tokens), property);
+	}
+
+	private static Sort.Direction direction(String[] tokens) {
+		if (tokens.length == 1 || tokens[1].isBlank()) {
+			return Sort.Direction.DESC;
+		}
+		String direction = tokens[1].trim();
+		if ("asc".equalsIgnoreCase(direction)) {
+			return Sort.Direction.ASC;
+		}
+		if ("desc".equalsIgnoreCase(direction)) {
+			return Sort.Direction.DESC;
+		}
+		throw new BusinessException(ErrorCode.INVALID_REQUEST, "지원하지 않는 정렬 방향입니다.");
 	}
 }
