@@ -2,7 +2,9 @@ package com.faithlog.devotion.domain;
 
 import java.util.Comparator;
 import java.util.List;
+import org.springframework.stereotype.Component;
 
+@Component
 public class DevotionFineCalculator {
 
 	public DevotionFineCalculationResult calculate(DevotionFineCalculationInput input, List<PenaltyRule> rules) {

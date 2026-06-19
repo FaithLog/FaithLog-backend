@@ -136,6 +136,8 @@ class DevotionServiceTest {
 		CampusCreateResult campus = createCampus(manager, "61캠");
 		User member = saveUser("devotion-weekly-member@example.com", UserRole.USER);
 		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-100");
 		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
 
 		WeeklyDevotionResult result = devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
@@ -172,7 +174,7 @@ class DevotionServiceTest {
 				assertThat(check.prayerChecked()).isFalse();
 				assertThat(check.bibleReadingChecked()).isFalse();
 			});
-		assertThat(chargeItemRepository.count()).isZero();
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
 	}
 
 	@Test
@@ -219,7 +221,7 @@ class DevotionServiceTest {
 				assertThat(charge.sourceType()).isEqualTo(ChargeSourceType.DEVOTION_RECORD);
 				assertThat(charge.sourceId()).isEqualTo(weeklyRecord.id());
 				assertThat(charge.status()).isEqualTo(ChargeStatus.UNPAID);
-				assertThat(charge.amount()).isEqualTo(4700);
+				assertThat(charge.amount()).isEqualTo(6200);
 			});
 	}
 
@@ -294,6 +296,8 @@ class DevotionServiceTest {
 		joinCampus(campus, submittedMember);
 		joinCampus(campus, unsubmittedMember);
 		joinCampus(campus, noRecordMember);
+		createPenaltyRules(campus.campusId());
+		createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-103");
 		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
 		devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
 			campus.campusId(),

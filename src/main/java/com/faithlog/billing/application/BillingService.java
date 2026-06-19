@@ -86,6 +86,13 @@ public class BillingService {
 			.toList();
 	}
 
+	@Transactional(readOnly = true)
+	public void requireActivePenaltyAccount(Long campusId) {
+		paymentAccountRepository
+			.findByCampusIdAndAccountTypeAndIsActiveTrue(campusId, PaymentCategory.PENALTY)
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
+	}
+
 	@Transactional
 	public ChargeItemResult createPenaltyCharge(CreatePenaltyChargeCommand command) {
 		PaymentAccount account = paymentAccountRepository
