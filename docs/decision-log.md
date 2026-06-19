@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #55 Billing Charge List Error Code
+
+- Context: During Issue #55 implementation, the existing billing charge query authorization failures had user-facing messages for "my charge list" and "campus charge list" access, but the approved detailed code list did not yet include a stable code for charge-list authorization errors.
+- Decision: Add `BILLING_CHARGE_LIST_FORBIDDEN` and use it for billing charge list authorization failures while preserving the existing user-facing messages.
+- Impact: Billing charge query APIs can return a detailed domain-prefixed code instead of reusing a less precise billing account/status code or a broad `FORBIDDEN` code. This remains within the Issue #55 refactor scope and does not change API paths or DB schema.
+
 ### 2026-06-19 - Common Error Code And Request Validation Refactor Policy
 
 - Context: After Issue #36 was merged, charge query code showed that request validation and user-facing error messages were spread across controllers, presentation helpers, application services, and broad shared error codes such as `INVALID_REQUEST`. The user decided the stable API error contract and validation structure before creating a separate refactor issue.
