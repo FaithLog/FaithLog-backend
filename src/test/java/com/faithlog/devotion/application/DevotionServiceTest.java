@@ -287,6 +287,72 @@ class DevotionServiceTest {
 	}
 
 	@Test
+	void updateWeeklyCheck_rejects_duplicate_submit_after_weekly_record_was_submitted() {
+		User manager = saveUser("devotion-duplicate-submit-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "72캠");
+		User member = saveUser("devotion-duplicate-submit-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-104");
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+		devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(weekStartDate, true, true, true)),
+			0,
+			true
+		));
+
+		assertThatThrownBy(() -> devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(weekStartDate, false, false, false)),
+			10,
+			true
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_WEEKLY_ALREADY_SUBMITTED)
+			)
+			.hasMessage("이미 제출된 주간 경건생활은 수정할 수 없습니다.");
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
+	}
+
+	@Test
+	void updateWeeklyCheck_rejects_draft_save_after_weekly_record_was_submitted() {
+		User manager = saveUser("devotion-after-submit-draft-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "73캠");
+		User member = saveUser("devotion-after-submit-draft-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-105");
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+		devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(weekStartDate, true, true, true)),
+			0,
+			true
+		));
+
+		assertThatThrownBy(() -> devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(weekStartDate.plusDays(1), false, false, false)),
+			7,
+			false
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_WEEKLY_ALREADY_SUBMITTED)
+			)
+			.hasMessage("이미 제출된 주간 경건생활은 수정할 수 없습니다.");
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
+	}
+
+	@Test
 	void getMyWeeklyCheck_uses_requester_identity_and_adminMissing_uses_submittedAt() {
 		User manager = saveUser("devotion-missing-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "62캠");
