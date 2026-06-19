@@ -48,6 +48,9 @@ class DevotionServiceTest {
 	private DevotionService devotionService;
 
 	@Autowired
+	private DevotionMonthlySummaryQueryService monthlySummaryQueryService;
+
+	@Autowired
 	private CampusService campusService;
 
 	@Autowired
@@ -70,6 +73,114 @@ class DevotionServiceTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Test
+	void getMyMonthlySummary_aggregates_selected_month_daily_checks_and_saturday_late_by_saturday_date() {
+		User manager = saveUser("devotion-monthly-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "90캠");
+		User member = saveUser("devotion-monthly-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		LocalDate juneWeekStartDate = LocalDate.of(2026, 6, 22);
+		LocalDate crossingWeekStartDate = LocalDate.of(2026, 6, 29);
+		devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			juneWeekStartDate,
+			List.of(
+				new DevotionDailyCheckCommand(LocalDate.of(2026, 6, 22), true, true, true),
+				new DevotionDailyCheckCommand(LocalDate.of(2026, 6, 24), true, false, true),
+				new DevotionDailyCheckCommand(LocalDate.of(2026, 6, 27), false, true, false)
+			),
+			12,
+			false
+		));
+		devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			crossingWeekStartDate,
+			List.of(
+				new DevotionDailyCheckCommand(LocalDate.of(2026, 6, 29), true, true, false),
+				new DevotionDailyCheckCommand(LocalDate.of(2026, 6, 30), true, false, false),
+				new DevotionDailyCheckCommand(LocalDate.of(2026, 7, 1), true, true, true),
+				new DevotionDailyCheckCommand(LocalDate.of(2026, 7, 4), false, true, true)
+			),
+			9,
+			false
+		));
+
+		MyMonthlyDevotionSummaryResult june = monthlySummaryQueryService.getMyMonthlySummary(
+			new GetMyMonthlyDevotionSummaryQuery(campus.campusId(), member.id(), 2026, 6)
+		);
+		MyMonthlyDevotionSummaryResult july = monthlySummaryQueryService.getMyMonthlySummary(
+			new GetMyMonthlyDevotionSummaryQuery(campus.campusId(), member.id(), 2026, 7)
+		);
+
+		assertThat(june.campusId()).isEqualTo(campus.campusId());
+		assertThat(june.campusName()).isEqualTo("90캠");
+		assertThat(june.region()).isEqualTo("분당");
+		assertThat(june.userId()).isEqualTo(member.id());
+		assertThat(june.name()).isEqualTo("경건테스트");
+		assertThat(june.year()).isEqualTo(2026);
+		assertThat(june.month()).isEqualTo(6);
+		assertThat(june.devotion().quietTimeCount()).isEqualTo(4);
+		assertThat(june.devotion().prayerCount()).isEqualTo(3);
+		assertThat(june.devotion().bibleReadingCount()).isEqualTo(2);
+		assertThat(june.devotion().saturdayLateMinutes()).isEqualTo(12);
+		assertThat(june.weeklyRecords())
+			.extracting(MyMonthlyDevotionSummaryResult.WeeklyRecord::weekStartDate)
+			.containsExactly(juneWeekStartDate, crossingWeekStartDate);
+		assertThat(june.weeklyRecords().get(0)).satisfies(week -> {
+			assertThat(week.weekEndDate()).isEqualTo(LocalDate.of(2026, 6, 28));
+			assertThat(week.quietTimeCount()).isEqualTo(2);
+			assertThat(week.prayerCount()).isEqualTo(2);
+			assertThat(week.bibleReadingCount()).isEqualTo(2);
+			assertThat(week.saturdayLateMinutes()).isEqualTo(12);
+		});
+		assertThat(june.weeklyRecords().get(1)).satisfies(week -> {
+			assertThat(week.weekEndDate()).isEqualTo(LocalDate.of(2026, 7, 5));
+			assertThat(week.quietTimeCount()).isEqualTo(2);
+			assertThat(week.prayerCount()).isEqualTo(1);
+			assertThat(week.bibleReadingCount()).isZero();
+			assertThat(week.saturdayLateMinutes()).isZero();
+		});
+
+		assertThat(july.devotion().quietTimeCount()).isEqualTo(1);
+		assertThat(july.devotion().prayerCount()).isEqualTo(2);
+		assertThat(july.devotion().bibleReadingCount()).isEqualTo(2);
+		assertThat(july.devotion().saturdayLateMinutes()).isEqualTo(9);
+		assertThat(july.weeklyRecords()).singleElement().satisfies(week -> {
+			assertThat(week.weekStartDate()).isEqualTo(crossingWeekStartDate);
+			assertThat(week.quietTimeCount()).isEqualTo(1);
+			assertThat(week.prayerCount()).isEqualTo(2);
+			assertThat(week.bibleReadingCount()).isEqualTo(2);
+			assertThat(week.saturdayLateMinutes()).isEqualTo(9);
+		});
+	}
+
+	@Test
+	void getMyMonthlySummary_rejects_invalid_year_month_and_requires_active_campus_member() {
+		User manager = saveUser("devotion-monthly-auth-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "91캠");
+		User member = saveUser("devotion-monthly-auth-member@example.com", UserRole.USER);
+		User outsider = saveUser("devotion-monthly-auth-outsider@example.com", UserRole.USER);
+		joinCampus(campus, member);
+
+		assertThatThrownBy(() -> monthlySummaryQueryService.getMyMonthlySummary(
+			new GetMyMonthlyDevotionSummaryQuery(campus.campusId(), member.id(), 2026, 13)
+		))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_INVALID_YEAR_MONTH)
+			)
+			.hasMessage("조회 연월이 올바르지 않습니다.");
+
+		assertThatThrownBy(() -> monthlySummaryQueryService.getMyMonthlySummary(
+			new GetMyMonthlyDevotionSummaryQuery(campus.campusId(), outsider.id(), 2026, 6)
+		))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_ACCESS_FORBIDDEN)
+			)
+			.hasMessage("경건생활 접근 권한이 없습니다.");
+	}
 
 	@Test
 	void updateDailyCheck_creates_daily_and_weekly_rows_without_submission_or_charge() {
