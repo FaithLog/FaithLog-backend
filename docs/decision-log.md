@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #33 Weekly Devotion Duplicate Submission Error Contract
+
+- Context: Issue #33 needed a stable API error contract for requests after a weekly devotion record has already been finally submitted.
+- Decision: If `weekly_devotion_records.submitted_at` already exists for the same campus, user, and week, both duplicate `submit = true` requests and post-submission `submit = false` saves fail with `DEVOTION_WEEKLY_ALREADY_SUBMITTED`, HTTP `409 CONFLICT`, and the user-facing message `이미 제출된 주간 경건생활은 수정할 수 없습니다.`
+- Impact: The devotion submission boundary blocks same-week resubmission before billing reruns. The generated `PENALTY` charge for the first submission is not recalculated or overwritten through the normal weekly devotion API.
+
 ### 2026-06-19 - Issue #33 One-Time Weekly Devotion Submission
 
 - Context: Issue #33 connects weekly devotion submission to automatic `PENALTY` charge creation. A previous open question asked how to handle resubmitting a weekly devotion record after the generated charge became terminal.
