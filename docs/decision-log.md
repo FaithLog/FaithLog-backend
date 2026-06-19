@@ -286,6 +286,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Pending Decisions
 
+### 2026-06-19 - Issue #33 Terminal Penalty Charge Resubmission Policy
+
+- Context: Issue #33 will connect weekly devotion submission to automatic `PENALTY` charge creation/update. The billing foundation currently updates an existing `UNPAID` charge for the same source, but rejects updates when the existing charge is already terminal (`PAID`, `WAIVED`, or `CANCELED`) so historical payment data is not silently overwritten.
+- Pending question: When a user resubmits the same weekly devotion record after its generated penalty charge is already `PAID`, `WAIVED`, or `CANCELED`, should the API reject the resubmission, reopen/update the existing charge, create a separate adjustment charge, or allow devotion record changes while leaving the old charge unchanged?
+- Recommendation: For MVP, keep the current guard and reject automatic charge update when the same weekly source already has a terminal charge. This avoids rewriting settled payment history and can be revisited later with an explicit adjustment-flow issue if needed.
+- Current action: Issue #33 development must not change terminal charge behavior without user approval. Tests should prove existing `UNPAID` charges are updated and existing terminal charges are not overwritten.
+
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope
 
 - Context: Prayer request writing remains available even when there is no meeting, so meeting status must be separated from whether a prayer request can be written. The remaining unresolved decision is only where, if anywhere, meeting status should be stored.
