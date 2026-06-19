@@ -263,6 +263,67 @@ class DevotionServiceTest {
 	}
 
 	@Test
+	void getMyWeeklyCheck_merges_partial_daily_rows_into_seven_day_week_without_creating_missing_rows() {
+		User manager = saveUser("devotion-partial-week-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "68캠");
+		User member = saveUser("devotion-partial-week-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+		LocalDate checkedDate = LocalDate.of(2026, 6, 17);
+		devotionService.updateDailyCheck(new UpdateDailyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			checkedDate,
+			true,
+			true,
+			false
+		));
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(campus.campusId(), member.id(), weekStartDate)
+			.orElseThrow();
+		long dailyCountBefore = dailyCheckRepository.count();
+
+		WeeklyDevotionResult result = devotionService.getMyWeeklyCheck(new GetMyWeeklyDevotionQuery(
+			campus.campusId(),
+			member.id(),
+			weekStartDate
+		));
+
+		assertThat(result.weeklyRecordId()).isEqualTo(weeklyRecord.id());
+		assertThat(result.dailyChecks()).hasSize(7);
+		assertThat(result.dailyChecks())
+			.extracting(DailyDevotionCheckResult::recordDate)
+			.containsExactly(
+				weekStartDate,
+				weekStartDate.plusDays(1),
+				checkedDate,
+				weekStartDate.plusDays(3),
+				weekStartDate.plusDays(4),
+				weekStartDate.plusDays(5),
+				weekStartDate.plusDays(6)
+			);
+		assertThat(result.dailyChecks())
+			.filteredOn(check -> check.recordDate().equals(checkedDate))
+			.singleElement()
+			.satisfies(check -> {
+				assertThat(check.id()).isNotNull();
+				assertThat(check.quietTimeChecked()).isTrue();
+				assertThat(check.prayerChecked()).isTrue();
+				assertThat(check.bibleReadingChecked()).isFalse();
+			});
+		assertThat(result.dailyChecks())
+			.filteredOn(check -> check.recordDate().equals(weekStartDate))
+			.singleElement()
+			.satisfies(check -> {
+				assertThat(check.id()).isNull();
+				assertThat(check.quietTimeChecked()).isFalse();
+				assertThat(check.prayerChecked()).isFalse();
+				assertThat(check.bibleReadingChecked()).isFalse();
+			});
+		assertThat(dailyCheckRepository.count()).isEqualTo(dailyCountBefore);
+	}
+
+	@Test
 	void weeklyCheck_rejects_non_monday_and_devotion_apis_require_active_campus_member() {
 		User manager = saveUser("devotion-auth-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "63캠");

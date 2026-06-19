@@ -13,9 +13,9 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 101 tests / 0 failures) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 104 tests / 0 failures) | 100% |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 23 test files (2026-06-19) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 40 snippet groups (2026-06-19) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 41 snippet groups (2026-06-19) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-19) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
@@ -51,6 +51,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 추가 테스트: 서비스 기본 조회/DB 미생성 1개, 컨트롤러 200 기본 응답/DB count 불변 1개, REST Docs 기본 성공 계약 1개.
   - 재검증: 대상 테스트 묶음 성공, `./gradlew test --rerun-tasks` 성공(101 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
   - REST Docs 결과: `devotion-my-week-default-success` snippet 추가, 전체 snippet group 40개.
+- #31 Docker QA 부분 주간 조회 7일 합성 수정:
+  - QA 증거: 빈 주간 조회는 7일 기본 응답과 DB row 미생성을 만족했지만, 하루 체크 후 주간 조회가 저장된 1일치(`2026-06-17`)만 반환.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest --tests com.faithlog.devotion.presentation.DevotionControllerTest --tests com.faithlog.devotion.presentation.DevotionApiRestDocsTest`가 22 tests / 3 failed로 실패. 부분 주간 조회가 7일이 아니라 저장된 daily row만 반환하는 문제 확인.
+  - 수정: 본인 주간 조회 결과 생성 시 weekly row가 있어도 월요일-일요일 7일치 `dailyChecks`를 합성. 저장된 날짜는 DB id/체크값을 사용하고, 누락 날짜는 `id = null`, false 기본값으로 반환. 조회 중 누락 daily row는 생성하지 않음.
+  - 추가 테스트: 서비스 부분 주간 조회/DB 미생성 1개, 컨트롤러 부분 주간 7일 응답 1개, REST Docs 부분 주간 성공 계약 1개.
+  - 재검증: 대상 devotion 테스트 묶음 성공, `./gradlew test --rerun-tasks` 성공(104 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
+  - REST Docs 결과: `devotion-my-week-partial-success` snippet 추가, 전체 snippet group 41개.
 - #55 공통 에러 코드와 요청 검증 구조 리팩토링:
   - 브랜치: `refactor/55-error-validation-structure`
   - TDD 실패 확인: 세부 error code, 잘못된 `page`/`size`/`sort` 400 응답, Bean Validation 실패 code, billing/campus/auth 주요 예외 code, REST Docs 대표 에러 응답 계약 테스트를 먼저 추가. 구현 전 대상 테스트 묶음은 28 tests / 12 failed로 실패.

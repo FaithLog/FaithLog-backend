@@ -277,6 +277,52 @@ class DevotionControllerTest {
 	}
 
 	@Test
+	void my_week_api_returns_seven_days_when_only_one_daily_check_exists() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-partial-week-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "76캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("devotion-http-partial-week-member@example.com", UserRole.USER);
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/days/{recordDate}", campusId, "2026-06-17")
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "quietTimeChecked": true,
+					  "prayerChecked": true,
+					  "bibleReadingChecked": false
+					}
+					"""))
+			.andExpect(status().isOk());
+		long dailyCheckCountBefore = dailyCheckRepository.count();
+
+		String body = mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campusId,
+				"2026-06-15")
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.dailyChecks.length()").value(7))
+			.andExpect(jsonPath("$.data.dailyChecks[0].recordDate").value("2026-06-15"))
+			.andExpect(jsonPath("$.data.dailyChecks[1].recordDate").value("2026-06-16"))
+			.andExpect(jsonPath("$.data.dailyChecks[2].recordDate").value("2026-06-17"))
+			.andExpect(jsonPath("$.data.dailyChecks[6].recordDate").value("2026-06-21"))
+			.andExpect(jsonPath("$.data.dailyChecks[2].quietTimeChecked").value(true))
+			.andExpect(jsonPath("$.data.dailyChecks[2].prayerChecked").value(true))
+			.andExpect(jsonPath("$.data.dailyChecks[2].bibleReadingChecked").value(false))
+			.andExpect(jsonPath("$.data.dailyChecks[0].quietTimeChecked").value(false))
+			.andExpect(jsonPath("$.data.dailyChecks[0].prayerChecked").value(false))
+			.andExpect(jsonPath("$.data.dailyChecks[0].bibleReadingChecked").value(false))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+
+		JsonNode dailyChecks = objectMapper.readTree(body).path("data").path("dailyChecks");
+		assertThat(dailyChecks.get(2).path("id").isNumber()).isTrue();
+		assertThat(dailyChecks.get(0).path("id").isNull()).isTrue();
+		assertThat(dailyCheckRepository.count()).isEqualTo(dailyCheckCountBefore);
+	}
+
+	@Test
 	void admin_missing_uses_submitted_at_and_requires_campus_manager() throws Exception {
 		String managerToken = signupAndLogin("devotion-http-missing-manager@example.com", UserRole.MANAGER);
 		JsonNode campus = createCampus(managerToken, "72캠");

@@ -6,6 +6,9 @@ import com.faithlog.devotion.domain.WeeklyDevotionRecord;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 public record WeeklyDevotionResult(
@@ -42,9 +45,7 @@ public record WeeklyDevotionResult(
 			weeklyRecord.bibleReadingCount(),
 			weeklyRecord.saturdayLateMinutes(),
 			weeklyRecord.submittedAt(),
-			dailyChecks.stream()
-				.map(DailyDevotionCheckResult::from)
-				.toList()
+			completeWeeklyDailyChecks(weeklyRecord.weekStartDate(), dailyChecks)
 		);
 	}
 
@@ -67,5 +68,27 @@ public record WeeklyDevotionResult(
 				.map(DailyDevotionCheckResult::unchecked)
 				.toList()
 		);
+	}
+
+	private static List<DailyDevotionCheckResult> completeWeeklyDailyChecks(
+		LocalDate weekStartDate,
+		List<DevotionDailyCheck> dailyChecks
+	) {
+		Map<LocalDate, DevotionDailyCheck> dailyChecksByDate = dailyChecks.stream()
+			.collect(Collectors.toMap(
+				DevotionDailyCheck::recordDate,
+				Function.identity(),
+				(first, second) -> second
+			));
+		return LongStream.rangeClosed(0, 6)
+			.mapToObj(weekStartDate::plusDays)
+			.map(recordDate -> {
+				DevotionDailyCheck dailyCheck = dailyChecksByDate.get(recordDate);
+				if (dailyCheck == null) {
+					return DailyDevotionCheckResult.unchecked(recordDate);
+				}
+				return DailyDevotionCheckResult.from(dailyCheck);
+			})
+			.toList();
 	}
 }

@@ -224,6 +224,58 @@ class DevotionApiRestDocsTest {
 	}
 
 	@Test
+	void documents_devotion_my_week_partial_success() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-partial-week-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "85캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-devotion-partial-week-member@example.com", UserRole.USER);
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/days/{recordDate}", campusId, "2026-06-17")
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "quietTimeChecked": true,
+					  "prayerChecked": true,
+					  "bibleReadingChecked": false
+					}
+					"""))
+			.andExpect(status().isOk());
+
+		String body = mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campusId,
+				"2026-06-15")
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.dailyChecks.length()").value(7))
+			.andExpect(jsonPath("$.data.dailyChecks[2].recordDate").value("2026-06-17"))
+			.andExpect(jsonPath("$.data.dailyChecks[2].quietTimeChecked").value(true))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+
+		JsonNode dailyChecks = objectMapper.readTree(body).path("data").path("dailyChecks");
+		org.assertj.core.api.Assertions.assertThat(dailyChecks.get(2).path("id").isNumber()).isTrue();
+		org.assertj.core.api.Assertions.assertThat(dailyChecks.get(0).path("id").isNull()).isTrue();
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campusId,
+				"2026-06-15")
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andDo(document("devotion-my-week-partial-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("조회할 캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("조회할 주 시작일. 월요일만 허용")
+				),
+				responseFields(apiResponseFields(weeklyResponseFields()))
+			));
+	}
+
+	@Test
 	void documents_devotion_invalid_week_start_date() throws Exception {
 		String managerToken = signupAndLogin("docs-devotion-invalid-manager@example.com", UserRole.MANAGER);
 		JsonNode campus = createCampus(managerToken, "81캠");
@@ -371,8 +423,8 @@ class DevotionApiRestDocsTest {
 			fieldWithPath("data.bibleReadingCount").description("주간 말씀 읽기 체크 수"),
 			fieldWithPath("data.saturdayLateMinutes").description("토요 목자모임 지각 시간(분)"),
 			fieldWithPath("data.submittedAt").description("제출 시각. 미제출 또는 기본 조회 응답에서는 null"),
-			fieldWithPath("data.dailyChecks").description("월요일부터 일요일까지 7일치 일별 체크"),
-			fieldWithPath("data.dailyChecks[].id").description("일별 체크 ID. 아직 DB row가 없는 기본 조회 응답에서는 null"),
+			fieldWithPath("data.dailyChecks").description("월요일부터 일요일까지 7일치 일별 체크. 저장된 row가 없는 날짜도 false 기본값으로 포함"),
+			fieldWithPath("data.dailyChecks[].id").optional().description("일별 체크 ID. 해당 날짜 DB row가 없으면 null"),
 			fieldWithPath("data.dailyChecks[].recordDate").description("체크 날짜"),
 			fieldWithPath("data.dailyChecks[].quietTimeChecked").description("큐티 체크 여부"),
 			fieldWithPath("data.dailyChecks[].prayerChecked").description("기도 체크 여부"),
