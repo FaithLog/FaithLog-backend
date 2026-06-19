@@ -10,6 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #61 Service Admin User And Campus Management API Contract
+
+- Context: Issue #61 implements service-level `ADMIN` user and campus management APIs. The issue had approved behavior but left several REST Docs contract details open, including response field names, allowed sort fields, and the last-admin protection query basis.
+- Decision: `GET /api/v1/admin/users` uses query parameters `name`, `email`, `userId`, `role`, `page`, `size`, and `sort`. User list items return `userId`, `name`, `email`, `role`, `campusCount`, and `campuses[]`; user detail returns `userId`, `name`, `email`, `role`, `isActive`, and `campuses[]`. User campus items use `membershipId`, `campusId`, `campusName`, `region`, `campusRole`, and `status`. `GET /api/v1/admin/campuses` uses query parameters `name`, `region`, `status`, `page`, `size`, and `sort`, and returns `campusId`, `name`, `region`, `isActive`, `status`, `memberCount`, and `adminCount`. Allowed user sort fields are `id`, `name`, `email`, `role`, and `createdAt`. Allowed campus sort fields are `id`, `name`, `region`, and `createdAt`. The last service-level `ADMIN` protection counts only users where `users.role = ADMIN` and `users.is_active = true`.
+- Impact: Issue #61 REST Docs and tests must lock these names and sort contracts. Aggregate fields such as `memberCount` and `adminCount` are not sortable in this MVP. Last-admin demotion must fail when the target is the only active service-level `ADMIN`.
+
+### 2026-06-19 - Issue #61 Service Admin Direct Member Add Duplicate Policy
+
+- Context: Issue #61 allows service-level `ADMIN` to add users to campuses directly without invite codes and reactivates an existing `INACTIVE` membership as `ACTIVE + MEMBER`. The remaining open behavior was how to handle a direct add request when the same user already has an `ACTIVE` membership in that campus.
+- Decision: If service-level `ADMIN` directly adds a user who already has an `ACTIVE` membership in the target campus, the API fails with `CAMPUS_ALREADY_JOINED`, HTTP `400 Bad Request`, and the existing user-facing message `이미 가입된 캠퍼스입니다.`
+- Impact: `POST /api/v1/admin/campuses/{campusId}/members` must not silently return or overwrite an active membership. It should match the existing invite-code duplicate join policy while still reactivating `INACTIVE` memberships.
+
 ### 2026-06-19 - Issue #57 My Monthly Devotion Summary Contract
 
 - Context: GitHub Issue #57 was split from Issue #31 for the Notion `10.5 내 월간 경건생활 통계 조회` API. The issue still said to verify the Notion source before choosing path, query parameters, and response shape.
