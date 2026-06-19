@@ -97,12 +97,18 @@ POST /api/v1/auth/reissue
 
 - 경건생활 원본은 `devotion_daily_checks`이다.
 - `weekly_devotion_records`는 주간 요약 및 벌금 계산용이다.
+- 하루 경건생활 체크 API는 해당 날짜의 daily row를 생성 또는 수정하고, 해당 주차의 weekly row가 없으면 함께 생성한다.
+- 하루 체크만으로는 `submitted_at`을 변경하지 않고 벌금 계산이나 `PENALTY` 청구 생성/갱신을 수행하지 않는다.
 - 주간 경건생활 제출 API는 월요일부터 일요일까지 7일치 daily row를 생성 또는 수정한다.
+- 주간 저장/제출 요청 필드명은 `dailyChecks`를 사용한다.
+- 주간 제출 시 요청에 없는 날짜는 false 기본값으로 채운다.
+- 경건생활 제출 여부와 관리자 미제출자 조회 기준은 daily row 존재 여부가 아니라 `weekly_devotion_records.submitted_at`이다.
 - `weekStartDate`는 월요일이어야 한다.
 
 기준 API:
 
 ```text
+PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}
 PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}
 GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}
 GET /api/v1/admin/campuses/{campusId}/devotions/missing?weekStartDate={weekStartDate}
