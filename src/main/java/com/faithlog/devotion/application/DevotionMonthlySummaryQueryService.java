@@ -140,6 +140,9 @@ public class DevotionMonthlySummaryQueryService {
 	}
 
 	private YearMonth yearMonth(int year, int month) {
+		if (year <= 0) {
+			throw new BusinessException(ErrorCode.DEVOTION_INVALID_YEAR_MONTH);
+		}
 		try {
 			return YearMonth.of(year, month);
 		} catch (DateTimeException exception) {

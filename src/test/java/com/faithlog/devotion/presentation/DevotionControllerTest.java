@@ -151,6 +151,15 @@ class DevotionControllerTest {
 			.andExpect(jsonPath("$.message").value("조회 연월이 올바르지 않습니다."));
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campusId)
+				.param("year", "0")
+				.param("month", "6")
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_YEAR_MONTH"))
+			.andExpect(jsonPath("$.message").value("조회 연월이 올바르지 않습니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campusId)
 				.param("year", "2026")
 				.param("month", "6")
 				.header("Authorization", "Bearer " + outsiderToken))

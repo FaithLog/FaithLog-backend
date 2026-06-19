@@ -117,7 +117,7 @@ class DevotionApiRestDocsTest {
 				authHeader(),
 				pathParameters(parameterWithName("campusId").description("조회할 캠퍼스 ID")),
 				queryParameters(
-					parameterWithName("year").description("조회 연도"),
+					parameterWithName("year").description("조회 연도. 1 이상 허용"),
 					parameterWithName("month").description("조회 월. 1부터 12까지 허용")
 				),
 				responseFields(apiResponseFields(monthlySummaryResponseFields()))
@@ -130,8 +130,8 @@ class DevotionApiRestDocsTest {
 		JsonNode campus = createCampus(managerToken, "90캠");
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campus.path("campusId").asLong())
-				.param("year", "2026")
-				.param("month", "13")
+				.param("year", "0")
+				.param("month", "6")
 				.header("Authorization", "Bearer " + managerToken))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_YEAR_MONTH"))
@@ -141,8 +141,8 @@ class DevotionApiRestDocsTest {
 				authHeader(),
 				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
 				queryParameters(
-					parameterWithName("year").description("조회 연도"),
-					parameterWithName("month").description("잘못된 조회 월 예시")
+					parameterWithName("year").description("잘못된 조회 연도 예시. 1 이상 허용"),
+					parameterWithName("month").description("조회 월. 1부터 12까지 허용")
 				),
 				responseFields(errorResponseFields())
 			));

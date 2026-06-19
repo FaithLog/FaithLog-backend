@@ -174,6 +174,22 @@ class DevotionServiceTest {
 			.hasMessage("조회 연월이 올바르지 않습니다.");
 
 		assertThatThrownBy(() -> monthlySummaryQueryService.getMyMonthlySummary(
+			new GetMyMonthlyDevotionSummaryQuery(campus.campusId(), member.id(), 0, 6)
+		))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_INVALID_YEAR_MONTH)
+			)
+			.hasMessage("조회 연월이 올바르지 않습니다.");
+
+		assertThatThrownBy(() -> monthlySummaryQueryService.getMyMonthlySummary(
+			new GetMyMonthlyDevotionSummaryQuery(campus.campusId(), member.id(), -1, 6)
+		))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_INVALID_YEAR_MONTH)
+			)
+			.hasMessage("조회 연월이 올바르지 않습니다.");
+
+		assertThatThrownBy(() -> monthlySummaryQueryService.getMyMonthlySummary(
 			new GetMyMonthlyDevotionSummaryQuery(campus.campusId(), outsider.id(), 2026, 6)
 		))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
