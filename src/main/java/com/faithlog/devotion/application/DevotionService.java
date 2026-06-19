@@ -70,6 +70,8 @@ public class DevotionService {
 	@Transactional
 	public WeeklyDevotionResult updateWeeklyCheck(UpdateWeeklyDevotionCommand command) {
 		validateMonday(command.weekStartDate());
+		validateSaturdayLateMinutes(command.saturdayLateMinutes());
+		validateDailyChecksInWeek(command.weekStartDate(), command.dailyChecks());
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		requireActiveCampusMember(command.campusId(), requester.userId());
 		WeeklyDevotionRecord weeklyRecord = getOrCreateWeeklyRecord(command.campusId(), requester.userId(), command.weekStartDate());
@@ -189,6 +191,22 @@ public class DevotionService {
 	private void validateMonday(LocalDate weekStartDate) {
 		if (weekStartDate.getDayOfWeek() != DayOfWeek.MONDAY) {
 			throw new BusinessException(ErrorCode.DEVOTION_INVALID_WEEK_START_DATE);
+		}
+	}
+
+	private void validateSaturdayLateMinutes(int saturdayLateMinutes) {
+		if (saturdayLateMinutes < 0) {
+			throw new BusinessException(ErrorCode.DEVOTION_INVALID_SATURDAY_LATE_MINUTES);
+		}
+	}
+
+	private void validateDailyChecksInWeek(LocalDate weekStartDate, List<DevotionDailyCheckCommand> dailyChecks) {
+		LocalDate weekEndDate = weekStartDate.plusDays(6);
+		boolean hasOutOfWeekDate = dailyChecks.stream()
+			.map(DevotionDailyCheckCommand::recordDate)
+			.anyMatch(recordDate -> recordDate.isBefore(weekStartDate) || recordDate.isAfter(weekEndDate));
+		if (hasOutOfWeekDate) {
+			throw new BusinessException(ErrorCode.DEVOTION_DAILY_CHECK_DATE_OUT_OF_WEEK);
 		}
 	}
 

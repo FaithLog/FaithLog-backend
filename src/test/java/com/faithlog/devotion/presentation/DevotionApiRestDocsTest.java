@@ -215,11 +215,101 @@ class DevotionApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_devotion_daily_check_date_out_of_week() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-out-of-week-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "82캠");
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campus.path("campusId").asLong(),
+				"2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-22",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 0,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("DEVOTION_DAILY_CHECK_DATE_OUT_OF_WEEK"))
+			.andDo(document("devotion-daily-check-date-out-of-week",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("주 시작일. 이 날짜부터 7일 안의 dailyChecks만 허용")
+				),
+				requestFields(weeklyRequestFields()),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_devotion_invalid_saturday_late_minutes() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-negative-late-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "83캠");
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campus.path("campusId").asLong(),
+				"2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-15",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": -1,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_SATURDAY_LATE_MINUTES"))
+			.andDo(document("devotion-invalid-saturday-late-minutes",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("주 시작일")
+				),
+				requestFields(weeklyRequestFields()),
+				responseFields(errorResponseFields())
+			));
+	}
+
 	private FieldDescriptor[] dailyCheckRequestFields() {
 		return new FieldDescriptor[] {
 			fieldWithPath("quietTimeChecked").description("큐티 체크 여부"),
 			fieldWithPath("prayerChecked").description("기도 체크 여부"),
 			fieldWithPath("bibleReadingChecked").description("말씀 읽기 체크 여부")
+		};
+	}
+
+	private FieldDescriptor[] weeklyRequestFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("dailyChecks").description("일별 체크 목록"),
+			fieldWithPath("dailyChecks[].recordDate").description("일별 체크 날짜. weekStartDate부터 6일 뒤까지만 허용"),
+			fieldWithPath("dailyChecks[].quietTimeChecked").description("큐티 체크 여부"),
+			fieldWithPath("dailyChecks[].prayerChecked").description("기도 체크 여부"),
+			fieldWithPath("dailyChecks[].bibleReadingChecked").description("말씀 읽기 체크 여부"),
+			fieldWithPath("saturdayLateMinutes").description("토요 목자모임 지각 시간(분). 0 이상만 허용"),
+			fieldWithPath("submit").description("제출 여부")
 		};
 	}
 

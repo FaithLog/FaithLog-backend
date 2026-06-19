@@ -16,6 +16,7 @@ import com.faithlog.devotion.domain.WeeklyDevotionRecord;
 import com.faithlog.devotion.infrastructure.jpa.DevotionDailyCheckRepository;
 import com.faithlog.devotion.infrastructure.jpa.WeeklyDevotionRecordRepository;
 import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
@@ -241,6 +242,50 @@ class DevotionServiceTest {
 		)))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("경건생활 접근 권한이 없습니다.");
+	}
+
+	@Test
+	void updateWeeklyCheck_rejects_daily_check_recordDate_outside_requested_week() {
+		User manager = saveUser("devotion-out-of-week-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "65캠");
+		User member = saveUser("devotion-out-of-week-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		assertThatThrownBy(() -> devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(weekStartDate.plusDays(7), true, true, true)),
+			0,
+			true
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_DAILY_CHECK_DATE_OUT_OF_WEEK)
+			)
+			.hasMessage("dailyChecks[].recordDate는 요청 주차 안의 날짜여야 합니다.");
+	}
+
+	@Test
+	void updateWeeklyCheck_rejects_negative_saturday_late_minutes() {
+		User manager = saveUser("devotion-negative-late-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "66캠");
+		User member = saveUser("devotion-negative-late-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		assertThatThrownBy(() -> devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(weekStartDate, true, true, true)),
+			-1,
+			true
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_INVALID_SATURDAY_LATE_MINUTES)
+			)
+			.hasMessage("saturdayLateMinutes는 0 이상이어야 합니다.");
 	}
 
 	@Test

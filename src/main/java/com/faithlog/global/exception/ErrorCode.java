@@ -23,6 +23,8 @@ public enum ErrorCode {
 	CAMPUS_INVITE_CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "초대코드 생성에 실패했습니다."),
 
 	DEVOTION_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
+	DEVOTION_DAILY_CHECK_DATE_OUT_OF_WEEK(HttpStatus.BAD_REQUEST, "dailyChecks[].recordDate는 요청 주차 안의 날짜여야 합니다."),
+	DEVOTION_INVALID_SATURDAY_LATE_MINUTES(HttpStatus.BAD_REQUEST, "saturdayLateMinutes는 0 이상이어야 합니다."),
 	DEVOTION_WEEKLY_RECORD_NOT_FOUND(HttpStatus.NOT_FOUND, "주간 경건생활 기록을 찾을 수 없습니다."),
 	DEVOTION_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "경건생활 접근 권한이 없습니다."),
 	DEVOTION_ADMIN_FORBIDDEN(HttpStatus.FORBIDDEN, "경건생활 관리자 권한이 없습니다."),

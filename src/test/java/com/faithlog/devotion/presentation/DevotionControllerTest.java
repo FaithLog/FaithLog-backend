@@ -167,6 +167,66 @@ class DevotionControllerTest {
 	}
 
 	@Test
+	void weekly_api_rejects_daily_check_recordDate_outside_week() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-out-of-week-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "73캠");
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campus.path("campusId").asLong(),
+				"2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-22",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 0,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("DEVOTION_DAILY_CHECK_DATE_OUT_OF_WEEK"))
+			.andExpect(jsonPath("$.message").value("dailyChecks[].recordDate는 요청 주차 안의 날짜여야 합니다."));
+	}
+
+	@Test
+	void weekly_api_rejects_negative_saturday_late_minutes() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-negative-late-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "74캠");
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campus.path("campusId").asLong(),
+				"2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-15",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": -1,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_SATURDAY_LATE_MINUTES"))
+			.andExpect(jsonPath("$.message").value("saturdayLateMinutes는 0 이상이어야 합니다."));
+	}
+
+	@Test
 	void admin_missing_uses_submitted_at_and_requires_campus_manager() throws Exception {
 		String managerToken = signupAndLogin("devotion-http-missing-manager@example.com", UserRole.MANAGER);
 		JsonNode campus = createCampus(managerToken, "72캠");
