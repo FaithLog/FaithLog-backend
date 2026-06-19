@@ -14,8 +14,8 @@ final class BillingPageRequests {
 		"createdAt", "dueDate", "paidAt", "amount", "status", "paymentCategory"
 	);
 	private static final List<String> ADMIN_MEMBER_SORT_PROPERTIES = List.of(
-		"createdAt", "dueDate", "paidAt", "amount", "status", "paymentCategory",
-		"userId", "name", "email", "totalAmount", "unpaidAmount", "paidAmount", "waivedAmount", "canceledAmount"
+		"createdAt", "userId", "name", "email", "totalAmount", "unpaidAmount", "paidAmount", "waivedAmount",
+		"canceledAmount"
 	);
 
 	private BillingPageRequests() {

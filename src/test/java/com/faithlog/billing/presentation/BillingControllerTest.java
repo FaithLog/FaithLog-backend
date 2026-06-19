@@ -416,6 +416,32 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data.members[0].items").doesNotExist());
 	}
 
+	@Test
+	void admin_campus_charge_query_rejects_charge_item_sort_fields_for_member_summary() throws Exception {
+		String managerToken = signupAndLogin("billing-http-admin-sort-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-admin-sort-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "60캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-admin-sort-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-admin-sort-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-020");
+		createPenaltyCharge(campusId, member.id(), 6301L);
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("sort", "amount,asc"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 기준입니다."));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("sort", "unpaidAmount,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.members.length()").value(1))
+			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()));
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)
