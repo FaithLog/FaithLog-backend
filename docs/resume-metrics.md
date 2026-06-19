@@ -13,10 +13,10 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 79 tests / 0 failures) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 82 tests / 0 failures) | 100% |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 20 test files (2026-06-19) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 32 snippet groups (2026-06-19) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-18) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-19) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 7 top-level modules, 157 Java sources (2026-06-18) | 추적 |
@@ -31,7 +31,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - TDD 실패 확인: 세부 error code, 잘못된 `page`/`size`/`sort` 400 응답, Bean Validation 실패 code, billing/campus/auth 주요 예외 code, REST Docs 대표 에러 응답 계약 테스트를 먼저 추가. 구현 전 대상 테스트 묶음은 28 tests / 12 failed로 실패.
   - 수정: 글로벌 `ErrorCode`를 `AUTH_*`, `CAMPUS_*`, `BILLING_*`, `GLOBAL_*` 세부 code로 확장하고, `BusinessException`/`GlobalExceptionHandler`/Security entry point가 세부 code를 응답하도록 정리. `PageSortRequestValidator` 공통 컴포넌트로 page/size/sort 검증을 분리해 잘못된 값 자동 보정을 제거. `CampusRolePolicy`, `BillingAccessPolicy`, `ChargeStatusPolicy`로 비즈니스 규칙 검증을 분리.
   - 추가 운영 장치: `.githooks/commit-msg`를 추가해 `<분류>: #<이슈번호> <한국어 작업 요약>` 커밋 메시지 형식을 강제하고, 잘못된 메시지 실패/올바른 메시지 성공을 수동 검증.
-  - 재검증: 수정된 테스트 묶음 44 tests 성공, `./gradlew test` 성공(79 tests / 0 failures / 0 errors / 0 skipped), `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고, 권한 상승 재실행으로 성공.
+  - 재검증: 수정된 테스트 묶음 44 tests 성공, `./gradlew test` 성공(82 tests / 0 failures / 0 errors / 0 skipped), `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고, 권한 상승 재실행으로 성공.
   - REST Docs 결과: 대표 에러 응답 snippet `error-response-detailed-code` 추가, 전체 snippet group 32개.
 - #36 PM 재검토 sort 허용 목록 버그 수정:
   - 문제: 관리자 캠퍼스 청구 회원별 집계 조회에서 `sort=amount`, `sort=status`, `sort=paymentCategory` 같은 charge item 전용 정렬 필드가 유효 요청처럼 통과했지만 실제 정렬은 `latestChargeCreatedAt` default로 처리될 수 있었다.

@@ -117,7 +117,12 @@ public class CampusService {
 
 	@Transactional(readOnly = true)
 	public List<AdminCampusMemberResult> getCampusMembers(Long campusId, Long requesterId) {
-		requireCampusManager(campusId, requesterId, "캠퍼스 멤버 관리 권한이 없습니다.");
+		requireCampusManager(
+			campusId,
+			requesterId,
+			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
+			"캠퍼스 멤버 관리 권한이 없습니다."
+		);
 		return campusMemberRepository.findByCampusIdAndStatusOrderByIdAsc(campusId, CampusMemberStatus.ACTIVE)
 			.stream()
 			.map(member -> AdminCampusMemberResult.of(member, getUserOrThrow(member.userId())))
@@ -126,7 +131,12 @@ public class CampusService {
 
 	@Transactional(readOnly = true)
 	public List<DutyAssignmentResult> getDutyAssignments(Long campusId, Long requesterId) {
-		requireCampusManager(campusId, requesterId, "커피 담당자 관리 권한이 없습니다.");
+		requireCampusManager(
+			campusId,
+			requesterId,
+			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
+			"커피 담당자 관리 권한이 없습니다."
+		);
 		return dutyAssignmentRepository.findByCampusIdAndIsActiveTrueOrderByIdAsc(campusId)
 			.stream()
 			.map(assignment -> DutyAssignmentResult.of(assignment, getUserOrThrow(assignment.userId())))
@@ -135,7 +145,12 @@ public class CampusService {
 
 	@Transactional
 	public DutyAssignmentResult assignCoffeeDuty(AssignCoffeeDutyCommand command) {
-		requireCampusManager(command.campusId(), command.requesterId(), "커피 담당자 관리 권한이 없습니다.");
+		requireCampusManager(
+			command.campusId(),
+			command.requesterId(),
+			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
+			"커피 담당자 관리 권한이 없습니다."
+		);
 		lockCampusOrThrow(command.campusId());
 		CampusMember targetMember = campusMemberRepository.findByCampusIdAndUserId(command.campusId(), command.userId())
 			.filter(CampusMember::isActive)
@@ -155,7 +170,12 @@ public class CampusService {
 
 	@Transactional
 	public void revokeCoffeeDuty(Long campusId, Long assignmentId, Long requesterId) {
-		requireCampusManager(campusId, requesterId, "커피 담당자 관리 권한이 없습니다.");
+		requireCampusManager(
+			campusId,
+			requesterId,
+			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
+			"커피 담당자 관리 권한이 없습니다."
+		);
 		CampusDutyAssignment assignment = dutyAssignmentRepository
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.COFFEE, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
@@ -203,15 +223,15 @@ public class CampusService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
 	}
 
-	private void requireCampusManager(Long campusId, Long requesterId, String message) {
+	private void requireCampusManager(Long campusId, Long requesterId, ErrorCode errorCode, String message) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		if (requester.isAdmin()) {
 			return;
 		}
 		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(campusManageErrorCode(message), message));
-		CampusRolePolicy.requireCampusManager(requesterMembership, campusManageErrorCode(message), message);
+			.orElseThrow(() -> new BusinessException(errorCode, message));
+		CampusRolePolicy.requireCampusManager(requesterMembership, errorCode, message);
 	}
 
 	private Campus getCampusOrThrow(Long campusId) {
@@ -234,10 +254,4 @@ public class CampusService {
 		throw new BusinessException(ErrorCode.CAMPUS_INVITE_CODE_GENERATION_FAILED);
 	}
 
-	private ErrorCode campusManageErrorCode(String message) {
-		if ("커피 담당자 관리 권한이 없습니다.".equals(message)) {
-			return ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN;
-		}
-		return ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN;
-	}
 }
