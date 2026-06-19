@@ -49,6 +49,14 @@ docs/{issueNumber}-{summary}
 10. Issue 본문에 수동 상태 줄을 쓰지 않는다. Project Board Status를 상태의 진실 원천으로 사용한다.
 11. 최종 보고에는 Issue 번호, 카드 생성/연결 여부, 카드 상태 변경 여부를 반드시 포함한다.
 
+## 2.1 커밋 메시지 Hook 규칙
+
+1. 저장소의 `core.hooksPath`는 `.githooks`를 사용한다.
+2. `.githooks/commit-msg`는 버전 관리 대상이며 실행 권한을 유지한다.
+3. 커밋 제목은 `<분류>: #<이슈번호> <한국어 작업 요약>` 형식을 따른다.
+4. 허용 분류는 `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `build`, `style`, `release`이다.
+5. 커밋 제목에는 `#숫자` 이슈 번호와 한글 작업 요약이 반드시 포함되어야 한다.
+
 ## 3. FaithLog 최종 설계 기준
 
 ### 3.1 운영 단위
@@ -506,6 +514,18 @@ GET /api/v1/admin/campuses/{campusId}/notification-logs
 5. 새 API 또는 변경 API의 상세 request/response 계약은 가능한 경우 MockMvc/WebMvc/Spring REST Docs 테스트로 검증하고 snippets를 생성한다.
 6. API 문서와 테스트가 어긋나지 않도록 문서 생성 테스트도 TDD 및 검증 범위에 포함한다.
 7. REST Docs 산출물은 `build/generated-snippets`와 `build/docs/asciidoc` 기준으로 확인한다.
+
+### 4.2 에러 코드와 요청 검증 규칙
+
+1. 에러 응답은 `HTTP status + 세부 code`를 고정 API 계약으로 사용한다.
+2. `message`는 사용자 표시용 문구로 관리한다.
+3. `ErrorCode`는 글로벌 enum 하나를 유지하되, 도메인 prefix 기반 세부 코드로 나눈다.
+4. 넓은 `INVALID_REQUEST`, `NOT_FOUND`, `FORBIDDEN`만으로 새 도메인 예외를 표현하지 않는다.
+5. `page`, `size`, `sort`가 잘못된 경우 자동 보정하지 않고 `400`을 반환한다.
+6. 단순 DTO 검증은 Bean Validation을 사용한다.
+7. 페이지/정렬 파싱과 검증은 공통 요청 검증 컴포넌트로 분리한다.
+8. 비즈니스 규칙 검증은 `CampusRolePolicy`, `ChargeStatusPolicy`, `BillingAccessPolicy` 같은 정책 클래스로 분리한다.
+9. 새 API 또는 변경 API의 에러 응답 계약은 가능한 경우 Spring REST Docs 테스트로 문서화한다.
 
 ## 5. 테스트 필수 영역
 

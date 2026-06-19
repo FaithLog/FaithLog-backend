@@ -432,6 +432,7 @@ class BillingControllerTest {
 				.header("Authorization", "Bearer " + managerToken)
 				.param("sort", "amount,asc"))
 			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SORT_PROPERTY"))
 			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 기준입니다."));
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
@@ -445,24 +446,28 @@ class BillingControllerTest {
 				.header("Authorization", "Bearer " + managerToken)
 				.param("sort", "unpaidAmount,wrong"))
 			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SORT_DIRECTION"))
 			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 방향입니다."));
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
 				.header("Authorization", "Bearer " + memberToken)
 				.param("sort", "createdAt,ascending"))
 			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SORT_DIRECTION"))
 			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 방향입니다."));
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
 				.header("Authorization", "Bearer " + memberToken)
 				.param("sort", "createdAt,desc,extra"))
 			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SORT_FORMAT"))
 			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 형식입니다."));
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
 				.header("Authorization", "Bearer " + managerToken)
 				.param("sort", "unpaidAmount,asc,ignored"))
 			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SORT_FORMAT"))
 			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 형식입니다."));
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
@@ -471,6 +476,62 @@ class BillingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items.length()").value(1))
 			.andExpect(jsonPath("$.data.items[0].id").isNumber());
+	}
+
+	@Test
+	void charge_query_apis_reject_invalid_page_and_size_without_correction() throws Exception {
+		String managerToken = signupAndLogin("billing-http-page-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-page-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "61캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-page-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-page-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-021");
+		createPenaltyCharge(campusId, member.id(), 6401L);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("page", "-1"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_PAGE"))
+			.andExpect(jsonPath("$.message").value("페이지 번호는 0 이상이어야 합니다."));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("size", "0"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SIZE"))
+			.andExpect(jsonPath("$.message").value("페이지 크기는 1 이상 100 이하이어야 합니다."));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("size", "101"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SIZE"))
+			.andExpect(jsonPath("$.message").value("페이지 크기는 1 이상 100 이하이어야 합니다."));
+	}
+
+	@Test
+	void bean_validation_failure_returns_stable_validation_code() throws Exception {
+		String managerToken = signupAndLogin("billing-http-validation-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "62캠");
+
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campus.path("campusId").asLong())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "accountType": "PENALTY",
+					  "nickname": "",
+					  "bankName": "카카오뱅크",
+					  "accountNumber": "3333-00-8888888",
+					  "accountHolder": "회계"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"))
+			.andExpect(jsonPath("$.message").value("nickname: 공백일 수 없습니다"));
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {

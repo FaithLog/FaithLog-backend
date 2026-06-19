@@ -385,6 +385,35 @@ class BillingApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_error_response_contract_with_detailed_code() throws Exception {
+		String managerToken = signupAndLogin("docs-billing-error-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-billing-error-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "51캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-billing-error-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-billing-error-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-022");
+		createPenaltyCharge(campusId, member.id(), 7201L);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("sort", "createdAt,wrong"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SORT_DIRECTION"))
+			.andExpect(jsonPath("$.message").value("지원하지 않는 정렬 방향입니다."))
+			.andDo(document("error-response-detailed-code",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("청구 목록을 조회할 캠퍼스 ID")),
+				queryParameters(parameterWithName("sort").description("잘못된 정렬 방향 예시")),
+				responseFields(errorResponseFields())
+			));
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)
@@ -489,6 +518,16 @@ class BillingApiRestDocsTest {
 		System.arraycopy(commonFields, 0, fields, 0, commonFields.length);
 		System.arraycopy(dataFields, 0, fields, commonFields.length, dataFields.length);
 		return fields;
+	}
+
+	private static FieldDescriptor[] errorResponseFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("success").description("요청 성공 여부. 오류 응답에서는 `false`"),
+			fieldWithPath("code").description("HTTP status와 함께 고정 계약으로 사용하는 세부 오류 코드"),
+			fieldWithPath("message").description("사용자 표시용 오류 메시지"),
+			fieldWithPath("data").type(JsonFieldType.NULL).description("오류 응답에서는 null"),
+			fieldWithPath("timestamp").description("응답 생성 시각")
+		};
 	}
 
 	private static FieldDescriptor[] adminAccountFields(String prefix) {

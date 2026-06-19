@@ -31,7 +31,7 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 		response.setCharacterEncoding("UTF-8");
 		objectMapper.writeValue(
 			response.getWriter(),
-			ApiResponse.failure(ErrorCode.UNAUTHORIZED.name(), ErrorCode.UNAUTHORIZED.message())
+			ApiResponse.failure(ErrorCode.AUTH_UNAUTHORIZED.name(), ErrorCode.AUTH_UNAUTHORIZED.message())
 		);
 	}
 }

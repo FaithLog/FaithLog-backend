@@ -61,7 +61,7 @@ class CampusControllerTest {
 					"""))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("FORBIDDEN"))
+			.andExpect(jsonPath("$.code").value("CAMPUS_CREATE_FORBIDDEN"))
 			.andExpect(jsonPath("$.message").value("캠퍼스 생성 권한이 없습니다."));
 
 		String managerToken = signupAndLogin("campus-manager@example.com", UserRole.MANAGER);
@@ -141,7 +141,7 @@ class CampusControllerTest {
 					""".formatted(inviteCode)))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+			.andExpect(jsonPath("$.code").value("CAMPUS_ALREADY_JOINED"))
 			.andExpect(jsonPath("$.message").value("이미 가입된 캠퍼스입니다."));
 	}
 
@@ -159,7 +159,7 @@ class CampusControllerTest {
 					"""))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("NOT_FOUND"))
+			.andExpect(jsonPath("$.code").value("CAMPUS_INVALID_INVITE_CODE"))
 			.andExpect(jsonPath("$.message").value("유효하지 않은 초대코드입니다."));
 	}
 
@@ -241,7 +241,7 @@ class CampusControllerTest {
 				.header("Authorization", "Bearer " + outsiderToken))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("FORBIDDEN"))
+			.andExpect(jsonPath("$.code").value("CAMPUS_VIEW_FORBIDDEN"))
 			.andExpect(jsonPath("$.message").value("캠퍼스 조회 권한이 없습니다."));
 	}
 
@@ -263,7 +263,7 @@ class CampusControllerTest {
 				.header("Authorization", "Bearer " + memberToken))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("FORBIDDEN"))
+			.andExpect(jsonPath("$.code").value("CAMPUS_MEMBER_MANAGE_FORBIDDEN"))
 			.andExpect(jsonPath("$.message").value("캠퍼스 멤버 관리 권한이 없습니다."));
 
 		mockMvc.perform(delete("/api/v1/campuses/{campusId}/members/{membershipId}", campusId, memberMembership.path("membershipId").asLong())
@@ -338,6 +338,7 @@ class CampusControllerTest {
 					}
 					"""))
 			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("CAMPUS_ROLE_HIERARCHY_FORBIDDEN"))
 			.andExpect(jsonPath("$.message").value("상위 캠퍼스 역할은 변경할 수 없습니다."));
 	}
 

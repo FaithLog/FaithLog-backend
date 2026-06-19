@@ -37,7 +37,7 @@ class UserMeControllerTest {
 		mockMvc.perform(get("/api/v1/users/me"))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 
 		mockMvc.perform(post("/api/v1/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -86,7 +86,7 @@ class UserMeControllerTest {
 				.header("Authorization", "Bearer " + refreshToken))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
 			.andExpect(jsonPath("$.data").doesNotExist())
 			.andExpect(jsonPath("$.timestamp").exists());
 	}
@@ -128,7 +128,7 @@ class UserMeControllerTest {
 				.header("Authorization", "Bearer " + accessToken))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
 			.andExpect(jsonPath("$.data").doesNotExist())
 			.andExpect(jsonPath("$.timestamp").exists());
 	}
