@@ -47,7 +47,7 @@ public class AuthService {
 	@Transactional
 	public SignupResult signup(SignupCommand command) {
 		if (userRepository.existsByEmail(command.email())) {
-			throw new BusinessException(ErrorCode.INVALID_REQUEST, "이미 가입된 이메일입니다.");
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
 		}
 
 		User user = User.create(command.name(), command.email(), passwordEncoder.encode(command.password()));
@@ -58,10 +58,10 @@ public class AuthService {
 	@Transactional
 	public LoginResult login(LoginCommand command) {
 		User user = userRepository.findByEmail(command.email())
-			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."));
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS));
 
 		if (!user.isActive() || !passwordEncoder.matches(command.password(), user.passwordHash())) {
-			throw new BusinessException(ErrorCode.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다.");
+			throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS);
 		}
 
 		Instant loginAt = Instant.now();
@@ -78,19 +78,19 @@ public class AuthService {
 		String sessionId = refreshClaims.get("sessionId", String.class);
 		String refreshJti = refreshClaims.get("refreshJti", String.class);
 		if (userId == null || sessionId == null || refreshJti == null) {
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 
 		if (!refreshTokenStore.matchesCurrent(userId, sessionId, refreshJti)) {
 			refreshTokenStore.deleteSession(userId, sessionId);
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 
 		User user = userRepository.findById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
 		if (!user.isActive()) {
 			refreshTokenStore.deleteSession(userId, sessionId);
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 
 		IssuedTokens tokens = jwtProvider.issueTokens(user, sessionId);
@@ -101,7 +101,7 @@ public class AuthService {
 	@Transactional
 	public void logout(LogoutCommand command) {
 		if (command.accessJti() == null || command.sessionId() == null || command.userId() == null) {
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 
 		accessTokenBlacklistStore.blacklist(command.accessJti(), remainingAccessTokenTtl(command.accessTokenExpiresAt()));
@@ -112,9 +112,9 @@ public class AuthService {
 	@Transactional(readOnly = true)
 	public UserMeResult getCurrentUser(Long userId) {
 		User user = userRepository.findById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
 		if (!user.isActive()) {
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 		return UserMeResult.from(user);
 	}
@@ -123,7 +123,7 @@ public class AuthService {
 		try {
 			return jwtProvider.parseRefreshToken(refreshToken);
 		} catch (JwtException | IllegalArgumentException exception) {
-			throw new BusinessException(ErrorCode.UNAUTHORIZED);
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 	}
 

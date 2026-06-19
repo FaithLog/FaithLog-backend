@@ -25,17 +25,17 @@ public class GlobalExceptionHandler {
 			.stream()
 			.findFirst()
 			.map(error -> error.getField() + ": " + error.getDefaultMessage())
-			.orElse(ErrorCode.INVALID_REQUEST.message());
+			.orElse(ErrorCode.GLOBAL_VALIDATION_FAILED.message());
 
 		return ResponseEntity
 			.badRequest()
-			.body(ApiResponse.failure(ErrorCode.INVALID_REQUEST.name(), message));
+			.body(ApiResponse.failure(ErrorCode.GLOBAL_VALIDATION_FAILED.name(), message));
 	}
 
 	@ExceptionHandler(HttpMessageNotReadableException.class)
 	public ResponseEntity<ApiResponse<Void>> handleUnreadableMessage(HttpMessageNotReadableException exception) {
 		return ResponseEntity
 			.badRequest()
-			.body(ApiResponse.failure(ErrorCode.INVALID_REQUEST.name(), ErrorCode.INVALID_REQUEST.message()));
+			.body(ApiResponse.failure(ErrorCode.GLOBAL_INVALID_JSON.name(), ErrorCode.GLOBAL_INVALID_JSON.message()));
 	}
 }

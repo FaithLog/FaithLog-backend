@@ -189,7 +189,7 @@ class CampusApiRestDocsTest {
 					"""))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.success").value(false))
-			.andExpect(jsonPath("$.code").value("NOT_FOUND"))
+			.andExpect(jsonPath("$.code").value("CAMPUS_INVALID_INVITE_CODE"))
 			.andExpect(jsonPath("$.message").value("유효하지 않은 초대코드입니다."))
 			.andDo(document("campus-join-invalid-invite-code",
 				preprocessRequest(prettyPrint()),

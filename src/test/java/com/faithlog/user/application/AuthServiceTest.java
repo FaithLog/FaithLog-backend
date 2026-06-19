@@ -41,7 +41,9 @@ class AuthServiceTest {
 
 		assertThatThrownBy(() -> authService.signup(new SignupCommand("다른사용자", "signup@example.com", "1234")))
 			.isInstanceOf(BusinessException.class)
-			.hasMessage("이미 가입된 이메일입니다.");
+			.hasMessage("이미 가입된 이메일입니다.")
+			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode().name())
+				.isEqualTo("AUTH_EMAIL_ALREADY_EXISTS"));
 	}
 
 	@Test

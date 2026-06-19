@@ -1,0 +1,27 @@
+#!/bin/sh
+
+commit_msg_file="$1"
+
+if [ -z "$commit_msg_file" ] || [ ! -f "$commit_msg_file" ]; then
+	echo "커밋 메시지 파일을 찾을 수 없습니다." >&2
+	exit 1
+fi
+
+title="$(sed -n '1p' "$commit_msg_file")"
+pattern='^(feat|fix|test|refactor|docs|chore|build|style|release): #[0-9]+ .+'
+
+if ! printf '%s\n' "$title" | grep -Eq "$pattern"; then
+	echo "커밋 제목 형식이 올바르지 않습니다." >&2
+	echo "형식: <분류>: #<이슈번호> <한국어 작업 요약>" >&2
+	echo "허용 분류: feat, fix, test, refactor, docs, chore, build, style, release" >&2
+	echo "예시: refactor: #55 공통 요청 검증 컴포넌트 분리" >&2
+	exit 1
+fi
+
+if ! printf '%s\n' "$title" | grep -Eq '[가-힣]'; then
+	echo "커밋 제목의 작업 요약에는 한글이 최소 1글자 이상 포함되어야 합니다." >&2
+	echo "예시: test: #55 에러 코드 세분화 실패 테스트 추가" >&2
+	exit 1
+fi
+
+exit 0
