@@ -10,6 +10,15 @@ public enum ErrorCode {
 	AUTH_INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."),
 	AUTH_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
 
+	ADMIN_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "서비스 관리자 권한이 없습니다."),
+	ADMIN_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
+	ADMIN_LAST_ADMIN_DEMOTION_FORBIDDEN(HttpStatus.CONFLICT, "마지막 서비스 관리자는 강등할 수 없습니다."),
+	ADMIN_INVALID_PAGE(HttpStatus.BAD_REQUEST, "페이지 번호는 0 이상이어야 합니다."),
+	ADMIN_INVALID_SIZE(HttpStatus.BAD_REQUEST, "페이지 크기는 1 이상 100 이하이어야 합니다."),
+	ADMIN_INVALID_SORT_FORMAT(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 형식입니다."),
+	ADMIN_INVALID_SORT_PROPERTY(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 기준입니다."),
+	ADMIN_INVALID_SORT_DIRECTION(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 방향입니다."),
+
 	CAMPUS_CREATE_FORBIDDEN(HttpStatus.FORBIDDEN, "캠퍼스 생성 권한이 없습니다."),
 	CAMPUS_INVALID_INVITE_CODE(HttpStatus.NOT_FOUND, "유효하지 않은 초대코드입니다."),
 	CAMPUS_ALREADY_JOINED(HttpStatus.BAD_REQUEST, "이미 가입된 캠퍼스입니다."),
