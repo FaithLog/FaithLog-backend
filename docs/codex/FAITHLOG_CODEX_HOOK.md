@@ -102,6 +102,8 @@ POST /api/v1/auth/reissue
 - 주간 경건생활 제출 API는 월요일부터 일요일까지 7일치 daily row를 생성 또는 수정한다.
 - 주간 저장/제출 요청 필드명은 `dailyChecks`를 사용한다.
 - 주간 제출 시 요청에 없는 날짜는 false 기본값으로 채운다.
+- 주간 경건생활 최종 제출은 1회만 가능하다. 같은 캠퍼스/사용자/주차의 `weekly_devotion_records.submitted_at`이 이미 있으면 다시 `submit = true`로 제출할 수 없다.
+- `submit = false` 주간 저장은 최종 제출 전까지만 가능하고 벌금 계산이나 `PENALTY` 청구 생성/갱신을 수행하지 않는다.
 - 경건생활 제출 여부와 관리자 미제출자 조회 기준은 daily row 존재 여부가 아니라 `weekly_devotion_records.submitted_at`이다.
 - `weekStartDate`는 월요일이어야 한다.
 
@@ -116,7 +118,7 @@ GET /api/v1/admin/campuses/{campusId}/devotions/missing?weekStartDate={weekStart
 
 ### 3.4 벌금 청구 기준
 
-주간 경건생활 제출 시 서버가 자동으로 벌금을 계산하고 청구를 생성 또는 갱신한다.
+주간 경건생활 첫 최종 제출 시 서버가 자동으로 벌금을 계산하고 청구를 생성한다.
 
 관리자가 별도로 벌금 청구 생성을 요청하는 API는 MVP에서 제공하지 않는다.
 
@@ -540,7 +542,8 @@ GET /api/v1/admin/campuses/{campusId}/notification-logs
 - 주간 경건생활 제출 시 daily row 7개 생성 또는 수정
 - `weekly_devotion_records` 요약값 계산
 - 벌금 계산
-- PENALTY 청구 자동 생성 또는 갱신
+- PENALTY 청구 자동 생성
+- 이미 제출된 주차의 중복 `submit = true` 제출 방지
 - 중복 청구 방지
 - 활성 PENALTY 계좌 조회 및 계좌 snapshot 저장
 - `납부했어요` 즉시 PAID 처리

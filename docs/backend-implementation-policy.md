@@ -228,8 +228,9 @@ Rules:
 - Missing dates in a weekly submission are filled with false defaults.
 - `weekly_devotion_records` is used for weekly summary and calculations.
 - Devotion submission and admin missing-user checks are based on `weekly_devotion_records.submitted_at`, not on daily row existence.
-- `submit = false` weekly saves must not create or update `PENALTY` charges.
-- `submit = true` weekly submissions calculate penalties and create or update one combined `PENALTY` charge through issue #33.
+- `submit = false` weekly saves are allowed only before final submission and must not create or update `PENALTY` charges.
+- Weekly devotion submission is one-time. If `weekly_devotion_records.submitted_at` already exists for the same campus/user/week, another `submit = true` request must fail.
+- The first `submit = true` weekly submission calculates penalties and creates one combined `PENALTY` charge through issue #33.
 - If there is no active `PENALTY` account, issue #33 must fail the whole `submit = true` request with the user-facing message `관리자에게 문의하세요` and must not create a `charge_items` row.
 
 Penalty table:
@@ -256,8 +257,8 @@ Penalty calculation integration note:
 - Issue #31 rejects negative `saturdayLateMinutes` values at the weekly save/submit request boundary.
 - Issue #33 must keep or add tests proving negative `saturdayLateMinutes` cannot reach the calculator when weekly devotion submission is wired to `PENALTY` charge generation.
 - If needed during issue #33, add an application-layer guard immediately before calculator invocation without changing the issue #32 calculator contract.
-- Existing `UNPAID` `PENALTY` charges for the same weekly record may be updated with recalculated amount, title, reason, due date, and the latest active account snapshot.
-- Existing terminal `PAID`, `WAIVED`, or `CANCELED` charges for the same weekly record must not be overwritten unless the user explicitly approves a final resubmission policy. Until then, issue #33 development must preserve the current billing guard and ask before changing terminal charge behavior.
+- Because weekly devotion submission is one-time, issue #33 must not implement same-week charge recalculation by resubmitting the same weekly record.
+- Existing `PENALTY` charges for the same weekly record must not be overwritten through the normal weekly devotion submission flow.
 
 Penalty rule replacement and validation:
 

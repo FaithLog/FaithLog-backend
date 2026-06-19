@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Issue #33 One-Time Weekly Devotion Submission
+
+- Context: Issue #33 connects weekly devotion submission to automatic `PENALTY` charge creation. A previous open question asked how to handle resubmitting a weekly devotion record after the generated charge became terminal.
+- Decision: Weekly devotion submission is one-time. Once `weekly_devotion_records.submitted_at` exists for a user/campus/week, the same weekly record cannot be submitted again. A later `submit = true` request for the same week must fail instead of recalculating or overwriting the existing devotion submission or charge. `submit = false` weekly saves are allowed only before final submission and must not create or update `PENALTY` charges.
+- Impact: Issue #33 does not need a terminal charge resubmission policy because same-week resubmission is blocked at the devotion submission boundary. Development must test that first `submit = true` creates one combined `PENALTY` charge, duplicate `submit = true` fails, missing active `PENALTY` account fails the whole submission without creating a charge, and pre-submit `submit = false` saves do not create charges.
+
 ### 2026-06-19 - Issue #32 Penalty Rule And Fine Calculation Scope
 
 - Context: Issue #32 still had an older API draft for devotion fine calculation, while the latest Notion integrated plan and API pages define penalty rule management APIs separately from the weekly devotion submission and charge creation flow.
@@ -62,7 +68,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 - Context: PM review found that service-level `ADMIN` could not list campus payment accounts without campus membership, and `BillingService.createPenaltyCharge` raised a unique constraint error when the same penalty charge source was executed again.
 - Decision: `GET /api/v1/campuses/{campusId}/payment-accounts` allows either service-level `ADMIN` or an ACTIVE campus member. `BillingService.createPenaltyCharge` behaves as create-or-update for an existing `UNPAID` `PENALTY` charge with the same `(campusId, userId, paymentCategory, sourceType, sourceId)`: it updates the latest active PENALTY account snapshot, title, reason, amount, and due date, then returns the same row.
-- Implementation guard / unresolved policy: The user has not yet finalized how an already terminal `PAID`, `WAIVED`, or `CANCELED` charge should behave when the same source is submitted again. To prevent historical payment data from being overwritten in the Issue #34 foundation, terminal charges are guarded with a clear invalid request error instead of being updated. Confirm the final product policy with the user before wiring the real resubmission/payment flows in Issue #33/#35.
+- Implementation guard: The Issue #34 billing foundation keeps terminal charges guarded so `PAID`, `WAIVED`, or `CANCELED` charges are not overwritten by a source rerun. For Issue #33 specifically, the later 2026-06-19 decision blocks same-week devotion resubmission at the devotion boundary, so terminal devotion charge reruns should not occur through the normal weekly submission flow.
 - Impact: Issue #34 service and controller tests must cover service-admin account list access and service-level penalty charge reruns for existing `UNPAID` charges. The DB unique key remains a safety net, but normal service reruns should not surface unique constraint exceptions for existing `UNPAID` charges.
 
 ### 2026-06-18 - Issue #34 Member Payment Account Response Contract
@@ -285,13 +291,6 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Impact: Issue #28, Notion auth API pages, backend policy, and the Codex hook must align on this contract before the development session starts. Tests must cover refresh rotation, old refresh token reuse, logout blacklist/allowlist deletion, optional FCM fields, no raw token storage, Redis TTLs, and REST Docs snippets.
 
 ## Pending Decisions
-
-### 2026-06-19 - Issue #33 Terminal Penalty Charge Resubmission Policy
-
-- Context: Issue #33 will connect weekly devotion submission to automatic `PENALTY` charge creation/update. The billing foundation currently updates an existing `UNPAID` charge for the same source, but rejects updates when the existing charge is already terminal (`PAID`, `WAIVED`, or `CANCELED`) so historical payment data is not silently overwritten.
-- Pending question: When a user resubmits the same weekly devotion record after its generated penalty charge is already `PAID`, `WAIVED`, or `CANCELED`, should the API reject the resubmission, reopen/update the existing charge, create a separate adjustment charge, or allow devotion record changes while leaving the old charge unchanged?
-- Recommendation: For MVP, keep the current guard and reject automatic charge update when the same weekly source already has a terminal charge. This avoids rewriting settled payment history and can be revisited later with an explicit adjustment-flow issue if needed.
-- Current action: Issue #33 development must not change terminal charge behavior without user approval. Tests should prove existing `UNPAID` charges are updated and existing terminal charges are not overwritten.
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope
 
