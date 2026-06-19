@@ -155,6 +155,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Context: The user approved the implementation direction previously identified by Codex for conflicts between older Notion/API drafts and the latest local decisions.
 - Decision: Refresh Token storage follows Redis allowlist and not the old `refresh_tokens` table design. Poll responses must use request field `optionIds` and `poll_response_options`, not request field `optionId` or `poll_responses.option_id`. Devotion implementation uses the weekly `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}` flow to create or update 7 daily rows; the old single-day devotion API is not the MVP implementation path.
 - Impact: Auth, poll, and devotion issues must treat these decisions as higher priority than older Notion API text. Any implementation or API documentation that still exposes the old paths/fields must be corrected before development is considered complete.
+- Status: Partially superseded for devotion. The 2026-06-19 decision `Issue #31 Devotion Daily Check And Weekly Submission Sync` includes the daily check API in MVP while keeping weekly submission as the only submission/penalty trigger.
+
+### 2026-06-19 - Issue #31 Devotion Daily Check And Weekly Submission Sync
+
+- Context: The user asked to compare Issue #31 with the latest Notion planning/API/ERD and update local planning to match Notion before development.
+- Decision: Issue #31 includes both daily check and weekly save/submit flows. The daily check API is `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}` and creates or updates the matching `devotion_daily_checks` row while synchronizing the weekly row if missing. Daily checks never update `submitted_at` and never create or update `PENALTY` charges. The weekly API remains `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}` and uses request field `dailyChecks`. Weekly submission creates or updates Monday-Sunday daily rows, fills missing submission dates with false defaults, updates `weekly_devotion_records.submitted_at` when `submit = true`, and uses `weekly_devotion_records.submitted_at` as the submission/missing-user source of truth.
+- Impact: Issue #31 development must implement the daily API and weekly API together. Issue #33 remains responsible for the final penalty charge integration, but #31 tests must prove daily checks do not trigger submission or billing behavior.
 
 ### 2026-06-17 - Pagination Sorting Redis TTL And Notification Failure Policies
 
