@@ -353,6 +353,63 @@ class DevotionServiceTest {
 	}
 
 	@Test
+	void updateDailyCheck_rejects_same_week_change_after_weekly_record_was_submitted_without_mutating_rows_or_charge() {
+		User manager = saveUser("devotion-daily-after-submit-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "74캠");
+		User member = saveUser("devotion-daily-after-submit-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-106");
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+		LocalDate recordDate = weekStartDate.plusDays(2);
+		devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			List.of(new DevotionDailyCheckCommand(recordDate, true, true, true)),
+			0,
+			true
+		));
+		WeeklyDevotionRecord submittedWeeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(campus.campusId(), member.id(), weekStartDate)
+			.orElseThrow();
+		List<DevotionDailyCheck> dailyChecksBefore = dailyCheckRepository
+			.findByWeeklyRecordIdOrderByRecordDateAsc(submittedWeeklyRecord.id());
+		long weeklyRecordCountBefore = weeklyRecordRepository.count();
+		long dailyCheckCountBefore = dailyCheckRepository.count();
+		long chargeCountBefore = chargeItemRepository.count();
+
+		assertThatThrownBy(() -> devotionService.updateDailyCheck(new UpdateDailyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			recordDate,
+			false,
+			false,
+			false
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_WEEKLY_ALREADY_SUBMITTED)
+			)
+			.hasMessage("이미 제출된 주간 경건생활은 수정할 수 없습니다.");
+
+		assertThat(weeklyRecordRepository.count()).isEqualTo(weeklyRecordCountBefore);
+		assertThat(dailyCheckRepository.count()).isEqualTo(dailyCheckCountBefore);
+		assertThat(chargeItemRepository.count()).isEqualTo(chargeCountBefore);
+		assertThat(weeklyRecordRepository.findById(submittedWeeklyRecord.id()))
+			.get()
+			.satisfies(weeklyRecord -> {
+				assertThat(weeklyRecord.submittedAt()).isEqualTo(submittedWeeklyRecord.submittedAt());
+				assertThat(weeklyRecord.quietTimeCount()).isEqualTo(submittedWeeklyRecord.quietTimeCount());
+				assertThat(weeklyRecord.prayerCount()).isEqualTo(submittedWeeklyRecord.prayerCount());
+				assertThat(weeklyRecord.bibleReadingCount()).isEqualTo(submittedWeeklyRecord.bibleReadingCount());
+				assertThat(weeklyRecord.saturdayLateMinutes()).isEqualTo(submittedWeeklyRecord.saturdayLateMinutes());
+			});
+		assertThat(dailyCheckRepository.findByWeeklyRecordIdOrderByRecordDateAsc(submittedWeeklyRecord.id()))
+			.usingRecursiveFieldByFieldElementComparatorIgnoringFields("updatedAt")
+			.containsExactlyElementsOf(dailyChecksBefore);
+	}
+
+	@Test
 	void getMyWeeklyCheck_uses_requester_identity_and_adminMissing_uses_submittedAt() {
 		User manager = saveUser("devotion-missing-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "62캠");

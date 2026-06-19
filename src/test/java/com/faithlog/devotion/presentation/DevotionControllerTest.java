@@ -243,6 +243,48 @@ class DevotionControllerTest {
 	}
 
 	@Test
+	void daily_api_rejects_same_week_change_after_weekly_record_was_submitted() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-daily-after-submit-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("devotion-http-daily-after-submit-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "77캠");
+		long campusId = campus.path("campusId").asLong();
+		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-203");
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-17",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 0,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/days/{recordDate}", campusId, "2026-06-17")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "quietTimeChecked": false,
+					  "prayerChecked": false,
+					  "bibleReadingChecked": false
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("DEVOTION_WEEKLY_ALREADY_SUBMITTED"))
+			.andExpect(jsonPath("$.message").value("이미 제출된 주간 경건생활은 수정할 수 없습니다."));
+	}
+
+	@Test
 	void my_week_api_returns_default_week_when_record_is_missing() throws Exception {
 		String managerToken = signupAndLogin("devotion-http-empty-week-manager@example.com", UserRole.MANAGER);
 		JsonNode campus = createCampus(managerToken, "75캠");

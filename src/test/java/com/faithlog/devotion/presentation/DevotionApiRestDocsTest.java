@@ -492,6 +492,58 @@ class DevotionApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_devotion_daily_check_already_submitted_week() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-daily-after-submit-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-devotion-daily-after-submit-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "88캠");
+		long campusId = campus.path("campusId").asLong();
+		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-303");
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-17",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 0,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/days/{recordDate}", campusId, "2026-06-17")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "quietTimeChecked": false,
+					  "prayerChecked": false,
+					  "bibleReadingChecked": false
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("DEVOTION_WEEKLY_ALREADY_SUBMITTED"))
+			.andExpect(jsonPath("$.message").value("이미 제출된 주간 경건생활은 수정할 수 없습니다."))
+			.andDo(document("devotion-daily-check-already-submitted-week",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("recordDate").description("이미 최종 제출된 주차에 속한 일별 체크 날짜")
+				),
+				requestFields(dailyCheckRequestFields()),
+				responseFields(errorResponseFields())
+			));
+	}
+
 	private FieldDescriptor[] dailyCheckRequestFields() {
 		return new FieldDescriptor[] {
 			fieldWithPath("quietTimeChecked").description("큐티 체크 여부"),
