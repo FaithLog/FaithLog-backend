@@ -76,6 +76,7 @@ class DevotionControllerTest {
 		User member = userRepository.findByEmail("devotion-http-member@example.com").orElseThrow();
 		joinCampus(memberToken, campus.path("inviteCode").asText());
 		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-201");
+		long chargeCountBeforeDailyCheck = chargeItemRepository.count();
 
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/days/{recordDate}", campusId, "2026-06-17")
 				.header("Authorization", "Bearer " + memberToken)
@@ -104,7 +105,7 @@ class DevotionControllerTest {
 			member.id(),
 			java.time.LocalDate.of(2026, 6, 15)
 		)).isPresent();
-		assertThat(chargeItemRepository.count()).isZero();
+		assertThat(chargeItemRepository.count()).isEqualTo(chargeCountBeforeDailyCheck);
 
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
 				.header("Authorization", "Bearer " + memberToken)
@@ -145,7 +146,7 @@ class DevotionControllerTest {
 			.orElseThrow()
 			.id();
 		assertThat(dailyCheckRepository.findByWeeklyRecordIdOrderByRecordDateAsc(weeklyRecordId)).hasSize(7);
-		assertThat(chargeItemRepository.count()).isEqualTo(1);
+		assertThat(chargeItemRepository.count()).isEqualTo(chargeCountBeforeDailyCheck + 1);
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-15")
 				.header("Authorization", "Bearer " + memberToken))
