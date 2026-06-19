@@ -240,10 +240,33 @@ Penalty table:
 - Saturday lateness is 0 KRW when `saturdayLateMinutes = 0`; when `saturdayLateMinutes > 0`, calculate `1,000 + saturdayLateMinutes * 100`.
 - A weekly devotion submission creates one combined `PENALTY` charge for the weekly record, not separate charges per penalty category.
 
+Penalty rule APIs for issue #32:
+
+- `GET /api/v1/campuses/{campusId}/penalty-rules`
+- `POST /api/v1/admin/campuses/{campusId}/penalty-rules`
+- `PATCH /api/v1/admin/penalty-rules/{ruleId}`
+
+Issue #32 implements penalty rule management and fine calculation only. It must not create or update `charge_items`; weekly devotion submission to `PENALTY` charge integration belongs to issue #33.
+
+Penalty calculation integration note:
+
+- `DevotionFineCalculator` is a calculation-only Domain Service and assumes validated weekly summary input.
+- Issue #31 rejects negative `saturdayLateMinutes` values at the weekly save/submit request boundary.
+- Issue #33 must keep or add tests proving negative `saturdayLateMinutes` cannot reach the calculator when weekly devotion submission is wired to `PENALTY` charge generation.
+- If needed during issue #33, add an application-layer guard immediately before calculator invocation without changing the issue #32 calculator contract.
+
+Penalty rule replacement and validation:
+
+- Creating a new ACTIVE penalty rule for the same campus and `rule_type` automatically deactivates the previous ACTIVE rule and leaves only the new rule active.
+- `QUIET_TIME`, `PRAYER`, and `BIBLE_READING` must use `MISSING_COUNT`.
+- `SATURDAY_LATE` must use `LATE_MINUTE`.
+- Invalid `rule_type` and `calculation_type` pairings must return `400`.
+
 Do not use:
 
 - `POST /api/v1/campuses/{campusId}/devotions/weeks`
 - `PATCH /api/v1/devotions/weeks/{recordId}/days/{date}`
+- `GET /api/v1/campuses/{campusId}/devotions/fines?weekStartDate=` unless the user explicitly approves a separate preview API.
 
 ## Coffee Charge Automation
 
