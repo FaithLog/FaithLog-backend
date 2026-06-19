@@ -13,19 +13,31 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 130 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 26 test files (2026-06-19) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 51 snippet groups (2026-06-19) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 138 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 28 test files (2026-06-19) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 57 snippet groups (2026-06-19) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-19) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 7 top-level modules, 207 Java sources (2026-06-19) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 8 top-level modules, 231 Java sources (2026-06-19) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-06-19
 
+- #61 서비스 ADMIN 유저와 캠퍼스 관리 구현:
+  - 브랜치: `feat/61-service-admin-user-campus-management`
+  - 구현 API: `GET /api/v1/admin/users`, `GET /api/v1/admin/users/{userId}`, `PATCH /api/v1/admin/users/{userId}/role`, `GET /api/v1/admin/campuses`, `POST /api/v1/admin/campuses/{campusId}/members`, 기존 `GET/PATCH /api/v1/admin/campuses/{campusId}/members...`, `PATCH /api/v1/campuses/{campusId}` 권한 회귀 검증.
+  - 확정 계약: 사용자 목록/상세 응답 필드, 캠퍼스 목록 응답 필드, sort 허용 필드, 마지막 ADMIN 판정 기준(`users.role = ADMIN` and `users.is_active = true`), 이미 ACTIVE 소속 직접 추가 시 `CAMPUS_ALREADY_JOINED` 400.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminManagementControllerTest`가 새 관리자 endpoint 미구현으로 4 tests / 4 failed 실패.
+  - 구현 구조: `admin` application/presentation 패키지를 추가하고 `AdminAccessPolicy`, 검색 criteria, result DTO, repository port를 분리. Controller는 Entity를 반환하지 않고 request/response DTO와 `PageResponse`를 사용.
+  - 검증 범위: `ADMIN` 전용 `/api/v1/admin/**`, `USER`/`MANAGER` 접근 거부, 멤버십 없는 서비스 `ADMIN` 전체 조회/수정, 사용자 검색/role/page/size/sort, 사용자 상세 캠퍼스 소속 상태, `users.role` 단독 변경, 마지막 ADMIN 강등 차단, 캠퍼스 검색/운영상태 필터/page/size/sort, `is_active` 기반 `ACTIVE`/`PAUSED`, 직접 멤버 추가, `INACTIVE` 재활성화, ACTIVE 중복 추가 실패, 캠퍼스 역할 same-level 정책 유지, 캠퍼스 수정 권한.
+  - REST Docs 결과: `admin-users-list-success`, `admin-user-detail-success`, `admin-user-role-change-success`, `admin-campuses-list-success`, `admin-campus-member-add-success`, `campus-update-success` snippets 추가, 전체 snippet group 57개.
+  - 재검증: `AdminManagementServiceTest`, `AdminManagementControllerTest`, `AdminManagementApiRestDocsTest` 성공, `./gradlew test` 성공(138 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고, 권한 상승 재실행으로 성공.
+  - Docker 검증: `docker compose build app` 2회 시도 모두 `eclipse-temurin:21-jdk-alpine`/`21-jre-alpine` 베이스 이미지 metadata 조회 단계에서 `DeadlineExceeded: context deadline exceeded`로 실패. 컨테이너는 시작되지 않았고 `docker ps` 실행 결과 running container 0개.
+  - 제외 범위 준수: audit log 저장/조회, `INVITED` 캠퍼스 상태, 신규 DB schema/enum, Swagger 문서화 어노테이션 추가 없음.
+  - 코드베이스 수치: Java 소스 231개, 테스트 파일 28개.
 - #57 내 월간 경건생활 통계 조회 구현:
   - 브랜치: `feat/57-my-monthly-devotion-summary`
   - 구현 API: `GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}`
@@ -355,6 +367,10 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 날짜 | 명령/방법 | 결과 | 주요 수치 | 후속 조치 |
 | --- | --- | --- | --- | --- |
+| 2026-06-19 | #61 TDD 실패 확인 | 실패 확인 | 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminManagementControllerTest`가 4 tests / 4 failed로 실패. 서비스 ADMIN 관리 endpoint와 role 변경 PATCH 미구현 확인 | admin application/presentation/port 계층 구현 |
+| 2026-06-19 | #61 focused admin tests | 성공 | `AdminManagementServiceTest`, `AdminManagementControllerTest`, `AdminManagementApiRestDocsTest` 성공. 사용자/캠퍼스 검색, 마지막 ADMIN 보호, 직접 멤버 추가/재활성화, REST Docs 계약 검증 | 전체 회귀 테스트로 확대 |
+| 2026-06-19 | #61 full regression/build/docs | 성공 | `./gradlew test` 성공(138 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 57개 | PM 리뷰 요청 |
+| 2026-06-19 | #61 Docker validation | 실패 | `docker compose build app` 2회 모두 Docker Hub metadata 조회 단계에서 `DeadlineExceeded` 실패. `docker ps` 기준 running container 0개 | Docker 네트워크/registry 접근 가능 상태에서 재시도 필요 |
 | 2026-06-19 | #33 PM review daily check submitted-week guard | 성공 | 구현 전 대상 테스트 32 tests / 3 failed 확인. 수정 후 대상 테스트 성공, `./gradlew cleanTest test --no-parallel --max-workers=1` 성공(124 tests / 0 failures / 0 errors / 0 skipped), `./gradlew test` 성공, `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 49개 | PM 검증 요청 |
 | 2026-06-18 | #36 TDD 실패 확인 | 실패 확인 | Query service 테스트는 missing class 15개로 `compileTestJava` 실패, Controller 테스트는 새 조회 endpoint 미구현으로 HTTP 200 assertion 실패 | 조회 Query Service, Result/Response DTO, Controller endpoint 구현 |
 | 2026-06-18 | #36 focused query/controller/docs tests | 성공 | `BillingQueryServiceTest`, `BillingControllerTest`, `BillingApiRestDocsTest` 각각 성공 | 전체 테스트로 확대 |

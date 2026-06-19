@@ -54,6 +54,21 @@ public class Campus {
 		return new Campus(name, region, description, inviteCode);
 	}
 
+	public void update(String name, String region, String description, Boolean isActive) {
+		if (name != null) {
+			this.name = name;
+		}
+		if (region != null) {
+			this.region = region;
+		}
+		if (description != null) {
+			this.description = description;
+		}
+		if (isActive != null) {
+			this.isActive = isActive;
+		}
+	}
+
 	@PrePersist
 	void prePersist() {
 		Instant now = Instant.now();

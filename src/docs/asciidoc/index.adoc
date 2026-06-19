@@ -937,3 +937,175 @@ include::{snippets}/charge-admin-status-change-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/charge-admin-status-change-success/response-fields.adoc[]
+
+== Service Admin Management
+
+서비스 전역 `ADMIN` 전용 관리자 페이지 API다. `USER`와 서비스 전역 `MANAGER`는 이 섹션의 `/api/v1/admin/users`, `/api/v1/admin/campuses` 관리 API를 사용할 수 없다. 서비스 전역 `ADMIN`은 캠퍼스 멤버십이 없어도 전체 유저와 캠퍼스를 조회/수정할 수 있다.
+
+=== List Users As Service Admin
+
+`GET /api/v1/admin/users`
+
+이름, 이메일, 사용자 ID, 전역 역할로 사용자를 검색한다. 허용 sort 필드는 `id`, `name`, `email`, `role`, `createdAt`이다.
+
+==== Request
+
+include::{snippets}/admin-users-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-users-list-success/request-headers.adoc[]
+
+==== Query Parameters
+
+include::{snippets}/admin-users-list-success/query-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/admin-users-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-users-list-success/response-fields.adoc[]
+
+=== Get User Detail As Service Admin
+
+`GET /api/v1/admin/users/{userId}`
+
+사용자 기본 정보와 소속 캠퍼스 목록을 조회한다. 소속 캠퍼스 상태는 `campus_members.status`를 그대로 반환한다.
+
+==== Request
+
+include::{snippets}/admin-user-detail-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-user-detail-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-user-detail-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/admin-user-detail-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-user-detail-success/response-fields.adoc[]
+
+=== Change User Role As Service Admin
+
+`PATCH /api/v1/admin/users/{userId}/role`
+
+`users.role`만 변경한다. 마지막 활성 서비스 전역 `ADMIN` 1명은 `USER` 또는 `MANAGER`로 강등할 수 없다.
+
+==== Request
+
+include::{snippets}/admin-user-role-change-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-user-role-change-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-user-role-change-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/admin-user-role-change-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/admin-user-role-change-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-user-role-change-success/response-fields.adoc[]
+
+=== Update Campus
+
+`PATCH /api/v1/campuses/{campusId}`
+
+캠퍼스 정보를 부분 수정한다. 서비스 전역 `ADMIN`은 캠퍼스 멤버십 없이도 수정할 수 있고, `isActive = false`인 캠퍼스는 서비스 ADMIN 캠퍼스 목록에서 `PAUSED`로 표시된다.
+
+==== Request
+
+include::{snippets}/campus-update-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/campus-update-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/campus-update-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/campus-update-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/campus-update-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/campus-update-success/response-fields.adoc[]
+
+=== List Campuses As Service Admin
+
+`GET /api/v1/admin/campuses`
+
+이름, 지역, 운영 상태로 캠퍼스를 검색한다. 운영 상태는 새 컬럼이 아니라 `campuses.is_active`에서 계산한 `ACTIVE`/`PAUSED`만 반환한다. 허용 sort 필드는 `id`, `name`, `region`, `createdAt`이다.
+
+==== Request
+
+include::{snippets}/admin-campuses-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-campuses-list-success/request-headers.adoc[]
+
+==== Query Parameters
+
+include::{snippets}/admin-campuses-list-success/query-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/admin-campuses-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-campuses-list-success/response-fields.adoc[]
+
+=== Add Campus Member As Service Admin
+
+`POST /api/v1/admin/campuses/{campusId}/members`
+
+서비스 전역 `ADMIN`이 초대코드 없이 사용자를 캠퍼스에 직접 추가한다. 새 소속은 `ACTIVE + MEMBER`로 생성하고, 기존 `INACTIVE` 소속이 있으면 같은 row를 `ACTIVE + MEMBER`로 재활성화한다. 이미 `ACTIVE` 소속이면 `CAMPUS_ALREADY_JOINED`로 실패한다.
+
+==== Request
+
+include::{snippets}/admin-campus-member-add-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-campus-member-add-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-campus-member-add-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/admin-campus-member-add-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/admin-campus-member-add-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-campus-member-add-success/response-fields.adoc[]

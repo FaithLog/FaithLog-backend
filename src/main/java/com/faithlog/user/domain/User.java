@@ -76,6 +76,10 @@ public class User {
 		this.lastLoginAt = lastLoginAt;
 	}
 
+	public void changeRole(UserRole role) {
+		this.role = role;
+	}
+
 	public Long id() {
 		return id;
 	}
@@ -98,6 +102,10 @@ public class User {
 
 	public boolean isActive() {
 		return isActive;
+	}
+
+	public boolean isAdmin() {
+		return role == UserRole.ADMIN;
 	}
 
 	public Instant lastLoginAt() {

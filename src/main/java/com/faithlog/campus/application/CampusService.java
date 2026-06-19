@@ -209,6 +209,23 @@ public class CampusService {
 		return CampusDetailResult.of(campus, membership, membership.canViewInviteCode());
 	}
 
+	@Transactional
+	public CampusDetailResult updateCampus(UpdateCampusCommand command) {
+		CampusUserLookupResult requester = getActiveUser(command.requesterId());
+		Campus campus = getCampusOrThrow(command.campusId());
+		CampusMember membership = campusMemberRepository.findByCampusIdAndUserId(campus.id(), requester.userId()).orElse(null);
+
+		if (!requester.isAdmin()) {
+			if (membership == null || !membership.isActive()) {
+				throw new BusinessException(ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN);
+			}
+			CampusRolePolicy.requireCampusManager(membership, ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN);
+		}
+
+		campus.update(command.name(), command.region(), command.description(), command.isActive());
+		return CampusDetailResult.of(campus, membership, requester.isAdmin() || (membership != null && membership.canViewInviteCode()));
+	}
+
 	private CampusUserLookupResult getActiveUser(Long userId) {
 		CampusUserLookupResult user = userLookupPort.findCampusUserById(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
