@@ -72,7 +72,17 @@ public class DevotionService {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		requireActiveCampusMember(command.campusId(), requester.userId());
 		LocalDate weekStartDate = command.recordDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-		WeeklyDevotionRecord weeklyRecord = getOrCreateWeeklyRecord(command.campusId(), requester.userId(), weekStartDate);
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(command.campusId(), requester.userId(), weekStartDate)
+			.orElse(null);
+		validateNotSubmitted(weeklyRecord);
+		if (weeklyRecord == null) {
+			weeklyRecord = weeklyRecordRepository.save(WeeklyDevotionRecord.create(
+				command.campusId(),
+				requester.userId(),
+				weekStartDate
+			));
+		}
 		DevotionDailyCheck dailyCheck = upsertDailyCheck(
 			weeklyRecord.id(),
 			command.recordDate(),
