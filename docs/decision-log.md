@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-19 - Common Error Code And Request Validation Refactor Policy
+
+- Context: After Issue #36 was merged, charge query code showed that request validation and user-facing error messages were spread across controllers, presentation helpers, application services, and broad shared error codes such as `INVALID_REQUEST`. The user decided the stable API error contract and validation structure before creating a separate refactor issue.
+- Decision: Error responses use `HTTP status + detailed code` as the fixed API contract. The `message` field is managed as user-facing display text. `ErrorCode` remains one global enum, but each code should be split by domain prefix, such as `BILLING_INVALID_SORT_DIRECTION` or `CAMPUS_MEMBER_NOT_FOUND`. Invalid `page`, `size`, or `sort` values must return `400` instead of being silently corrected. Simple DTO validation uses Bean Validation. Pagination and sorting parsing move to a common request validation component. Business rules move to explicit policy classes such as `CampusRolePolicy`, `ChargeStatusPolicy`, and `BillingAccessPolicy`. This cleanup is handled as one separate refactor issue after Issue #36, not inside the already merged #36 feature PR.
+- Impact: Future development must not keep adding broad `INVALID_REQUEST` usage with hardcoded messages when a stable domain error code is required. REST Docs must document error responses using the detailed `code`, and tests must cover invalid pagination/sorting values returning `400`. This refactor must not add new features, change API paths, change DB schema, or add Swagger documentation annotations.
+
 ### 2026-06-18 - Issue #36 Charge Query Date Filter And Monthly Summary Policy
 
 - Context: Issue #36 originally listed `startDate` and `endDate` query parameters for charge list APIs, but the user reconsidered the product behavior during development. The user preferred not to expose manual date-range filtering in the API contract and wanted the app to show recent paid/charged history without deleting older records.

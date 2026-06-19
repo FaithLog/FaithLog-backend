@@ -51,6 +51,25 @@ Redis TTL policy:
 - Maximum `size` is 100.
 - Default sorting is latest-first: `createdAt,desc`.
 - Domain-specific stable ordering can override the default where needed, such as poll options sorted by `sortOrder,asc`.
+- Invalid `page`, `size`, or `sort` values must return `400` and must not be silently corrected.
+- Pagination and sorting parsing/validation should live in a common request validation component, not in each controller or domain-specific presentation helper.
+- Allowed sort fields are part of each API contract and must be tested and documented through Spring REST Docs.
+
+## Error Codes And Request Validation
+
+- Error responses use `HTTP status + detailed code` as the fixed API contract.
+- The response `message` is user-facing display text and may be managed separately from the stable code.
+- Keep one global `ErrorCode` enum, but split codes with domain prefixes instead of relying only on broad codes such as `INVALID_REQUEST`, `NOT_FOUND`, or `FORBIDDEN`.
+- Example codes:
+  - `BILLING_INVALID_SORT_DIRECTION`
+  - `BILLING_CHARGE_ITEM_NOT_FOUND`
+  - `CAMPUS_MEMBER_NOT_FOUND`
+  - `AUTH_EMAIL_ALREADY_EXISTS`
+- `BusinessException` and `GlobalExceptionHandler` must preserve the detailed error code in the API response.
+- Simple request DTO validation uses Bean Validation.
+- Pagination/sorting parsing uses the common request validation component.
+- Business rule validation belongs in policy classes such as `CampusRolePolicy`, `ChargeStatusPolicy`, and `BillingAccessPolicy`.
+- REST Docs tests must cover the detailed error response contract for new or changed APIs where practical.
 
 ## Schema Migration Timing
 
