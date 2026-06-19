@@ -11,4 +11,10 @@ public interface DevotionDailyCheckRepository extends JpaRepository<DevotionDail
 	Optional<DevotionDailyCheck> findByWeeklyRecordIdAndRecordDate(Long weeklyRecordId, LocalDate recordDate);
 
 	List<DevotionDailyCheck> findByWeeklyRecordIdOrderByRecordDateAsc(Long weeklyRecordId);
+
+	List<DevotionDailyCheck> findByWeeklyRecordIdInAndRecordDateBetweenOrderByRecordDateAsc(
+		List<Long> weeklyRecordIds,
+		LocalDate startDate,
+		LocalDate endDate
+	);
 }

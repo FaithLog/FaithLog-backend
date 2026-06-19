@@ -11,4 +11,11 @@ public interface WeeklyDevotionRecordRepository extends JpaRepository<WeeklyDevo
 	Optional<WeeklyDevotionRecord> findByCampusIdAndUserIdAndWeekStartDate(Long campusId, Long userId, LocalDate weekStartDate);
 
 	List<WeeklyDevotionRecord> findByCampusIdAndWeekStartDate(Long campusId, LocalDate weekStartDate);
+
+	List<WeeklyDevotionRecord> findByCampusIdAndUserIdAndWeekStartDateLessThanEqualAndWeekEndDateGreaterThanEqualOrderByWeekStartDateAsc(
+		Long campusId,
+		Long userId,
+		LocalDate weekStartDate,
+		LocalDate weekEndDate
+	);
 }

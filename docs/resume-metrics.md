@@ -13,19 +13,37 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 124 tests / 0 failures) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 130 tests / 0 failures) | 100% |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 26 test files (2026-06-19) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 49 snippet groups (2026-06-19) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 51 snippet groups (2026-06-19) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-19) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 7 top-level modules, 157 Java sources (2026-06-18) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 7 top-level modules, 207 Java sources (2026-06-19) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-06-19
 
+- #57 내 월간 경건생활 통계 조회 구현:
+  - 브랜치: `feat/57-my-monthly-devotion-summary`
+  - 구현 API: `GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}`
+  - 구현 흐름: 현재 로그인한 사용자의 ACTIVE 캠퍼스 멤버십을 검증한 뒤, 선택 월의 첫날부터 마지막 날까지 `devotion_daily_checks.record_date` 기준으로 월간 합계와 주차별 부분 집계를 계산.
+  - 구현 서비스/DTO: `DevotionMonthlySummaryQueryService`, `GetMyMonthlyDevotionSummaryQuery`, `MyMonthlyDevotionSummaryResult`, `MyMonthlyDevotionSummaryResponse`.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest --tests com.faithlog.devotion.presentation.DevotionControllerTest --tests com.faithlog.devotion.presentation.DevotionApiRestDocsTest`가 `DevotionMonthlySummaryQueryService`, `GetMyMonthlyDevotionSummaryQuery`, `MyMonthlyDevotionSummaryResult`, `DEVOTION_INVALID_YEAR_MONTH` 부재로 `compileTestJava` 실패.
+  - 검증 범위: `year/month` 검증, 비멤버 접근 거부, 본인 데이터만 조회, 월 경계 주차의 선택 월 날짜만 부분 집계, 토요일 날짜가 선택 월에 포함될 때만 `saturdayLateMinutes` 포함, 공통 `ApiResponse` envelope, Controller Entity 미반환.
+  - REST Docs 결과: `devotion-my-monthly-summary-success`, `devotion-invalid-year-month` snippets 추가, 전체 snippet group 51개.
+  - 재검증: #57 대상 테스트 묶음 성공, `./gradlew test` 성공(130 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고, 권한 상승 재실행으로 성공.
+  - Docker 검증: `docker compose up -d --build postgres redis app` 성공, postgres/redis healthy, app started, 컨테이너 내부 `GET /api/v1/health` 응답 `status=UP` 확인, `docker compose down` 성공. 호스트 `curl localhost:8080`은 현재 세션 네트워크에서 연결 실패했지만 컨테이너 내부 health는 정상.
+  - 제외 범위 준수: #31 하루 체크/주간 제출 구현, #32 벌금 규칙/계산, #33 벌금 청구 자동 생성, 관리자 경건생활 집계 API, 신규 DB 스키마, Swagger 문서화 어노테이션 변경 없음.
+  - 코드베이스 수치: Java 소스 207개, 테스트 파일 26개.
+- #57 PM 리뷰 보강 - 월간 경건생활 연도 검증:
+  - 문제: Docker QA에서 `GET /api/v1/campuses/10/devotions/me/monthly-summary?year=0&month=6` 요청이 `200 OK`로 성공하고 `year: 0`, 합계 0 응답을 반환하는 입력 검증 누락 확인.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.devotion.application.DevotionServiceTest --tests com.faithlog.devotion.presentation.DevotionControllerTest`가 27 tests / 2 failed로 실패. 서비스는 `year=0` 또는 음수 year 요청을 `DEVOTION_INVALID_YEAR_MONTH`로 거부하지 않았고, 컨트롤러도 `year=0&month=6` 요청을 400으로 반환하지 못함.
+  - 수정: `DevotionMonthlySummaryQueryService.yearMonth()`에서 `year <= 0`을 먼저 검증해 `DEVOTION_INVALID_YEAR_MONTH` 400 계약을 적용하고, `month < 1 || month > 12`는 기존 `YearMonth.of` 검증으로 동일 에러 코드를 유지.
+  - 추가 테스트: 서비스 `year=0`, 음수 year 실패 케이스, 컨트롤러 `year=0` 400 케이스, REST Docs query parameter 설명의 `year` 1 이상 및 `month` 1~12 범위 명시.
+  - 재검증: 대상 테스트 묶음 성공. 병렬 Gradle 실행 중 test result writer의 `build/test-results/test/TEST-*.xml` 파일 쓰기 충돌이 있었으나, daemon 중지 후 `./gradlew --no-daemon test` 성공. `./gradlew --no-daemon build`, `./gradlew --no-daemon asciidoctor`, `git diff --check` 성공.
 - #33 경건생활 제출 시 벌금 청구 자동 생성 구현:
   - 브랜치: `feat/33-devotion-penalty-charge-automation`
   - 구현 흐름: `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}` 첫 `submit=true`에서 주간 요약 저장 후 `PENALTY` 청구 1건 자동 생성.

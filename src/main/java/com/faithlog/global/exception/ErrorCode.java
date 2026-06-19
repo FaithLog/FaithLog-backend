@@ -23,6 +23,7 @@ public enum ErrorCode {
 	CAMPUS_INVITE_CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "초대코드 생성에 실패했습니다."),
 
 	DEVOTION_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
+	DEVOTION_INVALID_YEAR_MONTH(HttpStatus.BAD_REQUEST, "조회 연월이 올바르지 않습니다."),
 	DEVOTION_DAILY_CHECK_DATE_OUT_OF_WEEK(HttpStatus.BAD_REQUEST, "dailyChecks[].recordDate는 요청 주차 안의 날짜여야 합니다."),
 	DEVOTION_INVALID_SATURDAY_LATE_MINUTES(HttpStatus.BAD_REQUEST, "saturdayLateMinutes는 0 이상이어야 합니다."),
 	DEVOTION_WEEKLY_ALREADY_SUBMITTED(HttpStatus.CONFLICT, "이미 제출된 주간 경건생활은 수정할 수 없습니다."),

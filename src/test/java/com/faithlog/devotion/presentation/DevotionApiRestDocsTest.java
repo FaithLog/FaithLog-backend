@@ -65,6 +65,90 @@ class DevotionApiRestDocsTest {
 	private BillingService billingService;
 
 	@Test
+	void documents_devotion_my_monthly_summary_success() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-monthly-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "89캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-devotion-monthly-member@example.com", UserRole.USER);
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}", campusId, "2026-06-29")
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-06-29",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": false
+					    },
+					    {
+					      "recordDate": "2026-06-30",
+					      "quietTimeChecked": true,
+					      "prayerChecked": false,
+					      "bibleReadingChecked": false
+					    },
+					    {
+					      "recordDate": "2026-07-01",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 8,
+					  "submit": false
+					}
+					"""))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campusId)
+				.param("year", "2026")
+				.param("month", "6")
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.devotion.quietTimeCount").value(2))
+			.andExpect(jsonPath("$.data.devotion.saturdayLateMinutes").value(0))
+			.andExpect(jsonPath("$.data.weeklyRecords.length()").value(1))
+			.andDo(document("devotion-my-monthly-summary-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("year").description("조회 연도. 1 이상 허용"),
+					parameterWithName("month").description("조회 월. 1부터 12까지 허용")
+				),
+				responseFields(apiResponseFields(monthlySummaryResponseFields()))
+			));
+	}
+
+	@Test
+	void documents_devotion_invalid_year_month() throws Exception {
+		String managerToken = signupAndLogin("docs-devotion-monthly-invalid-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "90캠");
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/devotions/me/monthly-summary", campus.path("campusId").asLong())
+				.param("year", "0")
+				.param("month", "6")
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_YEAR_MONTH"))
+			.andDo(document("devotion-invalid-year-month",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("year").description("잘못된 조회 연도 예시. 1 이상 허용"),
+					parameterWithName("month").description("조회 월. 1부터 12까지 허용")
+				),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
 	void documents_devotion_daily_weekly_my_week_and_admin_missing_contracts() throws Exception {
 		String managerToken = signupAndLogin("docs-devotion-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("docs-devotion-manager@example.com").orElseThrow();
@@ -584,6 +668,34 @@ class DevotionApiRestDocsTest {
 			fieldWithPath("data.dailyChecks[].quietTimeChecked").description("큐티 체크 여부"),
 			fieldWithPath("data.dailyChecks[].prayerChecked").description("기도 체크 여부"),
 			fieldWithPath("data.dailyChecks[].bibleReadingChecked").description("말씀 읽기 체크 여부")
+		};
+	}
+
+	private FieldDescriptor[] monthlySummaryResponseFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("data.campusId").description("캠퍼스 ID"),
+			fieldWithPath("data.campusName").description("캠퍼스 이름"),
+			fieldWithPath("data.region").optional().description("캠퍼스 지역"),
+			fieldWithPath("data.userId").description("현재 로그인한 사용자 ID"),
+			fieldWithPath("data.name").description("현재 로그인한 사용자 이름"),
+			fieldWithPath("data.year").description("조회 연도"),
+			fieldWithPath("data.month").description("조회 월"),
+			fieldWithPath("data.devotion").description("선택 월의 경건생활 합계"),
+			fieldWithPath("data.devotion.quietTimeCount").description("선택 월 recordDate 기준 큐티 체크 수"),
+			fieldWithPath("data.devotion.prayerCount").description("선택 월 recordDate 기준 기도 체크 수"),
+			fieldWithPath("data.devotion.bibleReadingCount").description("선택 월 recordDate 기준 말씀 읽기 체크 수"),
+			fieldWithPath("data.devotion.saturdayLateMinutes")
+				.description("선택 월에 토요일 날짜가 포함되는 주간 기록의 토요 목자모임 지각 시간 합계"),
+			fieldWithPath("data.weeklyRecords").description("선택 월에 포함되는 일별 체크를 주차별로 묶은 목록"),
+			fieldWithPath("data.weeklyRecords[].weeklyRecordId").description("주간 경건생활 기록 ID"),
+			fieldWithPath("data.weeklyRecords[].weekStartDate").description("주 시작일"),
+			fieldWithPath("data.weeklyRecords[].weekEndDate").description("주 종료일"),
+			fieldWithPath("data.weeklyRecords[].quietTimeCount").description("선택 월 날짜만 반영한 해당 주차 큐티 체크 수"),
+			fieldWithPath("data.weeklyRecords[].prayerCount").description("선택 월 날짜만 반영한 해당 주차 기도 체크 수"),
+			fieldWithPath("data.weeklyRecords[].bibleReadingCount").description("선택 월 날짜만 반영한 해당 주차 말씀 읽기 체크 수"),
+			fieldWithPath("data.weeklyRecords[].saturdayLateMinutes")
+				.description("해당 주차 토요일 날짜가 선택 월에 포함될 때만 반영되는 지각 시간"),
+			fieldWithPath("data.weeklyRecords[].submittedAt").description("주간 제출 시각. 미제출이면 null")
 		};
 	}
 

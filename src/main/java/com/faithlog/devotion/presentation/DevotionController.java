@@ -1,8 +1,11 @@
 package com.faithlog.devotion.presentation;
 
 import com.faithlog.devotion.application.DevotionService;
+import com.faithlog.devotion.application.DevotionMonthlySummaryQueryService;
+import com.faithlog.devotion.application.GetMyMonthlyDevotionSummaryQuery;
 import com.faithlog.devotion.application.GetMyWeeklyDevotionQuery;
 import com.faithlog.devotion.presentation.dto.DailyDevotionResponse;
+import com.faithlog.devotion.presentation.dto.MyMonthlyDevotionSummaryResponse;
 import com.faithlog.devotion.presentation.dto.UpdateDailyDevotionRequest;
 import com.faithlog.devotion.presentation.dto.UpdateWeeklyDevotionRequest;
 import com.faithlog.devotion.presentation.dto.WeeklyDevotionResponse;
@@ -16,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -23,9 +27,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class DevotionController {
 
 	private final DevotionService devotionService;
+	private final DevotionMonthlySummaryQueryService monthlySummaryQueryService;
 
-	public DevotionController(DevotionService devotionService) {
+	public DevotionController(
+		DevotionService devotionService,
+		DevotionMonthlySummaryQueryService monthlySummaryQueryService
+	) {
 		this.devotionService = devotionService;
+		this.monthlySummaryQueryService = monthlySummaryQueryService;
 	}
 
 	@PutMapping("/days/{recordDate}")
@@ -63,6 +72,23 @@ public class DevotionController {
 				campusId,
 				authenticatedUser.userId(),
 				weekStartDate
+			))
+		));
+	}
+
+	@GetMapping("/monthly-summary")
+	public ApiResponse<MyMonthlyDevotionSummaryResponse> getMyMonthlySummary(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@RequestParam int year,
+		@RequestParam int month
+	) {
+		return ApiResponse.success(MyMonthlyDevotionSummaryResponse.from(
+			monthlySummaryQueryService.getMyMonthlySummary(new GetMyMonthlyDevotionSummaryQuery(
+				campusId,
+				authenticatedUser.userId(),
+				year,
+				month
 			))
 		));
 	}

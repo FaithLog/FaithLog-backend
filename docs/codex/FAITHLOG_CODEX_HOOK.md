@@ -107,6 +107,10 @@ POST /api/v1/auth/reissue
 - `submit = false` 주간 저장은 최종 제출 전까지만 가능하고 벌금 계산이나 `PENALTY` 청구 생성/갱신을 수행하지 않는다.
 - 경건생활 제출 여부와 관리자 미제출자 조회 기준은 daily row 존재 여부가 아니라 `weekly_devotion_records.submitted_at`이다.
 - `weekStartDate`는 월요일이어야 한다.
+- 내 월간 경건생활 통계 조회는 Notion `10.5` 기준 API `GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}`를 사용한다.
+- 월간 통계 응답은 현재 로그인한 사용자 본인 기준이며, ACTIVE 캠퍼스 멤버십을 검증한 뒤 선택 월의 첫날부터 마지막 날까지 `devotion_daily_checks.record_date` 기준으로 월간 `devotion` 합계를 계산한다.
+- `weeklyRecords[]`는 선택 월에 포함되는 일별 체크를 주차별로 묶어 반환하며, 월 경계에 걸친 주차는 선택 월에 해당하는 날짜만 부분 집계될 수 있다.
+- `SATURDAY_LATE` 지각 시간은 해당 주차의 토요일 날짜가 선택 월에 포함될 때 그 월 통계에 포함한다.
 
 기준 API:
 
@@ -114,6 +118,7 @@ POST /api/v1/auth/reissue
 PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}
 PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}
 GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}
+GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}
 GET /api/v1/admin/campuses/{campusId}/devotions/missing?weekStartDate={weekStartDate}
 ```
 
