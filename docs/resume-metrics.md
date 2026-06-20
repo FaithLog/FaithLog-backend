@@ -19,7 +19,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-20) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 9 top-level modules, 348 Java sources (2026-06-20) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 9 top-level modules, 350 Java sources (2026-06-20) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
@@ -29,15 +29,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - #40 FCM 토큰 등록과 알림 발송 로그 구현:
   - 브랜치: `feat/40-fcm-token-notification-log`
   - 구현 API: `POST /api/v1/users/me/fcm-tokens`, `DELETE /api/v1/users/me/fcm-tokens/{tokenId}`, `POST /api/v1/admin/campuses/{campusId}/notifications`, `GET /api/v1/admin/campuses/{campusId}/notification-logs`.
-  - 구현 범위: `user_fcm_tokens` idempotent upsert/soft deactivate, 로그아웃 FCM 비활성화 port 실제 연결, `notification_logs` request_id 기반 PENDING/SENT/FAILED/SKIPPED 상태 기록, 관리자 알림 대상 계산, 90일 stale token 제외, FCM port/adapter 분리와 no-op 기본 adapter.
+  - 구현 범위: `user_fcm_tokens` idempotent upsert/soft deactivate, 로그아웃 FCM 비활성화 port 실제 연결, `notification_logs` request_id 기반 PENDING/SENT/FAILED/SKIPPED 상태 기록, 관리자 알림 대상 계산, 90일 stale token 제외, FCM port/adapter 분리와 no-op 기본 adapter, commit 이후 `TaskExecutor` 기반 비동기 dispatch 연결.
   - 재시도 정책: transient failure는 토큰 단위 최대 3회 즉시 재시도(`1초 -> 5초 -> 30초`), permanent failure는 재시도 없이 token 비활성화, 오래 남은 PENDING 자동 재처리 스케줄러는 #40 범위에서 제외.
   - TDD 실패 확인: 구현 전 notification domain/service/controller/REST Docs 테스트가 미구현 클래스와 endpoint 부재로 실패하는 상태를 먼저 확인한 뒤 기능 코드를 추가.
-  - 검증 범위: FCM 토큰 재등록 timestamp/appVersion 갱신, clientInstanceId token 교체, token 소유자 이전, owner 검증 deactivate, DELETE 204, logout port 연결, 90일 stale 제외, 관리자 권한 검증, 202 Accepted, 동일 request_id PENDING logs, CUSTOM target 필수, 자동 대상 계산, token 없음 SKIPPED, worker SENT/FAILED, 토큰별 실패 격리, transient retry, permanent failure token 비활성화, notification log requestId 필터.
+  - 검증 범위: FCM 토큰 재등록 timestamp/appVersion 갱신, clientInstanceId token 교체, token 소유자 이전, owner 검증 deactivate, DELETE 204, logout port 연결, 90일 stale 제외, 관리자 권한 검증, 202 Accepted, 동일 request_id PENDING logs, commit 이후 비동기 dispatch 호출, CUSTOM target 필수, 자동 대상 계산, token 없음 SKIPPED, worker SENT/FAILED, 토큰별 실패 격리, transient retry, permanent failure token 비활성화, notification log requestId 필터.
   - REST Docs 결과: `notification-register-fcm-token`, `notification-deactivate-fcm-token`, `notification-send-admin-notification`, `notification-list-notification-logs` snippets 추가, 전체 snippet group 83개.
   - 재검증: notification 대상 테스트 성공, `./gradlew test` 성공(181 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고, 권한 상승 재실행으로 성공.
-  - Docker 검증: `docker compose up -d --build postgres redis app` 성공, 컨테이너 내부와 호스트 `GET /actuator/health` 모두 `{"status":"UP"}` 확인, 실제 API QA로 FCM token 등록/재등록 upsert/비활성화 204/새 token 등록/관리자 알림 발송 202/`notification_logs` PENDING 생성/requestId 로그 조회/서비스 MANAGER 단독 권한 실패 403 확인, `docker compose down` 성공.
+  - Docker 검증: `docker compose up -d --build postgres redis app` 성공, 컨테이너 내부와 호스트 `GET /actuator/health` 모두 `{"status":"UP"}` 확인, 실제 API QA로 FCM token 등록/재등록 upsert/비활성화 204/새 token 등록/관리자 알림 발송 202/no-op FCM adapter 기반 백그라운드 worker `SENT` 갱신/requestId 로그 조회/서비스 MANAGER 단독 권한 실패 403 확인, `docker compose down` 성공.
   - 정적 검사: `git diff --check` 성공, Swagger 문서화 어노테이션 신규 추가 없음, Controller Entity 직접 반환 없음, 사용하지 않는 #40 legacy notification 경로 신규 추가 없음.
-  - 코드베이스 수치: Java 소스 348개, 테스트 파일 36개, REST Docs snippet group 83개.
+  - 코드베이스 수치: Java 소스 350개, 테스트 파일 36개, REST Docs snippet group 83개.
 
 - #39 커피 투표 기반 청구 자동 생성 구현:
   - 브랜치: `feat/39-coffee-poll-charge-automation`
