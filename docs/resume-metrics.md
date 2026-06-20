@@ -13,18 +13,30 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-20, 186 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 38 test files (2026-06-20) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-20, 198 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 42 test files (2026-06-20) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 83 snippet groups (2026-06-20) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-20) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 9 top-level modules, 358 Java sources (2026-06-20) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 9 top-level modules, 369 Java sources (2026-06-20) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-06-20
+
+- #41 Redis 알림 중복 방지와 알림 락 구현:
+  - 브랜치: `feat/41-notification-redis-dedup-lock`
+  - 구현 범위: `NotificationDeduplicationPort`, `NotificationLockPort`, Redis adapter, 자동 알림 dedup application service, notification dispatch lock, 수동 관리자 알림 실행 lock, Redis 장애 정책 테스트.
+  - Redis key/TTL: 자동 dedup key는 `notification:dedup:{notificationType}:{campusId}:{scopeId}:{targetUserId}:{businessDate}`, 일 단위 TTL 25시간, 주차 단위 TTL 8일. 실행 lock key는 `notification:lock:{jobName}:{campusId}:{scopeId}`, 기본 TTL 10분, 긴 batch 작업은 custom TTL 지정 가능.
+  - 장애 정책: 자동/스케줄 알림은 Redis 장애 시 fail-closed로 reserve/acquire 실패 처리. 수동 관리자 알림 API는 Redis lock 장애 시 `NOTIFICATION_REDIS_UNAVAILABLE` / 503으로 실패하고 `notification_logs`를 만들지 않음.
+  - 수동/자동 분리: 수동 관리자 알림은 자동 business dedup으로 막지 않고, 동일 조건의 수동 알림도 별도 `request_id`와 `notification_logs`를 생성할 수 있음을 테스트로 검증.
+  - #40 정책 보존: 기존 `POST /api/v1/admin/campuses/{campusId}/notifications`, `GET /api/v1/admin/campuses/{campusId}/notification-logs` 경로 유지. `notification_logs`의 `PENDING` / `SENT` / `FAILED` / `SKIPPED` 상태와 비동기 FCM worker/retry 정책 유지.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.notification.application.NotificationDeduplicationServiceTest --tests com.faithlog.notification.application.NotificationLockServiceTest --tests com.faithlog.notification.infrastructure.redis.RedisNotificationConcurrencyAdapterTest`가 신규 port/service/adapter와 `NOTIFICATION_REDIS_UNAVAILABLE` 부재로 `compileTestJava` 52 errors 실패.
+  - 재검증: 신규 #41 테스트 묶음 성공, `./gradlew test --tests 'com.faithlog.notification.*'` 성공(37 tests / 0 failures), `./gradlew test` 성공(198 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고, 권한 상승 재실행으로 성공.
+  - Docker/API QA: `docker compose up -d --build postgres redis app` 성공, postgres/redis healthy 및 backend started 확인, 컨테이너 내부/호스트 `GET /actuator/health` 모두 `{"status":"UP"}` 확인. 실제 API QA로 signup/login, MANAGER 승격, 캠퍼스 생성, invite join, FCM token 등록, 관리자 CUSTOM 알림 2회 발송을 확인했고 두 요청 모두 `202 Accepted`, `queuedCount=1`, 서로 다른 `notificationRequestId`, 첫 요청 로그 1건 `SENT` 확인. `docker compose down` 성공.
+  - 코드베이스 수치: Java 소스 369개, 테스트 파일 42개, REST Docs snippet group 83개.
 
 - #40 FCM 토큰 등록과 알림 발송 로그 구현:
   - 브랜치: `feat/40-fcm-token-notification-log`
