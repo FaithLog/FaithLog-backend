@@ -10,6 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-20 - Issue #38 Poll PM Review Contract Clarifications
+
+- Context: PM review found that empty `optionIds` could be intercepted by controller validation, SCHEDULED/future polls could be writable and visible, and response option replacement could hit the `(response_id, option_id)` unique constraint when the same options were saved again.
+- Decision: Empty or missing `optionIds` must be validated in the poll service and return `POLL_RESPONSE_INVALID_SELECTION_COUNT`. Poll response/comment writes are allowed only when `polls.status = OPEN` and `starts_at <= now <= ends_at`; SCHEDULED/future polls are hidden from member list/detail and direct lookup returns `POLL_NOT_FOUND`. Not-open write attempts continue to use the existing `POLL_CLOSED` / 409 / `마감된 투표에는 응답하거나 댓글을 작성할 수 없습니다.` contract instead of introducing a new ErrorCode in this fix.
+- Impact: Issue #38 service and REST Docs tests must cover empty selection errors, SCHEDULED/future visibility blocking, SCHEDULED write blocking, and same-option response resave without duplicate rows or unique constraint failures.
+
+### 2026-06-20 - Issue #38 Poll ErrorCode Contract
+
+- Context: Issue #38 needed detailed poll error codes for response validation, campus scope mismatch, visibility window expiration, poll comment authorization, and admin missing-member authorization. The implementation policy requires domain-prefixed detailed codes instead of broad `INVALID_REQUEST`, `NOT_FOUND`, or `FORBIDDEN` codes.
+- Decision: Use `POLL_NOT_FOUND` / 404 / `투표를 찾을 수 없습니다.` for campus mismatch, visibility window expiration, and direct lookup data non-exposure. Use `POLL_OPTION_NOT_FOUND` / 404 / `투표 선택지를 찾을 수 없습니다.` for nonexistent options or options belonging to another poll. Use `POLL_RESPONSE_INVALID_SELECTION_COUNT` / 400 / `투표 선택 개수가 올바르지 않습니다.` for empty `optionIds`, `SINGLE` requests not containing exactly one option, and `MULTIPLE` requests containing fewer than one option. Use `POLL_RESPONSE_DUPLICATE_OPTION` / 400 / `중복된 투표 선택지가 포함되어 있습니다.` for duplicate option IDs. Use `POLL_CLOSED` / 409 / `마감된 투표에는 응답하거나 댓글을 작성할 수 없습니다.` for closed poll response/comment write attempts. Use `POLL_ACCESS_FORBIDDEN` / 403 / `투표 접근 권한이 없습니다.` for non-ACTIVE campus member access. Use `POLL_ADMIN_FORBIDDEN` / 403 / `투표 관리 권한이 없습니다.` for missing-member admin authorization failures. Use `POLL_COMMENT_NOT_FOUND` / 404 / `투표 댓글을 찾을 수 없습니다.` and `POLL_COMMENT_FORBIDDEN` / 403 / `투표 댓글 수정/삭제 권한이 없습니다.` for comment lookup and edit/delete authorization.
+- Impact: Issue #38 implementation and REST Docs must use these detailed codes/status/messages for poll exceptions. New poll exceptions must not be collapsed into broad global error codes.
+
 ### 2026-06-19 - Issue #37 Compose Coffee Seed Source Override
 
 - Context: Issue #37 originally required seeding Compose Coffee menu prices only from official Compose Coffee menu boards, official app data, or official menu images. During development, official web access was blocked and the user provided a 2026 Compose Coffee menu/price text list from a blog source after being told the official-source requirement was blocking implementation.

@@ -28,6 +28,49 @@ class PollAccessService {
 		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
 	}
 
+	CampusMember requireActiveCampusMember(Long campusId, Long requesterId) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		return campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_ACCESS_FORBIDDEN));
+	}
+
+	void requirePollReader(Long campusId, Long requesterId) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin()) {
+			return;
+		}
+		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_ACCESS_FORBIDDEN));
+	}
+
+	void requirePollAdmin(Long campusId, Long requesterId) {
+		requireCampusManager(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
+	}
+
+	boolean hasAdminVisibility(Long campusId, Long requesterId) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin()) {
+			return true;
+		}
+		return campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.map(member -> {
+				try {
+					CampusRolePolicy.requireCampusManager(member, ErrorCode.POLL_ADMIN_FORBIDDEN);
+					return true;
+				} catch (BusinessException exception) {
+					return false;
+				}
+			})
+			.orElse(false);
+	}
+
+	CampusUserLookupResult getUser(Long userId) {
+		return getActiveUser(userId);
+	}
+
 	private void requireCampusManager(Long campusId, Long requesterId, ErrorCode errorCode) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		if (requester.isAdmin()) {
