@@ -440,6 +440,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ## Resume Bullet Candidates
 
+- 2026-06-19 #37 투표 템플릿과 투표 생성 구현
+  - 사용자 승인 seed 기준: 공식 사이트 접근 차단 후 사용자가 제공한 `컴포즈커피 메뉴 가격 2026년 최신 버전` 목록을 승인된 seed 원천으로 기록.
+  - 재삽입 가능한 seed 원천: `src/main/resources/seed/compose-coffee-menu-2026.csv`, 설명 문서 `docs/seed/compose-coffee-menu-2026.md`.
+  - 구현 범위: `CoffeeBrand`, `CoffeeMenuCatalog`, `PollTemplate`, `PollTemplateOption`, `Poll`, `PollOption`, 커피 카탈로그 조회 API, 템플릿 생성/수정/비활성화/조회 API, 직접 선택지 기반 투표 생성 API, 템플릿 옵션 snapshot 복사.
+  - TDD 실패 확인: `./gradlew test --tests 'com.faithlog.poll.application.PollServiceTest'` 최초 실행이 poll domain/service/repository 미구현으로 `compileTestJava` 97 errors 실패.
+  - 재검증: poll 대상 테스트 성공, `./gradlew test --rerun-tasks` 성공(144 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. REST Docs snippet group 65개 확인. `docker compose build app` 성공, `docker compose up -d postgres redis app` 후 `GET /api/v1/health` `UP` 확인, `docker compose down` 완료.
+
 - Spring Boot 기반 FaithLog 프로젝트의 테스트 기준선을 수립하고, `./gradlew test` 기준 테스트 통과율 100%를 확보.
 - `./gradlew build` 기준 빌드 성공 상태를 확보해 배포 전 안정성 검증 기준선을 수립.
 - FaithLog 백엔드의 일일 모니터링 기준선을 정리해 7개 도메인 모듈, 74개 Java 소스, Flyway deferred 상태, 100% 테스트/빌드 성공 상태를 지속 추적할 수 있게 함.

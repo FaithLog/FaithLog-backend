@@ -63,7 +63,18 @@ public enum ErrorCode {
 	BILLING_MY_CHARGE_PAYMENT_CONFLICT(HttpStatus.CONFLICT, "미납 상태의 청구만 납부 완료 처리할 수 있습니다."),
 	BILLING_ADMIN_PAID_FORBIDDEN(HttpStatus.BAD_REQUEST, "관리자는 청구를 PAID로 변경할 수 없습니다."),
 	BILLING_CHARGE_STATUS_TRANSITION_CONFLICT(HttpStatus.CONFLICT, "허용되지 않는 청구 상태 전이입니다."),
-	BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "청구 상태 변경 권한이 없습니다.");
+	BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "청구 상태 변경 권한이 없습니다."),
+
+	POLL_TEMPLATE_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 템플릿 관리 권한이 없습니다."),
+	POLL_CREATE_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 생성 권한이 없습니다."),
+	POLL_TEMPLATE_NOT_FOUND(HttpStatus.NOT_FOUND, "투표 템플릿을 찾을 수 없습니다."),
+	POLL_TEMPLATE_INACTIVE(HttpStatus.BAD_REQUEST, "비활성화된 투표 템플릿은 사용할 수 없습니다."),
+	POLL_MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "커피 메뉴를 찾을 수 없습니다."),
+	POLL_MENU_INACTIVE(HttpStatus.BAD_REQUEST, "비활성화된 커피 메뉴는 사용할 수 없습니다."),
+	POLL_COFFEE_BRAND_NOT_FOUND(HttpStatus.NOT_FOUND, "커피 브랜드를 찾을 수 없습니다."),
+	POLL_COFFEE_DUTY_MISSING(HttpStatus.BAD_REQUEST, "관리자에게 문의하세요"),
+	POLL_INVALID_OPTION(HttpStatus.BAD_REQUEST, "투표 선택지가 올바르지 않습니다."),
+	POLL_INVALID_PERIOD(HttpStatus.BAD_REQUEST, "투표 기간이 올바르지 않습니다.");
 
 	private final HttpStatus status;
 	private final String message;
