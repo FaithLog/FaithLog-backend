@@ -9,11 +9,9 @@ import com.faithlog.user.application.port.CurrentDeviceFcmTokenDeactivationPort;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import java.util.List;
-import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Primary
 @Service
 public class FcmTokenService implements CurrentDeviceFcmTokenDeactivationPort {
 
