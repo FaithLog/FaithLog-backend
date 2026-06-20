@@ -13,13 +13,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-20, 181 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 36 test files (2026-06-20) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-20, 186 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 38 test files (2026-06-20) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 83 snippet groups (2026-06-20) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-20) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 9 top-level modules, 350 Java sources (2026-06-20) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 9 top-level modules, 358 Java sources (2026-06-20) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
@@ -38,6 +38,11 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - Docker 검증: `docker compose up -d --build postgres redis app` 성공, 컨테이너 내부와 호스트 `GET /actuator/health` 모두 `{"status":"UP"}` 확인, 실제 API QA로 FCM token 등록/재등록 upsert/비활성화 204/새 token 등록/관리자 알림 발송 202/no-op FCM adapter 기반 백그라운드 worker `SENT` 갱신/requestId 로그 조회/서비스 MANAGER 단독 권한 실패 403 확인, `docker compose down` 성공.
   - 정적 검사: `git diff --check` 성공, Swagger 문서화 어노테이션 신규 추가 없음, Controller Entity 직접 반환 없음, 사용하지 않는 #40 legacy notification 경로 신규 추가 없음.
   - 코드베이스 수치: Java 소스 350개, 테스트 파일 36개, REST Docs snippet group 83개.
+  - PM 검증 보강: Firebase Admin SDK 기반 `FirebaseMessaging.send(...)` adapter 추가, `local`/`test` profile 전용 NoOp fallback 분리, 그 외 profile credential 누락 시 startup fail-fast 처리, `UNREGISTERED`/token-not-registered/payload-valid invalid token permanent 매핑, rate limit/timeout/temporary error transient 매핑 테스트 추가.
+  - PM 검증 보강: `NotificationDeliveryWorker`가 PENDING log/token snapshot 조회와 상태 저장만 짧은 transaction으로 수행하고, FCM 외부 호출 및 retry backoff는 DB transaction 밖에서 수행하도록 변경.
+  - PM 검증 보강: `src/docs/asciidoc/index.adoc`에 #40 Notification API 4개 section과 snippet include 연결.
+  - PM 보강 재검증: `./gradlew test --rerun-tasks` 성공(186 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공, Swagger 문서화 어노테이션/ Firebase secret 검색 0건, Docker compose build/up health `UP`, `docker compose down` 성공.
+  - PM 보강 후 코드베이스 수치: Java 소스 358개, 테스트 파일 38개, REST Docs snippet group 83개.
 
 - #39 커피 투표 기반 청구 자동 생성 구현:
   - 브랜치: `feat/39-coffee-poll-charge-automation`
