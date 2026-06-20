@@ -44,6 +44,7 @@ public class NotificationService {
 	private final PollResponseRepository pollResponseRepository;
 	private final ChargeItemRepository chargeItemRepository;
 	private final NotificationDispatchPort notificationDispatchPort;
+	private final NotificationLockService notificationLockService;
 
 	public NotificationService(
 		NotificationLogRepository notificationLogRepository,
@@ -54,7 +55,8 @@ public class NotificationService {
 		PollRepository pollRepository,
 		PollResponseRepository pollResponseRepository,
 		ChargeItemRepository chargeItemRepository,
-		NotificationDispatchPort notificationDispatchPort
+		NotificationDispatchPort notificationDispatchPort,
+		NotificationLockService notificationLockService
 	) {
 		this.notificationLogRepository = notificationLogRepository;
 		this.userFcmTokenRepository = userFcmTokenRepository;
@@ -65,11 +67,23 @@ public class NotificationService {
 		this.pollResponseRepository = pollResponseRepository;
 		this.chargeItemRepository = chargeItemRepository;
 		this.notificationDispatchPort = notificationDispatchPort;
+		this.notificationLockService = notificationLockService;
 	}
 
 	@Transactional
 	public SendNotificationResult requestNotification(SendNotificationCommand command) {
 		requireNotificationManager(command.campusId(), command.requesterId(), ErrorCode.NOTIFICATION_SEND_FORBIDDEN);
+		NotificationLockLease lease = notificationLockService.acquireManualLock(
+			NotificationLockKey.manualAdminNotification(command.campusId(), command.requesterId())
+		);
+		try {
+			return requestNotificationWithLock(command);
+		} finally {
+			notificationLockService.release(lease);
+		}
+	}
+
+	private SendNotificationResult requestNotificationWithLock(SendNotificationCommand command) {
 		List<Long> targetUserIds = resolveTargets(command);
 		UUID requestId = UUID.randomUUID();
 		int queuedCount = 0;
