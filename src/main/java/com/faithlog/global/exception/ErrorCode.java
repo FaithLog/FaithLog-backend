@@ -91,6 +91,8 @@ public enum ErrorCode {
 	NOTIFICATION_LOG_LIST_FORBIDDEN(HttpStatus.FORBIDDEN, "알림 로그 조회 권한이 없습니다."),
 	NOTIFICATION_TARGET_REQUIRED(HttpStatus.BAD_REQUEST, "알림 발송 대상이 필요합니다."),
 	NOTIFICATION_TARGET_FIELD_REQUIRED(HttpStatus.BAD_REQUEST, "알림 대상 조건이 필요합니다."),
+	NOTIFICATION_REDIS_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "알림 중복 방지 저장소에 연결할 수 없습니다."),
+	NOTIFICATION_LOCK_ALREADY_RUNNING(HttpStatus.CONFLICT, "같은 알림 작업이 이미 실행 중입니다."),
 	NOTIFICATION_INVALID_PAGE(HttpStatus.BAD_REQUEST, "페이지 번호는 0 이상이어야 합니다."),
 	NOTIFICATION_INVALID_SIZE(HttpStatus.BAD_REQUEST, "페이지 크기는 1 이상 100 이하이어야 합니다."),
 	NOTIFICATION_INVALID_SORT_FORMAT(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 형식입니다."),
