@@ -210,6 +210,108 @@ include::{snippets}/users-me-inactive-user-unauthorized/http-response.adoc[]
 
 include::{snippets}/users-me-inactive-user-unauthorized/response-fields.adoc[]
 
+== Notifications
+
+=== Register My FCM Token
+
+`POST /api/v1/users/me/fcm-tokens`
+
+==== Request
+
+include::{snippets}/notification-register-fcm-token/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/notification-register-fcm-token/request-headers.adoc[]
+
+==== Request Fields
+
+include::{snippets}/notification-register-fcm-token/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/notification-register-fcm-token/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/notification-register-fcm-token/response-fields.adoc[]
+
+=== Deactivate My FCM Token
+
+`DELETE /api/v1/users/me/fcm-tokens/{tokenId}`
+
+==== Request
+
+include::{snippets}/notification-deactivate-fcm-token/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/notification-deactivate-fcm-token/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/notification-deactivate-fcm-token/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/notification-deactivate-fcm-token/http-response.adoc[]
+
+=== Send Admin Notification
+
+`POST /api/v1/admin/campuses/{campusId}/notifications`
+
+==== Request
+
+include::{snippets}/notification-send-admin-notification/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/notification-send-admin-notification/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/notification-send-admin-notification/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/notification-send-admin-notification/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/notification-send-admin-notification/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/notification-send-admin-notification/response-fields.adoc[]
+
+=== List Admin Notification Logs
+
+`GET /api/v1/admin/campuses/{campusId}/notification-logs`
+
+==== Request
+
+include::{snippets}/notification-list-notification-logs/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/notification-list-notification-logs/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/notification-list-notification-logs/path-parameters.adoc[]
+
+==== Query Parameters
+
+include::{snippets}/notification-list-notification-logs/query-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/notification-list-notification-logs/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/notification-list-notification-logs/response-fields.adoc[]
+
 == Campuses
 
 === Create Campus

@@ -67,6 +67,8 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		ChargeStatus status
 	);
 
+	List<ChargeItem> findByCampusIdAndStatus(Long campusId, ChargeStatus status);
+
 	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
 		Long campusId,
 		Long userId,

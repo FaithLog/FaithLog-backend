@@ -84,7 +84,18 @@ public enum ErrorCode {
 	POLL_CLOSED(HttpStatus.CONFLICT, "마감된 투표에는 응답하거나 댓글을 작성할 수 없습니다."),
 	POLL_SETTLEMENT_NOT_CLOSED(HttpStatus.CONFLICT, "마감된 커피 투표만 정산할 수 있습니다."),
 	POLL_COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "투표 댓글을 찾을 수 없습니다."),
-	POLL_COMMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 댓글 수정/삭제 권한이 없습니다.");
+	POLL_COMMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 댓글 수정/삭제 권한이 없습니다."),
+
+	NOTIFICATION_FCM_TOKEN_NOT_FOUND(HttpStatus.NOT_FOUND, "FCM 토큰을 찾을 수 없습니다."),
+	NOTIFICATION_SEND_FORBIDDEN(HttpStatus.FORBIDDEN, "알림 발송 권한이 없습니다."),
+	NOTIFICATION_LOG_LIST_FORBIDDEN(HttpStatus.FORBIDDEN, "알림 로그 조회 권한이 없습니다."),
+	NOTIFICATION_TARGET_REQUIRED(HttpStatus.BAD_REQUEST, "알림 발송 대상이 필요합니다."),
+	NOTIFICATION_TARGET_FIELD_REQUIRED(HttpStatus.BAD_REQUEST, "알림 대상 조건이 필요합니다."),
+	NOTIFICATION_INVALID_PAGE(HttpStatus.BAD_REQUEST, "페이지 번호는 0 이상이어야 합니다."),
+	NOTIFICATION_INVALID_SIZE(HttpStatus.BAD_REQUEST, "페이지 크기는 1 이상 100 이하이어야 합니다."),
+	NOTIFICATION_INVALID_SORT_FORMAT(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 형식입니다."),
+	NOTIFICATION_INVALID_SORT_PROPERTY(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 기준입니다."),
+	NOTIFICATION_INVALID_SORT_DIRECTION(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 방향입니다.");
 
 	private final HttpStatus status;
 	private final String message;
