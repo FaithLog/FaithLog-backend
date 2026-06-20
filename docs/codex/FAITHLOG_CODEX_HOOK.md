@@ -426,7 +426,9 @@ MVP seed 기준:
 
 구현 시 실제 DB 칼럼명은 Notion ERD의 `poll_templates`/`polls` 설계를 따른다. Codex는 칼럼명을 추측해서 새로 정하지 않는다.
 
-커피 투표 응답 시 서버가 COFFEE 청구를 자동 생성 또는 갱신한다.
+커피 투표 응답 API는 응답 저장만 수행하고 COFFEE 청구를 즉시 생성하지 않는다.
+
+커피 청구는 CLOSED 커피 투표 정산 서비스가 최종 `poll_responses`와 `poll_response_options` 기준으로 생성 또는 갱신한다.
 
 별도 커피 청구 생성 API는 MVP에서 제공하지 않는다.
 
@@ -439,6 +441,21 @@ sourceId = poll_responses.id
 ```
 
 MVP에서 커피 주문 투표는 단일 선택 기본이다.
+
+커피 정산 대상 poll 기준:
+
+```text
+poll_type = COFFEE
+charge_generation_type = OPTION_PRICE
+payment_category = COFFEE
+status = CLOSED
+```
+
+정산 금액은 현재 카탈로그 가격이 아니라 `poll_options.price_amount` snapshot을 사용한다.
+
+정산은 멱등이어야 하며, 기존 `UNPAID` COFFEE 청구는 갱신 또는 유지하고 `PAID`, `WAIVED`, `CANCELED` 청구는 덮어쓰지 않는다.
+
+한 poll 정산은 전체 성공 또는 전체 실패 트랜잭션으로 처리한다.
 
 ### 3.11 캠퍼스 역할 기준
 
@@ -611,7 +628,7 @@ GET /api/v1/admin/campuses/{campusId}/notification-logs
 - `poll_response_options` 저장
 - 투표 댓글 작성/수정/삭제 권한 검증
 - CLOSED 투표 댓글 작성 방지
-- 커피 투표 응답 시 COFFEE 청구 자동 생성 또는 갱신
+- CLOSED 커피 투표 정산 시 COFFEE 청구 자동 생성 또는 갱신
 - 커피 투표 계좌 snapshot 저장
 - CampusRole 권한 변경
 - CampusMember 삭제 권한 검증 및 INACTIVE 상태 전이

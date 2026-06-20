@@ -13,18 +13,31 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-20, 152 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 30 test files (2026-06-20) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 77 snippet groups (2026-06-20) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-20, 161 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 31 test files (2026-06-20) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 79 snippet groups (2026-06-20) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-20) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 8 top-level modules, 310 Java sources (2026-06-20) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 8 top-level modules, 315 Java sources (2026-06-20) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-06-20
+
+- #39 커피 투표 기반 청구 자동 생성 구현:
+  - 브랜치: `feat/39-coffee-poll-charge-automation`
+  - 구현 범위: 종료된 커피 투표 정산 application service, Poll-to-Billing port/adapter, Billing COFFEE create-or-update, 정책 문서/decision log 동기화.
+  - 정산 기준: `poll_type=COFFEE`, `charge_generation_type=OPTION_PRICE`, `payment_category=COFFEE`, `status=CLOSED`, 최종 `poll_responses` + `poll_response_options`, `poll_options.price_amount`/`content` snapshot.
+  - 청구 기준: `paymentCategory=COFFEE`, `sourceType=POLL_RESPONSE`, `sourceId=poll_responses.id`, `dueDate=null`, `title=poll_options.content`, `reason=컴포즈커피 주문`, `polls.payment_account_id`의 active same-campus COFFEE account snapshot.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.poll.application.PollServiceTest`가 `CoffeePollSettlementService`와 `POLL_SETTLEMENT_NOT_CLOSED` 부재로 `compileTestJava` 실패.
+  - 검증 범위: OPEN 커피 투표 응답 시 charge 미생성, CLOSED 정산 시 charge 생성, non-CLOSED 실패, non-coffee poll no-op, source/category/amount/dueDate/account snapshot 검증, UNPAID 멱등 갱신/중복 방지, terminal charge 미덮어쓰기, 담당자 없음 실패, 계좌 없음/비활성/타입 불일치 실패 및 row 미생성, 중간 실패 시 poll 정산 전체 rollback.
+  - REST Docs 결과: 기존 응답 API에 `coffee-poll-response-upsert-no-charge-success` snippet 추가. 별도 사용자용 커피 청구 생성 API는 추가하지 않음.
+  - 재검증: `./gradlew test --tests com.faithlog.poll.application.PollServiceTest` 성공, `./gradlew test --tests com.faithlog.poll.presentation.PollApiRestDocsTest` 성공, `./gradlew test --tests com.faithlog.billing.application.BillingServiceTest` 성공, `./gradlew test` 성공(161 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공.
+  - Docker 검증: `docker compose up -d --build postgres redis app` 성공, 컨테이너/호스트 health `status=UP`, 실제 API QA로 캠퍼스/커피 담당자/COFFEE 계좌/커피 투표 생성 후 OPEN 응답 저장 시 `poll_response_options` 1건 저장 및 `COFFEE charge_items` 0건 확인, `docker compose down` 성공.
+  - 제외 범위 준수: 투표 응답 시점 청구 생성 금지, 별도 사용자용 커피 청구 생성 API 미구현, #24 Scheduler/Batch 연결 미구현, 커피 주문 취합/발주 API 및 결제 API 미구현, 점심/LUNCH 기능 미구현, Swagger 문서화 어노테이션 추가 없음.
+  - 코드베이스 수치: Java 소스 315개, 테스트 파일 31개, REST Docs snippet group 79개.
 
 - #38 투표 응답과 결과 조회 구현:
   - 브랜치: `feat/38-poll-response-result`

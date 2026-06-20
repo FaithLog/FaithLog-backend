@@ -5,6 +5,7 @@ import com.faithlog.billing.application.port.PaymentAccountRepositoryPort;
 import com.faithlog.billing.application.policy.BillingAccessPolicy;
 import com.faithlog.billing.application.policy.ChargeStatusPolicy;
 import com.faithlog.billing.domain.ChargeItem;
+import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentAccount;
 import com.faithlog.billing.domain.PaymentCategory;
@@ -141,6 +142,50 @@ public class BillingService {
 	}
 
 	@Transactional
+	public ChargeItemResult createOrUpdateCoffeeCharge(CreateCoffeeChargeCommand command) {
+		PaymentAccount account = findValidCoffeeAccount(command);
+		ChargeItem existingCharge = chargeItemRepository
+			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+				command.campusId(),
+				command.userId(),
+				PaymentCategory.COFFEE,
+				ChargeSourceType.POLL_RESPONSE,
+				command.sourceId()
+			)
+			.orElse(null);
+		if (existingCharge != null && existingCharge.isUnpaid()) {
+			existingCharge.updateUnpaidCharge(
+				account,
+				command.title(),
+				command.reason(),
+				command.amount(),
+				command.dueDate()
+			);
+			return ChargeItemResult.from(existingCharge);
+		}
+		if (existingCharge != null) {
+			return ChargeItemResult.from(existingCharge);
+		}
+
+		ChargeItem chargeItem = ChargeItem.create(
+			command.campusId(),
+			command.userId(),
+			PaymentCategory.COFFEE,
+			account.id(),
+			account.bankName(),
+			account.accountNumber(),
+			account.accountHolder(),
+			ChargeSourceType.POLL_RESPONSE,
+			command.sourceId(),
+			command.title(),
+			command.reason(),
+			command.amount(),
+			command.dueDate()
+		);
+		return ChargeItemResult.from(chargeItemRepository.save(chargeItem));
+	}
+
+	@Transactional
 	public ChargeItemResult completeMyChargePayment(CompleteChargePaymentCommand command) {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
@@ -178,6 +223,18 @@ public class BillingService {
 				ChargeStatus.UNPAID
 			)
 			.forEach(chargeItem -> chargeItem.reconnectPaymentAccount(account));
+	}
+
+	private PaymentAccount findValidCoffeeAccount(CreateCoffeeChargeCommand command) {
+		if (command.paymentAccountId() == null) {
+			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
+		}
+		PaymentAccount account = paymentAccountRepository.findById(command.paymentAccountId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
+		if (!account.isActive() || !account.campusId().equals(command.campusId()) || account.accountType() != PaymentCategory.COFFEE) {
+			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
+		}
+		return account;
 	}
 
 	private void requireCampusManager(Long campusId, Long requesterId) {
