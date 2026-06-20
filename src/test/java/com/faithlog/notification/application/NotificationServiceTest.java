@@ -2,6 +2,7 @@ package com.faithlog.notification.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
@@ -19,6 +20,7 @@ import com.faithlog.notification.domain.DeviceType;
 import com.faithlog.notification.domain.NotificationLog;
 import com.faithlog.notification.domain.NotificationType;
 import com.faithlog.notification.domain.SendStatus;
+import com.faithlog.notification.application.port.NotificationDispatchPort;
 import com.faithlog.notification.infrastructure.jpa.NotificationLogRepository;
 import com.faithlog.poll.domain.ChargeGenerationType;
 import com.faithlog.poll.domain.Poll;
@@ -36,6 +38,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +78,9 @@ class NotificationServiceTest {
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
 
+	@MockBean
+	private NotificationDispatchPort notificationDispatchPort;
+
 	@Test
 	void requestNotification_validates_permission_and_creates_pending_or_skipped_logs_with_same_request_id() {
 		Campus campus = saveCampus("알림캠A");
@@ -106,6 +112,7 @@ class NotificationServiceTest {
 		assertThat(logs).hasSize(2);
 		assertThat(logs).extracting(NotificationLog::requestId).containsOnly(result.notificationRequestId());
 		assertThat(logs).extracting(NotificationLog::sendStatus).containsExactly(SendStatus.PENDING, SendStatus.SKIPPED);
+		verify(notificationDispatchPort).dispatch(result.notificationRequestId());
 
 		assertThatThrownBy(() -> notificationService.requestNotification(new SendNotificationCommand(
 			campus.id(),

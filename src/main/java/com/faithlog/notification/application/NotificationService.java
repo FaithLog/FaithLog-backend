@@ -13,6 +13,7 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.notification.domain.NotificationLog;
 import com.faithlog.notification.domain.NotificationType;
+import com.faithlog.notification.application.port.NotificationDispatchPort;
 import com.faithlog.notification.infrastructure.jpa.NotificationLogRepository;
 import com.faithlog.notification.infrastructure.jpa.UserFcmTokenRepository;
 import com.faithlog.poll.domain.Poll;
@@ -42,6 +43,7 @@ public class NotificationService {
 	private final PollRepository pollRepository;
 	private final PollResponseRepository pollResponseRepository;
 	private final ChargeItemRepository chargeItemRepository;
+	private final NotificationDispatchPort notificationDispatchPort;
 
 	public NotificationService(
 		NotificationLogRepository notificationLogRepository,
@@ -51,7 +53,8 @@ public class NotificationService {
 		WeeklyDevotionRecordRepository weeklyDevotionRecordRepository,
 		PollRepository pollRepository,
 		PollResponseRepository pollResponseRepository,
-		ChargeItemRepository chargeItemRepository
+		ChargeItemRepository chargeItemRepository,
+		NotificationDispatchPort notificationDispatchPort
 	) {
 		this.notificationLogRepository = notificationLogRepository;
 		this.userFcmTokenRepository = userFcmTokenRepository;
@@ -61,6 +64,7 @@ public class NotificationService {
 		this.pollRepository = pollRepository;
 		this.pollResponseRepository = pollResponseRepository;
 		this.chargeItemRepository = chargeItemRepository;
+		this.notificationDispatchPort = notificationDispatchPort;
 	}
 
 	@Transactional
@@ -100,6 +104,9 @@ public class NotificationService {
 			queuedCount++;
 		}
 
+		if (queuedCount > 0) {
+			notificationDispatchPort.dispatch(requestId);
+		}
 		return new SendNotificationResult(requestId, queuedCount, skippedCount);
 	}
 
