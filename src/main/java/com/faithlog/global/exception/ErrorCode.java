@@ -82,6 +82,7 @@ public enum ErrorCode {
 	POLL_RESPONSE_INVALID_SELECTION_COUNT(HttpStatus.BAD_REQUEST, "투표 선택 개수가 올바르지 않습니다."),
 	POLL_RESPONSE_DUPLICATE_OPTION(HttpStatus.BAD_REQUEST, "중복된 투표 선택지가 포함되어 있습니다."),
 	POLL_CLOSED(HttpStatus.CONFLICT, "마감된 투표에는 응답하거나 댓글을 작성할 수 없습니다."),
+	POLL_SETTLEMENT_NOT_CLOSED(HttpStatus.CONFLICT, "마감된 커피 투표만 정산할 수 있습니다."),
 	POLL_COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "투표 댓글을 찾을 수 없습니다."),
 	POLL_COMMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 댓글 수정/삭제 권한이 없습니다.");
 

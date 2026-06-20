@@ -284,14 +284,23 @@ Do not use:
 
 Issue #39 is P0.
 
-- Coffee poll response must automatically create or update `COFFEE` `charge_items`.
+- Coffee poll response saves only the current response and selected `poll_response_options`; it must not create `COFFEE` `charge_items` at response time.
+- Closed coffee poll settlement creates or updates `COFFEE` `charge_items` from the final saved responses.
+- Issue #39 implements the closed coffee poll settlement application service logic. Automatic scheduler/batch invocation remains Issue #24 scope.
+- Settlement target polls must match `poll_type = COFFEE`, `charge_generation_type = OPTION_PRICE`, `payment_category = COFFEE`, and `status = CLOSED`.
 - `sourceType = POLL_RESPONSE`
 - `sourceId = poll_responses.id`
 - `paymentCategory = COFFEE`
+- `amount` uses the selected `poll_options.price_amount` snapshot.
+- `title` uses the selected `poll_options.content` snapshot.
+- `dueDate` is `null`.
 - `paymentAccountId` and account snapshot must be saved.
+- Settlement must be idempotent. Existing `UNPAID` `COFFEE` charges for the same source are updated or kept, and terminal `PAID`, `WAIVED`, or `CANCELED` charges are not overwritten.
+- One poll settlement must be all-or-nothing in a single transaction.
 - Duplicate charge prevention must be covered by a unique index test.
 - Poll must not directly reference Billing Entity. Keep the flow in the application layer.
 - If coffee poll setup or charge generation requires a coffee duty assignee and no active `CampusDutyAssignment` with `DutyType.COFFEE` exists for the campus, fail clearly with the user-facing message `관리자에게 문의하세요`.
+- The account used for settlement is `polls.payment_account_id`; it must belong to the same campus, have `account_type = COFFEE`, and be active.
 - Issue #37 provides the coffee brand/menu catalog used by coffee poll templates.
 - MVP coffee ordering is limited to Compose Coffee.
 - Coffee menu names and prices must not be frontend-only data or Java enum constants because they affect billing.

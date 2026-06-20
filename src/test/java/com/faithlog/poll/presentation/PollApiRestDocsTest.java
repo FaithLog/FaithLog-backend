@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.billing.application.BillingService;
 import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.campus.application.AssignCoffeeDutyCommand;
 import com.faithlog.campus.application.CampusService;
 import com.faithlog.poll.domain.PollStatus;
@@ -68,6 +69,9 @@ class PollApiRestDocsTest {
 
 	@Autowired
 	private BillingService billingService;
+
+	@Autowired
+	private ChargeItemRepository chargeItemRepository;
 
 	@Autowired
 	private CampusService campusService;
@@ -243,7 +247,7 @@ class PollApiRestDocsTest {
 				relaxedResponseFields(templateResponseFields())
 			));
 
-		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
+		String directPollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -272,7 +276,40 @@ class PollApiRestDocsTest {
 				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
 				requestFields(pollCreateRequestFields()),
 				relaxedResponseFields(pollResponseFields())
+			))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long directPollId = objectMapper.readTree(directPollBody).path("data").path("id").asLong();
+		long directPollOptionId = objectMapper.readTree(directPollBody).path("data").path("options").get(0).path("id").asLong();
+		openPoll(directPollId);
+		long chargeCountBeforeCoffeeResponse = chargeItemRepository.count();
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, directPollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "optionIds": [%d],
+					  "memo": "카페라떼로 주문합니다"
+					}
+					""".formatted(directPollOptionId)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.optionIds[0]").value(directPollOptionId))
+			.andDo(document("coffee-poll-response-upsert-no-charge-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("커피 투표 ID")
+				),
+				requestFields(pollResponseRequestFields()),
+				relaxedResponseFields(pollMyResponseFields())
 			));
+		org.assertj.core.api.Assertions.assertThat(chargeItemRepository.count())
+			.as("커피 투표 응답 API는 응답 저장만 수행하고 COFFEE charge_items를 생성하지 않는다")
+			.isEqualTo(chargeCountBeforeCoffeeResponse);
 
 		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
 				.header("Authorization", "Bearer " + managerToken))
@@ -864,6 +901,8 @@ class PollApiRestDocsTest {
 	private void openPoll(long pollId) {
 		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
 		ReflectionTestUtils.setField(poll, "status", PollStatus.OPEN);
+		ReflectionTestUtils.setField(poll, "startsAt", java.time.Instant.now().minusSeconds(60));
+		ReflectionTestUtils.setField(poll, "endsAt", java.time.Instant.now().plusSeconds(3600));
 		pollRepository.saveAndFlush(poll);
 	}
 }

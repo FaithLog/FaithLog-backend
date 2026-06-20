@@ -3,15 +3,21 @@ package com.faithlog.poll.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.faithlog.billing.domain.ChargeItem;
+import com.faithlog.billing.domain.ChargeSourceType;
+import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.application.BillingService;
 import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.campus.application.AssignCoffeeDutyCommand;
 import com.faithlog.campus.application.CampusCreateResult;
 import com.faithlog.campus.application.CampusService;
 import com.faithlog.campus.application.CreateCampusCommand;
 import com.faithlog.campus.application.JoinCampusCommand;
 import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.domain.DutyType;
+import com.faithlog.campus.infrastructure.jpa.CampusDutyAssignmentRepository;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -44,6 +50,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -61,6 +68,9 @@ class PollServiceTest {
 	private PollService pollService;
 
 	@Autowired
+	private CoffeePollSettlementService coffeePollSettlementService;
+
+	@Autowired
 	private CampusService campusService;
 
 	@Autowired
@@ -71,6 +81,9 @@ class PollServiceTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private CampusDutyAssignmentRepository dutyAssignmentRepository;
 
 	@Autowired
 	private CoffeeBrandRepository coffeeBrandRepository;
@@ -98,6 +111,9 @@ class PollServiceTest {
 
 	@Autowired
 	private PollCommentRepository pollCommentRepository;
+
+	@Autowired
+	private ChargeItemRepository chargeItemRepository;
 
 	@Test
 	void coffee_catalog_seed_contains_compose_brand_and_user_approved_2026_menu_prices() {
@@ -692,6 +708,229 @@ class PollServiceTest {
 			);
 	}
 
+	@Test
+	void open_coffee_poll_response_does_not_create_coffee_charge_at_response_time() {
+		User manager = saveUser("coffee-response-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("coffee-response-duty@example.com", UserRole.USER);
+		User member = saveUser("coffee-response-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "39응답캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult poll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "응답 시점 커피 투표");
+
+		pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(poll.options().get(0).id()),
+			"아이스 아메리카노"
+		));
+
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
+	@Test
+	void settle_closed_coffee_poll_creates_charges_from_final_response_options_and_is_idempotent_for_unpaid_charges() {
+		User manager = saveUser("coffee-settle-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("coffee-settle-duty@example.com", UserRole.USER);
+		User member = saveUser("coffee-settle-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "39정산캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult poll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "정산 커피 투표");
+		Long firstOptionId = poll.options().get(0).id();
+		Long secondOptionId = poll.options().get(1).id();
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), member.id(), List.of(firstOptionId), "처음 선택"));
+		PollResponseResult finalResponse = pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), member.id(), List.of(secondOptionId), "최종 선택"));
+		closePoll(poll.id());
+
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), poll.id());
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), poll.id());
+
+		assertThat(chargesForCampus(campus.campusId())).hasSize(1);
+		ChargeItem charge = chargesForCampus(campus.campusId()).get(0);
+		assertThat(charge.paymentCategory()).isEqualTo(PaymentCategory.COFFEE);
+		assertThat(charge.sourceType()).isEqualTo(ChargeSourceType.POLL_RESPONSE);
+		assertThat(charge.sourceId()).isEqualTo(finalResponse.responseId());
+		assertThat(charge.amount()).isEqualTo(1500);
+		assertThat(charge.title()).isEqualTo("아메리카노");
+		assertThat(charge.reason()).isEqualTo("컴포즈커피 주문");
+		assertThat(charge.dueDate()).isNull();
+		assertThat(charge.paymentAccountId()).isEqualTo(accountId);
+		assertThat(charge.bankNameSnapshot()).isEqualTo("카카오뱅크");
+		assertThat(charge.accountNumberSnapshot()).isEqualTo("3333-37-000001");
+		assertThat(charge.accountHolderSnapshot()).isEqualTo("커피회계");
+	}
+
+	@Test
+	void settle_closed_coffee_poll_rejects_non_closed_poll_and_skips_non_coffee_poll() {
+		User manager = saveUser("coffee-target-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("coffee-target-duty@example.com", UserRole.USER);
+		User member = saveUser("coffee-target-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "39대상캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult openCoffeePoll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "열린 커피 투표");
+
+		assertThatThrownBy(() -> coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), openCoffeePoll.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_SETTLEMENT_NOT_CLOSED)
+			);
+
+		PollResult customPoll = createOpenCustomPoll(campus.campusId(), manager.id(), "커스텀 투표", SelectionType.SINGLE, false, List.of("A"));
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), customPoll.id(), member.id(), List.of(customPoll.options().get(0).id()), null));
+		closePoll(customPoll.id());
+
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), customPoll.id());
+
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
+	@Test
+	void settle_closed_coffee_poll_keeps_terminal_charge_without_overwriting_it() {
+		User manager = saveUser("coffee-terminal-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("coffee-terminal-duty@example.com", UserRole.USER);
+		User member = saveUser("coffee-terminal-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "39종료캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult poll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "종료 청구 커피 투표");
+		PollResponseResult response = pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), member.id(), List.of(poll.options().get(0).id()), null));
+		ChargeItem terminal = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(),
+			member.id(),
+			PaymentCategory.COFFEE,
+			accountId,
+			"기존은행",
+			"기존계좌",
+			"기존회계",
+			ChargeSourceType.POLL_RESPONSE,
+			response.responseId(),
+			"기존 커피",
+			"기존 사유",
+			9999,
+			null
+		));
+		terminal.markPaid();
+		closePoll(poll.id());
+
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), poll.id());
+
+		assertThat(chargesForCampus(campus.campusId())).hasSize(1);
+		assertThat(chargeItemRepository.findById(terminal.id())).get().satisfies(charge -> {
+			assertThat(charge.status()).isEqualTo(ChargeStatus.PAID);
+			assertThat(charge.title()).isEqualTo("기존 커피");
+			assertThat(charge.reason()).isEqualTo("기존 사유");
+			assertThat(charge.amount()).isEqualTo(9999);
+			assertThat(charge.bankNameSnapshot()).isEqualTo("기존은행");
+		});
+	}
+
+	@Test
+	void settle_closed_coffee_poll_fails_without_duty_or_valid_coffee_account_without_inserting_charge_rows() {
+		User manager = saveUser("coffee-prereq-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("coffee-prereq-duty@example.com", UserRole.USER);
+		User member = saveUser("coffee-prereq-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "39전제캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult missingDutyPoll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "담당자 누락 커피 투표");
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), missingDutyPoll.id(), member.id(), List.of(missingDutyPoll.options().get(0).id()), null));
+		closePoll(missingDutyPoll.id());
+		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campus.campusId(), DutyType.COFFEE)
+			.orElseThrow()
+			.revoke();
+
+		assertThatThrownBy(() -> coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), missingDutyPoll.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_COFFEE_DUTY_MISSING)
+			);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long missingAccountPollAccountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult missingAccountPoll = createOpenCoffeePoll(campus.campusId(), manager.id(), missingAccountPollAccountId, "계좌 누락 커피 투표");
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), missingAccountPoll.id(), member.id(), List.of(missingAccountPoll.options().get(0).id()), null));
+		setPollPaymentAccount(missingAccountPoll.id(), null);
+		closePoll(missingAccountPoll.id());
+
+		assertThatThrownBy(() -> coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), missingAccountPoll.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+			);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+
+		Long penaltyAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"신한은행",
+			"110-39-000001",
+			"벌금회계",
+			null
+		)).id();
+		Long nonCoffeeAccountPollAccountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult nonCoffeeAccountPoll = createOpenCoffeePoll(campus.campusId(), manager.id(), nonCoffeeAccountPollAccountId, "비커피 계좌 커피 투표");
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), nonCoffeeAccountPoll.id(), member.id(), List.of(nonCoffeeAccountPoll.options().get(0).id()), null));
+		setPollPaymentAccount(nonCoffeeAccountPoll.id(), penaltyAccountId);
+		closePoll(nonCoffeeAccountPoll.id());
+
+		assertThatThrownBy(() -> coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), nonCoffeeAccountPoll.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+			);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+
+		Long inactiveAccountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult inactiveAccountPoll = createOpenCoffeePoll(campus.campusId(), manager.id(), inactiveAccountId, "비활성 계좌 커피 투표");
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), inactiveAccountPoll.id(), member.id(), List.of(inactiveAccountPoll.options().get(0).id()), null));
+		closePoll(inactiveAccountPoll.id());
+		billingService.deactivatePaymentAccount(inactiveAccountId, manager.id());
+
+		assertThatThrownBy(() -> coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), inactiveAccountPoll.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+			);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void settle_closed_coffee_poll_rolls_back_all_charge_changes_when_one_response_is_invalid() {
+		User manager = saveUser("coffee-rollback-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("coffee-rollback-duty@example.com", UserRole.USER);
+		User firstMember = saveUser("coffee-rollback-first@example.com", UserRole.USER);
+		User brokenMember = saveUser("coffee-rollback-broken@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "39롤백캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, firstMember);
+		joinCampus(campus, brokenMember);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult poll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "롤백 커피 투표");
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), firstMember.id(), List.of(poll.options().get(0).id()), null));
+		pollResponseRepository.save(com.faithlog.poll.domain.PollResponse.create(poll.id(), brokenMember.id(), "선택지 누락"));
+		closePoll(poll.id());
+
+		assertThatThrownBy(() -> coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), poll.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_RESPONSE_INVALID_SELECTION_COUNT)
+			);
+
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
 	private Long menuId(String menuCode) {
 		return coffeeMenuCatalogRepository.findByMenuCode(menuCode).orElseThrow().id();
 	}
@@ -746,7 +985,34 @@ class PollServiceTest {
 				.map(content -> new CreatePollOptionCommand(content, null, 0, optionContents.indexOf(content) + 1))
 				.toList()
 		));
-		ReflectionTestUtils.setField(pollRepository.findById(poll.id()).orElseThrow(), "status", PollStatus.OPEN);
+		com.faithlog.poll.domain.Poll savedPoll = pollRepository.findById(poll.id()).orElseThrow();
+		ReflectionTestUtils.setField(savedPoll, "status", PollStatus.OPEN);
+		pollRepository.saveAndFlush(savedPoll);
+		return pollService.getPoll(campusId, poll.id(), managerId);
+	}
+
+	private PollResult createOpenCoffeePoll(Long campusId, Long managerId, Long accountId, String title) {
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campusId,
+			managerId,
+			null,
+			title,
+			PollType.COFFEE,
+			SelectionType.SINGLE,
+			false,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(
+				new CreatePollOptionCommand("아이스 아메리카노", null, 1800, 1),
+				new CreatePollOptionCommand("아메리카노", null, 1500, 2)
+			)
+		));
+		com.faithlog.poll.domain.Poll savedPoll = pollRepository.findById(poll.id()).orElseThrow();
+		ReflectionTestUtils.setField(savedPoll, "status", PollStatus.OPEN);
+		pollRepository.saveAndFlush(savedPoll);
 		return pollService.getPoll(campusId, poll.id(), managerId);
 	}
 
@@ -778,6 +1044,20 @@ class PollServiceTest {
 		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
 		ReflectionTestUtils.setField(poll, "status", PollStatus.CLOSED);
 		ReflectionTestUtils.setField(poll, "endsAt", endsAt);
+		pollRepository.saveAndFlush(poll);
+	}
+
+	private void setPollPaymentAccount(Long pollId, Long paymentAccountId) {
+		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
+		ReflectionTestUtils.setField(poll, "paymentAccountId", paymentAccountId);
+		pollRepository.saveAndFlush(poll);
+	}
+
+	private List<ChargeItem> chargesForCampus(Long campusId) {
+		return chargeItemRepository.findAll()
+			.stream()
+			.filter(charge -> charge.campusId().equals(campusId))
+			.toList();
 	}
 
 	private void deactivateMembership(Long campusId, Long userId) {

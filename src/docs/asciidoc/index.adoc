@@ -1301,3 +1301,33 @@ include::{snippets}/poll-create-direct-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/poll-create-direct-success/response-fields.adoc[]
+
+=== Save Coffee Poll Response
+
+`PUT /api/v1/campuses/{campusId}/polls/{pollId}/responses/me`
+
+커피 투표 응답 API는 최종 응답과 `poll_response_options`만 저장한다. 이 요청 시점에는 `COFFEE` 청구를 생성하지 않으며, 청구 생성/갱신은 `CLOSED` 커피 투표 정산 서비스가 최종 응답 기준으로 수행한다.
+
+==== Request
+
+include::{snippets}/coffee-poll-response-upsert-no-charge-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/coffee-poll-response-upsert-no-charge-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/coffee-poll-response-upsert-no-charge-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/coffee-poll-response-upsert-no-charge-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/coffee-poll-response-upsert-no-charge-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/coffee-poll-response-upsert-no-charge-success/response-fields.adoc[]
