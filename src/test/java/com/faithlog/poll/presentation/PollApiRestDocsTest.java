@@ -359,6 +359,30 @@ class PollApiRestDocsTest {
 				responseFields(errorResponseFields())
 			));
 
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "optionIds": [],
+					  "memo": "빈 선택"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("POLL_RESPONSE_INVALID_SELECTION_COUNT"))
+			.andExpect(jsonPath("$.message").value("투표 선택 개수가 올바르지 않습니다."))
+			.andDo(document("poll-response-empty-selection-count-error",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				requestFields(emptyPollResponseRequestFields()),
+				responseFields(errorResponseFields())
+			));
+
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, anonymousPollId)
 				.header("Authorization", "Bearer " + memberToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -640,6 +664,13 @@ class PollApiRestDocsTest {
 	private FieldDescriptor[] pollResponseRequestFields() {
 		return new FieldDescriptor[] {
 			fieldWithPath("optionIds[]").description("선택한 투표 선택지 ID 목록"),
+			fieldWithPath("memo").optional().description("응답 메모")
+		};
+	}
+
+	private FieldDescriptor[] emptyPollResponseRequestFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("optionIds").type(JsonFieldType.ARRAY).description("선택한 투표 선택지 ID 목록. 빈 배열은 POLL_RESPONSE_INVALID_SELECTION_COUNT로 실패"),
 			fieldWithPath("memo").optional().description("응답 메모")
 		};
 	}

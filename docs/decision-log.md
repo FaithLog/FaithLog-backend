@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-20 - Issue #38 Poll PM Review Contract Clarifications
+
+- Context: PM review found that empty `optionIds` could be intercepted by controller validation, SCHEDULED/future polls could be writable and visible, and response option replacement could hit the `(response_id, option_id)` unique constraint when the same options were saved again.
+- Decision: Empty or missing `optionIds` must be validated in the poll service and return `POLL_RESPONSE_INVALID_SELECTION_COUNT`. Poll response/comment writes are allowed only when `polls.status = OPEN` and `starts_at <= now <= ends_at`; SCHEDULED/future polls are hidden from member list/detail and direct lookup returns `POLL_NOT_FOUND`. Not-open write attempts continue to use the existing `POLL_CLOSED` / 409 / `마감된 투표에는 응답하거나 댓글을 작성할 수 없습니다.` contract instead of introducing a new ErrorCode in this fix.
+- Impact: Issue #38 service and REST Docs tests must cover empty selection errors, SCHEDULED/future visibility blocking, SCHEDULED write blocking, and same-option response resave without duplicate rows or unique constraint failures.
+
 ### 2026-06-20 - Issue #38 Poll ErrorCode Contract
 
 - Context: Issue #38 needed detailed poll error codes for response validation, campus scope mismatch, visibility window expiration, poll comment authorization, and admin missing-member authorization. The implementation policy requires domain-prefixed detailed codes instead of broad `INVALID_REQUEST`, `NOT_FOUND`, or `FORBIDDEN` codes.

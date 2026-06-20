@@ -370,11 +370,15 @@ public class PollService {
 	}
 
 	private boolean isVisibleInWindow(Poll poll, boolean adminWindow) {
-		if (poll.status() != PollStatus.CLOSED && !Instant.now().isAfter(poll.endsAt())) {
+		Instant now = Instant.now();
+		if (poll.status() == PollStatus.OPEN && !now.isBefore(poll.startsAt()) && !now.isAfter(poll.endsAt())) {
 			return true;
 		}
+		if (now.isBefore(poll.endsAt())) {
+			return false;
+		}
 		Duration window = adminWindow ? Duration.ofDays(7) : Duration.ofDays(3);
-		return !Instant.now().isAfter(poll.endsAt().plus(window));
+		return !now.isAfter(poll.endsAt().plus(window));
 	}
 
 	private void validateSelectionCount(SelectionType selectionType, List<Long> optionIds) {
@@ -387,7 +391,8 @@ public class PollService {
 	}
 
 	private void requireOpenPoll(Poll poll) {
-		if (poll.status() == PollStatus.CLOSED || Instant.now().isAfter(poll.endsAt())) {
+		Instant now = Instant.now();
+		if (poll.status() != PollStatus.OPEN || now.isBefore(poll.startsAt()) || now.isAfter(poll.endsAt())) {
 			throw new BusinessException(ErrorCode.POLL_CLOSED);
 		}
 	}

@@ -455,6 +455,11 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ## Resume Bullet Candidates
 
+- 2026-06-20 #38 PM 검토 보완
+  - 컨트롤러 `@NotEmpty`로 빈 `optionIds`가 `GLOBAL_VALIDATION_FAILED`로 뭉개지던 경로를 제거하고, 서비스 검증에서 `POLL_RESPONSE_INVALID_SELECTION_COUNT` 계약을 반환하도록 보정.
+  - `SCHEDULED`/future poll의 응답·댓글 write와 일반 ACTIVE 멤버 목록/상세 노출을 차단하고, 같은 선택지 재저장 시 `(response_id, option_id)` unique 충돌이 나지 않도록 response option bulk delete를 적용.
+  - TDD 실패 확인: 대상 테스트 4건 실패로 이슈 재현 후 수정.
+
 - 2026-06-19 #37 투표 템플릿과 투표 생성 구현
   - 사용자 승인 seed 기준: 공식 사이트 접근 차단 후 사용자가 제공한 `컴포즈커피 메뉴 가격 2026년 최신 버전` 목록을 승인된 seed 원천으로 기록.
   - 재삽입 가능한 seed 원천: `src/main/resources/seed/compose-coffee-menu-2026.csv`, 설명 문서 `docs/seed/compose-coffee-menu-2026.md`.

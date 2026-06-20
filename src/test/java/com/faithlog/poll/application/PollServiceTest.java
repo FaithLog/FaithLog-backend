@@ -461,6 +461,37 @@ class PollServiceTest {
 	}
 
 	@Test
+	void responding_again_with_same_option_ids_does_not_create_duplicate_rows_or_unique_conflict() {
+		User manager = saveUser("poll-response-same-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-response-same-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "141-1캠");
+		joinCampus(campus, member);
+		PollResult poll = createOpenCustomPoll(campus.campusId(), manager.id(), "같은 선택지 재저장", SelectionType.SINGLE, false, List.of("참석", "불참"));
+		Long optionId = poll.options().get(0).id();
+
+		PollResponseResult created = pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(optionId),
+			"처음 저장"
+		));
+		PollResponseResult updated = pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(optionId),
+			"같은 선택지 재저장"
+		));
+		pollResponseOptionRepository.flush();
+
+		assertThat(updated.responseId()).isEqualTo(created.responseId());
+		assertThat(pollResponseOptionRepository.findByResponseIdOrderByIdAsc(updated.responseId()))
+			.extracting(responseOption -> responseOption.optionId())
+			.containsExactly(optionId);
+	}
+
+	@Test
 	void poll_response_rejects_invalid_option_ids_and_closed_poll() {
 		User manager = saveUser("poll-response-invalid-manager@example.com", UserRole.MANAGER);
 		User member = saveUser("poll-response-invalid-member@example.com", UserRole.USER);
@@ -490,6 +521,30 @@ class PollServiceTest {
 
 		closePoll(multiple.id());
 		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), multiple.id(), member.id(), List.of(multipleOptions.get(0)), null)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+	}
+
+	@Test
+	void scheduled_poll_rejects_response_and_comment_writes_with_closed_error_contract() {
+		User manager = saveUser("poll-scheduled-write-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-scheduled-write-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "142-1캠");
+		joinCampus(campus, member);
+		PollResult scheduled = createScheduledCustomPoll(campus.campusId(), manager.id(), "예약 투표", SelectionType.SINGLE, false, List.of("A", "B"));
+
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			scheduled.id(),
+			member.id(),
+			List.of(scheduled.options().get(0).id()),
+			null
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+		assertThatThrownBy(() -> pollService.createComment(new CreatePollCommentCommand(campus.campusId(), scheduled.id(), member.id(), "예약 댓글")))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
 			);
@@ -548,6 +603,23 @@ class PollServiceTest {
 
 		closePollAt(expiredForMember.id(), Instant.now().minusSeconds(8 * 24 * 60 * 60));
 		assertThatThrownBy(() -> pollService.getPollResults(campus.campusId(), expiredForMember.id(), admin.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_NOT_FOUND)
+			);
+	}
+
+	@Test
+	void scheduled_future_poll_is_hidden_from_member_list_and_direct_detail() {
+		User manager = saveUser("poll-scheduled-visibility-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-scheduled-visibility-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "144-1캠");
+		joinCampus(campus, member);
+		PollResult scheduled = createScheduledCustomPoll(campus.campusId(), manager.id(), "미래 예약 투표", SelectionType.SINGLE, false, List.of("A"));
+
+		assertThat(pollService.listPolls(campus.campusId(), member.id()))
+			.extracting(PollListItemResult::id)
+			.doesNotContain(scheduled.id());
+		assertThatThrownBy(() -> pollService.getPoll(campus.campusId(), scheduled.id(), member.id()))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_NOT_FOUND)
 			);
@@ -676,6 +748,26 @@ class PollServiceTest {
 		));
 		ReflectionTestUtils.setField(pollRepository.findById(poll.id()).orElseThrow(), "status", PollStatus.OPEN);
 		return pollService.getPoll(campusId, poll.id(), managerId);
+	}
+
+	private PollResult createScheduledCustomPoll(Long campusId, Long managerId, String title, SelectionType selectionType, boolean anonymous, List<String> optionContents) {
+		return pollService.createPoll(new CreatePollCommand(
+			campusId,
+			managerId,
+			null,
+			title,
+			PollType.CUSTOM,
+			selectionType,
+			anonymous,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().plusSeconds(3600),
+			Instant.now().plusSeconds(7200),
+			optionContents.stream()
+				.map(content -> new CreatePollOptionCommand(content, null, 0, optionContents.indexOf(content) + 1))
+				.toList()
+		));
 	}
 
 	private void closePoll(Long pollId) {
