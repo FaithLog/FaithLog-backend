@@ -165,10 +165,15 @@ Do not use:
 
 Notification failure policy:
 
-- MVP does not automatically retry notification sends.
+- Notification requests create per-target `notification_logs` rows with the same server-generated `request_id` and `PENDING` status before background delivery starts.
+- Admin notification send APIs return `202 Accepted` without waiting for Firebase delivery to complete.
 - Success, failure, and skip results are all saved to `notification_logs`.
-- Invalid or unregistered FCM token errors deactivate the affected `user_fcm_tokens` row.
+- Transient notification send failures retry immediately per token up to 3 times with `1s -> 5s -> 30s` intervals.
+- Transient failures include network errors, temporary Firebase failures, rate limits, and timeouts.
+- Permanent failures do not retry. `UNREGISTERED`, token-not-registered, and payload-valid invalid-token responses deactivate the affected `user_fcm_tokens` row.
+- `INVALID_ARGUMENT` deactivates a token only when the payload is known to be valid.
 - Other send failures are logged but do not deactivate the token unless the provider error clearly marks the token unusable.
+- Reprocessing old `PENDING` logs after server restart is not part of issue #40 and belongs to issue #24 Scheduler/Batch or a follow-up issue.
 
 FCM token lifecycle policy:
 

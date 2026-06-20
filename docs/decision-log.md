@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-20 - Issue #40 Notification Async Retry Policy
+
+- Context: Local backend policy still contained the older "no notification retry" MVP wording, while the latest current conversation, GitHub Issue #40, and Notion 2026-06-20 notification pages define asynchronous notification delivery with token-level retry.
+- Decision: Issue #40 creates per-target `notification_logs` rows with one server-generated `request_id` and `PENDING` status before background FCM delivery. The admin send API returns `202 Accepted` with `notificationRequestId`, `queuedCount`, and `skippedCount`. Transient failures retry per token up to 3 times with `1s -> 5s -> 30s` intervals. Permanent failures such as `UNREGISTERED`, token-not-registered, and payload-valid invalid-token responses do not retry and deactivate the affected FCM token. Old `PENDING` log reprocessing after server restart remains out of #40 scope.
+- Impact: `docs/backend-implementation-policy.md`, implementation, tests, and REST Docs must follow the retry policy. Older local "notification sends do not retry automatically in MVP" wording is superseded for #40.
+
 ### 2026-06-20 - Issue #39 Coffee Poll Charge Settlement Timing
 
 - Context: Issue #39 originally had older local wording that could imply `COFFEE` charges are created during poll response writes, while the latest user decision and Notion/API pages moved charge generation to closed-poll settlement.
@@ -259,6 +265,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Context: The user approved the recommended implementation policies for list APIs, Redis token TTLs, and notification failure handling.
 - Decision: List APIs use common pagination query parameters `page`, `size`, and `sort`; default page is 0, default size is 20, maximum size is 100, and default sorting is latest-first unless a domain has an explicit order such as poll option `sortOrder,asc`. Access token blacklist TTL uses the access token remaining lifetime plus 60 seconds. Refresh token allowlist TTL uses the refresh token expiration. Refresh token reuse-detection keys, when used, live until the refresh token expiration. Notification sends do not retry automatically in MVP. Success, failure, and skip results are all saved to `notification_logs`; invalid or unregistered FCM token errors deactivate the affected token.
 - Impact: Repository query APIs, Redis auth infrastructure, and notification services must implement these defaults and cover them with tests where applicable.
+- Status: Notification retry wording is superseded for Issue #40 by the 2026-06-20 decision `Issue #40 Notification Async Retry Policy`: transient notification send failures retry per token up to 3 times with `1s -> 5s -> 30s` intervals.
 
 ### 2026-06-17 - Lateness Penalty Calculation
 
