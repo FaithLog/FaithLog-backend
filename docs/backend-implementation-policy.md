@@ -192,6 +192,22 @@ FCM token lifecycle policy:
 - `UNREGISTERED` or token-not-registered provider errors deactivate the token immediately.
 - `INVALID_ARGUMENT` deactivates the token only when the payload is known to be valid.
 
+Redis notification deduplication and lock policy:
+
+- FCM token source of truth remains `user_fcm_tokens`; Redis must not become an FCM token store.
+- Notification history source of truth remains `notification_logs`; Redis must not replace `notification_logs`.
+- Redis notification deduplication and locks are infrastructure for duplicate execution prevention and concurrent execution prevention only.
+- Automatic notifications use the business dedup key `notification:dedup:{notificationType}:{campusId}:{scopeId}:{targetUserId}:{businessDate}`.
+- Daily automatic notification dedup TTL is 25 hours.
+- Weekly automatic notification dedup TTL is 8 days.
+- Notification execution locks use `notification:lock:{jobName}:{campusId}:{scopeId}`.
+- Short notification job lock TTL defaults to 10 minutes.
+- Long batch notification jobs may pass a custom TTL based on expected runtime plus buffer.
+- Automatic/scheduled notifications fail closed when Redis is unavailable and must not send without dedup protection.
+- Manual admin notifications are intentional sends and must not be blocked by the automatic business dedup key.
+- Manual admin notification requests may use execution locks, and Redis unavailability must fail the API clearly rather than silently sending.
+- Application services use notification deduplication/lock ports. Redis integration stays under `notification/infrastructure/redis`.
+
 ## Poll Comments
 
 Poll comments are included in MVP.

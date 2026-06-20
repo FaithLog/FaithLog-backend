@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-20 - Issue #41 Notification Redis Dedup And Lock Policy
+
+- Context: Issue #41 adds Redis-based duplicate prevention and execution locks on top of the Issue #40 notification flow without adding new notification APIs or moving source-of-truth data into Redis.
+- Decision: FCM token source of truth remains `user_fcm_tokens`, and notification history source of truth remains `notification_logs`. Redis is used only for notification deduplication and execution locking. Automatic notifications use the business dedup key `notificationType + campusId + scopeId + targetUserId + businessDate`, with 25-hour TTL for daily jobs and 8-day TTL for weekly jobs. Notification execution locks use `notification:lock:{jobName}:{campusId}:{scopeId}`, default to 10 minutes, and allow custom TTLs for longer batch jobs.
+- Decision: Redis failures are fail-closed for automatic/scheduled notifications, so the automatic send/enqueue is skipped. Manual admin notification requests do not use the automatic business dedup key, but they do require Redis lock availability; if Redis is unavailable, the admin API fails clearly instead of sending without duplicate protection.
+- Impact: Issue #41 implementation must expose reusable application ports/services for #24 Scheduler/Batch, keep Redis adapters under `notification/infrastructure/redis`, keep application services independent of `RedisTemplate`, preserve the #40 async `notification_logs` PENDING/SENT/FAILED/SKIPPED policy, and continue using the existing admin notification API paths.
+
 ### 2026-06-20 - Issue #40 Notification Async Retry Policy
 
 - Context: Local backend policy still contained the older "no notification retry" MVP wording, while the latest current conversation, GitHub Issue #40, and Notion 2026-06-20 notification pages define asynchronous notification delivery with token-level retry.

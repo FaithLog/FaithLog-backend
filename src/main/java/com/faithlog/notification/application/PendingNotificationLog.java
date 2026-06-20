@@ -5,6 +5,7 @@ import com.faithlog.notification.domain.NotificationLog;
 record PendingNotificationLog(
 	Long id,
 	Long userId,
+	Long campusId,
 	String title,
 	String body
 ) {
@@ -13,6 +14,7 @@ record PendingNotificationLog(
 		return new PendingNotificationLog(
 			log.id(),
 			log.userId(),
+			log.campusId(),
 			log.title(),
 			log.body()
 		);

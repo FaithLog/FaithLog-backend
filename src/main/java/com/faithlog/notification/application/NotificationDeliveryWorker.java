@@ -24,19 +24,22 @@ public class NotificationDeliveryWorker {
 	private final FcmSendPort fcmSendPort;
 	private final NotificationRetryBackoff retryBackoff;
 	private final TransactionTemplate transactionTemplate;
+	private final NotificationLockService notificationLockService;
 
 	public NotificationDeliveryWorker(
 		NotificationLogRepository notificationLogRepository,
 		UserFcmTokenRepository userFcmTokenRepository,
 		FcmSendPort fcmSendPort,
 		NotificationRetryBackoff retryBackoff,
-		PlatformTransactionManager transactionManager
+		PlatformTransactionManager transactionManager,
+		NotificationLockService notificationLockService
 	) {
 		this.notificationLogRepository = notificationLogRepository;
 		this.userFcmTokenRepository = userFcmTokenRepository;
 		this.fcmSendPort = fcmSendPort;
 		this.retryBackoff = retryBackoff;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
+		this.notificationLockService = notificationLockService;
 	}
 
 	public void processRequest(UUID requestId) {
@@ -45,7 +48,17 @@ public class NotificationDeliveryWorker {
 			.stream()
 			.map(PendingNotificationLog::from)
 			.toList());
-		pendingLogs.forEach(this::processLog);
+		if (pendingLogs == null || pendingLogs.isEmpty()) {
+			return;
+		}
+		notificationLockService.acquireScheduledLock(NotificationLockKey.dispatch(pendingLogs.get(0).campusId(), requestId))
+			.ifPresent(lease -> {
+				try {
+					pendingLogs.forEach(this::processLog);
+				} finally {
+					notificationLockService.release(lease);
+				}
+			});
 	}
 
 	private void processLog(PendingNotificationLog log) {

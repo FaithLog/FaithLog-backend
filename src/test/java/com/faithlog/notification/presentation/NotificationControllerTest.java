@@ -16,10 +16,12 @@ import com.faithlog.notification.application.FcmTokenService;
 import com.faithlog.notification.application.RegisterFcmTokenCommand;
 import com.faithlog.notification.domain.DeviceType;
 import com.faithlog.notification.infrastructure.jpa.NotificationLogRepository;
+import com.faithlog.support.NotificationConcurrencyTestConfig;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -55,6 +57,14 @@ class NotificationControllerTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
+
+	@BeforeEach
+	void resetNotificationConcurrencyPort() {
+		notificationConcurrencyPort.reset();
+	}
 
 	@Test
 	void admin_notification_send_returns_accepted_and_creates_pending_logs() throws Exception {
@@ -115,6 +125,34 @@ class NotificationControllerTest {
 			.andExpect(jsonPath("$.data.items[0].name").value(target.name()))
 			.andExpect(jsonPath("$.data.items[0].email").value(target.email()))
 			.andExpect(jsonPath("$.data.items[0].sendStatus").value("PENDING"));
+	}
+
+	@Test
+	void admin_notification_send_fails_when_redis_lock_is_unavailable() throws Exception {
+		String ministerToken = signupAndLogin("notification-http-redis-minister@example.com", UserRole.USER);
+		User minister = userRepository.findByEmail("notification-http-redis-minister@example.com").orElseThrow();
+		User target = saveUser("notification-http-redis-target@example.com", UserRole.USER);
+		Campus campus = saveCampus("알림HTTP캠C");
+		saveMinister(campus.id(), minister.id());
+		saveMember(campus.id(), target.id());
+		registerToken(target, "notification-http-redis-token", "notification-http-redis-client");
+		notificationConcurrencyPort.fail();
+
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/notifications", campus.id())
+				.header("Authorization", "Bearer " + ministerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "notificationType": "CUSTOM",
+					  "targetUserIds": [%d],
+					  "title": "공지",
+					  "body": "알림 본문"
+					}
+					""".formatted(target.id())))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(jsonPath("$.code").value("NOTIFICATION_REDIS_UNAVAILABLE"));
+
+		assertThat(notificationLogRepository.count()).isZero();
 	}
 
 	private JsonNode sendCustomNotification(String accessToken, Long campusId, Long targetUserId) throws Exception {
