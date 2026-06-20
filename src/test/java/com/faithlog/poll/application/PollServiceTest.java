@@ -11,6 +11,8 @@ import com.faithlog.campus.application.CampusCreateResult;
 import com.faithlog.campus.application.CampusService;
 import com.faithlog.campus.application.CreateCampusCommand;
 import com.faithlog.campus.application.JoinCampusCommand;
+import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.ChargeGenerationType;
@@ -21,10 +23,13 @@ import com.faithlog.poll.domain.PollStatus;
 import com.faithlog.poll.domain.PollTemplate;
 import com.faithlog.poll.domain.PollType;
 import com.faithlog.poll.domain.SelectionType;
+import com.faithlog.poll.infrastructure.jpa.PollCommentRepository;
 import com.faithlog.poll.infrastructure.jpa.CoffeeBrandRepository;
 import com.faithlog.poll.infrastructure.jpa.CoffeeMenuCatalogRepository;
 import com.faithlog.poll.infrastructure.jpa.PollOptionRepository;
 import com.faithlog.poll.infrastructure.jpa.PollRepository;
+import com.faithlog.poll.infrastructure.jpa.PollResponseOptionRepository;
+import com.faithlog.poll.infrastructure.jpa.PollResponseRepository;
 import com.faithlog.poll.infrastructure.jpa.PollTemplateOptionRepository;
 import com.faithlog.poll.infrastructure.jpa.PollTemplateRepository;
 import com.faithlog.user.domain.User;
@@ -65,6 +70,9 @@ class PollServiceTest {
 	private UserRepository userRepository;
 
 	@Autowired
+	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
 	private CoffeeBrandRepository coffeeBrandRepository;
 
 	@Autowired
@@ -81,6 +89,15 @@ class PollServiceTest {
 
 	@Autowired
 	private PollOptionRepository pollOptionRepository;
+
+	@Autowired
+	private PollResponseRepository pollResponseRepository;
+
+	@Autowired
+	private PollResponseOptionRepository pollResponseOptionRepository;
+
+	@Autowired
+	private PollCommentRepository pollCommentRepository;
 
 	@Test
 	void coffee_catalog_seed_contains_compose_brand_and_user_approved_2026_menu_prices() {
@@ -411,6 +428,198 @@ class PollServiceTest {
 			);
 	}
 
+	@Test
+	void respond_to_single_poll_stores_option_ids_and_updates_existing_response_options() {
+		User manager = saveUser("poll-response-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-response-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "141캠");
+		joinCampus(campus, member);
+		PollResult poll = createOpenCustomPoll(campus.campusId(), manager.id(), "수요예배", SelectionType.SINGLE, false, List.of("참석", "불참"));
+		List<Long> optionIds = poll.options().stream().map(PollOptionResult::id).toList();
+
+		PollResponseResult created = pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(optionIds.get(0)),
+			"참석합니다"
+		));
+		PollResponseResult updated = pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(optionIds.get(1)),
+			"불참으로 수정합니다"
+		));
+
+		assertThat(updated.responseId()).isEqualTo(created.responseId());
+		assertThat(updated.optionIds()).containsExactly(optionIds.get(1));
+		assertThat(pollResponseRepository.findByPollIdAndUserId(poll.id(), member.id())).isPresent();
+		assertThat(pollResponseOptionRepository.findByResponseIdOrderByIdAsc(updated.responseId()))
+			.extracting(responseOption -> responseOption.optionId())
+			.containsExactly(optionIds.get(1));
+	}
+
+	@Test
+	void poll_response_rejects_invalid_option_ids_and_closed_poll() {
+		User manager = saveUser("poll-response-invalid-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-response-invalid-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "142캠");
+		joinCampus(campus, member);
+		PollResult single = createOpenCustomPoll(campus.campusId(), manager.id(), "단일", SelectionType.SINGLE, false, List.of("A", "B"));
+		PollResult multiple = createOpenCustomPoll(campus.campusId(), manager.id(), "복수", SelectionType.MULTIPLE, false, List.of("C", "D"));
+		List<Long> singleOptions = single.options().stream().map(PollOptionResult::id).toList();
+		List<Long> multipleOptions = multiple.options().stream().map(PollOptionResult::id).toList();
+
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), single.id(), member.id(), List.of(), null)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_RESPONSE_INVALID_SELECTION_COUNT)
+			);
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), single.id(), member.id(), singleOptions, null)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_RESPONSE_INVALID_SELECTION_COUNT)
+			);
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), multiple.id(), member.id(), List.of(multipleOptions.get(0), multipleOptions.get(0)), null)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_RESPONSE_DUPLICATE_OPTION)
+			);
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), multiple.id(), member.id(), List.of(singleOptions.get(0)), null)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_OPTION_NOT_FOUND)
+			);
+
+		closePoll(multiple.id());
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), multiple.id(), member.id(), List.of(multipleOptions.get(0)), null)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+	}
+
+	@Test
+	void poll_results_hide_respondents_for_anonymous_poll_and_show_them_for_non_anonymous_poll() {
+		User manager = saveUser("poll-result-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-result-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "143캠");
+		joinCampus(campus, member);
+		PollResult namedPoll = createOpenCustomPoll(campus.campusId(), manager.id(), "비익명", SelectionType.SINGLE, false, List.of("참석", "불참"));
+		PollResult anonymousPoll = createOpenCustomPoll(campus.campusId(), manager.id(), "익명", SelectionType.SINGLE, true, List.of("참석", "불참"));
+		Long namedOptionId = namedPoll.options().get(0).id();
+		Long anonymousOptionId = anonymousPoll.options().get(0).id();
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), namedPoll.id(), member.id(), List.of(namedOptionId), "비익명"));
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), anonymousPoll.id(), member.id(), List.of(anonymousOptionId), "익명"));
+
+		PollResultView namedResult = pollService.getPollResults(campus.campusId(), namedPoll.id(), member.id());
+		PollResultView anonymousResult = pollService.getPollResults(campus.campusId(), anonymousPoll.id(), manager.id());
+
+		assertThat(namedResult.optionResults()).filteredOn(option -> option.optionId().equals(namedOptionId))
+			.singleElement()
+			.satisfies(option -> {
+				assertThat(option.responseCount()).isEqualTo(1);
+				assertThat(option.respondents()).extracting(PollRespondentResult::userId).containsExactly(member.id());
+			});
+		assertThat(anonymousResult.optionResults()).filteredOn(option -> option.optionId().equals(anonymousOptionId))
+			.singleElement()
+			.satisfies(option -> {
+				assertThat(option.responseCount()).isEqualTo(1);
+				assertThat(option.respondents()).isEmpty();
+			});
+	}
+
+	@Test
+	void poll_visibility_uses_three_day_member_window_and_seven_day_admin_window() {
+		User manager = saveUser("poll-window-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-window-member@example.com", UserRole.USER);
+		User admin = saveUser("poll-window-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "144캠");
+		joinCampus(campus, member);
+		PollResult expiredForMember = createOpenCustomPoll(campus.campusId(), manager.id(), "나흘 전 종료", SelectionType.SINGLE, false, List.of("A"));
+		closePollAt(expiredForMember.id(), Instant.now().minusSeconds(4 * 24 * 60 * 60));
+
+		assertThat(pollService.listPolls(campus.campusId(), member.id()))
+			.extracting(PollListItemResult::id)
+			.doesNotContain(expiredForMember.id());
+		assertThatThrownBy(() -> pollService.getPoll(campus.campusId(), expiredForMember.id(), member.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_NOT_FOUND)
+			);
+		assertThat(pollService.listPolls(campus.campusId(), admin.id()))
+			.extracting(PollListItemResult::id)
+			.contains(expiredForMember.id());
+
+		closePollAt(expiredForMember.id(), Instant.now().minusSeconds(8 * 24 * 60 * 60));
+		assertThatThrownBy(() -> pollService.getPollResults(campus.campusId(), expiredForMember.id(), admin.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_NOT_FOUND)
+			);
+	}
+
+	@Test
+	void admin_can_query_missing_poll_members_from_active_members_only() {
+		User manager = saveUser("poll-missing-manager@example.com", UserRole.MANAGER);
+		User responded = saveUser("poll-missing-responded@example.com", UserRole.USER);
+		User missing = saveUser("poll-missing-member@example.com", UserRole.USER);
+		User inactive = saveUser("poll-missing-inactive@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "145캠");
+		joinCampus(campus, responded);
+		joinCampus(campus, missing);
+		joinCampus(campus, inactive);
+		deactivateMembership(campus.campusId(), inactive.id());
+		PollResult poll = createOpenCustomPoll(campus.campusId(), manager.id(), "미참여", SelectionType.SINGLE, false, List.of("A"));
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), responded.id(), List.of(poll.options().get(0).id()), null));
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), manager.id(), List.of(poll.options().get(0).id()), null));
+
+		assertThat(pollService.getMissingMembers(campus.campusId(), poll.id(), manager.id()))
+			.extracting(PollMissingMemberResult::userId)
+			.containsExactly(missing.id());
+	}
+
+	@Test
+	void poll_comments_allow_open_create_and_author_or_admin_update_delete_only() {
+		User manager = saveUser("poll-comment-manager@example.com", UserRole.MANAGER);
+		User author = saveUser("poll-comment-author@example.com", UserRole.USER);
+		User other = saveUser("poll-comment-other@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "146캠");
+		joinCampus(campus, author);
+		joinCampus(campus, other);
+		PollResult poll = createOpenCustomPoll(campus.campusId(), manager.id(), "댓글", SelectionType.SINGLE, false, List.of("A"));
+
+		PollCommentResult comment = pollService.createComment(new CreatePollCommentCommand(campus.campusId(), poll.id(), author.id(), "첫 댓글"));
+
+		assertThatThrownBy(() -> pollService.updateComment(new UpdatePollCommentCommand(campus.campusId(), poll.id(), comment.commentId(), other.id(), "남의 댓글 수정")))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_COMMENT_FORBIDDEN)
+			);
+		assertThat(pollService.updateComment(new UpdatePollCommentCommand(campus.campusId(), poll.id(), comment.commentId(), manager.id(), "관리자 수정")).content())
+			.isEqualTo("관리자 수정");
+		pollService.deleteComment(new DeletePollCommentCommand(campus.campusId(), poll.id(), comment.commentId(), manager.id()));
+
+		assertThat(pollCommentRepository.findById(comment.commentId())).get()
+			.satisfies(saved -> assertThat(saved.isDeleted()).isTrue());
+		assertThat(pollService.listComments(campus.campusId(), poll.id(), author.id()))
+			.singleElement()
+			.satisfies(deleted -> {
+				assertThat(deleted.deleted()).isTrue();
+				assertThat(deleted.content()).isEqualTo("삭제된 댓글입니다.");
+			});
+
+		closePoll(poll.id());
+		assertThatThrownBy(() -> pollService.createComment(new CreatePollCommentCommand(campus.campusId(), poll.id(), author.id(), "마감 후 댓글")))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+		PollResult closedPollWithComment = createOpenCustomPoll(campus.campusId(), manager.id(), "마감 댓글", SelectionType.SINGLE, false, List.of("A"));
+		PollCommentResult closedComment = pollService.createComment(new CreatePollCommentCommand(campus.campusId(), closedPollWithComment.id(), author.id(), "마감 전 댓글"));
+		closePoll(closedPollWithComment.id());
+		assertThatThrownBy(() -> pollService.updateComment(new UpdatePollCommentCommand(campus.campusId(), closedPollWithComment.id(), closedComment.commentId(), author.id(), "마감 후 수정")))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+		assertThatThrownBy(() -> pollService.deleteComment(new DeletePollCommentCommand(campus.campusId(), closedPollWithComment.id(), closedComment.commentId(), author.id())))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+	}
+
 	private Long menuId(String menuCode) {
 		return coffeeMenuCatalogRepository.findByMenuCode(menuCode).orElseThrow().id();
 	}
@@ -445,5 +654,42 @@ class PollServiceTest {
 
 	private void joinCampus(CampusCreateResult campus, User user) {
 		campusService.joinCampus(new JoinCampusCommand(user.id(), campus.inviteCode()));
+	}
+
+	private PollResult createOpenCustomPoll(Long campusId, Long managerId, String title, SelectionType selectionType, boolean anonymous, List<String> optionContents) {
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campusId,
+			managerId,
+			null,
+			title,
+			PollType.CUSTOM,
+			selectionType,
+			anonymous,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			optionContents.stream()
+				.map(content -> new CreatePollOptionCommand(content, null, 0, optionContents.indexOf(content) + 1))
+				.toList()
+		));
+		ReflectionTestUtils.setField(pollRepository.findById(poll.id()).orElseThrow(), "status", PollStatus.OPEN);
+		return pollService.getPoll(campusId, poll.id(), managerId);
+	}
+
+	private void closePoll(Long pollId) {
+		closePollAt(pollId, Instant.now().minusSeconds(60));
+	}
+
+	private void closePollAt(Long pollId, Instant endsAt) {
+		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
+		ReflectionTestUtils.setField(poll, "status", PollStatus.CLOSED);
+		ReflectionTestUtils.setField(poll, "endsAt", endsAt);
+	}
+
+	private void deactivateMembership(Long campusId, Long userId) {
+		CampusMember member = campusMemberRepository.findByCampusIdAndUserId(campusId, userId).orElseThrow();
+		member.deactivate();
 	}
 }
