@@ -16,9 +16,11 @@ import com.faithlog.notification.domain.NotificationType;
 import com.faithlog.notification.domain.SendStatus;
 import com.faithlog.notification.infrastructure.jpa.NotificationLogRepository;
 import com.faithlog.notification.infrastructure.jpa.UserFcmTokenRepository;
+import com.faithlog.support.NotificationConcurrencyTestConfig;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -71,10 +73,14 @@ class NotificationDeliveryWorkerTest {
 	@Autowired
 	private RecordingRetryBackoff recordingRetryBackoff;
 
+	@Autowired
+	private NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
+
 	@BeforeEach
 	void resetFake() {
 		fakeFcmSendPort.reset();
 		recordingRetryBackoff.reset();
+		notificationConcurrencyPort.reset();
 	}
 
 	@Test
@@ -163,6 +169,36 @@ class NotificationDeliveryWorkerTest {
 
 		assertThat(fakeFcmSendPort.transactionActiveDuringSend()).containsOnly(false);
 		assertThat(recordingRetryBackoff.transactionActiveDuringSleep()).containsOnly(false);
+	}
+
+	@Test
+	void worker_does_not_dispatch_when_same_request_lock_is_already_held() {
+		Campus campus = saveCampus("알림캠H");
+		User minister = saveUser("notification-worker-lock-minister@example.com", UserRole.USER);
+		User target = saveUser("notification-worker-lock-target@example.com", UserRole.USER);
+		saveMinister(campus.id(), minister.id());
+		saveMember(campus.id(), target.id());
+		registerToken(target, "lock-held-token", "lock-held-client");
+		SendNotificationResult result = notificationService.requestNotification(new SendNotificationCommand(
+			campus.id(),
+			minister.id(),
+			NotificationType.CUSTOM,
+			List.of(target.id()),
+			null,
+			null,
+			"공지",
+			"알림 본문"
+		));
+		notificationConcurrencyPort.acquire(
+			NotificationLockKey.dispatch(campus.id(), result.notificationRequestId()),
+			Duration.ofMinutes(10)
+		);
+
+		worker.processRequest(result.notificationRequestId());
+
+		List<NotificationLog> logs = notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId());
+		assertThat(logs).extracting(NotificationLog::sendStatus).containsExactly(SendStatus.PENDING);
+		assertThat(fakeFcmSendPort.attempts("lock-held-token")).isZero();
 	}
 
 	@TestConfiguration

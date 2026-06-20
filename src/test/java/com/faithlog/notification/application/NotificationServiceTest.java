@@ -22,6 +22,7 @@ import com.faithlog.notification.domain.NotificationType;
 import com.faithlog.notification.domain.SendStatus;
 import com.faithlog.notification.application.port.NotificationDispatchPort;
 import com.faithlog.notification.infrastructure.jpa.NotificationLogRepository;
+import com.faithlog.support.NotificationConcurrencyTestConfig;
 import com.faithlog.poll.domain.ChargeGenerationType;
 import com.faithlog.poll.domain.Poll;
 import com.faithlog.poll.domain.PollResponse;
@@ -80,6 +81,14 @@ class NotificationServiceTest {
 
 	@MockBean
 	private NotificationDispatchPort notificationDispatchPort;
+
+	@Autowired
+	private NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
+
+	@org.junit.jupiter.api.BeforeEach
+	void resetNotificationConcurrencyPort() {
+		notificationConcurrencyPort.reset();
+	}
 
 	@Test
 	void requestNotification_validates_permission_and_creates_pending_or_skipped_logs_with_same_request_id() {
@@ -257,6 +266,47 @@ class NotificationServiceTest {
 		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(paymentResult.notificationRequestId()))
 			.extracting(NotificationLog::userId)
 			.containsExactly(unpaid.id());
+	}
+
+	@Test
+	void manualAdminNotification_is_not_blocked_by_automatic_business_dedup() {
+		Campus campus = saveCampus("알림캠G");
+		User minister = saveUser("notification-manual-minister@example.com", UserRole.USER);
+		User missing = saveUser("notification-manual-missing@example.com", UserRole.USER);
+		saveMinister(campus.id(), minister.id());
+		saveMember(campus.id(), missing.id());
+		registerToken(missing, "notification-manual-missing-token", "notification-manual-missing-client");
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+		WeeklyDevotionRecord ministerRecord = WeeklyDevotionRecord.create(campus.id(), minister.id(), weekStartDate);
+		ministerRecord.submit(Instant.now());
+		weeklyDevotionRecordRepository.saveAndFlush(ministerRecord);
+
+		SendNotificationResult first = notificationService.requestNotification(new SendNotificationCommand(
+			campus.id(),
+			minister.id(),
+			NotificationType.DEVOTION_MISSING,
+			null,
+			weekStartDate,
+			null,
+			"경건생활 제출 알림",
+			"이번 주 경건생활을 제출해 주세요."
+		));
+		SendNotificationResult second = notificationService.requestNotification(new SendNotificationCommand(
+			campus.id(),
+			minister.id(),
+			NotificationType.DEVOTION_MISSING,
+			null,
+			weekStartDate,
+			null,
+			"경건생활 제출 알림",
+			"이번 주 경건생활을 제출해 주세요."
+		));
+
+		assertThat(first.queuedCount()).isEqualTo(1);
+		assertThat(second.queuedCount()).isEqualTo(1);
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(first.notificationRequestId())).hasSize(1);
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(second.notificationRequestId())).hasSize(1);
+		assertThat(first.notificationRequestId()).isNotEqualTo(second.notificationRequestId());
 	}
 
 	private void registerToken(User user, String token, String clientInstanceId) {
