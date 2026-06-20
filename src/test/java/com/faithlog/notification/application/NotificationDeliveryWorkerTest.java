@@ -9,6 +9,7 @@ import com.faithlog.campus.infrastructure.jpa.CampusRepository;
 import com.faithlog.notification.application.port.FcmSendCommand;
 import com.faithlog.notification.application.port.FcmSendFailureType;
 import com.faithlog.notification.application.port.FcmSendPort;
+import com.faithlog.notification.application.port.NotificationDispatchPort;
 import com.faithlog.notification.domain.DeviceType;
 import com.faithlog.notification.domain.NotificationLog;
 import com.faithlog.notification.domain.NotificationType;
@@ -31,7 +32,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -65,9 +68,13 @@ class NotificationDeliveryWorkerTest {
 	@Autowired
 	private FakeFcmSendPort fakeFcmSendPort;
 
+	@Autowired
+	private RecordingRetryBackoff recordingRetryBackoff;
+
 	@BeforeEach
 	void resetFake() {
 		fakeFcmSendPort.reset();
+		recordingRetryBackoff.reset();
 	}
 
 	@Test
@@ -131,6 +138,33 @@ class NotificationDeliveryWorkerTest {
 		assertThat(userFcmTokenRepository.findActiveSendableTokens(target.id())).hasSize(1);
 	}
 
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void worker_does_not_hold_database_transaction_during_fcm_send_or_retry_sleep() {
+		Campus campus = saveCampus("알림캠F");
+		User minister = saveUser("notification-worker-tx-minister@example.com", UserRole.USER);
+		User target = saveUser("notification-worker-tx-target@example.com", UserRole.USER);
+		saveMinister(campus.id(), minister.id());
+		saveMember(campus.id(), target.id());
+		registerToken(target, "tx-boundary-token", "tx-boundary-client");
+		fakeFcmSendPort.failTransientThenSucceed("tx-boundary-token", 1);
+		SendNotificationResult result = notificationService.requestNotification(new SendNotificationCommand(
+			campus.id(),
+			minister.id(),
+			NotificationType.CUSTOM,
+			List.of(target.id()),
+			null,
+			null,
+			"공지",
+			"알림 본문"
+		));
+
+		worker.processRequest(result.notificationRequestId());
+
+		assertThat(fakeFcmSendPort.transactionActiveDuringSend()).containsOnly(false);
+		assertThat(recordingRetryBackoff.transactionActiveDuringSleep()).containsOnly(false);
+	}
+
 	@TestConfiguration
 	static class FakeFcmConfig {
 
@@ -143,7 +177,13 @@ class NotificationDeliveryWorkerTest {
 		@Bean
 		@Primary
 		NotificationRetryBackoff notificationRetryBackoff() {
-			return retryNumber -> {
+			return new RecordingRetryBackoff();
+		}
+
+		@Bean
+		@Primary
+		NotificationDispatchPort notificationDispatchPort() {
+			return requestId -> {
 			};
 		}
 	}
@@ -153,9 +193,11 @@ class NotificationDeliveryWorkerTest {
 		private final Map<String, Integer> transientFailuresBeforeSuccess = new HashMap<>();
 		private final List<String> permanentFailures = new ArrayList<>();
 		private final Map<String, Integer> attempts = new HashMap<>();
+		private final List<Boolean> transactionActiveDuringSend = new ArrayList<>();
 
 		@Override
 		public void send(FcmSendCommand command) {
+			transactionActiveDuringSend.add(TransactionSynchronizationManager.isActualTransactionActive());
 			attempts.merge(command.token(), 1, Integer::sum);
 			if (permanentFailures.contains(command.token())) {
 				throw new FcmSendException(FcmSendFailureType.PERMANENT, "UNREGISTERED");
@@ -179,10 +221,33 @@ class NotificationDeliveryWorkerTest {
 			return attempts.getOrDefault(token, 0);
 		}
 
+		List<Boolean> transactionActiveDuringSend() {
+			return transactionActiveDuringSend;
+		}
+
 		void reset() {
 			transientFailuresBeforeSuccess.clear();
 			permanentFailures.clear();
 			attempts.clear();
+			transactionActiveDuringSend.clear();
+		}
+	}
+
+	static class RecordingRetryBackoff implements NotificationRetryBackoff {
+
+		private final List<Boolean> transactionActiveDuringSleep = new ArrayList<>();
+
+		@Override
+		public void sleepBeforeRetry(int retryNumber) {
+			transactionActiveDuringSleep.add(TransactionSynchronizationManager.isActualTransactionActive());
+		}
+
+		List<Boolean> transactionActiveDuringSleep() {
+			return transactionActiveDuringSleep;
+		}
+
+		void reset() {
+			transactionActiveDuringSleep.clear();
 		}
 	}
 

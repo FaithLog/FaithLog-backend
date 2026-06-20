@@ -4,13 +4,15 @@ import com.faithlog.notification.application.port.FcmSendCommand;
 import com.faithlog.notification.application.port.FcmSendFailureType;
 import com.faithlog.notification.application.port.FcmSendPort;
 import com.faithlog.notification.domain.NotificationLog;
+import com.faithlog.notification.domain.SendStatus;
 import com.faithlog.notification.domain.UserFcmToken;
 import com.faithlog.notification.infrastructure.jpa.NotificationLogRepository;
 import com.faithlog.notification.infrastructure.jpa.UserFcmTokenRepository;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class NotificationDeliveryWorker {
@@ -21,59 +23,65 @@ public class NotificationDeliveryWorker {
 	private final UserFcmTokenRepository userFcmTokenRepository;
 	private final FcmSendPort fcmSendPort;
 	private final NotificationRetryBackoff retryBackoff;
+	private final TransactionTemplate transactionTemplate;
 
 	public NotificationDeliveryWorker(
 		NotificationLogRepository notificationLogRepository,
 		UserFcmTokenRepository userFcmTokenRepository,
 		FcmSendPort fcmSendPort,
-		NotificationRetryBackoff retryBackoff
+		NotificationRetryBackoff retryBackoff,
+		PlatformTransactionManager transactionManager
 	) {
 		this.notificationLogRepository = notificationLogRepository;
 		this.userFcmTokenRepository = userFcmTokenRepository;
 		this.fcmSendPort = fcmSendPort;
 		this.retryBackoff = retryBackoff;
+		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
-	@Transactional
 	public void processRequest(UUID requestId) {
-		List<NotificationLog> pendingLogs = notificationLogRepository
-			.findByRequestIdAndSendStatusOrderByIdAsc(requestId, com.faithlog.notification.domain.SendStatus.PENDING);
+		List<PendingNotificationLog> pendingLogs = transactionTemplate.execute(status -> notificationLogRepository
+			.findByRequestIdAndSendStatusOrderByIdAsc(requestId, SendStatus.PENDING)
+			.stream()
+			.map(PendingNotificationLog::from)
+			.toList());
 		pendingLogs.forEach(this::processLog);
 	}
 
-	private void processLog(NotificationLog log) {
-		List<UserFcmToken> tokens = userFcmTokenRepository.findActiveSendableTokens(log.userId());
+	private void processLog(PendingNotificationLog log) {
+		List<PendingFcmToken> tokens = transactionTemplate.execute(status -> userFcmTokenRepository
+			.findActiveSendableTokens(log.userId())
+			.stream()
+			.map(PendingFcmToken::from)
+			.toList());
 		if (tokens.isEmpty()) {
-			log.markSkipped("NO_ACTIVE_FCM_TOKEN");
+			markLogSkipped(log.id(), "NO_ACTIVE_FCM_TOKEN");
 			return;
 		}
 
 		boolean sent = false;
 		String lastFailureReason = null;
-		for (UserFcmToken token : tokens) {
+		for (PendingFcmToken token : tokens) {
 			try {
 				sendWithRetry(token, log);
 				sent = true;
 			} catch (FcmSendException exception) {
 				lastFailureReason = exception.getMessage();
-				token.recordFailure(lastFailureReason);
-				if (exception.failureType() == FcmSendFailureType.PERMANENT) {
-					token.deactivate();
-				}
+				recordTokenFailure(token.id(), lastFailureReason, exception.failureType() == FcmSendFailureType.PERMANENT);
 			} catch (RuntimeException exception) {
 				lastFailureReason = exception.getMessage();
-				token.recordFailure(lastFailureReason);
+				recordTokenFailure(token.id(), lastFailureReason, false);
 			}
 		}
 
 		if (sent) {
-			log.markSent();
+			markLogSent(log.id());
 		} else {
-			log.markFailed(lastFailureReason == null ? "FCM_SEND_FAILED" : lastFailureReason);
+			markLogFailed(log.id(), lastFailureReason == null ? "FCM_SEND_FAILED" : lastFailureReason);
 		}
 	}
 
-	private void sendWithRetry(UserFcmToken token, NotificationLog log) {
+	private void sendWithRetry(PendingFcmToken token, PendingNotificationLog log) {
 		int attempt = 0;
 		while (true) {
 			try {
@@ -93,5 +101,36 @@ public class NotificationDeliveryWorker {
 				retryBackoff.sleepBeforeRetry(attempt);
 			}
 		}
+	}
+
+	private void markLogSkipped(Long logId, String failureReason) {
+		transactionTemplate.executeWithoutResult(status -> {
+			NotificationLog log = notificationLogRepository.findById(logId).orElseThrow();
+			log.markSkipped(failureReason);
+		});
+	}
+
+	private void markLogSent(Long logId) {
+		transactionTemplate.executeWithoutResult(status -> {
+			NotificationLog log = notificationLogRepository.findById(logId).orElseThrow();
+			log.markSent();
+		});
+	}
+
+	private void markLogFailed(Long logId, String failureReason) {
+		transactionTemplate.executeWithoutResult(status -> {
+			NotificationLog log = notificationLogRepository.findById(logId).orElseThrow();
+			log.markFailed(failureReason);
+		});
+	}
+
+	private void recordTokenFailure(Long tokenId, String failureReason, boolean deactivate) {
+		transactionTemplate.executeWithoutResult(status -> {
+			UserFcmToken token = userFcmTokenRepository.findById(tokenId).orElseThrow();
+			token.recordFailure(failureReason);
+			if (deactivate) {
+				token.deactivate();
+			}
+		});
 	}
 }
