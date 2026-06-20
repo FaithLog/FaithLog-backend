@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-20 - Issue #39 Coffee Poll Charge Settlement Timing
+
+- Context: Issue #39 originally had older local wording that could imply `COFFEE` charges are created during poll response writes, while the latest user decision and Notion/API pages moved charge generation to closed-poll settlement.
+- Decision: `PUT /api/v1/campuses/{campusId}/polls/{pollId}/responses/me` only saves the current response and `poll_response_options`. `COFFEE` charge rows are generated or updated by a closed coffee poll settlement application service after the poll is `CLOSED`, using final responses, `poll_options.price_amount`/`content` snapshots, `sourceType = POLL_RESPONSE`, `sourceId = poll_responses.id`, `paymentCategory = COFFEE`, and `dueDate = null`.
+- Decision: Settlement target polls are `poll_type = COFFEE`, `charge_generation_type = OPTION_PRICE`, `payment_category = COFFEE`, and `status = CLOSED`. Settlement is idempotent, keeps terminal `PAID`/`WAIVED`/`CANCELED` `COFFEE` charges unchanged, requires an active `DutyType.COFFEE` assignee and a valid active same-campus `COFFEE` account from `polls.payment_account_id`, and runs all-or-nothing in one transaction.
+- Impact: Issue #39 implementation must use a Poll application port/adapter to Billing so Poll domain code does not directly manipulate Billing entities. Scheduler/Batch invocation remains Issue #24 scope, and no separate user-facing coffee charge creation API is added.
+
 ### 2026-06-20 - Issue #38 Poll PM Review Contract Clarifications
 
 - Context: PM review found that empty `optionIds` could be intercepted by controller validation, SCHEDULED/future polls could be writable and visible, and response option replacement could hit the `(response_id, option_id)` unique constraint when the same options were saved again.
