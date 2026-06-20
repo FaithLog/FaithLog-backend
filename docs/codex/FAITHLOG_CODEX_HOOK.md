@@ -335,6 +335,37 @@ PUT /api/v1/campuses/{campusId}/polls/{pollId}/responses/me
 
 OPEN 투표에서는 기존 응답을 수정할 수 있다. CLOSED 투표에서는 응답과 재투표를 막는다.
 
+투표 결과 조회는 일반 캠퍼스 ACTIVE 멤버도 사용할 수 있다.
+
+투표 결과 조회는 항목별 조회 API가 아니라 투표별 전체 결과 조회 API 하나로 구현한다.
+
+```text
+GET /api/v1/campuses/{campusId}/polls/{pollId}/results
+```
+
+MVP에서는 `/options/{optionId}/results` 같은 선택지 단위 결과 조회 API를 만들지 않는다.
+
+비익명 투표(`isAnonymous = false`)는 결과 조회에서 누가 어느 선택지에 투표했는지 노출할 수 있다.
+
+익명 투표(`isAnonymous = true`)는 아무도 누가 어느 선택지에 투표했는지 식별할 수 없어야 한다. 결과 조회 응답은 선택지별 집계만 노출하고 응답자 `userId`, 이름, 이메일, 선택지별 응답자 목록을 숨긴다.
+
+익명 투표에서도 `poll_responses.user_id`는 중복 응답 방지, 내 응답 수정, 미참여자 계산을 위해 저장한다. 단, 익명 결과 API에서 이를 노출하지 않는다.
+
+투표 결과 조회와 지난 투표 조회 가능 기간은 `polls.ends_at` 기준으로 제한한다.
+
+- 일반 사용자/캠퍼스 ACTIVE 멤버 화면과 API: 종료 후 3일까지만 지난 투표, 투표 상세, 투표 결과를 볼 수 있다.
+- 관리자 화면과 API: 종료 후 7일까지만 지난 투표, 투표 상세, 투표 결과를 볼 수 있다.
+- 공개 기간이 지난 투표는 목록에서 제외하고, 직접 조회도 투표/결과 데이터를 노출하지 않는다.
+
+커피 브랜드/메뉴 카탈로그 조회 API는 아래 경로를 사용한다.
+
+```text
+GET /api/v1/coffee-brands
+GET /api/v1/coffee-brands/{brandId}/menus
+```
+
+컴포즈커피 메뉴 seed는 구현 시점에 접근 가능한 컴포즈커피 공식 메뉴판/공식 앱/공식 메뉴 이미지를 기준으로 한다. 가격은 청구 금액에 직접 영향을 주므로 비공식 블로그나 임의 추정값을 기준으로 삼지 않는다.
+
 ### 3.9 투표 댓글 기준
 
 투표 댓글은 MVP에 포함한다.
@@ -364,6 +395,29 @@ DELETE /api/v1/campuses/{campusId}/polls/{pollId}/comments/{commentId}
 커피 주문은 투표 기능을 사용한다.
 
 커피 투표 템플릿은 기본으로 제공한다.
+
+커피 주문 브랜드는 MVP에서 컴포즈커피만 사용한다.
+
+커피 메뉴명과 가격은 청구 금액으로 이어지므로 프론트 전용 데이터나 Java enum 상수로 관리하지 않는다.
+
+Issue #37은 백엔드 기준 데이터로 아래 구조를 추가한다.
+
+```text
+coffee_brands
+coffee_menu_catalog
+```
+
+MVP seed 기준:
+
+- `coffee_brands`: 컴포즈커피 1개
+- `coffee_menu_catalog`: 현재 컴포즈커피 전체 메뉴
+- 기본 커피 투표 템플릿 옵션: 아이스 아메리카노, 아메리카노, 아이스티, 아이스 라떼, 라떼
+
+추가 선택지는 프론트가 백엔드 메뉴 카탈로그를 조회한 뒤 선택해서 `poll_template_options`에 복사 저장한다.
+
+`poll_template_options`와 `poll_options`는 생성 당시의 메뉴 코드, 메뉴명, 가격을 snapshot으로 저장한다. 이후 카탈로그 가격이 바뀌어도 이미 생성된 템플릿, 투표, 청구 금액은 조용히 변경하지 않는다.
+
+컴포즈커피 전체 메뉴 seed 목록과 가격은 개발 전에 공식 메뉴판 또는 사용자가 승인한 최신 자료로 검증해야 하며, Codex가 임의로 추측해서 채우지 않는다.
 
 커피 담당자는 기본 커피 투표 템플릿의 아래 시간을 설정할 수 있다.
 

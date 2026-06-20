@@ -7,6 +7,7 @@ import com.faithlog.campus.domain.CampusMemberStatus;
 import com.faithlog.campus.domain.DutyType;
 import com.faithlog.campus.application.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.application.port.CampusCreationSideEffectPort;
 import com.faithlog.campus.application.port.CampusRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
 import com.faithlog.campus.application.port.CampusUserLookupResult;
@@ -25,6 +26,7 @@ public class CampusService {
 	private final CampusRepositoryPort campusRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
+	private final List<CampusCreationSideEffectPort> campusCreationSideEffectPorts;
 	private final CampusUserLookupPort userLookupPort;
 	private final InviteCodeGenerator inviteCodeGenerator;
 
@@ -32,12 +34,14 @@ public class CampusService {
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
+		List<CampusCreationSideEffectPort> campusCreationSideEffectPorts,
 		CampusUserLookupPort userLookupPort,
 		InviteCodeGenerator inviteCodeGenerator
 	) {
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
+		this.campusCreationSideEffectPorts = campusCreationSideEffectPorts;
 		this.userLookupPort = userLookupPort;
 		this.inviteCodeGenerator = inviteCodeGenerator;
 	}
@@ -54,6 +58,7 @@ public class CampusService {
 			generateUniqueInviteCode()
 		));
 		CampusMember creatorMembership = campusMemberRepository.save(CampusMember.createMinister(campus.id(), requester.userId()));
+		campusCreationSideEffectPorts.forEach(port -> port.afterCampusCreated(campus.id()));
 		return CampusCreateResult.of(campus, creatorMembership);
 	}
 

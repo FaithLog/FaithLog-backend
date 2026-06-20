@@ -292,6 +292,14 @@ Issue #39 is P0.
 - Duplicate charge prevention must be covered by a unique index test.
 - Poll must not directly reference Billing Entity. Keep the flow in the application layer.
 - If coffee poll setup or charge generation requires a coffee duty assignee and no active `CampusDutyAssignment` with `DutyType.COFFEE` exists for the campus, fail clearly with the user-facing message `관리자에게 문의하세요`.
+- Issue #37 provides the coffee brand/menu catalog used by coffee poll templates.
+- MVP coffee ordering is limited to Compose Coffee.
+- Coffee menu names and prices must not be frontend-only data or Java enum constants because they affect billing.
+- Issue #37 must seed one active Compose Coffee brand and all current Compose Coffee menu items into backend catalog data.
+- The default coffee poll template starts with iced americano, americano, iced tea, iced latte, and latte options.
+- Additional coffee template options are selected from the backend menu catalog and copied into `poll_template_options`.
+- `poll_template_options` and `poll_options` keep copied `composeMenuCode`, display name, and `priceAmount` snapshots so later catalog price changes do not mutate existing templates, polls, or charges.
+- Brand/menu admin CRUD and additional brand onboarding are outside Issue #37 unless the user approves a separate issue.
 
 ## Payment Account And Charge Foundation
 
@@ -330,6 +338,18 @@ Issue #34 is P0.
 - Poll response requests must use `optionIds`.
 - Selected options must be stored in `poll_response_options`.
 - Do not implement request field `optionId` or `poll_responses.option_id` from older API drafts.
+- Coffee brand lookup uses `GET /api/v1/coffee-brands`.
+- Coffee menu catalog lookup uses `GET /api/v1/coffee-brands/{brandId}/menus`.
+- Compose Coffee menu catalog seed data must come from the official Compose Coffee menu source available at implementation time. Do not use unofficial blog/menu screenshots as the price source of truth.
+- Poll results are visible to all active campus members.
+- Poll result lookup is a single poll-level API: `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`.
+- Do not create option-level poll result endpoints for MVP.
+- For non-anonymous polls, result responses may expose who voted for each option.
+- For anonymous polls, result responses must expose aggregate counts only and must not expose voter user IDs, names, emails, or option-level respondent identity to any user.
+- `poll_responses.user_id` is still stored for duplicate response prevention, response editing, missing-member calculation, and internal auditing, but anonymous result APIs must not reveal it.
+- User-facing past poll, poll detail, and poll result visibility is limited to 3 days after `polls.ends_at`.
+- Admin-facing past poll, poll detail, and poll result visibility is limited to 7 days after `polls.ends_at`.
+- After the visibility window expires, expired polls must be excluded from lists and direct lookup must not expose poll/result data.
 
 ## Prayer Requests
 
