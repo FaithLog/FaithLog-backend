@@ -13,16 +13,31 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-19, 138 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 28 test files (2026-06-19) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 57 snippet groups (2026-06-19) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-19) | 성공 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-20, 152 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 30 test files (2026-06-20) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 77 snippet groups (2026-06-20) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-20) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 8 top-level modules, 231 Java sources (2026-06-19) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 8 top-level modules, 310 Java sources (2026-06-20) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-06-20
+
+- #38 투표 응답과 결과 조회 구현:
+  - 브랜치: `feat/38-poll-response-result`
+  - 구현 API: `GET /api/v1/campuses/{campusId}/polls`, `GET /api/v1/campuses/{campusId}/polls/{pollId}`, `PUT /api/v1/campuses/{campusId}/polls/{pollId}/responses/me`, `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`, `GET /api/v1/admin/campuses/{campusId}/polls/{pollId}/missing-members`, 투표 댓글 CRUD.
+  - 구현 모델: `PollResponse`, `PollResponseOption`, `PollComment`; 응답 묶음은 `poll_responses`, 선택지는 `poll_response_options`에 저장.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.poll.application.PollServiceTest`가 `PollResponseRepository`, `RespondToPollCommand`, `PollResultView`, poll 상세 error code 등 부재로 `compileTestJava` 실패.
+  - 검증 범위: SINGLE 1개 선택, MULTIPLE 1개 이상 선택, 빈/중복/다른 poll option 실패, 기존 OPEN 응답 수정, CLOSED 응답 차단, 비익명 결과 응답자 노출, 익명 결과 응답자 식별 정보 숨김, 일반 3일/관리자 7일 visibility window, 공개 기간 만료 후 직접 조회 미노출, ACTIVE 멤버 기준 미참여자 조회, 댓글 작성/수정/삭제 권한, CLOSED 댓글 write 차단, soft delete 표시.
+  - REST Docs 결과: #38 poll response/result/comment/missing-member snippets 추가, 전체 snippet group 77개.
+  - 확정 ErrorCode 계약: `POLL_NOT_FOUND`, `POLL_OPTION_NOT_FOUND`, `POLL_RESPONSE_INVALID_SELECTION_COUNT`, `POLL_RESPONSE_DUPLICATE_OPTION`, `POLL_CLOSED`, `POLL_ACCESS_FORBIDDEN`, `POLL_ADMIN_FORBIDDEN`, `POLL_COMMENT_NOT_FOUND`, `POLL_COMMENT_FORBIDDEN`.
+  - 재검증: `./gradlew test --tests com.faithlog.poll.application.PollServiceTest --tests com.faithlog.poll.presentation.PollApiRestDocsTest` 성공, `./gradlew test` 성공(152 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고, 권한 상승 재실행으로 성공.
+  - Docker 검증: `docker compose build app` 성공, `docker compose up -d` 성공, postgres/redis healthy, backend container started, 컨테이너 내부 `GET /actuator/health` 응답 `{"status":"UP"}` 확인. 현재 Codex host에서 `curl localhost:8080`/`127.0.0.1:8080`은 연결 실패했지만 컨테이너 내부 health는 정상.
+  - 제외 범위 준수: #39 커피 청구 자동 생성/갱신 및 `charge_items.source_type=POLL_RESPONSE` 연결 미구현, #24 Scheduler/Batch 미구현, #37 투표 생성/템플릿 재구현 없음, 선택지 단위 결과 API 미구현, 익명 댓글 미구현, 점심 투표/주문/청구 미구현, Swagger 문서화 어노테이션 추가 없음.
+  - 코드베이스 수치: Java 소스 310개, 테스트 파일 30개.
 
 ### 2026-06-19
 
@@ -439,6 +454,11 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-06-17 | #27 CI test profile override fix | 성공 | PR #47 Backend CI 실패 원인 확인, CI env 재현 실패 확인, 수정 후 `./gradlew test --tests '*AuthServiceTest'` 성공, `./gradlew test --rerun-tasks` 11초 성공, `./gradlew build` 2초 성공 | GitHub Actions 재실행 후 원격 check 통과 확인 |
 
 ## Resume Bullet Candidates
+
+- 2026-06-20 #38 PM 검토 보완
+  - 컨트롤러 `@NotEmpty`로 빈 `optionIds`가 `GLOBAL_VALIDATION_FAILED`로 뭉개지던 경로를 제거하고, 서비스 검증에서 `POLL_RESPONSE_INVALID_SELECTION_COUNT` 계약을 반환하도록 보정.
+  - `SCHEDULED`/future poll의 응답·댓글 write와 일반 ACTIVE 멤버 목록/상세 노출을 차단하고, 같은 선택지 재저장 시 `(response_id, option_id)` unique 충돌이 나지 않도록 response option bulk delete를 적용.
+  - TDD 실패 확인: 대상 테스트 4건 실패로 이슈 재현 후 수정.
 
 - 2026-06-19 #37 투표 템플릿과 투표 생성 구현
   - 사용자 승인 seed 기준: 공식 사이트 접근 차단 후 사용자가 제공한 `컴포즈커피 메뉴 가격 2026년 최신 버전` 목록을 승인된 seed 원천으로 기록.

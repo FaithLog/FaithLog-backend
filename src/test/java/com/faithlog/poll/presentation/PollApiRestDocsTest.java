@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,6 +27,8 @@ import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.campus.application.AssignCoffeeDutyCommand;
 import com.faithlog.campus.application.CampusService;
+import com.faithlog.poll.domain.PollStatus;
+import com.faithlog.poll.infrastructure.jpa.PollRepository;
 import com.faithlog.poll.infrastructure.jpa.CoffeeMenuCatalogRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
@@ -59,6 +62,9 @@ class PollApiRestDocsTest {
 
 	@Autowired
 	private CoffeeMenuCatalogRepository coffeeMenuCatalogRepository;
+
+	@Autowired
+	private PollRepository pollRepository;
 
 	@Autowired
 	private BillingService billingService;
@@ -284,6 +290,276 @@ class PollApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_poll_response_result_missing_members_and_comment_contracts() throws Exception {
+		String managerToken = signupAndLogin("docs-poll38-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-poll38-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "38문서캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-poll38-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-poll38-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String missingToken = signupAndLogin("docs-poll38-missing@example.com", UserRole.USER);
+		User missing = userRepository.findByEmail("docs-poll38-missing@example.com").orElseThrow();
+		joinCampus(missingToken, campus.path("inviteCode").asText());
+
+		JsonNode poll = createCustomPoll(managerToken, campusId, "38 비익명 투표", false, "MULTIPLE");
+		long pollId = poll.path("id").asLong();
+		long firstOptionId = poll.path("options").get(0).path("id").asLong();
+		long secondOptionId = poll.path("options").get(1).path("id").asLong();
+		openPoll(pollId);
+		JsonNode anonymousPoll = createCustomPoll(managerToken, campusId, "38 익명 투표", true, "SINGLE");
+		long anonymousPollId = anonymousPoll.path("id").asLong();
+		long anonymousOptionId = anonymousPoll.path("options").get(0).path("id").asLong();
+		openPoll(anonymousPollId);
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "optionIds": [%d, %d],
+					  "memo": "복수 선택합니다"
+					}
+					""".formatted(firstOptionId, secondOptionId)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.optionIds[0]").value(firstOptionId))
+			.andDo(document("poll-response-upsert-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				requestFields(pollResponseRequestFields()),
+				relaxedResponseFields(pollMyResponseFields())
+			));
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "optionIds": [%d, %d],
+					  "memo": "중복 선택"
+					}
+					""".formatted(firstOptionId, firstOptionId)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("POLL_RESPONSE_DUPLICATE_OPTION"))
+			.andDo(document("poll-response-duplicate-option-error",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				requestFields(pollResponseRequestFields()),
+				responseFields(errorResponseFields())
+			));
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "optionIds": [],
+					  "memo": "빈 선택"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("POLL_RESPONSE_INVALID_SELECTION_COUNT"))
+			.andExpect(jsonPath("$.message").value("투표 선택 개수가 올바르지 않습니다."))
+			.andDo(document("poll-response-empty-selection-count-error",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				requestFields(emptyPollResponseRequestFields()),
+				responseFields(errorResponseFields())
+			));
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, anonymousPollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "optionIds": [%d],
+					  "memo": "익명 응답"
+					}
+					""".formatted(anonymousOptionId)))
+			.andExpect(status().isOk());
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, pollId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "optionIds": [%d],
+					  "memo": "관리자 응답"
+					}
+					""".formatted(firstOptionId)))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/polls", campusId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[?(@.id == %d)]".formatted(pollId)).exists())
+			.andDo(document("poll-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				relaxedResponseFields(apiResponseFields(fieldWithPath("data[]").description("조회 가능한 투표 목록")))
+			));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/polls/{pollId}", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.myResponse.optionIds[0]").value(firstOptionId))
+			.andDo(document("poll-detail-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				relaxedResponseFields(apiResponseFields(
+					fieldWithPath("data.id").description("투표 ID"),
+					fieldWithPath("data.options[]").description("선택지 목록"),
+					fieldWithPath("data.myResponse").optional().description("현재 로그인 사용자의 응답. 미응답이면 null")
+				))
+			));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/polls/{pollId}/results", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.optionResults[0].respondents[0].userId").exists())
+			.andDo(document("poll-results-non-anonymous-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				relaxedResponseFields(pollResultsFields())
+			));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/polls/{pollId}/results", campusId, anonymousPollId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.anonymous").value(true))
+			.andExpect(jsonPath("$.data.optionResults[0].respondents").isEmpty())
+			.andDo(document("poll-results-anonymous-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				relaxedResponseFields(pollResultsFields())
+			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/polls/{pollId}/missing-members", campusId, pollId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].userId").value(missing.id()))
+			.andDo(document("poll-missing-members-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				relaxedResponseFields(apiResponseFields(fieldWithPath("data[]").description("ACTIVE 멤버 중 해당 투표 응답이 없는 사용자 목록")))
+			));
+
+		String commentBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/polls/{pollId}/comments", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "content": "참석합니다"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.content").value("참석합니다"))
+			.andDo(document("poll-comment-create-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				requestFields(commentRequestFields()),
+				relaxedResponseFields(commentResponseFields())
+			))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long commentId = objectMapper.readTree(commentBody).path("data").path("commentId").asLong();
+
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/polls/{pollId}/comments/{commentId}", campusId, pollId, commentId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "content": "관리자가 수정했습니다"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.content").value("관리자가 수정했습니다"))
+			.andDo(document("poll-comment-update-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID"),
+					parameterWithName("commentId").description("댓글 ID")
+				),
+				requestFields(commentRequestFields()),
+				relaxedResponseFields(commentResponseFields())
+			));
+
+		mockMvc.perform(delete("/api/v1/campuses/{campusId}/polls/{pollId}/comments/{commentId}", campusId, pollId, commentId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNoContent())
+			.andDo(document("poll-comment-delete-success",
+				preprocessRequest(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID"),
+					parameterWithName("commentId").description("댓글 ID")
+				)
+			));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/polls/{pollId}/comments", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].deleted").value(true))
+			.andExpect(jsonPath("$.data[0].content").value("삭제된 댓글입니다."))
+			.andDo(document("poll-comments-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				relaxedResponseFields(apiResponseFields(fieldWithPath("data[]").description("투표 댓글 목록")))
+			));
+	}
+
 	private FieldDescriptor[] templateRequestFields() {
 		return new FieldDescriptor[] {
 			fieldWithPath("title").description("템플릿 제목"),
@@ -382,6 +658,72 @@ class PollApiRestDocsTest {
 			fieldWithPath("data.endsAt").description("종료 시각"),
 			fieldWithPath("data.status").description("투표 상태"),
 			fieldWithPath("data.options[]").description("선택지 목록")
+		);
+	}
+
+	private FieldDescriptor[] pollResponseRequestFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("optionIds[]").description("선택한 투표 선택지 ID 목록"),
+			fieldWithPath("memo").optional().description("응답 메모")
+		};
+	}
+
+	private FieldDescriptor[] emptyPollResponseRequestFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("optionIds").type(JsonFieldType.ARRAY).description("선택한 투표 선택지 ID 목록. 빈 배열은 POLL_RESPONSE_INVALID_SELECTION_COUNT로 실패"),
+			fieldWithPath("memo").optional().description("응답 메모")
+		};
+	}
+
+	private FieldDescriptor[] pollMyResponseFields() {
+		return apiResponseFields(
+			fieldWithPath("data.responseId").description("응답 ID"),
+			fieldWithPath("data.pollId").description("투표 ID"),
+			fieldWithPath("data.optionIds[]").description("선택한 선택지 ID 목록"),
+			fieldWithPath("data.memo").optional().description("응답 메모"),
+			fieldWithPath("data.respondedAt").description("응답 시각")
+		);
+	}
+
+	private FieldDescriptor[] pollResultsFields() {
+		return apiResponseFields(
+			fieldWithPath("data.pollId").description("투표 ID"),
+			fieldWithPath("data.campusId").description("캠퍼스 ID"),
+			fieldWithPath("data.title").description("투표 제목"),
+			fieldWithPath("data.pollType").description("투표 타입"),
+			fieldWithPath("data.selectionType").description("선택 방식"),
+			fieldWithPath("data.anonymous").description("익명 여부"),
+			fieldWithPath("data.status").description("투표 상태"),
+			fieldWithPath("data.startsAt").description("시작 시각"),
+			fieldWithPath("data.endsAt").description("종료 시각"),
+			fieldWithPath("data.targetMemberCount").description("응답 대상 ACTIVE 멤버 수"),
+			fieldWithPath("data.respondedCount").description("응답자 수"),
+			fieldWithPath("data.notRespondedCount").description("미응답자 수"),
+			fieldWithPath("data.optionResults[]").description("선택지별 결과"),
+			fieldWithPath("data.optionResults[].id").description("선택지 ID"),
+			fieldWithPath("data.optionResults[].content").description("선택지 내용"),
+			fieldWithPath("data.optionResults[].sortOrder").description("정렬 순서"),
+			fieldWithPath("data.optionResults[].responseCount").description("선택지 응답 수"),
+			fieldWithPath("data.optionResults[].respondents[]").description("비익명 투표의 선택지별 응답자 목록. 익명 투표에서는 빈 배열")
+		);
+	}
+
+	private FieldDescriptor[] commentRequestFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("content").description("댓글 내용")
+		};
+	}
+
+	private FieldDescriptor[] commentResponseFields() {
+		return apiResponseFields(
+			fieldWithPath("data.commentId").description("댓글 ID"),
+			fieldWithPath("data.pollId").description("투표 ID"),
+			fieldWithPath("data.userId").description("작성자 ID"),
+			fieldWithPath("data.name").description("작성자 이름"),
+			fieldWithPath("data.content").description("댓글 내용. 삭제된 댓글이면 삭제 안내 문구"),
+			fieldWithPath("data.deleted").description("삭제 여부"),
+			fieldWithPath("data.createdAt").description("생성 시각"),
+			fieldWithPath("data.updatedAt").description("수정 시각")
 		);
 	}
 
@@ -488,5 +830,40 @@ class PollApiRestDocsTest {
 
 	private long menuId(String menuCode) {
 		return coffeeMenuCatalogRepository.findByMenuCode(menuCode).orElseThrow().id();
+	}
+
+	private JsonNode createCustomPoll(String accessToken, long campusId, String title, boolean anonymous, String selectionType) throws Exception {
+		String body = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
+				.header("Authorization", "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "templateId": null,
+					  "title": "%s",
+					  "pollType": "CUSTOM",
+					  "selectionType": "%s",
+					  "isAnonymous": %s,
+					  "chargeGenerationType": "NONE",
+					  "paymentCategory": null,
+					  "paymentAccountId": null,
+					  "startsAt": "2026-06-20T00:00:00Z",
+					  "endsAt": "2026-06-21T00:00:00Z",
+					  "options": [
+					    {"content": "참석", "menuId": null, "priceAmount": 0, "sortOrder": 1},
+					    {"content": "불참", "menuId": null, "priceAmount": 0, "sortOrder": 2}
+					  ]
+					}
+					""".formatted(title, selectionType, anonymous)))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		return objectMapper.readTree(body).path("data");
+	}
+
+	private void openPoll(long pollId) {
+		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
+		ReflectionTestUtils.setField(poll, "status", PollStatus.OPEN);
+		pollRepository.saveAndFlush(poll);
 	}
 }
