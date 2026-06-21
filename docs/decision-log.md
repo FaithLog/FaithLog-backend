@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-21 - Issue #23 Campus Admin Dashboard Summary Contract
+
+- Context: Issue #23 was verified against the latest Notion API design and GitHub issue text. The scope is a campus-internal admin dashboard summary API, not the service-level `ADMIN` user/campus management API implemented by Issue #61.
+- Decision: Issue #23 uses `GET /api/v1/admin/campuses/{campusId}/dashboard/summary`. The primary users are `ACTIVE` campus members with `campus_members.campus_role` of `MINISTER`, `ELDER`, or `CAMPUS_LEADER`. Service-level `ADMIN` may access every campus dashboard. Plain `MEMBER`, managers of other campuses, and users with only the global `MANAGER` role may not access the dashboard.
+- Decision: `weekStartDate` is an optional query parameter. If omitted, the server calculates the current week's Monday using `Asia/Seoul`. If provided, `weekStartDate` must be a Monday; invalid dates or non-Monday dates return 400. The member summary includes `activeCount`, `inactiveCount`, and `adminCount`. The devotion summary uses `weekly_devotion_records.submitted_at` for the selected week and includes submitted count, missing count, and submit rate. The billing summary includes total unpaid amount, unpaid member count, and category-level unpaid amounts for `PENALTY` and `COFFEE`. The poll summary includes open poll count, recently closed poll count for the last 7 days, and missing-response count only; detailed missing-member lists remain in the Issue #38 API.
+- Impact: Issue #23 implementation must not reimplement #61 service-admin management, #31 devotion missing detail, #36 billing detail, #38 poll result/missing-member detail, or #40 notification log APIs. REST Docs tests must lock the summary response fields, permission matrix, optional `weekStartDate` default behavior, non-Monday validation, category-level billing summary, and 7-day recently closed poll rule.
+
 ### 2026-06-20 - Issue #41 Notification Redis Dedup And Lock Policy
 
 - Context: Issue #41 adds Redis-based duplicate prevention and execution locks on top of the Issue #40 notification flow without adding new notification APIs or moving source-of-truth data into Redis.
