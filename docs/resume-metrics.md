@@ -13,18 +13,30 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-21, 224 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 50 test files (2026-06-21) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 94 snippet groups (2026-06-21) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-21, 228 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 52 test files (2026-06-21) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-21) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-21) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 415 Java sources (2026-06-21) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 418 Java sources (2026-06-21) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-06-21
+
+- #23 캠퍼스 관리자 대시보드 통합 조회 API 구현:
+  - 브랜치: `feat/23-campus-admin-dashboard-summary`
+  - 구현 API: `GET /api/v1/admin/campuses/{campusId}/dashboard/summary`
+  - 구현 범위: 캠퍼스 기본 정보, ACTIVE/비ACTIVE/관리자 멤버 수, `weekly_devotion_records.submitted_at` 기준 주간 제출/미제출/제출률, `charge_items.status=UNPAID` 기준 총액/미납자/`PENALTY`·`COFFEE` 카테고리별 금액, OPEN 투표 수, 최근 7일 CLOSED 투표 수, OPEN 투표 미응답자 수 총합.
+  - 권한 정책: 서비스 전역 `ADMIN`은 모든 캠퍼스 접근 가능. 캠퍼스 내부 `ACTIVE + MINISTER/ELDER/CAMPUS_LEADER`만 해당 캠퍼스 조회 가능. 일반 `MEMBER`, 다른 캠퍼스 관리자, 전역 `MANAGER` 단독 사용자는 403/`ADMIN_DASHBOARD_ACCESS_FORBIDDEN`.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminDashboardControllerTest`가 신규 `/dashboard/summary` endpoint 부재로 3 tests failed 상태를 먼저 확인.
+  - REST Docs 결과: `admin-dashboard-summary-success`, `admin-dashboard-summary-invalid-week-start-date` snippet 추가 및 `src/docs/asciidoc/index.adoc`의 `Campus Admin Dashboard` 섹션에 연결.
+  - 재검증: dashboard controller/REST Docs 테스트 성공, `./gradlew test` 성공(228 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공.
+  - 정적 검사: `git diff --check` 성공, Swagger 문서화 annotation 검색 0건, Controller Entity 직접 반환 신규 추가 없음, 금지어 검색은 허용된 hook/policy 문서 예시와 기존 poll option 내부 식별자만 확인.
+  - Docker/API QA: `docker compose up -d --build postgres redis app` 성공, `GET /actuator/health` 200/`{"status":"UP"}` 확인. 실제 API와 Postgres fixture로 캠퍼스/멤버/권한, 경건생활 제출 3명·미제출 1명, 미납 `PENALTY 32000`·`COFFEE 22000`, OPEN poll 2건·최근 CLOSED poll 1건·미응답 총합 5명을 준비해 summary 응답을 검증했다. 서비스 `ADMIN` 200, `MEMBER`/다른 캠퍼스 관리자/전역 `MANAGER` 단독 403, non-Monday `weekStartDate` 400을 확인했고 `docker compose down` 성공.
+  - 코드베이스 수치: Java 소스 418개, 테스트 파일 52개, REST Docs snippet group 96개.
 
 - #24 배치와 스케줄러 기초 구현 시작:
   - 브랜치: `feat/24-batch-scheduler`
