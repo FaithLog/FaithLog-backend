@@ -12,6 +12,15 @@ public interface PollRepository extends JpaRepository<Poll, Long> {
 
 	List<Poll> findByCampusIdOrderByIdDesc(Long campusId);
 
+	List<Poll> findByCampusIdAndStatusOrderByIdAsc(Long campusId, PollStatus status);
+
+	List<Poll> findByCampusIdAndStatusAndEndsAtBetweenOrderByIdAsc(
+		Long campusId,
+		PollStatus status,
+		Instant startsAt,
+		Instant endsAt
+	);
+
 	Optional<Poll> findByIdAndCampusId(Long id, Long campusId);
 
 	boolean existsByCampusIdAndTemplateIdAndStartsAtGreaterThanEqualAndStartsAtLessThan(
