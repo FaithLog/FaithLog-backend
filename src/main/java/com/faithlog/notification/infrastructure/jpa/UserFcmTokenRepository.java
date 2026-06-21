@@ -20,6 +20,15 @@ public interface UserFcmTokenRepository extends JpaRepository<UserFcmToken, Long
 	@Query("""
 		select token
 		from UserFcmToken token
+		where token.isActive = true
+			and (token.lastSeenAt < :staleThreshold or token.lastRefreshedAt < :staleThreshold)
+		order by token.id asc
+		""")
+	List<UserFcmToken> findActiveStaleTokens(Instant staleThreshold);
+
+	@Query("""
+		select token
+		from UserFcmToken token
 		where token.userId = :userId
 			and token.isActive = true
 			and token.lastSeenAt >= :staleThreshold

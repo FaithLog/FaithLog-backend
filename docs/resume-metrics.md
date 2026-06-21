@@ -13,16 +13,27 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-20, 198 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 42 test files (2026-06-20) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-21, 204 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 45 test files (2026-06-21) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 83 snippet groups (2026-06-20) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-20) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-21) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 9 top-level modules, 369 Java sources (2026-06-20) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 373 Java sources (2026-06-21) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-06-21
+
+- #24 배치와 스케줄러 기초 구현 시작:
+  - 브랜치: `feat/24-batch-scheduler`
+  - 구현 범위: Spring `@Scheduled` runner 설정, `faithlog.scheduler.enabled` 제어 플래그, `Asia/Seoul` 기준 PollTemplate 주간 자동 생성 application service, Redis scheduled lock 연결, 같은 캠퍼스/템플릿/주차 중복 생성 방지, OPEN 커피 Poll 마감 후 #39 `CoffeePollSettlementService` 호출, 90일 stale FCM token 비활성화 배치.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests 'com.faithlog.batch.application.*'`가 `PollAutomationService`, `FcmTokenCleanupService`, `Poll.createdBy()` 부재로 `compileTestJava` 실패.
+  - 집중 재검증: `./gradlew test --tests 'com.faithlog.batch.application.*'` 성공, 신규 batch application 테스트 6개 통과.
+  - 전체 재검증: `./gradlew test` 성공(204 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공.
+  - 코드베이스 수치: Java 소스 373개, 테스트 파일 45개, REST Docs snippet group 83개.
+  - 보류 범위: 자동 알림 title/body 문구와 `PENDING` notification_logs 1회 재처리 추적 방식은 사용자-facing 동작/스키마 결정이 필요해 구현하지 않음.
 
 ### 2026-06-20
 

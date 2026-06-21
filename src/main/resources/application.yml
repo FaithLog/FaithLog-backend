@@ -28,3 +28,8 @@ faithlog:
   firebase:
     config-path: ${FIREBASE_CONFIG_PATH:}
     config-json: ${FIREBASE_CONFIG_JSON:}
+  scheduler:
+    enabled: ${FAITHLOG_SCHEDULER_ENABLED:true}
+    poll-auto-create-delay-ms: ${FAITHLOG_POLL_AUTO_CREATE_DELAY_MS:60000}
+    coffee-poll-close-delay-ms: ${FAITHLOG_COFFEE_POLL_CLOSE_DELAY_MS:60000}
+    fcm-token-cleanup-cron: ${FAITHLOG_FCM_TOKEN_CLEANUP_CRON:0 20 3 * * *}
