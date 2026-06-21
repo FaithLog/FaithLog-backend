@@ -216,6 +216,36 @@ class AutomaticNotificationServiceTest {
 	}
 
 	@Test
+	void sendPollMissingReminders_includes_custom_poll_with_custom_notification_type() {
+		Campus campus = saveCampus("자동커스텀투표캠");
+		User responded = saveUser("auto-custom-poll-responded@example.com", UserRole.USER);
+		User missing = saveUser("auto-custom-poll-missing@example.com", UserRole.USER);
+		saveMember(campus.id(), responded.id());
+		saveMember(campus.id(), missing.id());
+		registerToken(missing, "auto-custom-poll-missing-token", "auto-custom-poll-missing-client");
+		Instant endsAt = seoul(2026, 6, 22, 17, 0).toInstant();
+		Poll poll = saveOpenPoll(campus.id(), "커스텀 투표", PollType.CUSTOM, endsAt);
+		pollResponseRepository.saveAndFlush(PollResponse.create(poll.id(), responded.id(), null));
+
+		int fiveHours = automaticNotificationService.sendPollMissingReminders(endsAt.minusSeconds(5 * 3600));
+		int fiveHoursDuplicate = automaticNotificationService.sendPollMissingReminders(endsAt.minusSeconds(5 * 3600).plusSeconds(30));
+		int threeHours = automaticNotificationService.sendPollMissingReminders(endsAt.minusSeconds(3 * 3600));
+		int twoHours = automaticNotificationService.sendPollMissingReminders(endsAt.minusSeconds(2 * 3600));
+		int oneHour = automaticNotificationService.sendPollMissingReminders(endsAt.minusSeconds(3600));
+
+		assertThat(List.of(fiveHours, fiveHoursDuplicate, threeHours, twoHours, oneHour))
+			.containsExactly(1, 0, 1, 1, 1);
+		assertThat(notificationLogRepository.findAll())
+			.extracting(NotificationLog::userId, NotificationLog::notificationType, NotificationLog::targetId)
+			.containsExactly(
+				org.assertj.core.groups.Tuple.tuple(missing.id(), NotificationType.CUSTOM, poll.id()),
+				org.assertj.core.groups.Tuple.tuple(missing.id(), NotificationType.CUSTOM, poll.id()),
+				org.assertj.core.groups.Tuple.tuple(missing.id(), NotificationType.CUSTOM, poll.id()),
+				org.assertj.core.groups.Tuple.tuple(missing.id(), NotificationType.CUSTOM, poll.id())
+			);
+	}
+
+	@Test
 	void sendPaymentUnpaidReminders_targets_unpaid_charges_and_deduplicates_by_business_date() {
 		Campus campus = saveCampus("자동미납캠");
 		User unpaid = saveUser("auto-payment-unpaid@example.com", UserRole.USER);
