@@ -28,6 +28,8 @@ public interface CampusRepository extends JpaRepository<Campus, Long>, JpaSpecif
 
 	boolean existsByInviteCode(String inviteCode);
 
+	List<Campus> findByIsActiveTrueOrderByIdAsc();
+
 	@Override
 	default Page<Campus> searchAdminCampuses(AdminCampusSearchCriteria criteria, Pageable pageable) {
 		return findAll((root, query, criteriaBuilder) -> {

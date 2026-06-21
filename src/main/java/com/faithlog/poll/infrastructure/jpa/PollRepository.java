@@ -26,4 +26,10 @@ public interface PollRepository extends JpaRepository<Poll, Long> {
 		PollStatus status,
 		Instant endsAt
 	);
+
+	List<Poll> findByStatusAndEndsAtBetweenOrderByIdAsc(
+		PollStatus status,
+		Instant startsAt,
+		Instant endsAt
+	);
 }
