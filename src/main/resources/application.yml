@@ -33,3 +33,7 @@ faithlog:
     poll-auto-create-delay-ms: ${FAITHLOG_POLL_AUTO_CREATE_DELAY_MS:60000}
     coffee-poll-close-delay-ms: ${FAITHLOG_COFFEE_POLL_CLOSE_DELAY_MS:60000}
     fcm-token-cleanup-cron: ${FAITHLOG_FCM_TOKEN_CLEANUP_CRON:0 20 3 * * *}
+    devotion-missing-cron: ${FAITHLOG_DEVOTION_MISSING_CRON:0 0 11 * * *}
+    poll-missing-delay-ms: ${FAITHLOG_POLL_MISSING_DELAY_MS:60000}
+    payment-unpaid-cron: ${FAITHLOG_PAYMENT_UNPAID_CRON:0 0 12 * * *}
+    pending-notification-recovery-delay-ms: ${FAITHLOG_PENDING_NOTIFICATION_RECOVERY_DELAY_MS:60000}
