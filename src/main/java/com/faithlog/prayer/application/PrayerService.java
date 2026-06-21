@@ -187,11 +187,29 @@ public class PrayerService {
 					now
 				));
 			} else {
-				existing.update(submissionCommand.content(), requester.userId(), now);
+				updateExistingSubmission(existing, submissionCommand, requester.userId(), now);
 			}
 		}
 		List<PrayerSubmission> submissions = submissionRepository.findByPrayerWeekId(week.id());
 		return buildBoard(command.campusId(), season, command.weekStartDate(), week, submissions);
+	}
+
+	private void updateExistingSubmission(
+		PrayerSubmission existing,
+		PrayerSubmissionCommand command,
+		Long requesterId,
+		Instant submittedAt
+	) {
+		int updatedRows = submissionRepository.updateContentIfVersionMatches(
+			existing.id(),
+			command.content(),
+			requesterId,
+			submittedAt,
+			command.version()
+		);
+		if (updatedRows == 0) {
+			throw new BusinessException(ErrorCode.PRAYER_SUBMISSION_CONFLICT);
+		}
 	}
 
 	private PrayerGroupResult toGroupResult(PrayerGroup group) {

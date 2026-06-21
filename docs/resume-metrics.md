@@ -13,8 +13,8 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-21, 223 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 49 test files (2026-06-21) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-21, 224 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 50 test files (2026-06-21) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 94 snippet groups (2026-06-21) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-21) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
@@ -56,6 +56,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - DB QA: GET 전후 `prayer_weeks`/`prayer_submissions` row count가 `1/2 -> 1/2`로 유지되어 조회 row 미생성 확인. PUT 후 row count가 `2/4`로 증가해 필요한 week/submission row 생성 확인. version 충돌 batch는 `prayer_submissions` count `4 -> 4`, 충돌 batch의 다른 멤버 row `0`으로 rollback 확인.
   - 정적 검사: `NO_MEETING`은 `src/main/java`와 `src/test/java`에서 0건. 금지 패턴 검색은 기존 hook/policy 문서와 기존 poll option 식별자만 확인됐고 #45 신규 prayer 구현에서는 추가 없음.
   - 코드베이스 수치: Java 소스 415개, 테스트 파일 49개, REST Docs snippet group 94개.
+  - PM 코드 리뷰 보강: `prayer_submissions` 기존 row 업데이트를 `id + expectedVersion` 조건부 update로 변경해 실제 동시수정 lost update를 차단했다. 두 트랜잭션이 같은 version 1을 읽고 동시에 update를 시도할 때 1건만 성공하고 1건은 `PRAYER_SUBMISSION_CONFLICT`로 처리되는 동시성 테스트를 추가했다.
+  - PM 코드 리뷰 TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.prayer.application.PrayerSubmissionConcurrencyTest`가 `updateContentIfVersionMatches` repository method 부재로 `compileTestJava` 실패.
+  - PM 코드 리뷰 재검증: 신규 동시성 테스트 성공, `PrayerServiceTest` 성공, `PrayerApiRestDocsTest` 성공, `./gradlew test` 성공(224 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check origin/develop...HEAD` 성공.
+  - PM 코드 리뷰 Docker/API QA: `docker compose up -d --build app` 성공, `GET /api/v1/health` 200/`UP`, 실제 API에서 version 1 업데이트 성공 후 stale version 1 재업데이트가 409/`PRAYER_SUBMISSION_CONFLICT`로 실패하고 최종 content/version이 `second`/`2`로 유지됨을 확인, `docker compose down` 성공.
+  - PM 확인 필요: CLOSED 시즌의 기도조 생성/수정/조원 교체 차단 여부는 제품/API 정책 결정 전이라 구현하지 않았다.
+  - PM 보강 후 코드베이스 수치: Java 소스 415개, 테스트 파일 50개, REST Docs snippet group 94개.
 
 ### 2026-06-20
 

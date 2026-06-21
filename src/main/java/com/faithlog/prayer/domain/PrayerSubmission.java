@@ -68,13 +68,6 @@ public class PrayerSubmission {
 		return new PrayerSubmission(prayerWeekId, groupId, userId, content, submittedBy, submittedAt);
 	}
 
-	public void update(String content, Long submittedBy, Instant submittedAt) {
-		this.content = content;
-		this.submittedBy = submittedBy;
-		this.submittedAt = submittedAt;
-		this.version += 1;
-	}
-
 	@PrePersist
 	void prePersist() {
 		Instant now = Instant.now();
