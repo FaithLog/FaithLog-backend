@@ -16,6 +16,8 @@ spring:
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
 
 faithlog:
+  scheduler:
+    enabled: false
   jwt:
     secret: test-only-jwt-secret-for-faithlog-auth-tests
     access-token-validity-seconds: 1800
