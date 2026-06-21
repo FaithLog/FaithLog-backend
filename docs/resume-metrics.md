@@ -13,13 +13,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-21, 214 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 48 test files (2026-06-21) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 83 snippet groups (2026-06-20) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-21, 223 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 49 test files (2026-06-21) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 94 snippet groups (2026-06-21) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-21) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 375 Java sources (2026-06-21) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 415 Java sources (2026-06-21) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
@@ -44,6 +44,18 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - Docker scheduler QA: Postgres fixture로 due `PollTemplate` 1건과 11분 경과 `PENDING notification_logs` 1건을 삽입한 뒤 scheduler 1사이클 후 template 기반 `OPEN` poll 1건 생성 확인, PENDING log는 worker 재처리로 `SKIPPED/NO_ACTIVE_FCM_TOKEN` 전환 확인. 추가 1사이클 후 같은 template poll count가 1로 유지되어 같은 주차 중복 생성 방지 확인.
   - Docker QA 한계: 경건생활 미제출 11:00, 미납 12:00 cron은 현재 검증 시점이 일요일 오전이라 실제 cron 발화 대신 service 테스트로 월요일부터 대상 주차 계산, dedup, Redis fail-closed를 검증했다.
   - PM 보강 후 코드베이스 수치: Java 소스 375개, 테스트 파일 48개, REST Docs snippet group 83개.
+
+- #45 조별 기도제목 조회와 입력 구현:
+  - 브랜치: `feat/45-prayer-group-weekly-board`
+  - 구현 범위: 활성 캠퍼스/시즌/기도조/주차 기준 조별 기도제목 조회, 조원별 `prayer_submissions` row 저장, nullable content 저장, optimistic version 충돌 처리, ACTIVE 시즌 중복 방지, 기도조 생성/수정/멤버 전체 교체, 일반 ACTIVE 멤버 자기 활성 기도조 저장 권한, 캠퍼스 관리자 전체 조 저장 권한.
+  - API 범위: `POST /api/v1/admin/campuses/{campusId}/prayer-seasons`, `PATCH /api/v1/admin/prayer-seasons/{seasonId}/close`, `POST /api/v1/admin/prayer-seasons/{seasonId}/groups`, `PATCH /api/v1/admin/prayer-groups/{groupId}`, `PUT /api/v1/admin/prayer-groups/{groupId}/members`, `GET /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}`, `PUT /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/submissions`.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.prayer.application.PrayerServiceTest`가 prayer domain/service/repository 부재로 `compileTestJava` 63 errors 실패. API 구현 전 `./gradlew test --tests com.faithlog.prayer.presentation.PrayerApiRestDocsTest`가 첫 `POST /api/v1/admin/campuses/{campusId}/prayer-seasons` route 부재로 assertion 실패.
+  - 집중 재검증: `./gradlew test --tests com.faithlog.prayer.application.PrayerServiceTest` 성공, `./gradlew test --tests com.faithlog.prayer.presentation.PrayerApiRestDocsTest` 성공.
+  - 전체 재검증: `./gradlew test` 성공(223 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공.
+  - Docker/API QA: `docker compose up -d --build app` 성공, `GET /api/v1/health` 200/`UP` 확인, 실제 API로 MANAGER 승격 테스트 계정 생성, 캠퍼스 생성, 멤버 초대 가입, 시즌 생성, 중복 ACTIVE 시즌 409/`PRAYER_ACTIVE_SEASON_ALREADY_EXISTS`, 기도조 생성, 멤버 전체 교체 inactive/reactivate, 전체 조별 주간 조회, 일반 멤버 자기 조 저장, 일반 멤버 다른 조 저장 403/`PRAYER_SUBMISSION_FORBIDDEN`, 관리자 전체 조 저장, version 충돌 409/`PRAYER_SUBMISSION_CONFLICT`, 화요일 weekStartDate 400/`PRAYER_INVALID_WEEK_START_DATE`, 다음 월요일 `2026-06-29` 사전 저장을 확인했다.
+  - DB QA: GET 전후 `prayer_weeks`/`prayer_submissions` row count가 `1/2 -> 1/2`로 유지되어 조회 row 미생성 확인. PUT 후 row count가 `2/4`로 증가해 필요한 week/submission row 생성 확인. version 충돌 batch는 `prayer_submissions` count `4 -> 4`, 충돌 batch의 다른 멤버 row `0`으로 rollback 확인.
+  - 정적 검사: `NO_MEETING`은 `src/main/java`와 `src/test/java`에서 0건. 금지 패턴 검색은 기존 hook/policy 문서와 기존 poll option 식별자만 확인됐고 #45 신규 prayer 구현에서는 추가 없음.
+  - 코드베이스 수치: Java 소스 415개, 테스트 파일 49개, REST Docs snippet group 94개.
 
 ### 2026-06-20
 
