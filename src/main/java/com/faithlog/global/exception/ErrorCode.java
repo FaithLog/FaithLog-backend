@@ -86,6 +86,18 @@ public enum ErrorCode {
 	POLL_COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "투표 댓글을 찾을 수 없습니다."),
 	POLL_COMMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 댓글 수정/삭제 권한이 없습니다."),
 
+	PRAYER_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
+	PRAYER_ACTIVE_SEASON_NOT_FOUND(HttpStatus.NOT_FOUND, "활성 기도 시즌을 찾을 수 없습니다."),
+	PRAYER_ACTIVE_SEASON_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 활성 기도 시즌이 있습니다."),
+	PRAYER_SEASON_NOT_FOUND(HttpStatus.NOT_FOUND, "기도 시즌을 찾을 수 없습니다."),
+	PRAYER_GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "기도조를 찾을 수 없습니다."),
+	PRAYER_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "기도조 멤버를 찾을 수 없습니다."),
+	PRAYER_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "기도제목 관리 권한이 없습니다."),
+	PRAYER_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "기도제목 조회 권한이 없습니다."),
+	PRAYER_SUBMISSION_FORBIDDEN(HttpStatus.FORBIDDEN, "기도제목 저장 권한이 없습니다."),
+	PRAYER_SUBMISSION_CONFLICT(HttpStatus.CONFLICT, "다른 사용자가 먼저 수정한 기도제목이 있습니다. 새로고침 후 다시 저장해주세요."),
+	PRAYER_INVALID_SUBMISSION_REQUEST(HttpStatus.BAD_REQUEST, "기도제목 저장 요청이 올바르지 않습니다."),
+
 	NOTIFICATION_FCM_TOKEN_NOT_FOUND(HttpStatus.NOT_FOUND, "FCM 토큰을 찾을 수 없습니다."),
 	NOTIFICATION_SEND_FORBIDDEN(HttpStatus.FORBIDDEN, "알림 발송 권한이 없습니다."),
 	NOTIFICATION_LOG_LIST_FORBIDDEN(HttpStatus.FORBIDDEN, "알림 로그 조회 권한이 없습니다."),
