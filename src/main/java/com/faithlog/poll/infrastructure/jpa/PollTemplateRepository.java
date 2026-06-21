@@ -11,4 +11,6 @@ public interface PollTemplateRepository extends JpaRepository<PollTemplate, Long
 	Optional<PollTemplate> findByCampusIdAndPollTypeAndIsDefaultTrue(Long campusId, PollType pollType);
 
 	List<PollTemplate> findByCampusIdAndIsActiveTrueOrderByIdAsc(Long campusId);
+
+	List<PollTemplate> findByIsActiveTrueAndAutoCreateEnabledTrueOrderByIdAsc();
 }

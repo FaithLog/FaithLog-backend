@@ -196,4 +196,16 @@ public class Poll {
 	public PollStatus status() {
 		return status;
 	}
+
+	public Long createdBy() {
+		return createdBy;
+	}
+
+	public void open() {
+		this.status = PollStatus.OPEN;
+	}
+
+	public void close() {
+		this.status = PollStatus.CLOSED;
+	}
 }

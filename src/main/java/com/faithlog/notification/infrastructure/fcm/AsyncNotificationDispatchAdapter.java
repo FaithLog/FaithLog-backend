@@ -3,6 +3,7 @@ package com.faithlog.notification.infrastructure.fcm;
 import com.faithlog.notification.application.NotificationDeliveryWorker;
 import com.faithlog.notification.application.port.NotificationDispatchPort;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -14,7 +15,10 @@ public class AsyncNotificationDispatchAdapter implements NotificationDispatchPor
 	private final NotificationDeliveryWorker deliveryWorker;
 	private final TaskExecutor taskExecutor;
 
-	public AsyncNotificationDispatchAdapter(NotificationDeliveryWorker deliveryWorker, TaskExecutor taskExecutor) {
+	public AsyncNotificationDispatchAdapter(
+		NotificationDeliveryWorker deliveryWorker,
+		@Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor
+	) {
 		this.deliveryWorker = deliveryWorker;
 		this.taskExecutor = taskExecutor;
 	}

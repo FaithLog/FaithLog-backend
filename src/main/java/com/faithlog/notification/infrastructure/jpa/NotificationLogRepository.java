@@ -2,6 +2,7 @@ package com.faithlog.notification.infrastructure.jpa;
 
 import com.faithlog.notification.domain.NotificationLog;
 import com.faithlog.notification.domain.SendStatus;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -12,4 +13,6 @@ public interface NotificationLogRepository extends JpaRepository<NotificationLog
 	List<NotificationLog> findByRequestIdOrderByIdAsc(UUID requestId);
 
 	List<NotificationLog> findByRequestIdAndSendStatusOrderByIdAsc(UUID requestId, SendStatus sendStatus);
+
+	List<NotificationLog> findBySendStatusAndCreatedAtLessThanEqualOrderByIdAsc(SendStatus sendStatus, Instant createdAt);
 }
