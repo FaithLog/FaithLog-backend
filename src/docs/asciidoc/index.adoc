@@ -1040,6 +1040,48 @@ include::{snippets}/charge-admin-status-change-success/http-response.adoc[]
 
 include::{snippets}/charge-admin-status-change-success/response-fields.adoc[]
 
+== Campus Admin Dashboard
+
+캠퍼스 내부 관리자 홈 화면용 통합 요약 API다. 서비스 전역 `ADMIN`은 모든 캠퍼스를 조회할 수 있고, 해당 캠퍼스의 `ACTIVE` 멤버 중 `MINISTER`, `ELDER`, `CAMPUS_LEADER`만 조회할 수 있다. 서비스 전역 `MANAGER`만으로는 캠퍼스 내부 관리자 권한이 생기지 않는다.
+
+=== Get Campus Admin Dashboard Summary
+
+`GET /api/v1/admin/campuses/{campusId}/dashboard/summary`
+
+`weekStartDate`가 없으면 서버가 `Asia/Seoul` 기준 현재 주 월요일을 계산한다. 값이 있으면 반드시 월요일이어야 하며, 월요일이 아니면 `DEVOTION_INVALID_WEEK_START_DATE`로 실패한다.
+
+==== Request
+
+include::{snippets}/admin-dashboard-summary-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/admin-dashboard-summary-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/admin-dashboard-summary-success/path-parameters.adoc[]
+
+==== Query Parameters
+
+include::{snippets}/admin-dashboard-summary-success/query-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/admin-dashboard-summary-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/admin-dashboard-summary-success/response-fields.adoc[]
+
+=== Invalid Week Start Date
+
+include::{snippets}/admin-dashboard-summary-invalid-week-start-date/http-request.adoc[]
+
+include::{snippets}/admin-dashboard-summary-invalid-week-start-date/http-response.adoc[]
+
+include::{snippets}/admin-dashboard-summary-invalid-week-start-date/response-fields.adoc[]
+
 == Service Admin Management
 
 서비스 전역 `ADMIN` 전용 관리자 페이지 API다. `USER`와 서비스 전역 `MANAGER`는 이 섹션의 `/api/v1/admin/users`, `/api/v1/admin/campuses` 관리 API를 사용할 수 없다. 서비스 전역 `ADMIN`은 캠퍼스 멤버십이 없어도 전체 유저와 캠퍼스를 조회/수정할 수 있다.

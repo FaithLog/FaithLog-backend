@@ -18,6 +18,7 @@ public enum ErrorCode {
 	ADMIN_INVALID_SORT_FORMAT(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 형식입니다."),
 	ADMIN_INVALID_SORT_PROPERTY(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 기준입니다."),
 	ADMIN_INVALID_SORT_DIRECTION(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬 방향입니다."),
+	ADMIN_DASHBOARD_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "캠퍼스 대시보드 조회 권한이 없습니다."),
 
 	CAMPUS_CREATE_FORBIDDEN(HttpStatus.FORBIDDEN, "캠퍼스 생성 권한이 없습니다."),
 	CAMPUS_INVALID_INVITE_CODE(HttpStatus.NOT_FOUND, "유효하지 않은 초대코드입니다."),
