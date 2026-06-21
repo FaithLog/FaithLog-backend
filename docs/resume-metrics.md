@@ -62,6 +62,8 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - PM 코드 리뷰 Docker/API QA: `docker compose up -d --build app` 성공, `GET /api/v1/health` 200/`UP`, 실제 API에서 version 1 업데이트 성공 후 stale version 1 재업데이트가 409/`PRAYER_SUBMISSION_CONFLICT`로 실패하고 최종 content/version이 `second`/`2`로 유지됨을 확인, `docker compose down` 성공.
   - PM 확인 필요: CLOSED 시즌의 기도조 생성/수정/조원 교체 차단 여부는 제품/API 정책 결정 전이라 구현하지 않았다.
   - PM 보강 후 코드베이스 수치: Java 소스 415개, 테스트 파일 50개, REST Docs snippet group 94개.
+  - PM 재검증 보강: `PrayerSubmissionConcurrencyTest`가 남긴 `prayer_weeks`/`prayer_submissions` row 때문에 `PrayerApiRestDocsTest`의 전체 count 0 가정이 깨진 문제를 수정했다. REST Docs 테스트는 GET 전후 baseline count 불변 검증으로 바꾸고, 동시성 테스트는 자신이 만든 prayer week/submission row만 `@AfterEach`에서 정리한다.
+  - PM 재검증 결과: 지정 #45 테스트 묶음 성공, `./gradlew test` 성공(224 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `git diff --check origin/develop...HEAD` 성공, `./gradlew asciidoctor` 성공. asciidoctor 최초 샌드박스 실행은 Gradle wrapper lock 권한 문제로 실패했고 권한 상승 재실행으로 성공.
 
 ### 2026-06-20
 

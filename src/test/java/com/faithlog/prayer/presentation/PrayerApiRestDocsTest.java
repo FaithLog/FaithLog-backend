@@ -162,6 +162,8 @@ class PrayerApiRestDocsTest {
 		replaceGroupMembers(managerToken, groupAId, memberA.id(), memberB.id());
 		replaceGroupMembers(managerToken, groupBId, memberC.id());
 
+		long weekCountBeforeGet = prayerWeekRepository.count();
+		long submissionCountBeforeGet = prayerSubmissionRepository.count();
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}", campusId, "2026-06-22")
 				.header("Authorization", "Bearer " + memberAToken))
 			.andExpect(status().isOk())
@@ -180,8 +182,8 @@ class PrayerApiRestDocsTest {
 				),
 				relaxedResponseFields(boardResponseFields())
 			));
-		assertThat(prayerWeekRepository.count()).isZero();
-		assertThat(prayerSubmissionRepository.count()).isZero();
+		assertThat(prayerWeekRepository.count()).isEqualTo(weekCountBeforeGet);
+		assertThat(prayerSubmissionRepository.count()).isEqualTo(submissionCountBeforeGet);
 
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/submissions", campusId, "2026-06-29")
 				.header("Authorization", "Bearer " + memberAToken)

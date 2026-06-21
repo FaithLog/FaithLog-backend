@@ -9,17 +9,20 @@ import com.faithlog.campus.application.JoinCampusCommand;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.prayer.domain.PrayerSubmission;
 import com.faithlog.prayer.infrastructure.jpa.PrayerSubmissionRepository;
+import com.faithlog.prayer.infrastructure.jpa.PrayerWeekRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -45,7 +48,23 @@ class PrayerSubmissionConcurrencyTest {
 	private PrayerSubmissionRepository prayerSubmissionRepository;
 
 	@Autowired
+	private PrayerWeekRepository prayerWeekRepository;
+
+	@Autowired
 	private PlatformTransactionManager transactionManager;
+
+	private final List<Long> cleanupPrayerWeekIds = new ArrayList<>();
+
+	@AfterEach
+	void cleanPrayerRowsCreatedByConcurrencyTest() {
+		for (Long prayerWeekId : cleanupPrayerWeekIds) {
+			prayerSubmissionRepository.findByPrayerWeekId(prayerWeekId)
+				.forEach(prayerSubmissionRepository::delete);
+			prayerWeekRepository.findById(prayerWeekId)
+				.ifPresent(prayerWeekRepository::delete);
+		}
+		cleanupPrayerWeekIds.clear();
+	}
 
 	@Test
 	void concurrent_transactions_updating_same_version_allow_only_one_conditional_update() throws Exception {
@@ -57,7 +76,12 @@ class PrayerSubmissionConcurrencyTest {
 			fixture.manager().id(),
 			List.of(new PrayerSubmissionCommand(fixture.memberA().id(), "처음 저장", 0))
 		));
-		Long submissionId = prayerSubmissionRepository.findAll().getFirst().id();
+		Long prayerWeekId = prayerWeekRepository
+			.findByCampusIdAndSeasonIdAndWeekStartDate(fixture.campusId(), fixture.seasonId(), weekStart)
+			.orElseThrow()
+			.id();
+		cleanupPrayerWeekIds.add(prayerWeekId);
+		Long submissionId = prayerSubmissionRepository.findByPrayerWeekId(prayerWeekId).getFirst().id();
 
 		CountDownLatch bothTransactionsReadVersion = new CountDownLatch(2);
 		CountDownLatch continueUpdates = new CountDownLatch(1);
@@ -166,7 +190,7 @@ class PrayerSubmissionConcurrencyTest {
 			manager.id(),
 			List.of(memberA.id(), memberB.id())
 		));
-		return new PrayerFixture(campus.campusId(), manager, memberA);
+		return new PrayerFixture(campus.campusId(), season.seasonId(), manager, memberA);
 	}
 
 	private User saveUser(String email, UserRole role) {
@@ -180,6 +204,7 @@ class PrayerSubmissionConcurrencyTest {
 
 	private record PrayerFixture(
 		Long campusId,
+		Long seasonId,
 		User manager,
 		User memberA
 	) {
