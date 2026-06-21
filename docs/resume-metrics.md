@@ -13,16 +13,30 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-21, 228 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 52 test files (2026-06-21) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-21) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-21) | 성공 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-22, 232 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 52 test files (2026-06-22) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-22) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 418 Java sources (2026-06-21) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 418 Java sources (2026-06-22) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-06-22
+
+- #72 전체 QA 발견 이슈 보강:
+  - 브랜치: `fix/72-qa-issues`
+  - 구현 범위: 관리자 직접 Poll 생성 시 `startsAt <= now < endsAt`인 현재 기간 poll을 생성 직후 `OPEN`으로 전환. 직접 선택지 생성과 템플릿 기반 생성 모두 보강했고, 아직 시작 전 poll은 `SCHEDULED`를 유지하며 scheduler의 보정/자동 전환 역할은 유지했다.
+  - TDD 실패 확인: 구현 전 신규 `PollServiceTest` 회귀 테스트가 현재 기간 CUSTOM direct poll 및 템플릿 기반 COFFEE poll 생성 직후 status `SCHEDULED`로 실패하는 것을 확인.
+  - 회귀 테스트 범위: 현재 기간 CUSTOM poll 생성 후 detail/response/results/comment CRUD 가능, 현재 기간 COFFEE template poll 응답 직후 `COFFEE charge_items` 0건, close/settlement 후 `COFFEE charge_items` 1건 유지, future poll `SCHEDULED`, ended poll response 기존 `POLL_CLOSED` 계약 유지.
+  - REST Docs 보강: `src/docs/asciidoc/index.adoc`에 #57 monthly-summary, penalty-rules, poll results/comments/missing-members, prayer season/group/week/submission snippet include를 추가했다.
+  - 문서 정합성: repo decision/policy/hook 문서와 Notion API/기획서/ERD의 stale coffee billing/old role hierarchy 문구를 최신 기준으로 정리. 커피 청구는 응답 시점이 아니라 CLOSED 커피 투표 정산 기준으로 생성한다는 기준을 재확인했다.
+  - 재검증: `./gradlew test` 성공(232 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check origin/develop...HEAD` 성공.
+  - 정적 검사: Swagger 문서화 annotation 검색 0건. Controller Entity 직접 반환 검색은 DTO `PollResponse` 명칭만 확인됐고 Entity 직접 반환 신규 추가 없음. 금지어 검색은 hook/policy 문서의 검사 기준과 기존 내부 `optionId` 변수/도메인 식별자만 확인.
+  - Docker/API QA: `docker compose up -d --build postgres redis app` 성공, `GET /api/v1/health` 200/`UP` 확인. 실제 API로 signup/login, MANAGER 승격, 캠퍼스 생성, 멤버 가입, COFFEE 담당자 지정, COFFEE 계좌 생성, 현재 기간 CUSTOM direct poll 생성 직후 `OPEN`, detail/response/results/comment CRUD 성공, 현재 기간 template-based poll 생성 직후 `OPEN`, future direct poll `SCHEDULED`, 현재 기간 COFFEE direct poll 생성 직후 `OPEN`, 응답 직후 COFFEE charge 0건, `ends_at` 과거 보정 후 scheduler close/settlement로 poll `CLOSED` 및 COFFEE charge 1건 생성을 확인했다. `docker compose down` 성공.
+  - 코드베이스 수치: Java 소스 418개, 테스트 파일 52개, REST Docs snippet group 96개.
 
 ### 2026-06-21
 

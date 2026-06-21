@@ -351,6 +351,174 @@ class PollServiceTest {
 	}
 
 	@Test
+	void direct_current_custom_poll_opens_immediately_and_allows_detail_response_results_and_comment_crud() {
+		User manager = saveUser("poll-current-custom-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-current-custom-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "72커스텀캠");
+		joinCampus(campus, member);
+
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"현재 기간 커스텀 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(
+				new CreatePollOptionCommand("참석", null, 0, 1),
+				new CreatePollOptionCommand("불참", null, 0, 2)
+			)
+		));
+
+		assertThat(poll.status()).isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(poll.id())).get()
+			.extracting(saved -> saved.status())
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), member.id()).poll().status())
+			.isEqualTo(PollStatus.OPEN);
+
+		PollResponseResult response = pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(poll.options().get(0).id()),
+			"현재 기간 응답"
+		));
+		assertThat(response.optionIds()).containsExactly(poll.options().get(0).id());
+		assertThat(pollService.getPollResults(campus.campusId(), poll.id(), member.id()).respondedCount())
+			.isEqualTo(1);
+
+		PollCommentResult createdComment = pollService.createComment(new CreatePollCommentCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			"현재 기간 댓글"
+		));
+		PollCommentResult updatedComment = pollService.updateComment(new UpdatePollCommentCommand(
+			campus.campusId(),
+			poll.id(),
+			createdComment.commentId(),
+			member.id(),
+			"현재 기간 댓글 수정"
+		));
+		pollService.deleteComment(new DeletePollCommentCommand(campus.campusId(), poll.id(), createdComment.commentId(), member.id()));
+
+		assertThat(updatedComment.content()).isEqualTo("현재 기간 댓글 수정");
+		assertThat(pollService.listComments(campus.campusId(), poll.id(), member.id()))
+			.singleElement()
+			.satisfies(comment -> {
+				assertThat(comment.commentId()).isEqualTo(createdComment.commentId());
+				assertThat(comment.deleted()).isTrue();
+			});
+	}
+
+	@Test
+	void current_coffee_poll_created_from_template_opens_immediately_keeps_response_charge_free_then_settles_once_after_close() {
+		User manager = saveUser("poll-current-coffee-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-current-coffee-duty@example.com", UserRole.USER);
+		User member = saveUser("poll-current-coffee-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "72커피캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollTemplate template = pollTemplateRepository.findByCampusIdAndPollTypeAndIsDefaultTrue(campus.campusId(), PollType.COFFEE)
+			.orElseThrow();
+		template.connectPaymentAccount(accountId);
+
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			template.id(),
+			"현재 기간 템플릿 커피 투표",
+			PollType.COFFEE,
+			null,
+			false,
+			null,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of()
+		));
+
+		assertThat(poll.status()).isEqualTo(PollStatus.OPEN);
+		PollResponseResult response = pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(poll.options().get(0).id()),
+			"아이스 아메리카노"
+		));
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+
+		closePoll(poll.id());
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), poll.id());
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), poll.id());
+
+		assertThat(chargesForCampus(campus.campusId())).hasSize(1);
+		ChargeItem charge = chargesForCampus(campus.campusId()).get(0);
+		assertThat(charge.paymentCategory()).isEqualTo(PaymentCategory.COFFEE);
+		assertThat(charge.sourceType()).isEqualTo(ChargeSourceType.POLL_RESPONSE);
+		assertThat(charge.sourceId()).isEqualTo(response.responseId());
+	}
+
+	@Test
+	void future_direct_poll_keeps_scheduled_status() {
+		User manager = saveUser("poll-future-status-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "72예약캠");
+
+		PollResult poll = createScheduledCustomPoll(campus.campusId(), manager.id(), "시작 전 투표", SelectionType.SINGLE, false, List.of("A", "B"));
+
+		assertThat(poll.status()).isEqualTo(PollStatus.SCHEDULED);
+		assertThat(pollRepository.findById(poll.id())).get()
+			.extracting(saved -> saved.status())
+			.isEqualTo(PollStatus.SCHEDULED);
+	}
+
+	@Test
+	void already_ended_direct_poll_does_not_open_and_rejects_response_with_existing_closed_contract() {
+		User manager = saveUser("poll-ended-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-ended-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "72종료캠");
+		joinCampus(campus, member);
+
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"이미 종료된 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(7200),
+			Instant.now().minusSeconds(3600),
+			List.of(new CreatePollOptionCommand("A", null, 0, 1))
+		));
+
+		assertThat(poll.status()).isNotEqualTo(PollStatus.OPEN);
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(poll.options().get(0).id()),
+			null
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+	}
+
+	@Test
 	void create_poll_rejects_inactive_template_inactive_menu_missing_coffee_duty_and_missing_account() {
 		User manager = saveUser("poll-create-invalid-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "140캠");

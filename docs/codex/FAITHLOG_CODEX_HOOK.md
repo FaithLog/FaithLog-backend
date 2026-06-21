@@ -335,6 +335,12 @@ PUT /api/v1/campuses/{campusId}/polls/{pollId}/responses/me
 
 OPEN 투표에서는 기존 응답을 수정할 수 있다. CLOSED 투표에서는 응답과 재투표를 막는다.
 
+관리자 직접 투표 생성 시 생성 시점 현재 시간이 `startsAt <= now < endsAt` 범위이면 생성 직후 `OPEN` 상태로 둔다.
+
+아직 시작 전 투표는 `SCHEDULED` 상태를 유지한다.
+
+Scheduler/Batch는 기존처럼 자동 생성, 마감, 보정 전환 역할을 유지한다.
+
 투표 결과 조회는 일반 캠퍼스 ACTIVE 멤버도 사용할 수 있다.
 
 투표 결과 조회는 항목별 조회 API가 아니라 투표별 전체 결과 조회 API 하나로 구현한다.

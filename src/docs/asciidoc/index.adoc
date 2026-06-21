@@ -752,6 +752,44 @@ include::{snippets}/devotion-admin-missing-success/http-response.adoc[]
 
 include::{snippets}/devotion-admin-missing-success/response-fields.adoc[]
 
+=== Get My Monthly Devotion Summary
+
+`GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}`
+
+현재 로그인 사용자의 선택 월 경건생활 통계를 조회한다. 월간 합계는 `devotion_daily_checks.record_date` 기준이며, 월 경계에 걸친 주차는 선택 월에 해당하는 날짜만 부분 집계한다. `SATURDAY_LATE`는 해당 주차의 토요일이 선택 월에 포함될 때 반영한다.
+
+==== Request
+
+include::{snippets}/devotion-my-monthly-summary-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-my-monthly-summary-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-my-monthly-summary-success/path-parameters.adoc[]
+
+==== Query Parameters
+
+include::{snippets}/devotion-my-monthly-summary-success/query-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-my-monthly-summary-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-my-monthly-summary-success/response-fields.adoc[]
+
+=== Invalid Monthly Summary Year Or Month
+
+include::{snippets}/devotion-invalid-year-month/http-request.adoc[]
+
+include::{snippets}/devotion-invalid-year-month/http-response.adoc[]
+
+include::{snippets}/devotion-invalid-year-month/response-fields.adoc[]
+
 === Invalid Week Start Date
 
 include::{snippets}/devotion-invalid-week-start-date/http-request.adoc[]
@@ -775,6 +813,130 @@ include::{snippets}/devotion-invalid-saturday-late-minutes/http-request.adoc[]
 include::{snippets}/devotion-invalid-saturday-late-minutes/http-response.adoc[]
 
 include::{snippets}/devotion-invalid-saturday-late-minutes/response-fields.adoc[]
+
+=== Missing Penalty Account
+
+include::{snippets}/devotion-missing-penalty-account/http-request.adoc[]
+
+include::{snippets}/devotion-missing-penalty-account/http-response.adoc[]
+
+include::{snippets}/devotion-missing-penalty-account/response-fields.adoc[]
+
+=== Weekly Already Submitted
+
+include::{snippets}/devotion-weekly-already-submitted/http-request.adoc[]
+
+include::{snippets}/devotion-weekly-already-submitted/http-response.adoc[]
+
+include::{snippets}/devotion-weekly-already-submitted/response-fields.adoc[]
+
+=== Daily Check Already Submitted Week
+
+include::{snippets}/devotion-daily-check-already-submitted-week/http-request.adoc[]
+
+include::{snippets}/devotion-daily-check-already-submitted-week/http-response.adoc[]
+
+include::{snippets}/devotion-daily-check-already-submitted-week/response-fields.adoc[]
+
+== Penalty Rules
+
+=== Create Penalty Rule
+
+`POST /api/v1/admin/campuses/{campusId}/penalty-rules`
+
+캠퍼스 관리자가 벌금 규칙을 등록한다. 같은 캠퍼스와 같은 `ruleType`의 새 ACTIVE 규칙이 생성되면 기존 ACTIVE 규칙은 비활성화된다.
+
+==== Request
+
+include::{snippets}/penalty-rule-create-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/penalty-rule-create-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/penalty-rule-create-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/penalty-rule-create-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/penalty-rule-create-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/penalty-rule-create-success/response-fields.adoc[]
+
+=== List Penalty Rules
+
+`GET /api/v1/campuses/{campusId}/penalty-rules`
+
+==== Request
+
+include::{snippets}/penalty-rule-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/penalty-rule-list-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/penalty-rule-list-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/penalty-rule-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/penalty-rule-list-success/response-fields.adoc[]
+
+=== Update Penalty Rule
+
+`PATCH /api/v1/admin/penalty-rules/{ruleId}`
+
+==== Request
+
+include::{snippets}/penalty-rule-update-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/penalty-rule-update-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/penalty-rule-update-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/penalty-rule-update-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/penalty-rule-update-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/penalty-rule-update-success/response-fields.adoc[]
+
+=== Invalid Penalty Rule Type Pair
+
+include::{snippets}/penalty-rule-invalid-type-pair/http-request.adoc[]
+
+include::{snippets}/penalty-rule-invalid-type-pair/http-response.adoc[]
+
+include::{snippets}/penalty-rule-invalid-type-pair/response-fields.adoc[]
+
+=== Invalid Penalty Rule Negative Value
+
+include::{snippets}/penalty-rule-invalid-negative-value/http-request.adoc[]
+
+include::{snippets}/penalty-rule-invalid-negative-value/http-response.adoc[]
+
+include::{snippets}/penalty-rule-invalid-negative-value/response-fields.adoc[]
 
 == Billing
 
@@ -1475,3 +1637,421 @@ include::{snippets}/coffee-poll-response-upsert-no-charge-success/http-response.
 ==== Response Fields
 
 include::{snippets}/coffee-poll-response-upsert-no-charge-success/response-fields.adoc[]
+
+=== Save Poll Response
+
+`PUT /api/v1/campuses/{campusId}/polls/{pollId}/responses/me`
+
+투표 응답은 `optionIds` 배열로 저장하고, 실제 선택지는 `poll_response_options`에 저장한다. OPEN 투표에서는 기존 응답을 수정할 수 있다.
+
+==== Request
+
+include::{snippets}/poll-response-upsert-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-response-upsert-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-response-upsert-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-response-upsert-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-response-upsert-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-response-upsert-success/response-fields.adoc[]
+
+=== Poll Response Duplicate Option Error
+
+include::{snippets}/poll-response-duplicate-option-error/http-request.adoc[]
+
+include::{snippets}/poll-response-duplicate-option-error/http-response.adoc[]
+
+include::{snippets}/poll-response-duplicate-option-error/response-fields.adoc[]
+
+=== Poll Response Empty Selection Error
+
+include::{snippets}/poll-response-empty-selection-count-error/http-request.adoc[]
+
+include::{snippets}/poll-response-empty-selection-count-error/http-response.adoc[]
+
+include::{snippets}/poll-response-empty-selection-count-error/response-fields.adoc[]
+
+=== List Polls
+
+`GET /api/v1/campuses/{campusId}/polls`
+
+==== Request
+
+include::{snippets}/poll-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-list-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-list-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/poll-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-list-success/response-fields.adoc[]
+
+=== Get Poll Detail
+
+`GET /api/v1/campuses/{campusId}/polls/{pollId}`
+
+==== Request
+
+include::{snippets}/poll-detail-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-detail-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-detail-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/poll-detail-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-detail-success/response-fields.adoc[]
+
+=== Get Poll Results
+
+`GET /api/v1/campuses/{campusId}/polls/{pollId}/results`
+
+캠퍼스 ACTIVE 멤버가 투표별 전체 결과를 조회한다. 비익명 투표는 응답자 정보를 포함할 수 있고, 익명 투표는 선택지별 집계만 노출한다.
+
+==== Non Anonymous Request
+
+include::{snippets}/poll-results-non-anonymous-success/http-request.adoc[]
+
+==== Non Anonymous Response
+
+include::{snippets}/poll-results-non-anonymous-success/http-response.adoc[]
+
+==== Non Anonymous Response Fields
+
+include::{snippets}/poll-results-non-anonymous-success/response-fields.adoc[]
+
+==== Anonymous Request
+
+include::{snippets}/poll-results-anonymous-success/http-request.adoc[]
+
+==== Anonymous Response
+
+include::{snippets}/poll-results-anonymous-success/http-response.adoc[]
+
+==== Anonymous Response Fields
+
+include::{snippets}/poll-results-anonymous-success/response-fields.adoc[]
+
+=== Get Poll Missing Members
+
+`GET /api/v1/admin/campuses/{campusId}/polls/{pollId}/missing-members`
+
+캠퍼스 관리자 또는 전역 `ADMIN`이 ACTIVE 멤버 중 해당 투표에 응답하지 않은 사용자를 조회한다.
+
+==== Request
+
+include::{snippets}/poll-missing-members-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-missing-members-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-missing-members-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/poll-missing-members-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-missing-members-success/response-fields.adoc[]
+
+=== Create Poll Comment
+
+`POST /api/v1/campuses/{campusId}/polls/{pollId}/comments`
+
+OPEN 투표에서 캠퍼스 ACTIVE 멤버가 댓글을 작성한다.
+
+==== Request
+
+include::{snippets}/poll-comment-create-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-comment-create-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-comment-create-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-comment-create-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-comment-create-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-comment-create-success/response-fields.adoc[]
+
+=== Update Poll Comment
+
+`PATCH /api/v1/campuses/{campusId}/polls/{pollId}/comments/{commentId}`
+
+댓글 작성자 또는 캠퍼스 관리자가 OPEN 투표 댓글을 수정한다.
+
+include::{snippets}/poll-comment-update-success/http-request.adoc[]
+
+include::{snippets}/poll-comment-update-success/request-fields.adoc[]
+
+include::{snippets}/poll-comment-update-success/http-response.adoc[]
+
+include::{snippets}/poll-comment-update-success/response-fields.adoc[]
+
+=== Delete Poll Comment
+
+`DELETE /api/v1/campuses/{campusId}/polls/{pollId}/comments/{commentId}`
+
+댓글 작성자 또는 캠퍼스 관리자가 OPEN 투표 댓글을 soft delete 처리한다.
+
+include::{snippets}/poll-comment-delete-success/http-request.adoc[]
+
+include::{snippets}/poll-comment-delete-success/http-response.adoc[]
+
+=== List Poll Comments
+
+`GET /api/v1/campuses/{campusId}/polls/{pollId}/comments`
+
+삭제된 댓글은 삭제 상태와 대체 문구로 응답한다.
+
+include::{snippets}/poll-comments-list-success/http-request.adoc[]
+
+include::{snippets}/poll-comments-list-success/http-response.adoc[]
+
+include::{snippets}/poll-comments-list-success/response-fields.adoc[]
+
+== Prayer
+
+=== Create Prayer Season
+
+`POST /api/v1/admin/campuses/{campusId}/prayer-seasons`
+
+캠퍼스 관리자가 활성 기도 시즌을 생성한다. 이미 ACTIVE 시즌이 있으면 새 ACTIVE 시즌 생성을 막는다.
+
+==== Request
+
+include::{snippets}/prayer-season-create-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/prayer-season-create-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/prayer-season-create-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/prayer-season-create-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-season-create-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-season-create-success/response-fields.adoc[]
+
+=== Duplicate Active Prayer Season
+
+include::{snippets}/prayer-season-create-active-duplicate/http-request.adoc[]
+
+include::{snippets}/prayer-season-create-active-duplicate/http-response.adoc[]
+
+include::{snippets}/prayer-season-create-active-duplicate/response-fields.adoc[]
+
+=== Close Prayer Season
+
+`PATCH /api/v1/admin/prayer-seasons/{seasonId}/close`
+
+==== Request
+
+include::{snippets}/prayer-season-close-success/http-request.adoc[]
+
+==== Request Fields
+
+include::{snippets}/prayer-season-close-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-season-close-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-season-close-success/response-fields.adoc[]
+
+=== Create Prayer Group
+
+`POST /api/v1/admin/prayer-seasons/{seasonId}/groups`
+
+==== Request
+
+include::{snippets}/prayer-group-create-success/http-request.adoc[]
+
+==== Request Fields
+
+include::{snippets}/prayer-group-create-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-group-create-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-group-create-success/response-fields.adoc[]
+
+=== Update Prayer Group
+
+`PATCH /api/v1/admin/prayer-groups/{groupId}`
+
+==== Request
+
+include::{snippets}/prayer-group-update-success/http-request.adoc[]
+
+==== Request Fields
+
+include::{snippets}/prayer-group-update-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-group-update-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-group-update-success/response-fields.adoc[]
+
+=== Replace Prayer Group Members
+
+`PUT /api/v1/admin/prayer-groups/{groupId}/members`
+
+요청에 포함된 멤버는 active, 빠진 기존 멤버는 inactive 처리하는 전체 교체 API다.
+
+==== Request
+
+include::{snippets}/prayer-group-members-replace-success/http-request.adoc[]
+
+==== Request Fields
+
+include::{snippets}/prayer-group-members-replace-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-group-members-replace-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-group-members-replace-success/response-fields.adoc[]
+
+=== Get Prayer Week Board
+
+`GET /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}`
+
+캠퍼스 ACTIVE 멤버가 전체 조별 기도제목을 한 페이지로 조회한다. 조회 API는 `prayer_weeks` 또는 `prayer_submissions` row를 생성하지 않는다.
+
+==== Request
+
+include::{snippets}/prayer-week-board-get-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/prayer-week-board-get-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/prayer-week-board-get-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-week-board-get-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-week-board-get-success/response-fields.adoc[]
+
+=== Invalid Prayer Week Start Date
+
+include::{snippets}/prayer-week-board-invalid-week-start/http-request.adoc[]
+
+include::{snippets}/prayer-week-board-invalid-week-start/http-response.adoc[]
+
+include::{snippets}/prayer-week-board-invalid-week-start/response-fields.adoc[]
+
+=== Save Prayer Submissions
+
+`PUT /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/submissions`
+
+한 화면에서 여러 명의 기도제목을 저장하지만, 서버 저장 단위는 사람별 `prayer_submissions` row다. version 충돌이 하나라도 있으면 전체 요청을 rollback한다.
+
+==== Request
+
+include::{snippets}/prayer-submissions-save-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/prayer-submissions-save-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/prayer-submissions-save-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/prayer-submissions-save-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-submissions-save-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-submissions-save-success/response-fields.adoc[]
+
+=== Save Prayer Submissions Forbidden
+
+include::{snippets}/prayer-submissions-save-other-group-forbidden/http-request.adoc[]
+
+include::{snippets}/prayer-submissions-save-other-group-forbidden/http-response.adoc[]
+
+include::{snippets}/prayer-submissions-save-other-group-forbidden/response-fields.adoc[]
+
+=== Save Prayer Submissions Version Conflict
+
+include::{snippets}/prayer-submissions-save-version-conflict/http-request.adoc[]
+
+include::{snippets}/prayer-submissions-save-version-conflict/http-response.adoc[]
+
+include::{snippets}/prayer-submissions-save-version-conflict/response-fields.adoc[]

@@ -368,6 +368,8 @@ Issue #34 is P0.
 - Poll response requests must use `optionIds`.
 - Selected options must be stored in `poll_response_options`.
 - Do not implement request field `optionId` or `poll_responses.option_id` from older API drafts.
+- Administrator direct poll creation must set a poll to `OPEN` immediately when the creation-time current instant satisfies `startsAt <= now < endsAt`.
+- Polls that have not started yet remain `SCHEDULED`, and Scheduler/Batch keeps its existing automatic creation, close, and correction role.
 - Coffee brand lookup uses `GET /api/v1/coffee-brands`.
 - Coffee menu catalog lookup uses `GET /api/v1/coffee-brands/{brandId}/menus`.
 - Compose Coffee menu catalog seed data must come from the official Compose Coffee menu source available at implementation time. Do not use unofficial blog/menu screenshots as the price source of truth.
