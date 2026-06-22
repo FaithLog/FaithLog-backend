@@ -10,11 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-22 - Issue #76 tokenVersion-Based Role Token Invalidation
+
+- Context: Issue #76 was reopened for implementation after the MVP policy documentation PR merged. Because this changes authentication/security behavior, the PM session explicitly approved the final implementation mechanism before code changes.
+- Decision: Implement role-change Access Token invalidation with `users.token_version`. Access Tokens include a `tokenVersion` claim. The authentication filter compares the token `userId/tokenVersion` with the current persisted user `tokenVersion`; mismatch or missing version is handled through the existing authentication failure policy (`AUTH_UNAUTHORIZED`) without adding a new ErrorCode. Service-level role changes increment the target user's token version. Campus role changes also increment the target user's token version because campus roles directly affect API authorization. Refresh Token reissue keeps the existing Redis rotation/allowlist policy and issues a new Access Token from the latest persisted role and token version.
+- Impact: Existing Access Tokens issued before a real service-level or campus role change become unusable immediately after the version increment. Access Token TTL remains 30 minutes, Refresh Token TTL/rotation/logout blacklist behavior remains unchanged, user-facing API paths do not change, and Swagger documentation annotations must not be added.
+
 ### 2026-06-22 - Issue #76 Role Change Access Token Invalidation Policy
 
 - Context: Full QA raised a security policy question because Access Tokens include the `role` claim. If a service-level role or campus permission changes, an already issued Access Token can still carry the previous claim until it expires.
 - Decision: For the MVP, do not immediately invalidate already issued Access Tokens when roles change. The current Access Token TTL is 30 minutes, so the accepted risk window is limited. Refresh Token reissue must still create new Access Tokens from the latest persisted user role. Immediate invalidation of role-stale Access Tokens is tracked as Issue #76, `[Security] 역할 변경 시 기존 Access Token 무효화 정책 구현`, because tokenVersion, session invalidation, or Redis blacklist/session expansion affects authentication architecture and should be designed separately.
 - Impact: Current role-management features must not silently add partial token invalidation behavior. Future #76 work must decide and test the final invalidation mechanism for service-level role changes and campus role changes without breaking #28 refresh/logout Redis rotation.
+- Status: Superseded by the later 2026-06-22 decision `Issue #76 tokenVersion-Based Role Token Invalidation`, which implements immediate invalidation through `users.token_version`.
 
 ### 2026-06-22 - Issue #74 Policy Documentation Consistency Cleanup
 
