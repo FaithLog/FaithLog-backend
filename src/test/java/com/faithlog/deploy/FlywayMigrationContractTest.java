@@ -13,6 +13,10 @@ class FlywayMigrationContractTest {
 	private static final Path MIGRATION = Path.of("src/main/resources/db/migration/V1__initial_schema.sql");
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
+	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
+	private static final Path ENV_LOCAL_EXAMPLE = Path.of(".env.local.example");
+	private static final Path ENV_DOCKER_EXAMPLE = Path.of(".env.docker.example");
+	private static final Path ENV_PROD_EXAMPLE = Path.of(".env.prod.example");
 
 	@Test
 	void v1MigrationDefinesCurrentEntityTablesAndApprovedCodeColumns() throws IOException {
@@ -115,8 +119,13 @@ class FlywayMigrationContractTest {
 			"SPRING_DATASOURCE_PASSWORD",
 			"JWT_SECRET",
 			"FIREBASE_CONFIG_JSON",
+			"SPRING_DATA_REDIS_HOST",
+			"SPRING_DATA_REDIS_PORT",
+			"SPRING_DATA_REDIS_PASSWORD",
+			"SPRING_DATA_REDIS_SSL_ENABLED",
 			"/api/v1/health",
 			"Supabase",
+			"Upstash",
 			"Artifact Registry"
 		);
 		assertThat(doc).doesNotContain("Nginx", "Certbot");
@@ -134,5 +143,48 @@ class FlywayMigrationContractTest {
 			"SPRINGDOC_SWAGGER_UI_ENABLED: ${SPRINGDOC_SWAGGER_UI_ENABLED:-true}",
 			"FAITHLOG_SCHEDULER_ENABLED: ${FAITHLOG_SCHEDULER_ENABLED:-true}"
 		);
+	}
+
+	@Test
+	void dockerProfileAndEnvExamplesSeparateDockerRedisFromUpstashRedis() throws IOException {
+		assertThat(APPLICATION_DOCKER).exists();
+		assertThat(ENV_LOCAL_EXAMPLE).exists();
+		assertThat(ENV_DOCKER_EXAMPLE).exists();
+		assertThat(ENV_PROD_EXAMPLE).exists();
+
+		String dockerProfile = Files.readString(APPLICATION_DOCKER);
+		String dockerEnv = Files.readString(ENV_DOCKER_EXAMPLE);
+		String prodEnv = Files.readString(ENV_PROD_EXAMPLE);
+		String compose = Files.readString(DOCKER_COMPOSE);
+
+		assertThat(dockerProfile).contains(
+			"jdbc:postgresql://postgres:5432/faithlog",
+			"host: ${SPRING_DATA_REDIS_HOST:redis}",
+			"port: ${SPRING_DATA_REDIS_PORT:6379}"
+		);
+		assertThat(dockerProfile).doesNotContain("upstash", "SPRING_DATA_REDIS_PASSWORD", "SPRING_DATA_REDIS_SSL_ENABLED");
+
+		assertThat(dockerEnv).contains(
+			"SPRING_PROFILES_ACTIVE=docker",
+			"SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/faithlog",
+			"SPRING_DATA_REDIS_HOST=redis",
+			"SPRING_DATA_REDIS_PORT=6379"
+		);
+		assertThat(dockerEnv).doesNotContain("upstash", "SPRING_DATA_REDIS_PASSWORD");
+
+		assertThat(prodEnv).contains(
+			"SPRING_PROFILES_ACTIVE=prod",
+			"SPRING_DATASOURCE_URL=jdbc:postgresql://<supabase-host>:5432/<database>?sslmode=require",
+			"SPRING_DATA_REDIS_HOST=<upstash-redis-host>",
+			"SPRING_DATA_REDIS_PORT=6379",
+			"SPRING_DATA_REDIS_PASSWORD=<upstash-redis-password>",
+			"SPRING_DATA_REDIS_SSL_ENABLED=true"
+		);
+
+		assertThat(compose).contains(
+			"SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}",
+			"SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}"
+		);
+		assertThat(compose).doesNotContain("upstash");
 	}
 }

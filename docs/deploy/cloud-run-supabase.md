@@ -1,4 +1,4 @@
-# Cloud Run And Supabase Deployment
+# Cloud Run, Supabase, And Upstash Deployment
 
 This document records the Issue #46 deployment baseline for FaithLog.
 
@@ -6,9 +6,10 @@ This document records the Issue #46 deployment baseline for FaithLog.
 
 - Runtime target: Google Cloud Run container.
 - Database target: Supabase PostgreSQL, starting from a new database.
+- Redis target: Upstash Redis for `prod` / Cloud Run only.
 - Migration strategy: Flyway V1 initial schema for the current stabilized MVP entity model.
 - Cloud Run project, region, service name, and Artifact Registry repository are not fixed in this issue. Confirm those values with the PM before running a real deployment.
-- Store real database URLs, passwords, JWT secrets, and Firebase Admin credentials only in the deployment environment or secret manager. Do not commit them to the repository.
+- Store real database URLs, database passwords, Redis passwords, JWT secrets, and Firebase Admin credentials only in the deployment environment or secret manager. Do not commit them to the repository.
 
 ## Endpoints
 
@@ -43,6 +44,8 @@ SPRING_JPA_HIBERNATE_DDL_AUTO=validate
 
 SPRING_DATA_REDIS_HOST=<redis-host>
 SPRING_DATA_REDIS_PORT=6379
+SPRING_DATA_REDIS_PASSWORD=<upstash-redis-password>
+SPRING_DATA_REDIS_SSL_ENABLED=true
 
 JWT_SECRET=<strong-secret>
 JWT_ACCESS_TOKEN_VALIDITY_SECONDS=1800
@@ -57,6 +60,25 @@ SPRINGDOC_SWAGGER_UI_ENABLED=false
 
 `FIREBASE_CONFIG_JSON` is preferred for Cloud Run because it can be mounted from a secret value without adding a key file to the image. If file-based credentials are used later, mount the file through the platform and set `FIREBASE_CONFIG_PATH` to that mounted path.
 
+## Environment Split
+
+Use one Docker image and split runtime behavior with Spring profiles and environment variables:
+
+| Profile | Runtime | Database | Redis | Secret policy |
+| --- | --- | --- | --- | --- |
+| `local` | Direct local app execution | Local or Docker PostgreSQL | Local or Docker Redis | Dummy/example values only |
+| `docker` | Docker Compose QA/development | Compose `postgres` service | Compose `redis` service | Dummy/example values only |
+| `test` | Gradle/CI tests | H2 or test PostgreSQL only | No external Upstash dependency | No network secret required |
+| `prod` | Cloud Run | Supabase PostgreSQL | Upstash Redis | Cloud Run secret injection or Secret Manager |
+
+Environment example files:
+
+- `.env.local.example`: direct local application execution.
+- `.env.docker.example`: Docker Compose QA/development; must not point to Supabase or Upstash.
+- `.env.prod.example`: Cloud Run production contract; contains only placeholder Supabase and Upstash values.
+
+Do not commit real `.env`, `.env.local`, `.env.docker`, or `.env.prod` files.
+
 ## Supabase Connection Mode
 
 Use two connection modes intentionally:
@@ -65,6 +87,28 @@ Use two connection modes intentionally:
 - Cloud Run application traffic: prefer the Supabase pooler connection when direct IPv4 access or connection limits make direct connections risky. Keep `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` conservative, starting at `5`, and adjust only with measured evidence.
 
 The JDBC URL must include Supabase-required SSL settings when the selected connection string requires them. Use placeholders in docs and issues; never paste the real connection string.
+
+## Upstash Redis Connection Mode
+
+Use Spring Boot 3.5 Redis auto-configuration with explicit host, port, password, and SSL settings:
+
+```text
+SPRING_DATA_REDIS_HOST=<upstash-redis-host>
+SPRING_DATA_REDIS_PORT=6379
+SPRING_DATA_REDIS_PASSWORD=<upstash-redis-password>
+SPRING_DATA_REDIS_SSL_ENABLED=true
+```
+
+This host/port/password/SSL contract is preferred over a single Redis URL because it matches the existing local/docker Redis structure and keeps the password out of connection-string-shaped values in docs and logs. Spring Boot 3.5 exposes `spring.data.redis.host`, `spring.data.redis.port`, `spring.data.redis.password`, and `spring.data.redis.ssl.enabled`; the application uses the auto-configured `RedisConnectionFactory` for all Redis-backed features.
+
+Redis-backed features that use this connection:
+
+- Refresh token allowlist.
+- Access token blacklist.
+- Notification deduplication.
+- Notification execution locks.
+
+Local and Docker profiles use Docker/local Redis host and port only. They do not use Upstash defaults. Actual Upstash connection verification requires secret injection and is not part of this repository validation.
 
 ## Flyway Migration
 
@@ -92,6 +136,8 @@ Build the container image locally:
 ```bash
 docker build -t faithlog-backend:local .
 ```
+
+The `Dockerfile` is intentionally shared by local Docker QA and Cloud Run. Runtime differences come from `SPRING_PROFILES_ACTIVE` and environment variables, not from separate Dockerfiles.
 
 Build and tag for Artifact Registry after PM confirms the real values:
 
@@ -123,7 +169,7 @@ gcloud run deploy <cloud-run-service-name> \
   --region "<gcp-region>" \
   --platform managed \
   --allow-unauthenticated \
-  --set-env-vars "SPRING_PROFILES_ACTIVE=prod,SPRING_FLYWAY_ENABLED=true,SPRING_JPA_HIBERNATE_DDL_AUTO=validate"
+  --set-env-vars "SPRING_PROFILES_ACTIVE=prod,SPRING_FLYWAY_ENABLED=true,SPRING_JPA_HIBERNATE_DDL_AUTO=validate,SPRING_DATA_REDIS_SSL_ENABLED=true"
 ```
 
 Use Cloud Run secret injection for sensitive values rather than `--set-env-vars`.
@@ -135,6 +181,7 @@ Use Cloud Run secret injection for sensitive values rather than `--set-env-vars`
 - `./gradlew asciidoctor`
 - Docker image build succeeds.
 - Docker PostgreSQL clean database runs Flyway V1 successfully.
-- App starts with `prod` profile against the migrated PostgreSQL schema and `ddl-auto=validate`.
+- Docker QA starts with Docker PostgreSQL and Docker Redis only.
+- App starts with deployment-like DB/Flyway/JPA settings against the migrated PostgreSQL schema and `ddl-auto=validate`.
 - `/api/v1/health` returns `status=UP`.
-- Search confirms no real Supabase URL, DB password, JWT secret, Firebase key, `.env`, or Firebase Admin SDK key file is committed.
+- Search confirms no real Supabase URL, Upstash URL/password/token, DB password, JWT secret, Firebase key, `.env`, or Firebase Admin SDK key file is committed.

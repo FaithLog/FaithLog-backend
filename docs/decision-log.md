@@ -18,6 +18,14 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Keep actual Supabase, JWT, Firebase, and database secret values out of repository files, logs, docs, issues, commits, and PR text. Document placeholders and environment-variable names only. Use direct Supabase connection for migration/schema inspection where available, and document pooler-based application traffic guidance for Cloud Run with conservative Hikari pool sizing.
 - Impact: #46 may add Flyway dependencies, `src/main/resources/db/migration/V1__initial_schema.sql`, Cloud Run/Supabase deployment docs, prod/example environment contracts, and PostgreSQL migration verification. Existing-data Supabase migration or baseline requires a separate PM-approved plan.
 
+### 2026-06-22 - Issue #46 Upstash Redis And Environment Split
+
+- Context: After the initial Flyway/Supabase/Cloud Run work, the user confirmed that production Redis should use Upstash Redis while local development and Docker QA continue using Docker/local Redis. The user also asked whether Dockerfiles should be split.
+- Decision: Keep one shared `Dockerfile` for the application image. Split behavior by Spring profile and environment variables instead: `local`, `docker`, `test`, and `prod`.
+- Decision: Use `SPRING_DATA_REDIS_HOST`, `SPRING_DATA_REDIS_PORT`, `SPRING_DATA_REDIS_PASSWORD`, and `SPRING_DATA_REDIS_SSL_ENABLED` for Upstash Redis in `prod`. Do not use Upstash defaults in local/docker/test.
+- Decision: Add profile-specific env examples: `.env.local.example`, `.env.docker.example`, and `.env.prod.example`. These files contain only dummy or placeholder values and must not be copied with real secrets into the repository.
+- Impact: Docker Compose defaults to `SPRING_PROFILES_ACTIVE=docker` and uses Docker PostgreSQL/Redis. Cloud Run uses `prod` with Supabase PostgreSQL and Upstash Redis injected through safe environment/secret mechanisms.
+
 ### 2026-06-22 - Issue #84 QA Docker Compose Project Isolation
 
 - Context: Full QA and Docker QA can be polluted by named volumes left from previous development or PM worktree runs. Earlier Docker troubleshooting showed that an existing Postgres volume credential mismatch could break app startup, but deleting volumes by default is risky because it can erase local development data.

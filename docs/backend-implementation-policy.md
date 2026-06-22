@@ -83,6 +83,8 @@ Redis TTL policy:
 - Production-like profiles must use Flyway migrations with Hibernate `ddl-auto=validate`; Hibernate must not create or update production schema.
 - Local development may keep Flyway disabled and use Hibernate `ddl-auto=update` for speed, but PostgreSQL migration verification must cover the clean database path.
 - Existing-data Supabase migration or Flyway baseline behavior requires a separate PM-approved plan before implementation.
+- Runtime environments are split by profile: `local` uses local or Docker PostgreSQL/Redis, `docker` uses Docker Compose `postgres`/`redis`, `test` must not depend on Supabase or Upstash, and `prod`/Cloud Run uses Supabase PostgreSQL plus Upstash Redis.
+- Production Redis uses Spring Boot Redis host/port/password/SSL properties for Upstash. Docker and local defaults must not point to Upstash.
 
 ## API Documentation
 
