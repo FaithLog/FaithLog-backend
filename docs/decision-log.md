@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-22 - Issue #76 Role Change Access Token Invalidation Policy
+
+- Context: Full QA raised a security policy question because Access Tokens include the `role` claim. If a service-level role or campus permission changes, an already issued Access Token can still carry the previous claim until it expires.
+- Decision: For the MVP, do not immediately invalidate already issued Access Tokens when roles change. The current Access Token TTL is 30 minutes, so the accepted risk window is limited. Refresh Token reissue must still create new Access Tokens from the latest persisted user role. Immediate invalidation of role-stale Access Tokens is tracked as Issue #76, `[Security] 역할 변경 시 기존 Access Token 무효화 정책 구현`, because tokenVersion, session invalidation, or Redis blacklist/session expansion affects authentication architecture and should be designed separately.
+- Impact: Current role-management features must not silently add partial token invalidation behavior. Future #76 work must decide and test the final invalidation mechanism for service-level role changes and campus role changes without breaking #28 refresh/logout Redis rotation.
+
 ### 2026-06-22 - Issue #74 Policy Documentation Consistency Cleanup
 
 - Context: Full QA found stale policy wording across repository docs and Notion/API design pages. The stale text included Last `ADMIN` protection as a pending question, Compose Coffee seed source wording that did not mention the user-approved #37 override, older poll endpoint lists, notification no-retry wording, and obsolete campus member/invite-code API entries.

@@ -8,6 +8,10 @@ This document records the current backend implementation source of truth.
 - The old Notion ERD `refresh_tokens` table is superseded by the Redis allowlist decision and must not be implemented as the MVP refresh-token source of truth.
 - Refresh Token uses a Redis allowlist.
 - Access Token remains stateless JWT, but logout uses Redis blacklist/denylist.
+- In the MVP, role changes do not immediately invalidate already issued Access Tokens.
+- Already issued Access Tokens may remain valid until their 30-minute TTL expires.
+- Refresh Token reissue must create a new Access Token using the latest persisted user role.
+- Immediate invalidation of role-stale Access Tokens is tracked separately in Issue #76 because it requires a broader security design such as token versioning, session invalidation, or expanded Redis blacklist/session state.
 - Refresh Token Rotation is required.
 - Refresh success must issue a new Refresh Token and immediately revoke the previous one.
 - Reuse of an old Refresh Token must fail and revoke at least the current session.
