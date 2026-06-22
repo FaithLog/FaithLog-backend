@@ -110,6 +110,9 @@ planning/
 .env
 .env.*
 !.env.example
+!.env.local.example
+!.env.docker.example
+!.env.prod.example
 !.env.test.example
 *.pem
 *.key

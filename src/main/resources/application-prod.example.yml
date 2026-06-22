@@ -13,11 +13,23 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD}
+      ssl:
+        enabled: ${SPRING_DATA_REDIS_SSL_ENABLED:true}
   jpa:
     hibernate:
       ddl-auto: validate
     open-in-view: false
 
-logging:
-  level:
-    com.faithlog: info
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
+
+faithlog:
+  jwt:
+    secret: ${JWT_SECRET}
+  firebase:
+    config-json: ${FIREBASE_CONFIG_JSON}
+    config-path: ${FIREBASE_CONFIG_PATH:}

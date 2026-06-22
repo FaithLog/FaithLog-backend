@@ -13,18 +13,36 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-22, 236 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 54 test files (2026-06-22) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-22, 242 tests / 0 failures / 1 skipped) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-22) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-06-22
+
+- #46 Flyway 마이그레이션과 Supabase/Cloud Run 배포 DB 설정 정리:
+  - 브랜치: `build/46-flyway-supabase-deploy-db`
+  - PM 결정: 새 Supabase PostgreSQL DB 기준으로 시작. Google Cloud Run 컨테이너 런타임 기준으로 문서화하며, Nginx/Certbot/직접 80/443 포트 구성은 진행하지 않는다. 실제 GCP 프로젝트/리전/서비스명/Artifact Registry/secret 등록은 후속 PM 승인 전까지 placeholder와 env 계약만 남긴다.
+  - 구현 범위: Flyway 의존성 추가, `V1__initial_schema.sql` 초기 스키마 1개 추가, Notion ERD `Ref` 관계 FK 반영, `charge_items.source_id` polymorphic reference FK 제외, `application-prod.yml` 제거 및 `application-prod.example.yml`/`.env.example` placeholder 계약 정리.
+  - 배포 계약: Cloud Run `PORT`, Supabase datasource env, Hikari max pool size, Flyway enabled, JPA validate, Redis, JWT, Firebase Admin JSON/path, springdoc 비활성화 env를 문서화. `docker-compose.yml` app env passthrough도 보강했다.
+  - TDD 실패 확인: 구현 전 migration directory/dependency 부재 확인 및 `FlywayMigrationContractTest` 실패를 먼저 확인. compose env passthrough 누락은 신규 계약 테스트 실패로 재현한 뒤 수정했다.
+  - 재검증: `./gradlew test` 성공(241 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공.
+  - PostgreSQL/Flyway QA: `FAITHLOG_RUN_POSTGRES_FLYWAY_TEST=true`로 Docker PostgreSQL clean/migrate 테스트 성공. `flyway_schema_history`에 version `1`, description `initial schema`, success `true` 확인.
+  - Docker QA: `faithlog-qa-46-migration` compose project로 postgres/redis/app 기동. 새 Docker image build `bootJar` 성공, app env passthrough 확인(`SPRING_FLYWAY_ENABLED=true`, springdoc false, scheduler false, `PORT=8080`), app 로그에서 Flyway schema version 1 확인, `GET /api/v1/health` 응답 `status=UP` 확인.
+  - Secret/금지어 검사: `.env` 및 Firebase key JSON 파일 없음. 실제 Supabase URL/DB password/JWT/Firebase secret 원문 없음. 금지어 검색은 Hook 문서의 금지어 목록 자체, decision/policy 과거 설명, 내부 `optionId` 도메인 식별자만 확인.
+  - 코드베이스 수치: Java 소스 421개, 테스트 파일 56개, Flyway migration 1개.
+  - PM 보강 결정: 배포 Redis는 Upstash Redis를 사용하고, local/docker/test는 외부 Supabase/Upstash에 의존하지 않도록 분리한다. Dockerfile은 하나만 유지하고 `local`/`docker`/`test`/`prod` profile과 env로 런타임을 분리한다.
+  - PM 보강 구현: `application-docker.yml`, `.env.local.example`, `.env.docker.example`, `.env.prod.example` 추가. `docker-compose.yml` 기본 profile을 `docker`로 변경하고 Docker Redis/PostgreSQL만 바라보게 유지. prod example/docs에 `SPRING_DATA_REDIS_HOST`, `SPRING_DATA_REDIS_PORT`, `SPRING_DATA_REDIS_PASSWORD`, `SPRING_DATA_REDIS_SSL_ENABLED` Upstash 계약을 추가했다.
+  - PM 보강 TDD 실패 확인: `FlywayMigrationContractTest`에 Upstash/env split 계약 테스트를 추가한 뒤 문서/env/profile 부재로 2 tests failed를 먼저 확인했다.
+  - PM 보강 재검증: `./gradlew test` 성공(242 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공.
+  - PM 보강 Docker QA: `faithlog-qa-46-upstash` compose project에서 Docker PostgreSQL + Docker Redis만 사용해 app 기동. 컨테이너 env는 `SPRING_PROFILES_ACTIVE=docker`, Redis host `redis`, Flyway true, JPA validate로 확인. Flyway V1 clean migration 성공, app started, `GET /api/v1/health` `UP`, QA 컨테이너/network 정리 완료.
+  - PM 보강 secret scan: 실제 `.env`/Firebase key JSON 없음. 실제 Supabase URL, Upstash URL/password/token, DB password, JWT secret, Firebase secret 원문 없음. 검색 결과는 docs/test의 placeholder 문자열과 Hook 금지어 목록 자체만 확인.
 
 - #84 QA Docker Compose 격리:
   - 작업 기준: Issue #84 `[Chore] QA Docker Compose 격리 실행 스크립트와 문서 정리`, Project `FaithLog Backend Kanban` Status `In Progress`.

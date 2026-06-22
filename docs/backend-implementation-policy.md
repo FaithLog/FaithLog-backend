@@ -78,11 +78,13 @@ Redis TTL policy:
 
 ## Schema Migration Timing
 
-- Flyway is deferred until the main feature development work is complete.
-- Flyway runtime dependencies, configuration, and migration files are not active during early feature development.
-- Feature issues may define approved schema requirements and write tests around persistence behavior.
-- Final Flyway migration scripts should be consolidated after the domain model stabilizes near the end of development.
-- Do not block early feature implementation on final Flyway migration authoring unless the user later approves a different migration policy.
+- Issue #46 reintroduced Flyway after the MVP domain model stabilized.
+- `src/main/resources/db/migration/V1__initial_schema.sql` is the clean initial schema for a new Supabase PostgreSQL database.
+- Production-like profiles must use Flyway migrations with Hibernate `ddl-auto=validate`; Hibernate must not create or update production schema.
+- Local development may keep Flyway disabled and use Hibernate `ddl-auto=update` for speed, but PostgreSQL migration verification must cover the clean database path.
+- Existing-data Supabase migration or Flyway baseline behavior requires a separate PM-approved plan before implementation.
+- Runtime environments are split by profile: `local` uses local or Docker PostgreSQL/Redis, `docker` uses Docker Compose `postgres`/`redis`, `test` must not depend on Supabase or Upstash, and `prod`/Cloud Run uses Supabase PostgreSQL plus Upstash Redis.
+- Production Redis uses Spring Boot Redis host/port/password/SSL properties for Upstash. Docker and local defaults must not point to Upstash.
 
 ## API Documentation
 

@@ -18,7 +18,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.util.StringUtils;
 
 @Configuration
-@Profile("!local & !test")
+@Profile("!local & !docker & !test")
 public class FirebaseAdminFcmConfig {
 
 	private static final String APP_NAME = "faithlog-notification";
@@ -71,7 +71,7 @@ public class FirebaseAdminFcmConfig {
 			return Files.newInputStream(Path.of(configPath));
 		}
 		throw new IllegalStateException(
-			"Firebase Admin credentials are required outside local/test profiles. "
+			"Firebase Admin credentials are required outside local/docker/test profiles. "
 				+ "Set FIREBASE_CONFIG_JSON or FIREBASE_CONFIG_PATH."
 		);
 	}
