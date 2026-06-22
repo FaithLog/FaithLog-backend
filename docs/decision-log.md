@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-22 - Issue #74 Policy Documentation Consistency Cleanup
+
+- Context: Full QA found stale policy wording across repository docs and Notion/API design pages. The stale text included Last `ADMIN` protection as a pending question, Compose Coffee seed source wording that did not mention the user-approved #37 override, older poll endpoint lists, notification no-retry wording, and obsolete campus member/invite-code API entries.
+- Decision: Treat Issue #61 and its implementation as the final Last active service-level `ADMIN` policy: demoting the only active service-level `ADMIN` to `USER` or `MANAGER` fails with `409 ADMIN_LAST_ADMIN_DEMOTION_FORBIDDEN`, counting only `users.role = ADMIN` and `users.is_active = true`. Treat Compose Coffee seed sourcing as official-first, with an explicit user-approved latest source allowed when official verification is blocked or impossible. The actual #37 implementation uses the user-approved 2026 Compose Coffee menu/price source. Treat the current REST Docs and latest decision log as the source of truth for poll, notification, campus member, and invite-code API wording; older Notion/API sections must be updated or marked Legacy.
+- Impact: Documentation cleanup must not change source code, DB schema, API paths, features, or Swagger annotations. Future work should not reintroduce response-time `COFFEE` charge creation, old single `optionId` request fields, admin-only poll result endpoints, `/polls/active`, campus member status patch, invite-code refresh, notification no-retry wording for #40+, or Last `ADMIN` pending-question text.
+
 ### 2026-06-22 - Issue #72 Direct Poll Creation Current Window Status
 
 - Context: Full QA found that administrator direct poll creation left polls in `SCHEDULED` even when the creation-time current instant was inside `startsAt <= now < endsAt`, causing detail/response/results/comment APIs to behave as if the poll was not open.
@@ -327,8 +333,8 @@ This file records user-approved project decisions so Codex does not rely on gues
 ### 2026-06-19 - Issue #37 Coffee Catalog Source And API Path
 
 - Context: The user approved the source of truth for Compose Coffee menu seed data and accepted the recommended catalog lookup API paths.
-- Decision: Issue #37 must seed Compose Coffee menu names and prices from the official Compose Coffee menu board/source available at implementation time. If the official website blocks automated access, the development session must use another official source provided by Compose Coffee, such as the official app/menu image/menu board, and record the source used. The catalog lookup APIs are `GET /api/v1/coffee-brands` and `GET /api/v1/coffee-brands/{brandId}/menus`.
-- Impact: Issue #37 development must not guess menu prices from blogs or unofficial lists. REST Docs tests must document both catalog lookup APIs, and the seed verification record must name the official source and capture date.
+- Decision: Initial planning preferred the official Compose Coffee menu board/source available at implementation time, and the catalog lookup APIs are `GET /api/v1/coffee-brands` and `GET /api/v1/coffee-brands/{brandId}/menus`. This source rule is superseded by the later `Issue #37 Compose Coffee Seed Source Override` decision above: if official verification is blocked or impossible, a latest menu/price source explicitly approved by the user may be used.
+- Impact: Issue #37 development must not guess menu prices. REST Docs tests must document both catalog lookup APIs, and the seed verification record must name whether the seed came from an official source or from a user-approved latest source.
 
 ### 2026-06-19 - Issue #38 Poll Result Visibility
 

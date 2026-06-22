@@ -134,7 +134,8 @@ Redis TTL policy:
 - Service-level `MANAGER` alone does not grant campus role change permission.
 - Issue #30 must not block downgrading the last campus management role holder to `MEMBER`.
 - Service-level admin user-role management APIs are not part of issue #29 and must be handled in a separate admin role-management issue.
-- Last `ADMIN` protection remains a pending policy question until the user approves its exact behavior.
+- Last active service-level `ADMIN` protection is final. If a role change would demote the only active service-level `ADMIN` to `USER` or `MANAGER`, the API must fail with `409 ADMIN_LAST_ADMIN_DEMOTION_FORBIDDEN`.
+- Last service-level `ADMIN` protection counts only users where `users.role = ADMIN` and `users.is_active = true`.
 
 ## Campus Duty Assignment
 
@@ -326,6 +327,9 @@ Issue #39 is P0.
 - MVP coffee ordering is limited to Compose Coffee.
 - Coffee menu names and prices must not be frontend-only data or Java enum constants because they affect billing.
 - Issue #37 must seed one active Compose Coffee brand and all current Compose Coffee menu items into backend catalog data.
+- Compose Coffee seed source policy is official-first. Prefer official Compose Coffee menu boards, official app data, official menu images, or another official Compose Coffee source.
+- If official verification is blocked or impossible, a latest menu/price source explicitly approved by the user may be used as the seed baseline.
+- The actual Issue #37 implementation uses the user-approved 2026 Compose Coffee menu/price source recorded in `docs/decision-log.md`.
 - The default coffee poll template starts with iced americano, americano, iced tea, iced latte, and latte options.
 - Additional coffee template options are selected from the backend menu catalog and copied into `poll_template_options`.
 - `poll_template_options` and `poll_options` keep copied `composeMenuCode`, display name, and `priceAmount` snapshots so later catalog price changes do not mutate existing templates, polls, or charges.
@@ -372,7 +376,7 @@ Issue #34 is P0.
 - Polls that have not started yet remain `SCHEDULED`, and Scheduler/Batch keeps its existing automatic creation, close, and correction role.
 - Coffee brand lookup uses `GET /api/v1/coffee-brands`.
 - Coffee menu catalog lookup uses `GET /api/v1/coffee-brands/{brandId}/menus`.
-- Compose Coffee menu catalog seed data must come from the official Compose Coffee menu source available at implementation time. Do not use unofficial blog/menu screenshots as the price source of truth.
+- Compose Coffee menu catalog seed data should come from official Compose Coffee sources first. If official verification is not possible, a latest menu/price source explicitly approved by the user may be used; Issue #37 used the user-approved 2026 Compose Coffee menu/price source.
 - Poll results are visible to all active campus members.
 - Poll result lookup is a single poll-level API: `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`.
 - Do not create option-level poll result endpoints for MVP.

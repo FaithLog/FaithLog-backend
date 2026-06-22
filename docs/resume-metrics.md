@@ -26,6 +26,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-06-22
 
+- #74 전체 QA 후 정책 문서 정합성 정리:
+  - 브랜치: `docs/74-policy-doc-consistency`
+  - repo 문서 정리 범위: `docs/backend-implementation-policy.md`, `docs/codex/FAITHLOG_CODEX_HOOK.md`, `docs/decision-log.md`, `docs/resume-metrics.md`
+  - 정책 정합성: Last active service `ADMIN` 강등 금지는 `409 ADMIN_LAST_ADMIN_DEMOTION_FORBIDDEN` 기준으로 확정 기록했고, 컴포즈커피 메뉴 seed는 공식 자료 우선 + 공식 검증 불가 시 사용자 승인 최신 자료 허용 기준으로 통일했다.
+  - Notion 정리: 최종 기획서/API/ERD/통합 문서의 stale Last ADMIN, notification retry, old poll endpoint, invite-code refresh, campus member inactive endpoint, old ERD duplicate를 최신 기준 또는 Legacy 표시로 정리했다.
+  - 검증 계획: 문서-only 작업이므로 `./gradlew test`는 생략하고, `git diff --check`와 정책/stale 문구 검색으로 검증한다.
+
 - #72 전체 QA 발견 이슈 보강:
   - 브랜치: `fix/72-qa-issues`
   - 구현 범위: 관리자 직접 Poll 생성 시 `startsAt <= now < endsAt`인 현재 기간 poll을 생성 직후 `OPEN`으로 전환. 직접 선택지 생성과 템플릿 기반 생성 모두 보강했고, 아직 시작 전 poll은 `SCHEDULED`를 유지하며 scheduler의 보정/자동 전환 역할은 유지했다.
