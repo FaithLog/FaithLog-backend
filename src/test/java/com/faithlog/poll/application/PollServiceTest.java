@@ -2,6 +2,12 @@ package com.faithlog.poll.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
@@ -49,6 +55,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -103,7 +110,7 @@ class PollServiceTest {
 	@Autowired
 	private PollOptionRepository pollOptionRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private PollResponseRepository pollResponseRepository;
 
 	@Autowired
@@ -762,6 +769,34 @@ class PollServiceTest {
 				assertThat(option.responseCount()).isEqualTo(1);
 				assertThat(option.respondents()).isEmpty();
 			});
+	}
+
+	@Test
+	void poll_list_marks_current_user_responses_without_per_poll_response_lookup() {
+		User manager = saveUser("poll-list-n-plus-one-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-list-n-plus-one-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "79목록캠");
+		joinCampus(campus, member);
+		PollResult first = createOpenCustomPoll(campus.campusId(), manager.id(), "첫 번째 투표", SelectionType.SINGLE, false, List.of("A"));
+		PollResult second = createOpenCustomPoll(campus.campusId(), manager.id(), "두 번째 투표", SelectionType.SINGLE, false, List.of("A"));
+		PollResult third = createOpenCustomPoll(campus.campusId(), manager.id(), "세 번째 투표", SelectionType.SINGLE, false, List.of("A"));
+		PollResult fourth = createOpenCustomPoll(campus.campusId(), manager.id(), "네 번째 투표", SelectionType.SINGLE, false, List.of("A"));
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), first.id(), member.id(), List.of(first.options().get(0).id()), null));
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), third.id(), member.id(), List.of(third.options().get(0).id()), null));
+		clearInvocations(pollResponseRepository);
+
+		List<PollListItemResult> results = pollService.listPolls(campus.campusId(), member.id());
+
+		assertThat(results)
+			.extracting(PollListItemResult::id, PollListItemResult::responded)
+			.contains(
+				org.assertj.core.groups.Tuple.tuple(first.id(), true),
+				org.assertj.core.groups.Tuple.tuple(second.id(), false),
+				org.assertj.core.groups.Tuple.tuple(third.id(), true),
+				org.assertj.core.groups.Tuple.tuple(fourth.id(), false)
+			);
+		verify(pollResponseRepository).findByPollIdInAndUserId(any(), eq(member.id()));
+		verify(pollResponseRepository, never()).findByPollIdAndUserId(anyLong(), anyLong());
 	}
 
 	@Test

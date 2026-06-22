@@ -13,8 +13,8 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-22, 235 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 53 test files (2026-06-22) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-22, 236 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 54 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-22) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
@@ -25,6 +25,17 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## Daily Monitoring Notes
 
 ### 2026-06-22
+
+- #79 투표 목록 조회 응답 여부 N+1 쿼리 개선:
+  - 브랜치: `perf/79-poll-list-response-n-plus-one`
+  - 구현 범위: `PollService.listPolls`가 visible poll 목록을 만든 뒤 `PollResponseRepository.findByPollIdInAndUserId(...)`로 현재 사용자 응답을 1회 bulk 조회하고, `respondedPollIds` set으로 `PollListItemResult.responded`를 계산하도록 변경했다.
+  - API 계약: `GET /api/v1/campuses/{campusId}/polls` 경로, request/response field, 권한 정책, 진행 중/지난 투표 노출 정책, 일반 사용자 3일/관리자 7일 공개 기간 정책 변경 없음.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests 'com.faithlog.poll.application.PollServiceTest.poll_list_marks_current_user_responses_without_per_poll_response_lookup'`가 `NeverWantedButInvoked`로 실패해 기존 `findByPollIdAndUserId` 단건 조회가 목록 poll마다 호출되는 것을 확인했다.
+  - 회귀 테스트: 여러 poll 중 현재 사용자가 응답한 poll만 `responded=true`로 표시되는지 검증하고, 목록 조회 중 `findByPollIdInAndUserId` 1회 호출 및 기존 `findByPollIdAndUserId` 미호출을 검증했다.
+  - 재검증: 신규 단일 테스트 성공, `./gradlew test --tests 'com.faithlog.poll.*'` 성공, `./gradlew test` 성공(236 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공.
+  - 정적 검사: `git diff --check` 성공, Swagger 문서화 annotation 검색 0건, Controller Entity 직접 반환 신규 추가 없음, 금지어 검색은 기존 정책 문서 예시와 내부 `optionId` 식별자만 확인.
+  - Docker 검증: `docker compose up -d --build postgres redis app` 성공, 컨테이너 내부 `GET /api/v1/health` 응답 `status=UP` 확인, `docker compose down` 성공.
+  - 코드베이스 수치: Java 소스 421개, 테스트 파일 54개, REST Docs snippet group 96개.
 
 - #76 역할 변경 시 기존 Access Token 무효화 정책 분리:
   - 정책 결정: MVP에서는 role 변경 후 이미 발급된 Access Token을 즉시 무효화하지 않고 기존 30분 TTL까지 허용한다.
