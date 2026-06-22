@@ -11,6 +11,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 @Configuration
 @EnableWebSecurity
@@ -29,6 +30,7 @@ public class SecurityConfig {
 
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+		PathPatternRequestMatcher.Builder paths = PathPatternRequestMatcher.withDefaults();
 		return http
 			.csrf(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
@@ -37,9 +39,18 @@ public class SecurityConfig {
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.exceptionHandling(exception -> exception.authenticationEntryPoint(restAuthenticationEntryPoint))
 			.authorizeHttpRequests(auth -> auth
-				.requestMatchers(HttpMethod.GET, "/api/v1/health").permitAll()
-				.requestMatchers(HttpMethod.POST, "/api/v1/auth/signup", "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
-				.requestMatchers("/actuator/health", "/swagger-ui.html", "/swagger-ui/**", "/api-docs/**").permitAll()
+				.requestMatchers(paths.matcher(HttpMethod.GET, "/api/v1/health")).permitAll()
+				.requestMatchers(
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/signup"),
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/login"),
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/refresh")
+				).permitAll()
+				.requestMatchers(
+					paths.matcher("/actuator/health"),
+					paths.matcher("/swagger-ui.html"),
+					paths.matcher("/swagger-ui/**"),
+					paths.matcher("/api-docs/**")
+				).permitAll()
 				.anyRequest().authenticated())
 			.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
 			.build();

@@ -11,6 +11,7 @@ import com.faithlog.campus.application.port.CampusCreationSideEffectPort;
 import com.faithlog.campus.application.port.CampusRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
 import com.faithlog.campus.application.port.CampusUserLookupResult;
+import com.faithlog.campus.application.port.CampusUserTokenVersionPort;
 import com.faithlog.campus.application.policy.CampusRolePolicy;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -28,6 +29,7 @@ public class CampusService {
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 	private final List<CampusCreationSideEffectPort> campusCreationSideEffectPorts;
 	private final CampusUserLookupPort userLookupPort;
+	private final CampusUserTokenVersionPort userTokenVersionPort;
 	private final InviteCodeGenerator inviteCodeGenerator;
 
 	public CampusService(
@@ -36,6 +38,7 @@ public class CampusService {
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
 		List<CampusCreationSideEffectPort> campusCreationSideEffectPorts,
 		CampusUserLookupPort userLookupPort,
+		CampusUserTokenVersionPort userTokenVersionPort,
 		InviteCodeGenerator inviteCodeGenerator
 	) {
 		this.campusRepository = campusRepository;
@@ -43,6 +46,7 @@ public class CampusService {
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
 		this.campusCreationSideEffectPorts = campusCreationSideEffectPorts;
 		this.userLookupPort = userLookupPort;
+		this.userTokenVersionPort = userTokenVersionPort;
 		this.inviteCodeGenerator = inviteCodeGenerator;
 	}
 
@@ -116,8 +120,12 @@ public class CampusService {
 			);
 		}
 
-		targetMember.changeCampusRole(command.campusRole());
-		return AdminCampusMemberResult.of(targetMember, getUserOrThrow(targetMember.userId()));
+		CampusUserLookupResult targetUser = getUserOrThrow(targetMember.userId());
+		if (targetMember.campusRole() != command.campusRole()) {
+			targetMember.changeCampusRole(command.campusRole());
+			userTokenVersionPort.increaseTokenVersion(targetMember.userId());
+		}
+		return AdminCampusMemberResult.of(targetMember, targetUser);
 	}
 
 	@Transactional(readOnly = true)
