@@ -49,6 +49,10 @@ jobs:
 
     env:
       SPRING_PROFILES_ACTIVE: test
+      FAITHLOG_RUN_POSTGRES_FLYWAY_TEST: true
+      FLYWAY_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/faithlog_test
+      FLYWAY_TEST_USERNAME: faithlog
+      FLYWAY_TEST_PASSWORD: faithlog
       JWT_SECRET: test-jwt-secret-key-for-ci-only-change-in-production
       FIREBASE_CONFIG_PATH: ''
       FIREBASE_CONFIG_JSON: ''

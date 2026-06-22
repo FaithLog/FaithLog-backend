@@ -5,7 +5,7 @@ spring:
     active: local
 
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${PORT:${SERVER_PORT:8080}}
 
 management:
   endpoints:
@@ -22,7 +22,7 @@ springdoc:
 faithlog:
   api-prefix: /api/v1
   jwt:
-    secret: ${JWT_SECRET:change-me-in-local-only}
+    secret: ${JWT_SECRET}
     access-token-validity-seconds: ${JWT_ACCESS_TOKEN_VALIDITY_SECONDS:1800}
     refresh-token-validity-seconds: ${JWT_REFRESH_TOKEN_VALIDITY_SECONDS:1209600}
   firebase:
