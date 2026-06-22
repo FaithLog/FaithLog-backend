@@ -41,6 +41,16 @@
 - Fix: Docker volume을 삭제하지 않고 로컬 개발 DB에서 `ALTER USER faithlog WITH PASSWORD 'faithlog';`를 실행한 뒤 app 컨테이너만 `docker compose up -d --force-recreate app`으로 재생성했다.
 - Validation: compose 네트워크에서 `select 1` 성공, `faithlog-backend` 기동 성공, host 기준 `GET /api/v1/health` 200 확인.
 
+## 2026-06-22 #84 Docker QA Named Volume Isolation
+
+- Problem: 전체 QA/Docker QA가 기본 compose project name을 공유하면 이전 개발/PM worktree의 named volume 상태가 다음 QA에 영향을 줄 수 있다.
+- Symptoms: 과거 Docker 검증에서 기존 Postgres volume의 `faithlog` role credential mismatch 때문에 app 컨테이너가 기동하지 못한 사례가 있었다.
+- Root cause: Docker Compose named volume은 project name을 기준으로 생성되므로, 기본 project name을 공유하면 QA가 기존 로컬 데이터와 credential 상태를 재사용할 수 있다. 반대로 매번 volume을 삭제하는 방식은 로컬 개발 데이터를 지울 수 있어 기본 절차로 부적절하다.
+- Fix: QA 전용 compose project name을 사용한다. 예: `QA_COMPOSE_PROJECT=faithlog-qa-84 ./scripts/qa_docker_compose_isolated.sh`. 종료는 같은 project name에 대해 `docker compose -p <projectName> down`만 수행한다.
+- Prevention: 기본 QA 절차에서 volume 삭제 플래그와 직접 volume 삭제, system-wide volume prune을 사용하지 않는다. volume 삭제가 필요하면 사용자의 명시적 승인 후 별도 cleanup 절차로만 수행한다.
+- Validation: `QA_COMPOSE_PROJECT=faithlog-qa-84 ./scripts/qa_docker_compose_isolated.sh` 성공. `postgres`, `redis`, `app`이 기동했고 app 컨테이너 내부 `GET /api/v1/health`가 `status=UP`을 반환했다. 종료는 같은 project name의 `docker compose -p faithlog-qa-84 down`으로 수행됐고 volume 삭제 명령은 실행하지 않았다.
+- Remaining risk: 현재 `docker-compose.yml`에는 고정 `container_name`이 있어 project name만으로 동시 컨테이너 실행까지 격리되지는 않는다. #84 스크립트는 기존 FaithLog 컨테이너가 있으면 이를 건드리지 않고 중단한다.
+
 ## 2026-06-17 #27 CI Test Profile Override
 
 - Problem: PR #47 Backend CI `Spring Boot build and test`에서 Spring context 기반 테스트가 실패.

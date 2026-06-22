@@ -26,6 +26,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-06-22
 
+- #84 QA Docker Compose 격리:
+  - 작업 기준: Issue #84 `[Chore] QA Docker Compose 격리 실행 스크립트와 문서 정리`, Project `FaithLog Backend Kanban` Status `In Progress`.
+  - 변경: `scripts/qa_docker_compose_isolated.sh` 추가. QA 전용 compose project name을 자동 생성하거나 `QA_COMPOSE_PROJECT`로 지정해 `postgres`, `redis`, `app`을 `docker compose -p <projectName> up -d --build`로 기동하고, app 내부 `/api/v1/health` 확인 후 같은 project name으로 `docker compose -p <projectName> down`을 수행한다.
+  - 정책 기록: 기본 QA 절차에서 volume 삭제 플래그, 직접 volume 삭제, system-wide volume prune을 사용하지 않는 기준을 `docs/backend-implementation-policy.md`, `docs/decision-log.md`, `docs/wiki/troubleshooting.md`, `README.md`에 기록.
+  - 검증: `bash -n scripts/qa_docker_compose_isolated.sh` 성공, `scripts/qa_docker_compose_isolated.sh --help` 성공, `git diff --check` 성공, `./gradlew test` 성공(236 tests / 0 failures / 0 errors / 0 skipped).
+  - Docker QA: `QA_COMPOSE_PROJECT=faithlog-qa-84 ./scripts/qa_docker_compose_isolated.sh` 성공. Docker build `bootJar` 성공, `faithlog-qa-84_postgres-data`와 `faithlog-qa-84_redis-data`가 생성됐고 `postgres`/`redis` healthy, `app` started, app 컨테이너 내부 `GET /api/v1/health` 응답 `status=UP` 확인.
+  - 종료 확인: 스크립트가 `docker compose -p faithlog-qa-84 down`으로 컨테이너와 network를 제거했고 `docker ps -a` 결과 남은 컨테이너 없음. `docker volume ls`에는 QA 전용 volume과 기존 default volume이 함께 남아 있어 volume 삭제 없이 격리 실행됐음을 확인.
+  - 삭제 명령 확인: `docker compose down -v`, `docker volume rm`, `docker system prune --volumes`는 실행하지 않음.
+
 - #79 투표 목록 조회 응답 여부 N+1 쿼리 개선:
   - 브랜치: `perf/79-poll-list-response-n-plus-one`
   - 구현 범위: `PollService.listPolls`가 visible poll 목록을 만든 뒤 `PollResponseRepository.findByPollIdInAndUserId(...)`로 현재 사용자 응답을 1회 bulk 조회하고, `respondedPollIds` set으로 `PollListItemResult.responded`를 계산하도록 변경했다.

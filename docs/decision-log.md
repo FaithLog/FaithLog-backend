@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-22 - Issue #84 QA Docker Compose Project Isolation
+
+- Context: Full QA and Docker QA can be polluted by named volumes left from previous development or PM worktree runs. Earlier Docker troubleshooting showed that an existing Postgres volume credential mismatch could break app startup, but deleting volumes by default is risky because it can erase local development data.
+- Decision: QA must use a dedicated Docker Compose project name such as `faithlog-qa-<suffix>` instead of treating `docker compose down -v` as the default reset mechanism. The suffix may be a date, issue number, random string, or another traceable low-collision value. QA shutdown should run only `docker compose -p <projectName> down` for the same project. Volume deletion is not part of the default QA path and requires explicit user approval as a separate cleanup procedure.
+- Impact: Issue #84 adds `scripts/qa_docker_compose_isolated.sh` and documentation for QA project-name isolation. Existing development/PM worktree Docker volumes must not be deleted or reset by QA automation. Because the current compose file has fixed `container_name` values, the script detects existing FaithLog containers and stops instead of touching a running or stopped stack from another project.
+
 ### 2026-06-22 - Issue #76 tokenVersion-Based Role Token Invalidation
 
 - Context: Issue #76 was reopened for implementation after the MVP policy documentation PR merged. Because this changes authentication/security behavior, the PM session explicitly approved the final implementation mechanism before code changes.
