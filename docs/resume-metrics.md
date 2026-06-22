@@ -599,6 +599,9 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-06-17 | #27 Docker local ddl-auto update validation | 성공 | `docker compose build app` 성공, `docker compose up -d app` 성공, `GET /api/v1/health` 200, Hibernate가 local Docker DB에 `users` 테이블 자동 생성 | 최종 Flyway migration consolidation 전까지 local Docker 개발 검증은 `SPRING_JPA_HIBERNATE_DDL_AUTO=update` 기본값 사용 |
 | 2026-06-17 | #27 auth REST Docs validation | 성공 | `./gradlew test --tests '*AuthApiRestDocsTest'` 성공, `./gradlew asciidoctor` 성공, `./gradlew test --rerun-tasks` 11초 성공, `./gradlew build` 5초 성공, 인증 API snippets 6개 묶음과 `build/docs/asciidoc/index.html` 생성 | 새 API/변경 API는 Spring REST Docs 테스트로 상세 계약 문서화 |
 | 2026-06-17 | #27 CI test profile override fix | 성공 | PR #47 Backend CI 실패 원인 확인, CI env 재현 실패 확인, 수정 후 `./gradlew test --tests '*AuthServiceTest'` 성공, `./gradlew test --rerun-tasks` 11초 성공, `./gradlew build` 2초 성공 | GitHub Actions 재실행 후 원격 check 통과 확인 |
+| 2026-06-22 | #81 Gradle/test deprecation baseline | 성공 | `./gradlew test --warning-mode all` 성공. Problems report 기준 12 warnings: Asciidoctor Gradle plugin 내부 `StartParameter.isConfigurationCacheRequested` 1건, Spring Boot `@MockBean` removal warning 11건 | 안전하게 수정 가능한 테스트 deprecation 11건부터 정리 |
+| 2026-06-22 | #81 `@MockBean` deprecation cleanup | 성공 | Spring Boot deprecated `@MockBean` 11건을 `org.springframework.test.context.bean.override.mockito.MockitoBean`으로 교체. 수정 후 `./gradlew test --warning-mode all` 성공, Problems report 1 warning으로 감소 | 남은 1건은 `org.asciidoctor.jvm.convert` 4.0.5 최신 버전 내부 Gradle API 사용으로 #82에서 후속 추적 |
+| 2026-06-22 | #81 final validation | 성공 | `./gradlew test` 성공(236 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew build --warning-mode all` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공 | Docker QA는 앱/빌드 설정 및 런타임 동작 변경이 없어 생략 |
 
 ## Resume Bullet Candidates
 
