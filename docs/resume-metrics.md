@@ -13,13 +13,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-22, 232 tests / 0 failures) | 100% |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 52 test files (2026-06-22) | 증가 추적 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-22, 235 tests / 0 failures) | 100% |
+| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 53 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-22) | 성공 |
 | API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 418 Java sources (2026-06-22) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 0 (Flyway deferred, 2026-06-18) | 추적 |
 
 ## Daily Monitoring Notes
@@ -32,6 +32,18 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 향후 검토 범위: tokenVersion, 세션 무효화, Redis blacklist/session 확장, service-level role 변경과 campus role 변경의 처리 기준.
   - 문서화 범위: `docs/decision-log.md`, `docs/backend-implementation-policy.md`, `docs/codex/FAITHLOG_CODEX_HOOK.md`.
   - 검증 계획: 문서-only 작업이므로 `./gradlew test`는 생략하고, `git diff --check`와 정책 문구 검색으로 검증한다.
+
+- #76 역할 변경 시 기존 Access Token 무효화 구현:
+  - 브랜치: `feat/76-role-token-invalidation`
+  - 승인 정책: PM 확인 후 `users.token_version` 기반 즉시 무효화로 확정. Access Token에는 `tokenVersion` claim을 포함하고, 인증 필터는 token의 `userId/tokenVersion`과 DB의 현재 값을 비교한다. tokenVersion 불일치는 기존 `AUTH_UNAUTHORIZED` 정책을 재사용한다.
+  - 구현 범위: `User.tokenVersion` 추가, Access Token claim 추가, `AccessTokenVersionChecker` port/adapter 추가, 인증 필터 tokenVersion 검증, service-level role 변경과 campus role 변경 시 대상 user tokenVersion 증가, refresh 재발급 시 최신 role/tokenVersion 반영.
+  - TDD 실패 확인: 구현 전 `./gradlew test --tests com.faithlog.global.security.RoleTokenInvalidationIntegrationTest`가 신규 테스트 2건에서 Access Token `tokenVersion` claim 부재로 실패했다.
+  - 회귀 테스트 범위: service role 변경 후 기존 Access Token 401, refresh 후 최신 role/tokenVersion 반영, campus role 변경 후 기존 Access Token 401, refresh 후 최신 campus role 반영, role 무효화 후 logout blacklist/refresh allowlist 충돌 없음.
+  - Docker/API QA: `docker compose up -d --build postgres redis app` 후 실제 API로 signup/login, service `ADMIN` role 변경, 기존 token 401/`AUTH_UNAUTHORIZED`, refresh 후 `MANAGER` 반영, campus role `ELDER` 변경 후 기존 token 401, refresh 후 `myCampusRole=ELDER`, logout 후 access 401 및 refresh 401을 확인했다.
+  - Docker QA 보강: local Docker profile에서 공개 auth endpoint가 401이 되던 문제를 `PathPatternRequestMatcher` 명시 matcher로 수정했고, 기존 Postgres volume에 `users.token_version`을 추가할 때 null 제약 실패가 나지 않도록 `bigint default 0` column definition을 보강했다.
+  - 재검증: #76 집중 테스트 성공, 인증/admin/campus 관련 집중 테스트 성공, `./gradlew test` 성공(235 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공.
+  - 정적 검사: Swagger 문서화 annotation 검색 0건. Controller Entity 직접 반환 신규 추가 없음. 금지어 검색은 기존 내부 poll option 식별자와 정책 문서 예시만 확인.
+  - 코드베이스 수치: Java 소스 421개, 테스트 파일 53개, REST Docs snippet group 96개.
 
 - #74 전체 QA 후 정책 문서 정합성 정리:
   - 브랜치: `docs/74-policy-doc-consistency`

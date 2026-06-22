@@ -4,6 +4,7 @@ import com.faithlog.admin.application.AdminUserSearchCriteria;
 import com.faithlog.admin.application.port.AdminUserRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
 import com.faithlog.campus.application.port.CampusUserLookupResult;
+import com.faithlog.campus.application.port.CampusUserTokenVersionPort;
 import com.faithlog.user.domain.User;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
@@ -14,7 +15,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User>, CampusUserLookupPort, AdminUserRepositoryPort {
+public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User>, CampusUserLookupPort, AdminUserRepositoryPort, CampusUserTokenVersionPort {
 
 	@Override
 	default Optional<CampusUserLookupResult> findCampusUserById(Long userId) {
@@ -33,6 +34,11 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	boolean existsByEmail(String email);
 
 	long countByRoleAndIsActiveTrue(com.faithlog.user.domain.UserRole role);
+
+	@Override
+	default void increaseTokenVersion(Long userId) {
+		findById(userId).ifPresent(User::increaseTokenVersion);
+	}
 
 	@Override
 	default Optional<User> findAdminUserById(Long userId) {

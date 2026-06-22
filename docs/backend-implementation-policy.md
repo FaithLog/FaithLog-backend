@@ -8,15 +8,16 @@ This document records the current backend implementation source of truth.
 - The old Notion ERD `refresh_tokens` table is superseded by the Redis allowlist decision and must not be implemented as the MVP refresh-token source of truth.
 - Refresh Token uses a Redis allowlist.
 - Access Token remains stateless JWT, but logout uses Redis blacklist/denylist.
-- In the MVP, role changes do not immediately invalidate already issued Access Tokens.
-- Already issued Access Tokens may remain valid until their 30-minute TTL expires.
-- Refresh Token reissue must create a new Access Token using the latest persisted user role.
-- Immediate invalidation of role-stale Access Tokens is tracked separately in Issue #76 because it requires a broader security design such as token versioning, session invalidation, or expanded Redis blacklist/session state.
+- Role changes immediately invalidate already issued Access Tokens through `users.token_version`.
+- Access Token must include `tokenVersion`, and the authentication filter must compare the token `userId/tokenVersion` with the current persisted user `tokenVersion`.
+- Service-level role changes and campus role changes both increment the target user's `tokenVersion`.
+- Token version mismatch uses the existing authentication failure policy (`AUTH_UNAUTHORIZED`); Issue #76 does not add a separate ErrorCode.
+- Refresh Token reissue must create a new Access Token using the latest persisted user role and token version.
 - Refresh Token Rotation is required.
 - Refresh success must issue a new Refresh Token and immediately revoke the previous one.
 - Reuse of an old Refresh Token must fail and revoke at least the current session.
 - Redis must not store raw tokens. Store a hash or token identifier.
-- Access Token must include `jti`, `userId`, `role`, and `sessionId`.
+- Access Token must include `jti`, `userId`, `role`, `sessionId`, and `tokenVersion`.
 - Refresh Token must include `userId`, `sessionId`, and `refreshJti`.
 - Refresh rotation keeps the same `sessionId` and replaces the refresh token identifier.
 - `POST /api/v1/auth/refresh` receives `refreshToken` in the JSON request body and returns the same token response shape as login.

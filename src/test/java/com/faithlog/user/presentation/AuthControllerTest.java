@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.faithlog.global.security.AccessTokenBlacklistChecker;
+import com.faithlog.global.security.AccessTokenVersionChecker;
 import com.faithlog.global.security.JwtProvider;
 import com.faithlog.user.application.AuthService;
 import com.faithlog.user.application.LoginResult;
@@ -36,6 +37,9 @@ class AuthControllerTest {
 
 	@MockBean
 	private AccessTokenBlacklistChecker accessTokenBlacklistChecker;
+
+	@MockBean
+	private AccessTokenVersionChecker accessTokenVersionChecker;
 
 	@Test
 	void signup_creates_user_and_returns_api_response() throws Exception {

@@ -69,14 +69,16 @@ docs/{issueNumber}-{summary}
 
 - Refresh Token은 DB가 아니라 Redis allowlist 방식으로 관리한다.
 - Access Token은 JWT stateless 구조를 유지하되, 로그아웃 즉시 무효화를 위해 Redis blacklist/denylist를 사용한다.
-- MVP에서는 role 변경 후 이미 발급된 Access Token을 즉시 무효화하지 않는다.
-- 이미 발급된 Access Token은 기존 30분 TTL까지 유효할 수 있다.
-- Refresh Token 재발급 시점에는 DB에 저장된 최신 사용자 role 기준으로 새 Access Token을 발급한다.
-- role 변경 즉시 기존 Access Token을 무효화하는 정책은 tokenVersion, 세션 무효화, Redis blacklist/session 확장 등 영향 범위가 커서 Issue #76 보안 강화 작업으로 분리한다.
+- 역할 변경 시 이미 발급된 Access Token은 `users.token_version` 기반으로 즉시 무효화한다.
+- Access Token에는 `tokenVersion` claim을 포함한다.
+- 인증 필터는 token의 `userId/tokenVersion`과 DB의 현재 `tokenVersion`을 비교한다.
+- service-level role 변경과 campus role 변경은 모두 대상 user의 `tokenVersion`을 증가시킨다.
+- tokenVersion 불일치는 기존 인증 실패 정책(`AUTH_UNAUTHORIZED`)을 재사용하고 Issue #76에서는 별도 ErrorCode를 추가하지 않는다.
+- Refresh Token 재발급 시점에는 DB에 저장된 최신 사용자 role과 최신 tokenVersion 기준으로 새 Access Token을 발급한다.
 - Access Token이 refresh endpoint를 통해 재발급될 때마다 Refresh Token도 반드시 새로 발급한다.
 - Refresh Token Rotation을 적용한다.
 - Redis에는 원본 token을 저장하지 않고 hash 또는 token identifier 기준으로 저장한다.
-- Access Token에는 `jti`, `userId`, `role`, `sessionId`를 포함한다.
+- Access Token에는 `jti`, `userId`, `role`, `sessionId`, `tokenVersion`을 포함한다.
 - Refresh Token에는 `userId`, `sessionId`, `refreshJti`를 포함한다.
 - Refresh Token Rotation 시 `sessionId`는 유지하고 refresh token identifier를 교체한다.
 - `POST /api/v1/auth/refresh`는 JSON request body의 `refreshToken`을 받는다.
