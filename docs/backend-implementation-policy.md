@@ -93,6 +93,18 @@ Redis TTL policy:
 - New APIs or changed APIs should add MockMvc/WebMvc/Spring REST Docs coverage where practical so tests generate snippets from the real contract.
 - REST Docs generated snippets live under `build/generated-snippets`, and rendered Asciidoc output lives under `build/docs/asciidoc`.
 
+## QA Docker Compose Isolation
+
+- Full QA and Docker QA must not use shared default named volumes as the default execution baseline.
+- Use a QA-specific Docker Compose project name, such as `faithlog-qa-84` or `faithlog-qa-84-20260622`, so compose-managed named volumes are scoped to that project.
+- The approved script entry point is `scripts/qa_docker_compose_isolated.sh`.
+- Example: `QA_COMPOSE_PROJECT=faithlog-qa-84 ./scripts/qa_docker_compose_isolated.sh`.
+- If `QA_COMPOSE_PROJECT` is omitted, the script generates a traceable `faithlog-qa-<suffix>` name.
+- QA shutdown uses only the same project name: `docker compose -p <projectName> down`.
+- Default QA procedures must not delete volumes. Volume deletion is allowed only as a separate cleanup procedure after explicit user approval.
+- Do not automatically run destructive Docker volume cleanup commands such as compose volume deletion, direct volume removal, or system-wide volume pruning.
+- The current `docker-compose.yml` has fixed `container_name` values. The QA script therefore stops before startup if those container names already exist, rather than stopping or replacing an existing development/PM stack without approval.
+
 ## Campus Onboarding
 
 - Campus creation and account registration are separate flows.
