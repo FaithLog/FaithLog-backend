@@ -272,6 +272,7 @@ public class PollService {
 			command.endsAt(),
 			command.requesterId()
 		));
+		openIfCurrent(poll);
 		pollOptionRepository.saveAll(templateOptions.stream()
 			.map(option -> PollOption.create(
 				poll.id(),
@@ -307,6 +308,7 @@ public class PollService {
 			command.endsAt(),
 			command.requesterId()
 		));
+		openIfCurrent(poll);
 		pollOptionRepository.saveAll(snapshots.stream()
 			.map(snapshot -> PollOption.create(
 				poll.id(),
@@ -317,6 +319,13 @@ public class PollService {
 			))
 			.toList());
 		return toResult(poll);
+	}
+
+	private void openIfCurrent(Poll poll) {
+		Instant now = Instant.now();
+		if (!now.isBefore(poll.startsAt()) && now.isBefore(poll.endsAt())) {
+			poll.open();
+		}
 	}
 
 	private void requireCoffeePrerequisitesIfNeeded(
