@@ -333,8 +333,8 @@ This file records user-approved project decisions so Codex does not rely on gues
 ### 2026-06-19 - Issue #37 Coffee Catalog Source And API Path
 
 - Context: The user approved the source of truth for Compose Coffee menu seed data and accepted the recommended catalog lookup API paths.
-- Decision: Issue #37 must seed Compose Coffee menu names and prices from the official Compose Coffee menu board/source available at implementation time. If the official website blocks automated access, the development session must use another official source provided by Compose Coffee, such as the official app/menu image/menu board, and record the source used. The catalog lookup APIs are `GET /api/v1/coffee-brands` and `GET /api/v1/coffee-brands/{brandId}/menus`.
-- Impact: Issue #37 development must not guess menu prices from blogs or unofficial lists. REST Docs tests must document both catalog lookup APIs, and the seed verification record must name the official source and capture date.
+- Decision: Initial planning preferred the official Compose Coffee menu board/source available at implementation time, and the catalog lookup APIs are `GET /api/v1/coffee-brands` and `GET /api/v1/coffee-brands/{brandId}/menus`. This source rule is superseded by the later `Issue #37 Compose Coffee Seed Source Override` decision above: if official verification is blocked or impossible, a latest menu/price source explicitly approved by the user may be used.
+- Impact: Issue #37 development must not guess menu prices. REST Docs tests must document both catalog lookup APIs, and the seed verification record must name whether the seed came from an official source or from a user-approved latest source.
 
 ### 2026-06-19 - Issue #38 Poll Result Visibility
 
