@@ -1,27 +1,27 @@
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/faithlog}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres:5432/faithlog}
     username: ${SPRING_DATASOURCE_USERNAME:faithlog}
     password: ${SPRING_DATASOURCE_PASSWORD:faithlog}
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:5}
   flyway:
     enabled: ${SPRING_FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
+    baseline-on-migrate: false
   data:
     redis:
-      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      host: ${SPRING_DATA_REDIS_HOST:redis}
       port: ${SPRING_DATA_REDIS_PORT:6379}
   jpa:
     hibernate:
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
-    properties:
-      hibernate:
-        format_sql: true
     open-in-view: false
 
 logging:
   level:
     com.faithlog: debug
-    org.hibernate.SQL: debug
 
 faithlog:
   jwt:
-    secret: ${JWT_SECRET:change-me-in-local-only}
+    secret: ${JWT_SECRET:change-me-in-docker-only}

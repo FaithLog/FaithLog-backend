@@ -10,6 +10,22 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-22 - Issue #46 Cloud Run Supabase Flyway Baseline
+
+- Context: Issue #46 reintroduces Flyway after the main MVP feature model stabilized and updates deployment from a direct server model to Google Cloud Run. The user confirmed a new Supabase database, approved the recommended Supabase/config/documentation approach, and later approved the recommended FK and Cloud Run scope.
+- Decision: Use a new Supabase PostgreSQL database with a V1 initial Flyway schema. Apply Notion ERD `Ref` relationships as database foreign keys in V1, without adding delete-cascade behavior. Exclude only polymorphic source references such as `charge_items.source_id`, which can point to different source tables depending on `source_type`. Include code-approved columns that are newer than the Notion ERD, such as `users.token_version`, `poll_templates.is_default`, and `coffee_menu_catalog.category`.
+- Decision: Deploy target is Google Cloud Run container runtime. Do not implement direct-server proxy, direct 80/443 port, or certificate renewal tooling in #46. HTTPS and custom domain behavior should use Google Cloud managed flows. This issue prepares Docker image build/push/deploy documentation and environment-variable contracts only; real GCP project, region, service name, Artifact Registry repository, and secret registration require later PM confirmation.
+- Decision: Keep actual Supabase, JWT, Firebase, and database secret values out of repository files, logs, docs, issues, commits, and PR text. Document placeholders and environment-variable names only. Use direct Supabase connection for migration/schema inspection where available, and document pooler-based application traffic guidance for Cloud Run with conservative Hikari pool sizing.
+- Impact: #46 may add Flyway dependencies, `src/main/resources/db/migration/V1__initial_schema.sql`, Cloud Run/Supabase deployment docs, prod/example environment contracts, and PostgreSQL migration verification. Existing-data Supabase migration or baseline requires a separate PM-approved plan.
+
+### 2026-06-22 - Issue #46 Upstash Redis And Environment Split
+
+- Context: After the initial Flyway/Supabase/Cloud Run work, the user confirmed that production Redis should use Upstash Redis while local development and Docker QA continue using Docker/local Redis. The user also asked whether Dockerfiles should be split.
+- Decision: Keep one shared `Dockerfile` for the application image. Split behavior by Spring profile and environment variables instead: `local`, `docker`, `test`, and `prod`.
+- Decision: Use `SPRING_DATA_REDIS_HOST`, `SPRING_DATA_REDIS_PORT`, `SPRING_DATA_REDIS_PASSWORD`, and `SPRING_DATA_REDIS_SSL_ENABLED` for Upstash Redis in `prod`. Do not use Upstash defaults in local/docker/test.
+- Decision: Add profile-specific env examples: `.env.local.example`, `.env.docker.example`, and `.env.prod.example`. These files contain only dummy or placeholder values and must not be copied with real secrets into the repository.
+- Impact: Docker Compose defaults to `SPRING_PROFILES_ACTIVE=docker` and uses Docker PostgreSQL/Redis. Cloud Run uses `prod` with Supabase PostgreSQL and Upstash Redis injected through safe environment/secret mechanisms.
+
 ### 2026-06-22 - Issue #84 QA Docker Compose Project Isolation
 
 - Context: Full QA and Docker QA can be polluted by named volumes left from previous development or PM worktree runs. Earlier Docker troubleshooting showed that an existing Postgres volume credential mismatch could break app startup, but deleting volumes by default is risky because it can erase local development data.
