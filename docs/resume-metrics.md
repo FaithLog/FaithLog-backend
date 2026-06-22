@@ -26,6 +26,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-06-22
 
+- #76 역할 변경 시 기존 Access Token 무효화 정책 분리:
+  - 정책 결정: MVP에서는 role 변경 후 이미 발급된 Access Token을 즉시 무효화하지 않고 기존 30분 TTL까지 허용한다.
+  - 보안 강화 이슈: `[Security] 역할 변경 시 기존 Access Token 무효화 정책 구현`을 별도 추적 이슈로 생성했다.
+  - 향후 검토 범위: tokenVersion, 세션 무효화, Redis blacklist/session 확장, service-level role 변경과 campus role 변경의 처리 기준.
+  - 문서화 범위: `docs/decision-log.md`, `docs/backend-implementation-policy.md`, `docs/codex/FAITHLOG_CODEX_HOOK.md`.
+  - 검증 계획: 문서-only 작업이므로 `./gradlew test`는 생략하고, `git diff --check`와 정책 문구 검색으로 검증한다.
+
 - #74 전체 QA 후 정책 문서 정합성 정리:
   - 브랜치: `docs/74-policy-doc-consistency`
   - repo 문서 정리 범위: `docs/backend-implementation-policy.md`, `docs/codex/FAITHLOG_CODEX_HOOK.md`, `docs/decision-log.md`, `docs/resume-metrics.md`
