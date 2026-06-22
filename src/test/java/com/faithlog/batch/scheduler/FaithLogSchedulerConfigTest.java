@@ -9,8 +9,8 @@ import com.faithlog.batch.application.PollAutomationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest(properties = {
 	"faithlog.scheduler.enabled=true",
@@ -25,16 +25,16 @@ class FaithLogSchedulerConfigTest {
 	@Autowired
 	private FaithLogScheduledJobs scheduledJobs;
 
-	@MockBean
+	@MockitoBean
 	private PollAutomationService pollAutomationService;
 
-	@MockBean
+	@MockitoBean
 	private FcmTokenCleanupService fcmTokenCleanupService;
 
-	@MockBean
+	@MockitoBean
 	private AutomaticNotificationService automaticNotificationService;
 
-	@MockBean
+	@MockitoBean
 	private PendingNotificationRecoveryService pendingNotificationRecoveryService;
 
 	@Test
