@@ -102,13 +102,22 @@ public class PollService {
 	public List<PollListItemResult> listPolls(Long campusId, Long requesterId) {
 		pollAccessService.requirePollReader(campusId, requesterId);
 		boolean adminWindow = pollAccessService.hasAdminVisibility(campusId, requesterId);
-		return pollRepository.findByCampusIdOrderByIdDesc(campusId)
+		List<Poll> visiblePolls = pollRepository.findByCampusIdOrderByIdDesc(campusId)
 			.stream()
 			.filter(poll -> isVisibleInWindow(poll, adminWindow))
-			.map(poll -> PollListItemResult.of(
-				poll,
-				pollResponseRepository.findByPollIdAndUserId(poll.id(), requesterId).isPresent()
-			))
+			.toList();
+		if (visiblePolls.isEmpty()) {
+			return List.of();
+		}
+		Set<Long> respondedPollIds = pollResponseRepository.findByPollIdInAndUserId(
+				visiblePolls.stream().map(Poll::id).toList(),
+				requesterId
+			)
+			.stream()
+			.map(PollResponse::pollId)
+			.collect(HashSet::new, HashSet::add, HashSet::addAll);
+		return visiblePolls.stream()
+			.map(poll -> PollListItemResult.of(poll, respondedPollIds.contains(poll.id())))
 			.toList();
 	}
 
