@@ -39,6 +39,9 @@ public class User {
 	@Column(name = "last_login_at")
 	private Instant lastLoginAt;
 
+	@Column(name = "token_version", nullable = false, columnDefinition = "bigint default 0")
+	private long tokenVersion;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -54,6 +57,7 @@ public class User {
 		this.passwordHash = passwordHash;
 		this.role = UserRole.USER;
 		this.isActive = true;
+		this.tokenVersion = 0L;
 	}
 
 	public static User create(String name, String email, String passwordHash) {
@@ -77,7 +81,15 @@ public class User {
 	}
 
 	public void changeRole(UserRole role) {
+		if (this.role == role) {
+			return;
+		}
 		this.role = role;
+		increaseTokenVersion();
+	}
+
+	public void increaseTokenVersion() {
+		this.tokenVersion++;
 	}
 
 	public Long id() {
@@ -106,6 +118,10 @@ public class User {
 
 	public boolean isAdmin() {
 		return role == UserRole.ADMIN;
+	}
+
+	public long tokenVersion() {
+		return tokenVersion;
 	}
 
 	public Instant lastLoginAt() {
