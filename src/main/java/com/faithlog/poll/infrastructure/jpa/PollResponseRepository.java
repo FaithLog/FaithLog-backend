@@ -10,6 +10,8 @@ public interface PollResponseRepository extends JpaRepository<PollResponse, Long
 
 	Optional<PollResponse> findByPollIdAndUserId(Long pollId, Long userId);
 
+	List<PollResponse> findByPollIdInAndUserId(Collection<Long> pollIds, Long userId);
+
 	List<PollResponse> findByPollIdOrderByIdAsc(Long pollId);
 
 	long countByPollId(Long pollId);
