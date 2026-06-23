@@ -13,8 +13,12 @@ import com.faithlog.campus.infrastructure.jpa.CampusRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,11 +27,13 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@TestPropertySource(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @Transactional
 class CampusServiceTest {
 
@@ -42,6 +48,12 @@ class CampusServiceTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Autowired
+	private EntityManager entityManager;
+
+	@Autowired
+	private EntityManagerFactory entityManagerFactory;
 
 	@Autowired
 	private DeterministicInviteCodeGenerator inviteCodeGenerator;
@@ -112,6 +124,30 @@ class CampusServiceTest {
 			.extracting(CampusMembershipResult::campusId)
 			.containsExactly(activeCampus.campusId());
 		assertThat(memberships.getFirst().status()).isEqualTo("ACTIVE");
+	}
+
+	@Test
+	void getMyCampuses_fetches_memberships_and_campuses_without_per_membership_lookup() {
+		User manager = saveUser("my-campus-query-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("my-campus-query-member@example.com", UserRole.USER);
+		for (int index = 0; index < 3; index++) {
+			CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+				manager.id(),
+				"쿼리캠" + index,
+				"분당",
+				"캠퍼스 목록 조회 쿼리 evidence " + index
+			));
+			campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		}
+		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+		entityManager.flush();
+		entityManager.clear();
+		statistics.clear();
+
+		List<CampusMembershipResult> memberships = campusService.getMyCampuses(member.id());
+
+		assertThat(memberships).hasSize(3);
+		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
 	}
 
 	@Test

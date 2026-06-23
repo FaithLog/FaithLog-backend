@@ -10,6 +10,16 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-23 - Issue #90 Local Docker Performance Measurement Scope
+
+- Context: Issue #90 measures backend coverage and API performance for resume/portfolio metrics. The first Docker k6 baseline identified `auth_login` and `campuses_me` as bottleneck candidates, but authentication performance touches password hash/security policy.
+- Decision: Use local Docker as the only #90 performance basis: `VUS=30`, `DURATION=5m`, failure rate `< 1%`, and p95 response time as the primary improvement metric. p50, p99, avg, RPS, and dataset size are supporting metrics. Resume/portfolio statements must explicitly say the numbers are measured on the local Docker dataset and must not imply production or Cloud Run performance.
+- Decision: Optimize `campuses_me` first. Do not optimize `auth_login` in #90 because password hash/security cost and authentication policy require separate security review. Keep `auth_login` as a measured bottleneck candidate for follow-up.
+- Decision: Do not change API contracts for #90 performance work: no path, request, response, or ErrorCode changes. DTO/projection/bulk query/repository/service internal optimizations are allowed.
+- Decision: Do not change DB schema or indexes yet. First collect Hibernate SQL/query count/EXPLAIN-style evidence. If index evidence is clear, ask PM before Flyway migration, DDL, or Entity schema changes.
+- Decision: Do not expand #90 to write API load tests. Write scenarios require fixture, idempotency, and side-effect management and should be recorded as a follow-up candidate. Do not run high-load tests against Cloud Run; before further approval, Cloud Run is smoke-only.
+- Impact: #90 may add JaCoCo, k6 scripts, measurement docs, read API performance evidence, and code-only/query-only `campuses_me` optimization. It must not add schema migrations, production load tests, write-load scenarios, or authentication security tuning.
+
 ### 2026-06-22 - Issue #46 Cloud Run Supabase Flyway Baseline
 
 - Context: Issue #46 reintroduces Flyway after the main MVP feature model stabilized and updates deployment from a direct server model to Google Cloud Run. The user confirmed a new Supabase database, approved the recommended Supabase/config/documentation approach, and later approved the recommended FK and Cloud Run scope.
