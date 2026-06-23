@@ -13,16 +13,34 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-22, 242 tests / 0 failures / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-23, 242 tests / 0 failures / 1 skipped) | 100% |
+| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.75% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.62% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.58% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-22) | 성공 |
-| API | 응답 시간 | 로컬/운영 부하 테스트 | 측정 보류 (2026-06-17) | TBD |
+| API | 응답 시간 | 로컬 Docker Compose + k6 | 측정 대기 (2026-06-23, k6 실행 도구 준비 필요) | TBD |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-06-23
+
+- #90 성능 테스트와 테스트 커버리지 측정 및 개선 시작:
+  - 작업 기준: Issue #90 `[Perf] 성능 테스트와 테스트 커버리지 측정 및 개선`, Project `FaithLog Backend Kanban` Status `In Progress`, 브랜치 `perf/90-performance-coverage-metrics`.
+  - 시작 기준: `origin/main` 최신 커밋 `201c7b7 build: #25 Cloud Run CD와 v0.1.0 배포 버전 명시`에서 브랜치를 생성했다.
+  - baseline 테스트 이슈: 변경 전 `./gradlew test`가 `PollServiceTest.create_poll_without_template_uses_direct_options_and_template_poll_copies_snapshots`에서 1건 실패했다. 원인은 테스트 fixture가 `2026-06-23T00:00:00Z`~`09:00:00Z`로 고정되어 현재 날짜와 겹치면서 생성 직후 `OPEN` 처리되는 시간 의존성 실패였다.
+  - baseline 복구: 해당 fixture를 `2036-06-23T00:00:00Z`~`09:00:00Z`로 바꿔 `SCHEDULED` 의도를 유지했다. 단일 재현 테스트 성공 후 `./gradlew test` 성공(242 tests / 0 failures / 0 errors / 1 skipped).
+  - JaCoCo 설정: Gradle `jacoco` plugin과 `jacocoTestReport` HTML/XML report 설정을 추가했다. coverage threshold는 사용자 승인된 목표가 없어 추가하지 않았다.
+  - JaCoCo 검증: `./gradlew test jacocoTestReport` 성공. 리포트 경로는 `build/reports/jacoco/test/html/index.html`, `build/reports/jacoco/test/jacocoTestReport.xml`.
+  - 커버리지 baseline: line 94.75% (5,058/5,338), branch 73.08% (646/884), class 97.62% (369/378), method 90.58% (1,395/1,540).
+  - k6 준비: `performance/k6/read-baseline.js`와 `performance/k6/README.md`를 추가했다. 기본 target은 `http://localhost:8080`, 기본 부하는 `VUS=30`, `DURATION=5m`, 기본 endpoint는 `auth,campuses`이며, 원격 URL은 `ALLOW_REMOTE_LOAD=true` 없이는 실행을 막는다.
+  - k6 실행 상태: 로컬 `k6` 바이너리는 없음. `grafana/k6:latest` Docker image도 로컬에 없고, `docker pull grafana/k6:latest`는 Docker credential helper 응답 지연으로 중단했다. Homebrew 설치 경로는 있으나 로컬 개발 도구 추가는 사용자 승인 전 진행하지 않았다.
+  - 성능 baseline: 아직 측정 전. k6 실행 도구 준비 또는 사용자 승인 후 local Docker Compose에서 측정해야 한다.
 
 ### 2026-06-22
 
