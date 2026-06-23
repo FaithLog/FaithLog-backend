@@ -199,9 +199,9 @@ public class CampusService {
 	@Transactional(readOnly = true)
 	public List<CampusMembershipResult> getMyCampuses(Long requesterId) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
-		return campusMemberRepository.findByUserIdAndStatusOrderByIdDesc(requester.userId(), CampusMemberStatus.ACTIVE)
+		return campusMemberRepository.findMembershipRowsByUserIdAndStatusOrderByIdDesc(requester.userId(), CampusMemberStatus.ACTIVE)
 			.stream()
-			.map(member -> CampusMembershipResult.of(getCampusOrThrow(member.campusId()), member))
+			.map(CampusMembershipRow::toResult)
 			.toList();
 	}
 

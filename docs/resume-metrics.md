@@ -13,15 +13,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-23, 242 tests / 0 failures / 1 skipped) | 100% |
-| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.75% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-23, 243 tests / 0 failures / 1 skipped) | 100% |
+| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.62% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.58% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-22) | 성공 |
-| API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 43.51ms / p95 917.06ms / p99 1,756.82ms / avg 199.83ms, 95.87 req/s, failure 0.00% (2026-06-23 baseline) | 사용자 승인 전 threshold 없음 |
+| API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
@@ -45,6 +45,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - Docker k6 baseline 전체 결과: 29,189 requests, 3,243 iterations, checks 58,378/58,378 성공, failure 0.00%, avg 199.83ms, p50 43.51ms, p95 917.06ms, p99 1,756.82ms, max 6,811.90ms, 95.87 req/s. endpoint별 Trend metric 포함 리포트 경로는 `build/reports/k6/read-baseline-local-docker-endpoints.json`.
   - Docker k6 endpoint별 baseline: `auth_login` avg 756.60ms / p50 589.66ms / p95 1,910.22ms / p99 4,320.95ms, `campuses_me` avg 582.49ms / p50 511.15ms / p95 1,381.89ms / p99 2,862.35ms, `campus_detail` avg 93.63ms / p50 40.39ms / p95 347.43ms / p99 1,009.41ms, `admin_dashboard_summary` avg 75.68ms / p50 43.11ms / p95 217.30ms / p99 633.08ms, `devotion_weekly_read` avg 66.04ms / p50 38.96ms / p95 185.21ms / p99 639.43ms, `devotion_monthly_summary` avg 60.81ms / p50 35.18ms / p95 165.90ms / p99 663.81ms, `billing_my_charges` avg 61.30ms / p50 34.87ms / p95 173.54ms / p99 586.71ms, `billing_my_summary` avg 53.69ms / p50 28.05ms / p95 163.11ms / p99 556.18ms, `poll_list` avg 48.16ms / p50 20.76ms / p95 136.12ms / p99 589.70ms.
   - 병목 후보 evidence: 동일 조건 baseline에서 `auth_login`과 `campuses_me`가 가장 높은 p95/p99를 보였다. `auth_login`은 인증/보안 동작에 걸친 변경 가능성이 있어 승인 전 기능 코드 변경을 보류한다. `campuses_me`는 읽기 API 병목 후보로 쿼리/DTO/projection/N+1 evidence를 추가 수집한 뒤 개선 여부를 판단한다.
+  - PM 확정 기준: #90 성능 기준은 local Docker `VUS=30`, `DURATION=5m`, failure `<1%`, 주요 개선 지표 p95로 고정한다. 이력서/포트폴리오 문장은 반드시 local Docker 기준과 dataset 크기를 함께 명시한다. `auth_login`은 보안 검토 후속 후보로 남기고, #90 1차 개선 대상은 `campuses_me`로 확정했다. API 계약 변경, DB schema/index 변경, Cloud Run 고부하, write API load test 확장은 #90에서 제외한다.
+  - `campuses_me` 병목 재현: `CampusService.getMyCampuses`가 active membership 목록 조회 후 membership마다 `CampusRepository.findById`를 호출하는 구조라 3개 가입 사용자 기준 user 조회 1회 + membership 조회 1회 + campus 단건 조회 3회로 N+1이 발생했다. 신규 회귀 테스트 `CampusServiceTest.getMyCampuses_fetches_memberships_and_campuses_without_per_membership_lookup`는 최적화 전 `./gradlew test --tests com.faithlog.campus.application.CampusServiceTest.getMyCampuses_fetches_memberships_and_campuses_without_per_membership_lookup`에서 statement count 제한 초과로 실패했다.
+  - `campuses_me` 개선 내용: API path/request/response/error code 변경 없이 `CampusMembershipRow` projection과 `CampusMemberRepository.findMembershipRowsByUserIdAndStatusOrderByIdDesc` JPQL join 조회를 추가했다. service는 projection을 `CampusMembershipResult`로 매핑하도록 바꿔 active membership + campus 응답 데이터를 한 번의 repository query로 조회한다. DB schema, index, Flyway migration, Entity schema 변경은 하지 않았다.
+  - `campuses_me` 회귀 검증: 신규 query-count 테스트 성공, `./gradlew test --tests 'com.faithlog.campus.*'` 성공. 테스트는 3개 가입 사용자 조회가 membership별 campus 단건 조회 없이 제한된 statement count 안에서 끝나는지 검증한다. 최종 `./gradlew test jacocoTestReport`는 243 tests / 0 failures / 0 errors / 1 skipped로 성공했고, 최신 coverage는 line 94.76% (5,062/5,342), branch 73.08% (646/884), class 97.63% (370/379), method 90.59% (1,396/1,541)이다.
+  - Docker k6 재측정 조건: baseline과 동일한 local Docker dataset(users 164, campuses 49, campus_members 123, polls 34, charge_items 22, weekly_devotion_records 20, devotion_daily_checks 65, prayer_submissions 12), base URL `http://host.docker.internal:8080`, `VUS=30`, `DURATION=5m`, `THINK_TIME_SECONDS=1`, `INCLUDE=auth,campuses,admin-dashboard,devotions,billing,polls`. 리포트 경로는 `build/reports/k6/read-after-campuses-me-local-docker.json`.
+  - Docker k6 재측정 전체 결과: 29,036 requests, 3,226 iterations, checks 58,072/58,072 성공, failure 0.00%, avg 199.41ms, p50 64.66ms, p95 906.29ms, p99 1,371.26ms, max 6,456.37ms, 95.53 req/s. 전체 p95는 917.06ms에서 906.29ms로 1.17% 개선됐다.
+  - `campuses_me` 개선 전후: avg 582.49ms -> 522.84ms(10.24% 개선), p50 511.15ms -> 461.72ms(9.67% 개선), p95 1,381.89ms -> 1,170.56ms(15.29% 개선), p99 2,862.35ms -> 1,828.76ms(36.11% 개선), max 5,982.94ms -> 4,653.41ms(22.22% 개선). failure는 전후 모두 0.00%.
+  - 이력서 문장 후보: `local Docker dataset(users 164, campus_members 123) 기준 k6 VUS 30/5분 부하 테스트를 구축하고, /api/v1/campuses/me N+1 조회를 JPQL projection으로 개선해 p95 응답 시간을 1,381.89ms에서 1,170.56ms로 15.29%, p99를 2,862.35ms에서 1,828.76ms로 36.11% 단축했다.`
+  - 후속 후보: `auth_login`은 p95 1,910.22ms baseline으로 가장 느린 후보였지만 password hash/security cost 정책과 연결되므로 별도 보안 검토 이슈로 분리한다. write API load test는 fixture/멱등성/부작용 관리가 필요하므로 후속 이슈로 분리한다. `campuses_me` 추가 개선은 운영 규모 dataset과 EXPLAIN 근거를 확보한 뒤 index/Flyway migration 승인 여부를 PM에 다시 질문한다.
 
 ### 2026-06-22
 
