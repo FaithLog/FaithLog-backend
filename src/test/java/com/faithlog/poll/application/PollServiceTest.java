@@ -342,10 +342,10 @@ class PollServiceTest {
 			null,
 			null,
 			null,
-			Instant.parse("2026-06-23T00:00:00Z"),
-			Instant.parse("2026-06-23T09:00:00Z"),
-			List.of()
-		));
+				Instant.now().plusSeconds(86_400),
+				Instant.now().plusSeconds(90_000),
+				List.of()
+			));
 
 		assertThat(templated.options()).extracting(PollOptionResult::content)
 			.containsExactly("아이스 아메리카노", "아메리카노", "아이스티", "아이스 라떼", "라떼");
