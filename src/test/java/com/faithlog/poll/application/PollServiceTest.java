@@ -342,8 +342,8 @@ class PollServiceTest {
 			null,
 			null,
 			null,
-				Instant.parse("2036-06-23T00:00:00Z"),
-				Instant.parse("2036-06-23T09:00:00Z"),
+			Instant.now().plusSeconds(86_400),
+			Instant.now().plusSeconds(90_000),
 			List.of()
 		));
 
