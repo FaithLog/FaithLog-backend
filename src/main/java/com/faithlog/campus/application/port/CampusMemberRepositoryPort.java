@@ -1,5 +1,6 @@
 package com.faithlog.campus.application.port;
 
+import com.faithlog.campus.application.CampusMembershipRow;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusMemberStatus;
 import java.util.List;
@@ -18,6 +19,8 @@ public interface CampusMemberRepositoryPort {
 	List<CampusMember> findByCampusIdAndStatusOrderByIdAsc(Long campusId, CampusMemberStatus status);
 
 	List<CampusMember> findByUserIdAndStatusOrderByIdDesc(Long userId, CampusMemberStatus status);
+
+	List<CampusMembershipRow> findMembershipRowsByUserIdAndStatusOrderByIdDesc(Long userId, CampusMemberStatus status);
 
 	List<CampusMember> findByUserIdOrderByIdAsc(Long userId);
 }
