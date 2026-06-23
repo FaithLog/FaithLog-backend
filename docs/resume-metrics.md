@@ -21,7 +21,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-22) | 성공 |
-| API | 응답 시간 | 로컬 Docker Compose + k6 | 측정 대기 (2026-06-23, k6 실행 도구 준비 필요) | TBD |
+| API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 43.51ms / p95 917.06ms / p99 1,756.82ms / avg 199.83ms, 95.87 req/s, failure 0.00% (2026-06-23 baseline) | 사용자 승인 전 threshold 없음 |
 | 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
@@ -38,9 +38,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - JaCoCo 설정: Gradle `jacoco` plugin과 `jacocoTestReport` HTML/XML report 설정을 추가했다. coverage threshold는 사용자 승인된 목표가 없어 추가하지 않았다.
   - JaCoCo 검증: `./gradlew test jacocoTestReport` 성공. 리포트 경로는 `build/reports/jacoco/test/html/index.html`, `build/reports/jacoco/test/jacocoTestReport.xml`.
   - 커버리지 baseline: line 94.75% (5,058/5,338), branch 73.08% (646/884), class 97.62% (369/378), method 90.58% (1,395/1,540).
-  - k6 준비: `performance/k6/read-baseline.js`와 `performance/k6/README.md`를 추가했다. 기본 target은 `http://localhost:8080`, 기본 부하는 `VUS=30`, `DURATION=5m`, 기본 endpoint는 `auth,campuses`이며, 원격 URL은 `ALLOW_REMOTE_LOAD=true` 없이는 실행을 막는다.
+  - k6 준비: `performance/k6/read-baseline.js`와 `performance/k6/README.md`를 추가했다. 기본 target은 `http://localhost:8080`, 기본 부하는 `VUS=30`, `DURATION=5m`, 기본 endpoint는 `auth,campuses`이며, 원격 URL은 `ALLOW_REMOTE_LOAD=true` 없이는 실행을 막는다. Docker 기반 k6 실행을 위해 `host.docker.internal` 같은 Docker-local hostname도 local target으로 허용했다.
   - k6 실행 상태: 로컬 `k6` 바이너리는 없음. `grafana/k6:latest` Docker image도 로컬에 없고, `docker pull grafana/k6:latest`는 Docker credential helper 응답 지연으로 중단했다. Homebrew 설치 경로는 있으나 로컬 개발 도구 추가는 사용자 승인 전 진행하지 않았다.
-  - 성능 baseline: 아직 측정 전. k6 실행 도구 준비 또는 사용자 승인 후 local Docker Compose에서 측정해야 한다.
+  - Docker k6 smoke: `docker compose up -d --build postgres redis app`로 local stack을 올리고 Docker k6로 `VUS=1`, `DURATION=10s`, `INCLUDE=auth,campuses,admin-dashboard,devotions,billing,polls` smoke를 실행했다. 결과는 65 requests, 7 iterations, failure 0.00%, avg 48.59ms, p50 20.71ms, p95 162.95ms, p99 286.10ms, 6.37 req/s. 리포트 경로는 `build/reports/k6/docker-smoke.json`.
+  - Docker k6 baseline 조건: local Docker Compose profile `docker`, PostgreSQL 17, Redis 7, `faithlog-app` current branch image, `SPRING_JPA_HIBERNATE_DDL_AUTO=update`, `SPRING_FLYWAY_ENABLED=false`, base URL `http://host.docker.internal:8080`, `VUS=30`, `DURATION=5m`, `THINK_TIME_SECONDS=1`, `INCLUDE=auth,campuses,admin-dashboard,devotions,billing,polls`, local test account `perf90-manager@example.com`, campusId `49`. 측정 당시 dataset은 users 164, campuses 49, campus_members 123, polls 34, charge_items 22, weekly_devotion_records 20, devotion_daily_checks 65, prayer_submissions 12.
+  - Docker k6 baseline 전체 결과: 29,189 requests, 3,243 iterations, checks 58,378/58,378 성공, failure 0.00%, avg 199.83ms, p50 43.51ms, p95 917.06ms, p99 1,756.82ms, max 6,811.90ms, 95.87 req/s. endpoint별 Trend metric 포함 리포트 경로는 `build/reports/k6/read-baseline-local-docker-endpoints.json`.
+  - Docker k6 endpoint별 baseline: `auth_login` avg 756.60ms / p50 589.66ms / p95 1,910.22ms / p99 4,320.95ms, `campuses_me` avg 582.49ms / p50 511.15ms / p95 1,381.89ms / p99 2,862.35ms, `campus_detail` avg 93.63ms / p50 40.39ms / p95 347.43ms / p99 1,009.41ms, `admin_dashboard_summary` avg 75.68ms / p50 43.11ms / p95 217.30ms / p99 633.08ms, `devotion_weekly_read` avg 66.04ms / p50 38.96ms / p95 185.21ms / p99 639.43ms, `devotion_monthly_summary` avg 60.81ms / p50 35.18ms / p95 165.90ms / p99 663.81ms, `billing_my_charges` avg 61.30ms / p50 34.87ms / p95 173.54ms / p99 586.71ms, `billing_my_summary` avg 53.69ms / p50 28.05ms / p95 163.11ms / p99 556.18ms, `poll_list` avg 48.16ms / p50 20.76ms / p95 136.12ms / p99 589.70ms.
+  - 병목 후보 evidence: 동일 조건 baseline에서 `auth_login`과 `campuses_me`가 가장 높은 p95/p99를 보였다. `auth_login`은 인증/보안 동작에 걸친 변경 가능성이 있어 승인 전 기능 코드 변경을 보류한다. `campuses_me`는 읽기 API 병목 후보로 쿼리/DTO/projection/N+1 evidence를 추가 수집한 뒤 개선 여부를 판단한다.
 
 ### 2026-06-22
 

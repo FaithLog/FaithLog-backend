@@ -1,5 +1,6 @@
 import http from 'k6/http';
 import { check, fail, group, sleep } from 'k6';
+import { Trend } from 'k6/metrics';
 
 const BASE_URL = (__ENV.BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 const VUS = Number(__ENV.VUS || 30);
@@ -21,6 +22,22 @@ const INCLUDE = new Set(
 		.map((name) => name.trim())
 		.filter(Boolean)
 );
+
+const endpointDurations = {
+	auth_login: new Trend('endpoint_auth_login', true),
+	setup_campuses_me: new Trend('endpoint_setup_campuses_me', true),
+	campuses_me: new Trend('endpoint_campuses_me', true),
+	campus_detail: new Trend('endpoint_campus_detail', true),
+	admin_dashboard_summary: new Trend('endpoint_admin_dashboard_summary', true),
+	devotion_weekly_read: new Trend('endpoint_devotion_weekly_read', true),
+	devotion_monthly_summary: new Trend('endpoint_devotion_monthly_summary', true),
+	billing_my_charges: new Trend('endpoint_billing_my_charges', true),
+	billing_my_summary: new Trend('endpoint_billing_my_summary', true),
+	poll_list: new Trend('endpoint_poll_list', true),
+	poll_detail: new Trend('endpoint_poll_detail', true),
+	poll_results: new Trend('endpoint_poll_results', true),
+	prayer_weekly_board: new Trend('endpoint_prayer_weekly_board', true),
+};
 
 export const options = {
 	scenarios: {
@@ -111,6 +128,7 @@ function login() {
 		JSON.stringify({ email: PERF_EMAIL, password: PERF_PASSWORD }),
 		jsonParams('auth_login')
 	);
+	recordEndpointDuration('auth_login', response);
 	const ok = check(response, {
 		'auth_login status is 200': (res) => res.status === 200,
 		'auth_login returns access token': (res) => Boolean(parseJson(res).data?.accessToken),
@@ -132,11 +150,18 @@ function get(path, token, name) {
 		headers: { Authorization: `Bearer ${token}` },
 		tags: { name },
 	});
+	recordEndpointDuration(name, response);
 	check(response, {
 		[`${name} status is 200`]: (res) => res.status === 200,
 		[`${name} success envelope`]: (res) => parseJson(res).success === true,
 	});
 	return response;
+}
+
+function recordEndpointDuration(name, response) {
+	if (endpointDurations[name]) {
+		endpointDurations[name].add(response.timings.duration);
+	}
 }
 
 function jsonParams(name) {
@@ -155,7 +180,7 @@ function parseJson(response) {
 }
 
 function guardTarget() {
-	const localTarget = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?($|\/)/.test(BASE_URL);
+	const localTarget = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal|faithlog-backend|app)(?::\d+)?($|\/)/.test(BASE_URL);
 	if (!localTarget && __ENV.ALLOW_REMOTE_LOAD !== 'true') {
 		fail('Remote load test is blocked. Use local Docker by default, or set ALLOW_REMOTE_LOAD=true only after user approval.');
 	}

@@ -23,6 +23,19 @@ k6 run performance/k6/read-baseline.js
 
 The default load is `VUS=30`, `DURATION=5m`, `THINK_TIME_SECONDS=1`, and `INCLUDE=auth,campuses`.
 
+Docker-based k6 can target the host-mapped app port with `host.docker.internal`.
+
+```bash
+mkdir -p build/reports/k6
+docker run --rm \
+  -v "$PWD:/work" \
+  -w /work \
+  -e BASE_URL=http://host.docker.internal:8080 \
+  -e PERF_EMAIL=perf.member@example.com \
+  -e PERF_PASSWORD=test-only-password \
+  grafana/k6:latest run --summary-export build/reports/k6/read-baseline.json performance/k6/read-baseline.js
+```
+
 ## Broader Read Scenario
 
 Use `INCLUDE` to opt into additional read endpoints after local data exists.
