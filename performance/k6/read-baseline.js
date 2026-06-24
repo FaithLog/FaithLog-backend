@@ -7,6 +7,7 @@ const VUS = Number(__ENV.VUS || 30);
 const DURATION = __ENV.DURATION || '5m';
 const THINK_TIME_SECONDS = Number(__ENV.THINK_TIME_SECONDS || 1);
 const MAX_FAILURE_RATE = Number(__ENV.MAX_FAILURE_RATE || 0.01);
+const AUTH_PATTERN = __ENV.AUTH_PATTERN || 'auth-heavy';
 
 const PERF_EMAIL = __ENV.PERF_EMAIL;
 const PERF_PASSWORD = __ENV.PERF_PASSWORD;
@@ -25,6 +26,7 @@ const INCLUDE = new Set(
 
 const endpointDurations = {
 	health: new Trend('endpoint_health', true),
+	setup_auth_login: new Trend('endpoint_setup_auth_login', true),
 	auth_login: new Trend('endpoint_auth_login', true),
 	setup_campuses_me: new Trend('endpoint_setup_campuses_me', true),
 	campuses_me: new Trend('endpoint_campuses_me', true),
@@ -57,6 +59,7 @@ export const options = {
 
 export function setup() {
 	guardTarget();
+	validateAuthPattern();
 	if (requiresAuth() && (!PERF_EMAIL || !PERF_PASSWORD)) {
 		fail('PERF_EMAIL and PERF_PASSWORD are required.');
 	}
@@ -65,7 +68,7 @@ export function setup() {
 		return { token: null, campusId: null };
 	}
 
-	const loginResponse = login();
+	const loginResponse = login('setup_auth_login');
 	const token = loginResponse.data.accessToken;
 	const campusId = CAMPUS_ID || firstCampusId(token);
 	if (!campusId && requiresCampus()) {
@@ -85,7 +88,7 @@ export default function (data) {
 
 	if (INCLUDE.has('auth')) {
 		group('auth: login', () => {
-			token = login().data.accessToken;
+			token = login('auth_login').data.accessToken;
 		});
 	}
 
@@ -152,16 +155,25 @@ function requiresCampus() {
 	return campusDependentIncludes.some((name) => INCLUDE.has(name));
 }
 
-function login() {
+function validateAuthPattern() {
+	if (!['auth-heavy', 'steady-state'].includes(AUTH_PATTERN)) {
+		fail('AUTH_PATTERN must be either auth-heavy or steady-state.');
+	}
+	if (AUTH_PATTERN === 'steady-state' && INCLUDE.has('auth')) {
+		fail('AUTH_PATTERN=steady-state reuses the setup access token. Remove auth from INCLUDE to avoid repeated login load.');
+	}
+}
+
+function login(name = 'auth_login') {
 	const response = http.post(
 		`${BASE_URL}/api/v1/auth/login`,
 		JSON.stringify({ email: PERF_EMAIL, password: PERF_PASSWORD }),
-		jsonParams('auth_login')
+		jsonParams(name)
 	);
-	recordEndpointDuration('auth_login', response);
+	recordEndpointDuration(name, response);
 	const ok = check(response, {
-		'auth_login status is 200': (res) => res.status === 200,
-		'auth_login returns access token': (res) => Boolean(parseJson(res).data?.accessToken),
+		[`${name} status is 200`]: (res) => res.status === 200,
+		[`${name} returns access token`]: (res) => Boolean(parseJson(res).data?.accessToken),
 	});
 	if (!ok) {
 		fail(`Login failed: status=${response.status} body=${response.body}`);

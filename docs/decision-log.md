@@ -26,6 +26,14 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Test credentials, passwords, tokens, Firebase JSON, DB/Redis passwords, and other secrets must not be committed or documented. The created dataset identifiers, counts, and cleanup approach should be recorded in repository docs or a separate traceable report.
 - Impact: #94 may create a small `PERF_` dataset with API calls, measure read-centered VUS 10/3m and VUS 30/5m Cloud Run baselines against it, and record the resulting bottleneck evidence before any production tuning recommendation.
 
+### 2026-06-24 - Issue #94 Cloud Run Auth Pattern Split
+
+- Context: The first PERF dataset Cloud Run read baseline included `auth_login` on every k6 iteration. That is useful for login/BCrypt/JWT issuance pressure, but it can overstate latency versus the mobile app's normal pattern of logging in once and reusing an Access Token for multiple read requests.
+- Decision: Preserve `PERF_20260624_CLOUDRUN_A` for now instead of deleting it. Treat current Cloud Run resource settings as the `min instances=0 baseline`: CPU 1, memory 1GiB, concurrency 80, min instances 0, max instances 3.
+- Decision: Split #94 measurements into two explicit patterns. `auth-heavy` includes login on every iteration to measure login/BCrypt/JWT pressure. `steady-state` logs in once during setup and reuses the Access Token for read API iterations to approximate normal app usage within the 3 to 5 minute token-validity window.
+- Decision: Do not change BCrypt cost/security policy, API contracts, Cloud Run settings, DB schema, Flyway migrations, or indexes without further PM approval. The first infrastructure recommendation candidate is to apply min instances 1 and rerun the same conditions, because min instances 0 can mix cold start or instance scale-up outliers into p95/p99/max.
+- Impact: #94 k6 tooling must make the auth pattern explicit, and resume metrics must report auth-heavy and steady-state read results separately under the Cloud Run min instances 0 baseline.
+
 ### 2026-06-23 - Issue #90 Local Docker Performance Measurement Scope
 
 - Context: Issue #90 measures backend coverage and API performance for resume/portfolio metrics. The first Docker k6 baseline identified `auth_login` and `campuses_me` as bottleneck candidates, but authentication performance touches password hash/security policy.

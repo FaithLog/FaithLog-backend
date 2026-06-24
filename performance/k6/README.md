@@ -80,15 +80,34 @@ k6 run --summary-export build/reports/k6/cloud-run-health-smoke.json performance
 
 Authenticated read baselines require a dedicated perf account and should stay read-only unless the PM approves a write scenario.
 
+Auth-heavy runs include login on every iteration. Use them only to measure login, BCrypt, and JWT issuance pressure.
+
 ```bash
 BASE_URL=https://faithlog-549871256004.asia-northeast3.run.app \
 ALLOW_REMOTE_LOAD=true \
 PERF_EMAIL=perf.member@example.com \
 PERF_PASSWORD=test-only-password \
+AUTH_PATTERN=auth-heavy \
 VUS=10 \
 DURATION=3m \
 INCLUDE=auth,campuses,admin-campuses \
-k6 run --summary-export build/reports/k6/cloud-run-read-baseline-vus10-3m.json performance/k6/read-baseline.js
+k6 run --summary-export build/reports/k6/cloud-run-auth-heavy-vus10-3m.json performance/k6/read-baseline.js
+```
+
+Steady-state authenticated read runs log in once during setup and then reuse the same Access Token for read requests. Do not include `auth` in `INCLUDE` for this mode.
+
+```bash
+BASE_URL=https://faithlog-549871256004.asia-northeast3.run.app \
+ALLOW_REMOTE_LOAD=true \
+PERF_EMAIL=perf.member@example.com \
+PERF_PASSWORD=test-only-password \
+AUTH_PATTERN=steady-state \
+CAMPUS_ID=1 \
+POLL_ID=1 \
+VUS=10 \
+DURATION=3m \
+INCLUDE=campuses,admin-campuses,admin-dashboard,devotions,billing,polls,prayers \
+k6 run --summary-export build/reports/k6/cloud-run-steady-state-read-vus10-3m.json performance/k6/read-baseline.js
 ```
 
 Campus-dependent scenarios such as `admin-dashboard`, `devotions`, `billing`, `polls`, and `prayers` require `CAMPUS_ID` or an account whose `/api/v1/campuses/me` response has at least one campus. The script fails early instead of silently skipping those scenarios when no campus is available.
