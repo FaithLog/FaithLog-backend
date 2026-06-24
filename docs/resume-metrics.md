@@ -22,7 +22,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-24) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
-| 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 131.89ms / p95 285.97ms / p99 446.20ms / avg 155.40ms, 124.67 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, CPU 1 / memory 1GiB / concurrency 80 / min 0 / max 3) | Cloud Run read-only, failure < 1%, p95 중심 |
+| 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
@@ -86,6 +86,25 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 개선 전/후 수치 업데이트: 앱 코드/API 계약/DB schema 변경은 없으므로 코드 개선 전후율이 아니라 시나리오 분리 효과로 기록한다. VUS 30 기준 auth-heavy 대비 steady-state는 p95 2,124.40ms -> 285.97ms(86.54% 낮음), p99 4,177.66ms -> 446.20ms(89.32% 낮음), throughput 35.76 req/s -> 124.67 req/s(248.60% 높음), failure 0.13% -> 0.00%다. 이는 "로그인 반복 부하 제거 후 실제 read steady-state" 비교이며 코드 최적화 효과가 아니다.
   - 재검증: `node --check performance/k6/read-baseline.js` 성공, `node --check performance/k6/seed-cloud-run-perf-data.mjs` 성공, `git diff --check` 성공, 제공된 운영 계정/비밀번호 문자열 narrow scan 매칭 없음, `./gradlew test` 성공, `./gradlew build` 성공.
   - 이력서 문장 후보 업데이트: `Cloud Run min instances=0 baseline(CPU 1, memory 1GiB, concurrency 80, max 3)에서 PERF_ 대표 데이터셋과 k6 VUS 30/5분 측정을 auth-heavy와 steady-state로 분리해, 반복 로그인 포함 시 p95 2,124.40ms/35.76 req/s였던 결과가 token reuse read 시나리오에서는 p95 285.97ms/124.67 req/s/failure 0.00%임을 검증하고 로그인 CPU-bound 부하와 read API 성능을 분리 진단했다.`
+  - Cloud Run 사용자 설정 변경 후 재측정: `gcloud`가 없어 실제 변경 후 CPU/RAM/concurrency/min/max instances 값은 직접 확인하지 못했다. 사용자가 Cloud Run 설정을 수정했다는 전제에서 동일 `PERF_20260624_CLOUDRUN_A` dataset과 동일 k6 조건으로 재측정했다.
+  - 변경 후 steady-state VUS 10/3m 결과: 8,557 requests, 713 iterations, failure 0.00%, throughput 46.68 req/s, avg 123.34ms, p50 104.58ms, p95 211.04ms, p99 301.55ms, max 814.93ms. setup login은 532.66ms로, 변경 전 22,683.42ms outlier가 재현되지 않았다.
+  - 변경 후 steady-state VUS 30/5m 결과: 39,577 requests, 3,298 iterations, failure 0.00%, throughput 130.64 req/s, avg 144.29ms, p50 124.13ms, p95 257.51ms, p99 401.71ms, max 828.99ms. 변경 전 VUS 30 steady-state의 max 1,548.43ms보다 낮고 failure는 동일하게 0.00%다.
+  - 변경 후 auth-heavy VUS 10/3m 결과: 2,991 requests, 230 iterations, failure 0.00%, throughput 15.98 req/s, avg 545.19ms, p50 216.13ms, p95 2,513.85ms, p99 4,229.95ms, max 4,971.28ms. `auth_login` p95는 4,499.83ms, p99 4,821.23ms다. 변경 전 auth-heavy VUS 10의 max 23,677.76ms outlier는 사라졌지만, 로그인 반복 부하 자체는 여전히 p95 4~5초 영역이다.
+  - 변경 후 auth-heavy VUS 30/5m 보류: 변경 후 auth-heavy VUS 10만으로도 반복 로그인/BCrypt/JWT 발급 병목이 유지됨을 확인했다. VUS 30 auth-heavy는 운영 로그인 부하와 비용이 크고 이전 실행에서 로컬 socket exhaustion이 섞였으므로 PM 추가 승인 전 보류한다.
+
+| 시나리오 | Before p95 | After p95 | Before p99 | After p99 | Before max | After max | Before failure | After failure | Before throughput | After throughput |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| steady-state VUS 10/3m | 309.43ms | 211.04ms | 554.23ms | 301.55ms | 24,292.42ms | 814.93ms | 0.00% | 0.00% | 33.32 req/s | 46.68 req/s |
+| steady-state VUS 30/5m | 285.97ms | 257.51ms | 446.20ms | 401.71ms | 1,548.43ms | 828.99ms | 0.00% | 0.00% | 124.67 req/s | 130.64 req/s |
+| auth-heavy VUS 10/3m | 2,500.16ms | 2,513.85ms | 3,779.87ms | 4,229.95ms | 23,677.76ms | 4,971.28ms | 0.00% | 0.00% | 13.71 req/s | 15.98 req/s |
+| auth-heavy VUS 30/5m | 2,124.40ms | 보류 | 4,177.66ms | 보류 | 41,856.60ms | 보류 | 0.13% | 보류 | 35.76 req/s | 보류 |
+
+  - 변경 후 endpoint 비교: steady-state VUS 30 기준 `prayer_weekly_board` p95 385.91ms -> 356.97ms, `poll_results` p95 338.68ms -> 309.49ms, `admin_dashboard_summary` p95 278.31ms -> 238.37ms, `campuses_me` p95 235.45ms -> 204.68ms로 주요 read endpoint가 전반적으로 소폭 개선됐다.
+  - 변경 후 인프라 판단: steady-state read는 VUS 30/5m에서 p95 257.51ms, p99 401.71ms, max 828.99ms, failure 0.00%로 충분히 안정적이다. 첫 setup login 22.68초와 첫 read 20초대 outlier가 사라졌으므로 사용자가 적용한 Cloud Run 설정은 cold start/scale-up outlier 완화에 효과가 있었던 것으로 보인다. 추가 CPU/RAM/concurrency 조정은 steady-state read 기준으로는 당장 필요하다는 evidence가 부족하다. 다만 auth-heavy VUS 10에서 `auth_login` p95 4.50s가 남아 있으므로 로그인 동시성이 중요한 제품 요구라면 CPU 2 또는 로그인 endpoint 전용 scaling/queueing metrics 확인을 후속 후보로 둔다. BCrypt cost/security policy는 변경하지 않는다.
+  - #76 `token_version` 운영 문의 분석: 코드 기준 service role 변경은 `AdminManagementService.changeUserRole` -> `User.changeRole` -> `increaseTokenVersion()` 경로로 증가한다. campus role 변경은 `CampusService.changeCampusRole`에서 실제 campus role이 바뀔 때 `userTokenVersionPort.increaseTokenVersion(targetMember.userId())`를 호출하고, `UserRepository`가 `CampusUserTokenVersionPort`를 구현해 `findById(userId).ifPresent(User::increaseTokenVersion)`로 증가시킨다.
+  - `token_version`이 증가하지 않는 정상 no-op 조건: service role PATCH의 target role이 현재 role과 같으면 `User.changeRole`이 return하므로 증가하지 않는다. campus role PATCH의 target campus role이 현재 role과 같으면 `CampusService`의 `if (targetMember.campusRole() != command.campusRole())` 밖이라 증가하지 않는다. DB 직접 수정, 테스트의 `ReflectionTestUtils`, 또는 운영 DB 수동 변경은 token version 증가 로직을 거치지 않는다.
+  - `token_version` 테스트 보강: `RoleTokenInvalidationIntegrationTest`에 service role 변경 후 DB `users.token_version = old + 1`, campus role 변경 후 DB `users.token_version = old + 1` 직접 assertion을 추가했다. 집중 테스트 `./gradlew test --tests com.faithlog.global.security.RoleTokenInvalidationIntegrationTest` 성공.
+  - 변경 후 재검증: `node --check performance/k6/read-baseline.js` 성공, `node --check performance/k6/seed-cloud-run-perf-data.mjs` 성공, `git diff --check` 성공, 제공된 운영 계정/비밀번호 문자열 narrow scan 매칭 없음, `./gradlew test --tests com.faithlog.global.security.RoleTokenInvalidationIntegrationTest` 성공, `./gradlew test` 성공, `./gradlew build` 성공.
 
 ### 2026-06-23
 
