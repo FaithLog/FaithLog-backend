@@ -7,6 +7,7 @@ const VUS = Number(__ENV.VUS || 30);
 const DURATION = __ENV.DURATION || '5m';
 const THINK_TIME_SECONDS = Number(__ENV.THINK_TIME_SECONDS || 1);
 const MAX_FAILURE_RATE = Number(__ENV.MAX_FAILURE_RATE || 0.01);
+const AUTH_PATTERN = __ENV.AUTH_PATTERN || 'auth-heavy';
 
 const PERF_EMAIL = __ENV.PERF_EMAIL;
 const PERF_PASSWORD = __ENV.PERF_PASSWORD;
@@ -24,10 +25,13 @@ const INCLUDE = new Set(
 );
 
 const endpointDurations = {
+	health: new Trend('endpoint_health', true),
+	setup_auth_login: new Trend('endpoint_setup_auth_login', true),
 	auth_login: new Trend('endpoint_auth_login', true),
 	setup_campuses_me: new Trend('endpoint_setup_campuses_me', true),
 	campuses_me: new Trend('endpoint_campuses_me', true),
 	campus_detail: new Trend('endpoint_campus_detail', true),
+	admin_campuses: new Trend('endpoint_admin_campuses', true),
 	admin_dashboard_summary: new Trend('endpoint_admin_dashboard_summary', true),
 	devotion_weekly_read: new Trend('endpoint_devotion_weekly_read', true),
 	devotion_monthly_summary: new Trend('endpoint_devotion_monthly_summary', true),
@@ -55,22 +59,36 @@ export const options = {
 
 export function setup() {
 	guardTarget();
-	if (!PERF_EMAIL || !PERF_PASSWORD) {
+	validateAuthPattern();
+	if (requiresAuth() && (!PERF_EMAIL || !PERF_PASSWORD)) {
 		fail('PERF_EMAIL and PERF_PASSWORD are required.');
 	}
 
-	const loginResponse = login();
+	if (!requiresAuth()) {
+		return { token: null, campusId: null };
+	}
+
+	const loginResponse = login('setup_auth_login');
 	const token = loginResponse.data.accessToken;
 	const campusId = CAMPUS_ID || firstCampusId(token);
+	if (!campusId && requiresCampus()) {
+		fail('CAMPUS_ID is required for campus-dependent read scenarios. Provide CAMPUS_ID or use includes that do not require campus data.');
+	}
 	return { token, campusId };
 }
 
 export default function (data) {
 	let token = data.token;
 
+	if (INCLUDE.has('health')) {
+		group('health: status', () => {
+			getPublic('/api/v1/health', 'health');
+		});
+	}
+
 	if (INCLUDE.has('auth')) {
 		group('auth: login', () => {
-			token = login().data.accessToken;
+			token = login('auth_login').data.accessToken;
 		});
 	}
 
@@ -80,6 +98,12 @@ export default function (data) {
 			if (data.campusId) {
 				get(`/api/v1/campuses/${data.campusId}`, token, 'campus_detail');
 			}
+		});
+	}
+
+	if (INCLUDE.has('admin-campuses')) {
+		group('admin: campus list', () => {
+			get('/api/v1/admin/campuses?page=0&size=20&sort=createdAt,desc', token, 'admin_campuses');
 		});
 	}
 
@@ -122,16 +146,34 @@ export default function (data) {
 	sleep(THINK_TIME_SECONDS);
 }
 
-function login() {
+function requiresAuth() {
+	return [...INCLUDE].some((name) => name !== 'health');
+}
+
+function requiresCampus() {
+	const campusDependentIncludes = ['admin-dashboard', 'devotions', 'billing', 'polls', 'prayers'];
+	return campusDependentIncludes.some((name) => INCLUDE.has(name));
+}
+
+function validateAuthPattern() {
+	if (!['auth-heavy', 'steady-state'].includes(AUTH_PATTERN)) {
+		fail('AUTH_PATTERN must be either auth-heavy or steady-state.');
+	}
+	if (AUTH_PATTERN === 'steady-state' && INCLUDE.has('auth')) {
+		fail('AUTH_PATTERN=steady-state reuses the setup access token. Remove auth from INCLUDE to avoid repeated login load.');
+	}
+}
+
+function login(name = 'auth_login') {
 	const response = http.post(
 		`${BASE_URL}/api/v1/auth/login`,
 		JSON.stringify({ email: PERF_EMAIL, password: PERF_PASSWORD }),
-		jsonParams('auth_login')
+		jsonParams(name)
 	);
-	recordEndpointDuration('auth_login', response);
+	recordEndpointDuration(name, response);
 	const ok = check(response, {
-		'auth_login status is 200': (res) => res.status === 200,
-		'auth_login returns access token': (res) => Boolean(parseJson(res).data?.accessToken),
+		[`${name} status is 200`]: (res) => res.status === 200,
+		[`${name} returns access token`]: (res) => Boolean(parseJson(res).data?.accessToken),
 	});
 	if (!ok) {
 		fail(`Login failed: status=${response.status} body=${response.body}`);
@@ -148,6 +190,18 @@ function firstCampusId(token) {
 function get(path, token, name) {
 	const response = http.get(`${BASE_URL}${path}`, {
 		headers: { Authorization: `Bearer ${token}` },
+		tags: { name },
+	});
+	recordEndpointDuration(name, response);
+	check(response, {
+		[`${name} status is 200`]: (res) => res.status === 200,
+		[`${name} success envelope`]: (res) => parseJson(res).success === true,
+	});
+	return response;
+}
+
+function getPublic(path, name) {
+	const response = http.get(`${BASE_URL}${path}`, {
 		tags: { name },
 	});
 	recordEndpointDuration(name, response);
