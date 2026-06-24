@@ -65,6 +65,49 @@ INCLUDE=auth,campuses,admin-dashboard \
 k6 run --summary-export build/reports/k6/admin-dashboard-baseline.json performance/k6/read-baseline.js
 ```
 
+## Cloud Run Smoke And Baseline
+
+Remote runs must be explicit and must store results separately from local Docker numbers. Start with health-only smoke when no perf account is available.
+
+```bash
+BASE_URL=https://faithlog-549871256004.asia-northeast3.run.app \
+ALLOW_REMOTE_LOAD=true \
+VUS=1 \
+DURATION=30s \
+INCLUDE=health \
+k6 run --summary-export build/reports/k6/cloud-run-health-smoke.json performance/k6/read-baseline.js
+```
+
+Authenticated read baselines require a dedicated perf account and should stay read-only unless the PM approves a write scenario.
+
+```bash
+BASE_URL=https://faithlog-549871256004.asia-northeast3.run.app \
+ALLOW_REMOTE_LOAD=true \
+PERF_EMAIL=perf.member@example.com \
+PERF_PASSWORD=test-only-password \
+VUS=10 \
+DURATION=3m \
+INCLUDE=auth,campuses,admin-campuses \
+k6 run --summary-export build/reports/k6/cloud-run-read-baseline-vus10-3m.json performance/k6/read-baseline.js
+```
+
+Campus-dependent scenarios such as `admin-dashboard`, `devotions`, `billing`, `polls`, and `prayers` require `CAMPUS_ID` or an account whose `/api/v1/campuses/me` response has at least one campus. The script fails early instead of silently skipping those scenarios when no campus is available.
+
+If production has no representative data, create only PM-approved `PERF_` prefixed data with the seed script. The script uses actual APIs, caps member creation at 50, writes a local manifest under `build/reports/perf-data/`, and requires `ALLOW_REMOTE_LOAD=true` for non-local targets.
+
+```bash
+BASE_URL=https://faithlog-549871256004.asia-northeast3.run.app \
+ALLOW_REMOTE_LOAD=true \
+PERF_ADMIN_EMAIL=perf.admin@example.com \
+PERF_ADMIN_PASSWORD=admin-password-from-secret-store \
+PERF_MEMBER_PASSWORD=member-password-from-secret-store \
+PERF_DATASET_ID=PERF_YYYYMMDD_CLOUDRUN_A \
+PERF_MEMBER_COUNT=30 \
+node performance/k6/seed-cloud-run-perf-data.mjs
+```
+
+The approved expanded Cloud Run read baseline is capped at `VUS=30` and `DURATION=5m`. Do not exceed that cap, run write-heavy scenarios, or generate payment/charge/notification side effects without separate PM approval.
+
 ## Remote Guard
 
 The script fails when `BASE_URL` is not localhost unless `ALLOW_REMOTE_LOAD=true` is set. Do not run high-load tests against Cloud Run or any production database without explicit user approval. For approved remote smoke checks, use low values such as `VUS=1 DURATION=30s`.

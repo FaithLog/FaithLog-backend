@@ -13,20 +13,65 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-23, 243 tests / 0 failures / 1 skipped) | 100% |
-| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-23, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-24, 243 tests / 0 failures / 1 skipped) | 100% |
+| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
+| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-22) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-24) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
-| 운영 | 헬스체크 성공률 | `/health` 또는 배포 플랫폼 상태 | 측정 보류 (2026-06-17) | 99%+ |
+| 운영 API | Cloud Run read baseline | Cloud Run + k6 | p50 289.12ms / p95 2,124.40ms / p99 4,177.66ms / avg 661.72ms, 35.76 req/s, failure 0.13% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A` dataset; 일부 실패는 로컬 클라이언트 socket exhaustion 의심) | Cloud Run read-only, failure < 1%, p95 중심 |
+| 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-06-24
+
+- #94 Cloud Run 실서버 성능 측정과 병목 개선 시작:
+  - 작업 기준: Issue #94 `[Perf] Cloud Run 실서버 성능 측정과 병목 개선`, Project `FaithLog Backend Kanban` Status `In Progress`, 브랜치 `perf/94-cloud-run-performance-tuning`.
+  - 시작 기준: `origin/develop` 최신 커밋 `dd32bff perf: #90 성능 테스트와 커버리지 측정 기반 정리`에서 브랜치를 생성했다.
+  - 대상 서버: `https://faithlog-549871256004.asia-northeast3.run.app`.
+  - Cloud Run 설정 확인: 로컬 환경에 `gcloud`가 없어 CPU, memory, concurrency, min/max instances, timeout, service account, revision/image tag는 확인하지 못했다.
+  - 도구 준비: 사용자 요청으로 Homebrew를 통해 로컬 `k6 v2.0.0`을 설치했다.
+  - k6 보강: `performance/k6/read-baseline.js`에 인증 없는 `INCLUDE=health` 경로와 `endpoint_health` Trend를 추가했다. `INCLUDE=health`만 사용할 때는 `PERF_EMAIL`/`PERF_PASSWORD` 없이 `/api/v1/health`만 호출한다.
+  - README 보강: Cloud Run health smoke, authenticated read baseline 예시, Cloud Run 결과 파일 분리 규칙, 확장 baseline 상한(`VUS=30`, `DURATION=5m`)을 `performance/k6/README.md`에 추가했다.
+  - k6 Cloud Run health smoke 조건: base URL `https://faithlog-549871256004.asia-northeast3.run.app`, `ALLOW_REMOTE_LOAD=true`, `VUS=1`, `DURATION=30s`, `INCLUDE=health`, summary export `build/reports/k6/cloud-run-health-smoke.json`.
+  - k6 Cloud Run health smoke 결과: 28 requests, 28 iterations, checks 56/56 성공, failure 0.00%, throughput 0.91696 req/s, avg 85.30ms, p50 63.24ms, p90 213.92ms, p95 224.61ms, p99 237.63ms, max 240.66ms.
+  - Python urllib 보조 smoke 결과: `/api/v1/health` 30 samples, 30 successes, HTTP 200 30건, avg 284.04ms, p50 273.94ms, p95 327.55ms, p99 421.98ms, max 453.34ms.
+  - authenticated read baseline 준비: PM이 제공한 관리자 계정을 런타임 환경 변수로만 사용했고, 비밀번호는 문서/커밋에 기록하지 않았다.
+  - 운영 데이터셋 확인: `/api/v1/campuses/me`는 0건, `GET /api/v1/admin/campuses?page=0&size=10&sort=createdAt,desc`도 `totalElements=0`이었다. 운영 DB에 캠퍼스 데이터가 없어 campus-dependent 시나리오(`admin-dashboard`, `devotions`, `billing`, `polls`, `prayers`)는 대표 성능 측정 대상이 아니다.
+  - 1차 authenticated baseline 관찰: `INCLUDE=auth,campuses,admin-dashboard,devotions,billing,polls`로 실행했지만 campusId가 없어 실제로는 `auth_login`과 `campuses_me`만 측정됐다. 이 silent skip을 막기 위해 `read-baseline.js`에 campus-dependent include 검증을 추가했다.
+  - k6 보강 추가: 서비스 ADMIN 계정으로 캠퍼스 목록을 읽을 수 있도록 `INCLUDE=admin-campuses`와 `endpoint_admin_campuses` Trend를 추가했다. campus-dependent 시나리오는 `CAMPUS_ID`가 없으면 setup 단계에서 실패하도록 바꿨다.
+  - k6 Cloud Run authenticated read baseline 조건: base URL `https://faithlog-549871256004.asia-northeast3.run.app`, `ALLOW_REMOTE_LOAD=true`, `VUS=10`, `DURATION=3m`, `THINK_TIME_SECONDS=1`, `INCLUDE=auth,campuses,admin-campuses`, summary export `build/reports/k6/cloud-run-read-baseline-admin-vus10-3m.json`.
+  - k6 Cloud Run authenticated read baseline 전체 결과: 2,504 requests, 834 iterations, checks 5,008/5,008 성공, failure 0.00%, throughput 13.73 req/s, avg 388.53ms, p50 164.45ms, p90 971.09ms, p95 1,179.85ms, p99 1,554.33ms, max 7,811.97ms.
+  - endpoint별 Cloud Run baseline: `auth_login` avg 801.51ms / p50 748.77ms / p95 1,450.59ms / p99 1,633.47ms / max 2,005.28ms, `campuses_me` avg 195.65ms / p50 103.31ms / p95 666.09ms / p99 985.75ms / max 7,811.97ms, `admin_campuses` avg 168.33ms / p50 98.99ms / p95 520.00ms / p99 990.24ms / max 4,036.25ms.
+  - Cloud Run 병목 TOP 3(p95 기준): 1) `auth_login` 1,450.59ms, 2) `campuses_me` 666.09ms, 3) `admin_campuses` 520.00ms.
+  - #90 local Docker 비교 기준: #90 개선 후 local Docker read baseline은 `VUS=30`, `DURATION=5m`, p95 906.29ms, p99 1,371.26ms, failure 0.00%; #94 health-only smoke는 시나리오가 달라 직접 개선율 비교 대상으로 사용하지 않는다.
+  - 현재 판단: health-only p95 224.61ms, authenticated read p95 1,179.85ms, failure 0.00%다. 운영 DB가 empty dataset이라 DB/index 병목 evidence는 부족하고, VUS 10에서 `auth_login`이 p95 기준 최상위 병목이다. 다만 인증 보안 비용/BCrypt/JWT 정책은 임의 변경 금지 대상이므로 코드 변경 대상으로 삼지 않는다.
+  - Cloud Run 리소스 판단: failure 0.00%이고 read-only empty dataset에서 p95 1.18s 수준이라 CPU/RAM/concurrency/min instances 증설 근거는 아직 부족하다. `gcloud` 접근 또는 Cloud Run metrics와 대표 데이터셋 read baseline이 필요하다.
+  - 검증: `node --check performance/k6/read-baseline.js` 성공, `git diff --check` 성공, `./gradlew test` 성공(243 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, JaCoCo line 94.76% / branch 73.08% / class 97.63% / method 90.59%.
+  - PM 승인 업데이트: 운영 Cloud Run 측정을 위해 `PERF_` prefix가 붙은 소규모 대표 PERF 데이터셋 생성을 승인받았다. 기존 운영 데이터 수정/삭제, prefix 없는 데이터 생성, 대량 write, 알림 대량 발송, 청구/결제 상태 대량 변경은 계속 금지된다.
+  - PERF 데이터셋 생성 조건: base URL `https://faithlog-549871256004.asia-northeast3.run.app`, dataset id `PERF_20260624_CLOUDRUN_A`, `PERF_MEMBER_COUNT=30`, 실제 운영 API 우선 사용, 자격 증명은 런타임 환경 변수로만 사용했다. manifest는 ignored 경로 `build/reports/perf-data/PERF_20260624_CLOUDRUN_A.json`에 저장했고, 비밀번호/토큰/운영 계정 credential은 문서/커밋에 남기지 않는다.
+  - PERF 데이터셋 개요: campus id `1`, campus name `PERF_20260624_CLOUDRUN_A Campus`, active members 31명(관리자 1명 + PERF test members 30명), payment accounts 2개(`PENALTY`, `COFFEE`), weekly devotion final submissions 13건, generated unpaid `PENALTY` amount 7,500, poll 2건(`OPEN` 1건, closed-target poll 1건은 생성 응답상 `SCHEDULED`), open poll responses 20건, prayer groups 3개와 prayer submissions 샘플을 생성했다. 생성 데이터는 `PERF_20260624_CLOUDRUN_A` prefix와 manifest로 식별 가능하다.
+  - PERF 데이터셋 정리 상태: 기존 운영 데이터는 수정/삭제하지 않았고, 테스트 데이터 삭제도 직접 수행하지 않았다. API에 완전한 cascade cleanup이 없으므로 정리는 `PERF_20260624_CLOUDRUN_A` prefix와 manifest의 id 목록 기준으로 PM 승인 후 DB/Supabase 정리 계획을 세워 진행해야 한다.
+  - k6 Cloud Run PERF dataset VUS 10/3m 조건: `ALLOW_REMOTE_LOAD=true`, `VUS=10`, `DURATION=3m`, `THINK_TIME_SECONDS=1`, `CAMPUS_ID=1`, `POLL_ID=1`, `INCLUDE=auth,campuses,admin-campuses,admin-dashboard,devotions,billing,polls,prayers`, summary export `build/reports/k6/cloud-run-perf-dataset-vus10-3m.json`.
+  - k6 Cloud Run PERF dataset VUS 10/3m 전체 결과: 2,523 requests, 194 iterations, checks 5,046/5,046 성공, failure 0.00%, throughput 13.71 req/s, avg 646.90ms, p50 339.05ms, p90 1,918.56ms, p95 2,500.16ms, p99 3,779.87ms, max 23,677.76ms.
+  - VUS 10/3m endpoint TOP 3(p95): 1) `auth_login` 4,094.62ms / p99 4,241.72ms, 2) `campuses_me` 3,254.32ms / p99 3,821.28ms, 3) `campus_detail` 1,222.19ms / p99 2,179.03ms. 그 다음은 `prayer_weekly_board` p95 1,017.06ms, `poll_results` p95 805.84ms, `admin_dashboard_summary` p95 776.29ms였다.
+  - k6 Cloud Run PERF dataset VUS 30/5m 조건: VUS 10/3m과 동일한 endpoint set/dataset, `VUS=30`, `DURATION=5m`, summary export `build/reports/k6/cloud-run-perf-dataset-vus30-5m.json`.
+  - k6 Cloud Run PERF dataset VUS 30/5m 전체 결과: 11,825 requests, 913 completed iterations, 15 interrupted iterations, checks 23,620/23,650 성공, failure 0.13%, throughput 35.76 req/s, avg 661.72ms, p50 289.12ms, p90 1,511.05ms, p95 2,124.40ms, p99 4,177.66ms, max 41,856.60ms.
+  - VUS 30/5m endpoint TOP 3(p95): 1) `auth_login` 4,850.26ms / p99 18,679.02ms, 2) `campuses_me` 3,926.57ms / p99 18,485.26ms, 3) `campus_detail` 2,106.92ms / p99 3,090.14ms. 그 다음은 `admin_campuses` p95 1,884.17ms, `prayer_weekly_board` p95 1,835.86ms, `poll_results` p95 1,519.57ms, `admin_dashboard_summary` p95 1,514.43ms였다.
+  - VUS 30/5m 실패 분석: k6 콘솔에 `read: can't assign requested address`가 반복되어 로컬 클라이언트 socket/ephemeral port exhaustion 의심이 있다. 실패는 `auth_login` status/access-token check 14건과 `prayer_weekly_board` 1건으로 집계됐고, Cloud Run 서버 429/5xx evidence로 단정하지 않는다. 임계값 `http_req_failed rate<0.01` 자체는 0.13%로 통과했다.
+  - empty dataset 대비 PERF dataset 비교: VUS 10/3m 기준 empty dataset은 auth/campuses/admin-campuses만 측정되어 전체 p95 1,179.85ms, throughput 13.73 req/s였다. PERF dataset은 campus-dependent read API까지 포함해 p95 2,500.16ms, throughput 13.71 req/s였다. 시나리오와 dataset이 달라 성능 개선/악화율로 해석하지 않고 대표 read workload 기준선으로만 사용한다.
+  - 병목 판단: p95/p99 기준 최상위는 `auth_login`과 `campuses_me`다. `auth_login`은 BCrypt/JWT 보안 정책과 직접 연결되어 성능 이유로 임의 변경 금지다. `campuses_me`는 #90에서 local Docker N+1을 이미 projection으로 개선했지만 Cloud Run에서는 인증/DB/네트워크/Cloud Run 리소스 영향을 분리할 추가 evidence가 부족하다. API 계약 변경 없는 추가 코드 개선은 로그/DB query/Cloud Run metrics 확인 후 판단한다.
+  - Cloud Run 리소스 판단 업데이트: VUS 30/5m에서 throughput은 35.76 req/s, failure 0.13%로 허용 범위지만 p95 2.12s, p99 4.18s이고 `auth_login`/`campuses_me` tail latency가 길다. `gcloud`가 없어 CPU, memory, concurrency, min/max instances, timeout, service account, revision/image tag는 확인하지 못했다. 지금 단계에서 직접 증설하지 않고, Cloud Run metrics 확인 후 min instances 1 적용 여부와 CPU/concurrency 조정을 검토하는 것을 추천한다.
+  - 코드 수정 상태: production API 성능 병목 evidence만으로는 DB schema/index/Flyway 또는 인증 정책 변경을 승인 없이 진행할 수 없어 앱 코드 최적화는 하지 않았다. 대신 k6 측정 도구에 health-only, admin-campuses, campus-dependent include guard, PERF dataset seed script, Cloud Run README 예시를 추가했다.
+  - 개선 전/후 수치: #94에서 production 코드 최적화는 적용하지 않았으므로 동일 조건 개선 전/후 개선율은 산출하지 않는다. 현재 수치는 Cloud Run `PERF_20260624_CLOUDRUN_A` 기준선이다.
+  - 이력서 문장 후보: `Cloud Run 운영 URL 기준으로 PERF_ prefix 대표 데이터셋(캠퍼스 1개, active members 31명, devotion submissions 13건, poll responses 20건, prayer groups 3개)을 API로 구성하고, k6 VUS 30/5분 read 중심 부하에서 11,825 requests, 35.76 req/s, failure 0.13%, p95 2,124.40ms를 측정해 auth_login/campuses_me/campus_detail 병목 우선순위를 도출했다.`
+  - 다음 필요 입력: Cloud Run metrics 또는 로그 접근이 가능하면 CPU/RAM/concurrency/min instances와 tail latency 상관관계를 확인한다. DB 직접 EXPLAIN/인덱스 검토가 필요하면 PM 승인 후 별도 evidence 수집을 진행한다. PERF 데이터셋 정리는 prefix/manifest 기준 cleanup 계획을 승인받은 뒤 수행한다.
 
 ### 2026-06-23
 

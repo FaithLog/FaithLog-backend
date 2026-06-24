@@ -24,10 +24,12 @@ const INCLUDE = new Set(
 );
 
 const endpointDurations = {
+	health: new Trend('endpoint_health', true),
 	auth_login: new Trend('endpoint_auth_login', true),
 	setup_campuses_me: new Trend('endpoint_setup_campuses_me', true),
 	campuses_me: new Trend('endpoint_campuses_me', true),
 	campus_detail: new Trend('endpoint_campus_detail', true),
+	admin_campuses: new Trend('endpoint_admin_campuses', true),
 	admin_dashboard_summary: new Trend('endpoint_admin_dashboard_summary', true),
 	devotion_weekly_read: new Trend('endpoint_devotion_weekly_read', true),
 	devotion_monthly_summary: new Trend('endpoint_devotion_monthly_summary', true),
@@ -55,18 +57,31 @@ export const options = {
 
 export function setup() {
 	guardTarget();
-	if (!PERF_EMAIL || !PERF_PASSWORD) {
+	if (requiresAuth() && (!PERF_EMAIL || !PERF_PASSWORD)) {
 		fail('PERF_EMAIL and PERF_PASSWORD are required.');
+	}
+
+	if (!requiresAuth()) {
+		return { token: null, campusId: null };
 	}
 
 	const loginResponse = login();
 	const token = loginResponse.data.accessToken;
 	const campusId = CAMPUS_ID || firstCampusId(token);
+	if (!campusId && requiresCampus()) {
+		fail('CAMPUS_ID is required for campus-dependent read scenarios. Provide CAMPUS_ID or use includes that do not require campus data.');
+	}
 	return { token, campusId };
 }
 
 export default function (data) {
 	let token = data.token;
+
+	if (INCLUDE.has('health')) {
+		group('health: status', () => {
+			getPublic('/api/v1/health', 'health');
+		});
+	}
 
 	if (INCLUDE.has('auth')) {
 		group('auth: login', () => {
@@ -80,6 +95,12 @@ export default function (data) {
 			if (data.campusId) {
 				get(`/api/v1/campuses/${data.campusId}`, token, 'campus_detail');
 			}
+		});
+	}
+
+	if (INCLUDE.has('admin-campuses')) {
+		group('admin: campus list', () => {
+			get('/api/v1/admin/campuses?page=0&size=20&sort=createdAt,desc', token, 'admin_campuses');
 		});
 	}
 
@@ -122,6 +143,15 @@ export default function (data) {
 	sleep(THINK_TIME_SECONDS);
 }
 
+function requiresAuth() {
+	return [...INCLUDE].some((name) => name !== 'health');
+}
+
+function requiresCampus() {
+	const campusDependentIncludes = ['admin-dashboard', 'devotions', 'billing', 'polls', 'prayers'];
+	return campusDependentIncludes.some((name) => INCLUDE.has(name));
+}
+
 function login() {
 	const response = http.post(
 		`${BASE_URL}/api/v1/auth/login`,
@@ -148,6 +178,18 @@ function firstCampusId(token) {
 function get(path, token, name) {
 	const response = http.get(`${BASE_URL}${path}`, {
 		headers: { Authorization: `Bearer ${token}` },
+		tags: { name },
+	});
+	recordEndpointDuration(name, response);
+	check(response, {
+		[`${name} status is 200`]: (res) => res.status === 200,
+		[`${name} success envelope`]: (res) => parseJson(res).success === true,
+	});
+	return response;
+}
+
+function getPublic(path, name) {
+	const response = http.get(`${BASE_URL}${path}`, {
 		tags: { name },
 	});
 	recordEndpointDuration(name, response);
