@@ -5,6 +5,7 @@ import com.faithlog.billing.application.policy.BillingAccessPolicy;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.campus.application.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.application.port.CampusRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
@@ -12,6 +13,7 @@ import com.faithlog.campus.application.port.CampusUserLookupResult;
 import com.faithlog.campus.domain.Campus;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusMemberStatus;
+import com.faithlog.campus.domain.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.time.DateTimeException;
@@ -44,17 +46,20 @@ public class BillingQueryService {
 	private final CampusRepositoryPort campusRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
+	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 
 	public BillingQueryService(
 		ChargeItemRepositoryPort chargeItemRepository,
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
-		CampusUserLookupPort userLookupPort
+		CampusUserLookupPort userLookupPort,
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
+		this.dutyAssignmentRepository = dutyAssignmentRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -129,7 +134,7 @@ public class BillingQueryService {
 	@Transactional(readOnly = true)
 	public AdminCampusChargesResult listAdminCampusCharges(AdminCampusChargeListQuery query) {
 		Campus campus = getCampus(query.campusId());
-		requireCampusChargeManager(query.campusId(), query.requesterId());
+		requireCampusChargeManager(query.campusId(), query.requesterId(), query.paymentCategory());
 		List<CampusUserLookupResult> targetUsers = targetUsers(query.campusId(), query.userId(), query.keyword());
 		Set<Long> targetUserIds = targetUsers.stream()
 			.map(CampusUserLookupResult::userId)
@@ -156,7 +161,7 @@ public class BillingQueryService {
 	@Transactional(readOnly = true)
 	public AdminMemberChargesResult listAdminMemberCharges(AdminMemberChargeListQuery query) {
 		Campus campus = getCampus(query.campusId());
-		requireCampusChargeManager(query.campusId(), query.requesterId());
+		requireCampusChargeManager(query.campusId(), query.requesterId(), query.paymentCategory());
 		requireActiveCampusMember(query.campusId(), query.userId(), ADMIN_CHARGE_LIST_FORBIDDEN);
 		CampusUserLookupResult targetUser = getActiveUser(query.userId());
 
@@ -327,7 +332,7 @@ public class BillingQueryService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 	}
 
-	private void requireCampusChargeManager(Long campusId, Long requesterId) {
+	private void requireCampusChargeManager(Long campusId, Long requesterId, PaymentCategory paymentCategory) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		if (requester.isAdmin()) {
 			return;
@@ -335,11 +340,20 @@ public class BillingQueryService {
 		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN));
+		if (paymentCategory == PaymentCategory.COFFEE && isActiveCoffeeDuty(campusId, requester.userId())) {
+			return;
+		}
 		BillingAccessPolicy.requireCampusManager(
 			requesterMembership,
 			ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN,
 			ADMIN_CHARGE_LIST_FORBIDDEN
 		);
+	}
+
+	private boolean isActiveCoffeeDuty(Long campusId, Long userId) {
+		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
+			.map(assignment -> assignment.userId().equals(userId))
+			.orElse(false);
 	}
 
 	private void requireActiveCampusMember(Long campusId, Long userId, String message) {

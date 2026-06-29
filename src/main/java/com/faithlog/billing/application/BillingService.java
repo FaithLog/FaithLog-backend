@@ -9,11 +9,13 @@ import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentAccount;
 import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.campus.application.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.application.port.CampusRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
 import com.faithlog.campus.application.port.CampusUserLookupResult;
 import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.domain.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.util.List;
@@ -30,24 +32,27 @@ public class BillingService {
 	private final CampusRepositoryPort campusRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
+	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 
 	public BillingService(
 		PaymentAccountRepositoryPort paymentAccountRepository,
 		ChargeItemRepositoryPort chargeItemRepository,
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
-		CampusUserLookupPort userLookupPort
+		CampusUserLookupPort userLookupPort,
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
 	) {
 		this.paymentAccountRepository = paymentAccountRepository;
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
+		this.dutyAssignmentRepository = dutyAssignmentRepository;
 	}
 
 	@Transactional
 	public PaymentAccountResult createPaymentAccount(CreatePaymentAccountCommand command) {
-		requireCampusManager(command.campusId(), command.requesterId());
+		requirePaymentAccountManager(command.campusId(), command.requesterId(), command.accountType());
 		lockCampusOrThrow(command.campusId());
 
 		paymentAccountRepository
@@ -72,7 +77,7 @@ public class BillingService {
 	public PaymentAccountResult deactivatePaymentAccount(Long accountId, Long requesterId) {
 		PaymentAccount account = paymentAccountRepository.findById(accountId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
-		requireCampusManager(account.campusId(), requesterId);
+		requirePaymentAccountManager(account.campusId(), requesterId, account.accountType());
 
 		account.deactivate();
 		return PaymentAccountResult.from(account);
@@ -237,7 +242,7 @@ public class BillingService {
 		return account;
 	}
 
-	private void requireCampusManager(Long campusId, Long requesterId) {
+	private void requirePaymentAccountManager(Long campusId, Long requesterId, PaymentCategory accountType) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		if (requester.isAdmin()) {
 			return;
@@ -245,7 +250,16 @@ public class BillingService {
 		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN));
+		if (accountType == PaymentCategory.COFFEE && isActiveCoffeeDuty(campusId, requester.userId())) {
+			return;
+		}
 		BillingAccessPolicy.requirePaymentAccountManager(requesterMembership);
+	}
+
+	private boolean isActiveCoffeeDuty(Long campusId, Long userId) {
+		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
+			.map(assignment -> assignment.userId().equals(userId))
+			.orElse(false);
 	}
 
 	private void requirePaymentAccountListAccess(Long campusId, Long requesterId) {

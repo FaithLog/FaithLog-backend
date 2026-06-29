@@ -1,12 +1,15 @@
 package com.faithlog.poll.application;
 
 import com.faithlog.campus.application.policy.CampusRolePolicy;
+import com.faithlog.campus.application.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
 import com.faithlog.campus.application.port.CampusUserLookupResult;
 import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.domain.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
+import com.faithlog.poll.domain.PollType;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -14,18 +17,24 @@ class PollAccessService {
 
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
+	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 
-	PollAccessService(CampusMemberRepositoryPort campusMemberRepository, CampusUserLookupPort userLookupPort) {
+	PollAccessService(
+		CampusMemberRepositoryPort campusMemberRepository,
+		CampusUserLookupPort userLookupPort,
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
+	) {
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
+		this.dutyAssignmentRepository = dutyAssignmentRepository;
 	}
 
 	void requireTemplateManager(Long campusId, Long requesterId) {
 		requireCampusManager(campusId, requesterId, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
 	}
 
-	void requirePollCreator(Long campusId, Long requesterId) {
-		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
+	void requirePollCreator(Long campusId, Long requesterId, PollType pollType) {
+		requireCampusManagerOrCoffeeDuty(campusId, requesterId, pollType, ErrorCode.POLL_CREATE_FORBIDDEN);
 	}
 
 	CampusMember requireActiveCampusMember(Long campusId, Long requesterId) {
@@ -47,6 +56,10 @@ class PollAccessService {
 
 	void requirePollAdmin(Long campusId, Long requesterId) {
 		requireCampusManager(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
+	}
+
+	void requirePollAdmin(Long campusId, Long requesterId, PollType pollType) {
+		requireCampusManagerOrCoffeeDuty(campusId, requesterId, pollType, ErrorCode.POLL_ADMIN_FORBIDDEN);
 	}
 
 	boolean hasAdminVisibility(Long campusId, Long requesterId) {
@@ -80,6 +93,26 @@ class PollAccessService {
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(errorCode));
 		CampusRolePolicy.requireCampusManager(requesterMembership, errorCode);
+	}
+
+	private void requireCampusManagerOrCoffeeDuty(Long campusId, Long requesterId, PollType pollType, ErrorCode errorCode) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin()) {
+			return;
+		}
+		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(errorCode));
+		if (pollType == PollType.COFFEE && isActiveCoffeeDuty(campusId, requester.userId())) {
+			return;
+		}
+		CampusRolePolicy.requireCampusManager(requesterMembership, errorCode);
+	}
+
+	boolean isActiveCoffeeDuty(Long campusId, Long userId) {
+		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
+			.map(assignment -> assignment.userId().equals(userId))
+			.orElse(false);
 	}
 
 	private CampusUserLookupResult getActiveUser(Long userId) {

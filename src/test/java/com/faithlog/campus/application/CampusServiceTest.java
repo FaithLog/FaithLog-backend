@@ -445,6 +445,38 @@ class CampusServiceTest {
 		)).userId()).isEqualTo(target.id());
 	}
 
+	@Test
+	void getMyCoffeeDuty_returns_active_true_only_for_current_active_coffee_assignee() {
+		User manager = saveUser("coffee-me-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("coffee-me-duty@example.com", UserRole.USER);
+		User member = saveUser("coffee-me-member@example.com", UserRole.USER);
+		User outsider = saveUser("coffee-me-outsider@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"35캠",
+			"분당",
+			"분당 35캠퍼스"
+		));
+		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+
+		MyDutyAssignmentResult active = campusService.getMyCoffeeDutyAssignment(campus.campusId(), duty.id());
+		MyDutyAssignmentResult inactive = campusService.getMyCoffeeDutyAssignment(campus.campusId(), member.id());
+
+		assertThat(active.userId()).isEqualTo(duty.id());
+		assertThat(active.campusId()).isEqualTo(campus.campusId());
+		assertThat(active.dutyType()).isEqualTo(DutyType.COFFEE.name());
+		assertThat(active.active()).isTrue();
+		assertThat(inactive.userId()).isEqualTo(member.id());
+		assertThat(inactive.campusId()).isEqualTo(campus.campusId());
+		assertThat(inactive.dutyType()).isEqualTo(DutyType.COFFEE.name());
+		assertThat(inactive.active()).isFalse();
+		assertThatThrownBy(() -> campusService.getMyCoffeeDutyAssignment(campus.campusId(), outsider.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 조회 권한이 없습니다.");
+	}
+
 	private void updateCampusRole(Long membershipId, CampusRole campusRole) {
 		CampusMember member = campusMemberRepository.findById(membershipId).orElseThrow();
 		ReflectionTestUtils.setField(member, "campusRole", campusRole);

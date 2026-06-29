@@ -4,11 +4,13 @@ import com.faithlog.campus.application.CampusCreateResult;
 import com.faithlog.campus.application.CampusDetailResult;
 import com.faithlog.campus.application.CampusMembershipResult;
 import com.faithlog.campus.application.CampusService;
+import com.faithlog.campus.application.MyDutyAssignmentResult;
 import com.faithlog.campus.presentation.dto.CampusCreateResponse;
 import com.faithlog.campus.presentation.dto.CampusDetailResponse;
 import com.faithlog.campus.presentation.dto.CampusMembershipResponse;
 import com.faithlog.campus.presentation.dto.CreateCampusRequest;
 import com.faithlog.campus.presentation.dto.JoinCampusRequest;
+import com.faithlog.campus.presentation.dto.MyDutyAssignmentResponse;
 import com.faithlog.campus.presentation.dto.UpdateCampusRequest;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
@@ -76,6 +78,15 @@ public class CampusController {
 	) {
 		CampusDetailResult result = campusService.getCampus(campusId, authenticatedUser.userId());
 		return ApiResponse.success(CampusDetailResponse.from(result));
+	}
+
+	@GetMapping("/{campusId}/duty-assignments/me")
+	public ApiResponse<MyDutyAssignmentResponse> getMyCoffeeDutyAssignment(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId
+	) {
+		MyDutyAssignmentResult result = campusService.getMyCoffeeDutyAssignment(campusId, authenticatedUser.userId());
+		return ApiResponse.success(MyDutyAssignmentResponse.from(result));
 	}
 
 	@PatchMapping("/{campusId}")

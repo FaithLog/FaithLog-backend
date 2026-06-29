@@ -163,6 +163,9 @@ Redis TTL policy:
 - A campus has at most one active `DutyType.COFFEE` assignee.
 - Issue #30 assigns or replaces the active coffee assignee with `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee`.
 - Issue #30 revokes the active coffee assignee with `DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}`.
+- Active campus members can check their own coffee duty status with `GET /api/v1/campuses/{campusId}/duty-assignments/me`.
+- The my-duty response is `userId`, `campusId`, `dutyType=COFFEE`, and `isActive`.
+- A non-duty ACTIVE member receives `200 OK` with `isActive=false`; non-members and inactive members are forbidden.
 
 ## FCM And Notifications
 
@@ -365,6 +368,8 @@ Issue #34 is P0.
   - `PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate`
 - All active campus members can list payment accounts for their campus.
 - Only campus admin roles can create or deactivate payment accounts.
+- Active COFFEE duty assignees can create and deactivate only `COFFEE` payment accounts in their own campus.
+- `PENALTY` payment account creation/deactivation keeps the existing campus admin or service admin permission.
 - Account numbers are fully visible in account list responses because members need them for bank transfer payment. Do not expose unnecessary admin-only metadata in member-facing responses.
 - A campus can have only one active payment account per `account_type`.
 - Creating a new active account automatically deactivates the previous active account for the same campus and `account_type`.
@@ -398,6 +403,11 @@ Issue #34 is P0.
 - Compose Coffee menu catalog seed data should come from official Compose Coffee sources first. If official verification is not possible, a latest menu/price source explicitly approved by the user may be used; Issue #37 used the user-approved 2026 Compose Coffee menu/price source.
 - Poll results are visible to all active campus members.
 - Poll result lookup is a single poll-level API: `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`.
+- Active COFFEE duty assignees can create and manage only `pollType=COFFEE` polls in their own campus.
+- Coffee-external poll types such as `CUSTOM`, `WED_SERVICE`, and `SATURDAY_LEADER` keep the existing campus admin or service admin permission.
+- Default COFFEE poll templates are provisioned with `allowUserOptionAdd=true`.
+- When a direct `pollType=COFFEE` poll omits `allowUserOptionAdd`, the backend defaults it to true regardless of whether the requester is the active COFFEE duty assignee. Explicit `allowUserOptionAdd=false` is preserved. Other direct poll creation defaults omitted `allowUserOptionAdd` to false.
+- The current user-option-add API accepts only `{ "content": "새 항목" }`; user-added options have no menu catalog snapshot and use `priceAmount=0`. Coffee poll menu-catalog-based option addition needs a separate user-approved API/schema decision before implementing.
 - Do not create option-level poll result endpoints for MVP.
 - For non-anonymous polls, result responses may expose who voted for each option.
 - For anonymous polls, result responses must expose aggregate counts only and must not expose voter user IDs, names, emails, or option-level respondent identity to any user.

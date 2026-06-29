@@ -15,6 +15,10 @@ public record UserMeResult(
 ) {
 
 	public static UserMeResult from(User user) {
+		return from(user, List.of());
+	}
+
+	public static UserMeResult from(User user, List<CampusMembershipResult> campusMemberships) {
 		return new UserMeResult(
 			user.id(),
 			user.name(),
@@ -22,7 +26,7 @@ public record UserMeResult(
 			user.role().name(),
 			user.isActive(),
 			user.lastLoginAt(),
-			List.of()
+			campusMemberships
 		);
 	}
 }

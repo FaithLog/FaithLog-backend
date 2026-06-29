@@ -5,7 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.security.JwtProvider;
+import com.faithlog.campus.application.CampusCreateResult;
+import com.faithlog.campus.application.CampusService;
+import com.faithlog.campus.application.CreateCampusCommand;
+import com.faithlog.campus.application.JoinCampusCommand;
 import com.faithlog.user.domain.User;
+import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
@@ -13,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -29,6 +35,9 @@ class AuthServiceTest {
 
 	@Autowired
 	private JwtProvider jwtProvider;
+
+	@Autowired
+	private CampusService campusService;
 
 	@Test
 	void signup_hashes_password_and_rejects_duplicate_email() {
@@ -73,5 +82,32 @@ class AuthServiceTest {
 		assertThatThrownBy(() -> jwtProvider.parseRefreshToken(response.accessToken()))
 			.hasMessage("Invalid token type");
 		assertThat(user.lastLoginAt()).isNotNull();
+	}
+
+	@Test
+	void login_and_current_user_include_active_campus_memberships() {
+		authService.signup(new SignupCommand("매니저", "login-membership-manager@example.com", "1234"));
+		authService.signup(new SignupCommand("멤버", "login-membership-member@example.com", "1234"));
+		User manager = userRepository.findByEmail("login-membership-manager@example.com").orElseThrow();
+		User member = userRepository.findByEmail("login-membership-member@example.com").orElseThrow();
+		ReflectionTestUtils.setField(manager, "role", UserRole.MANAGER);
+		userRepository.saveAndFlush(manager);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"로그인멤버십캠",
+			"분당",
+			"로그인 응답 멤버십 테스트"
+		));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+
+		LoginResult login = authService.login(new LoginCommand("login-membership-member@example.com", "1234"));
+		UserMeResult me = authService.getCurrentUser(member.id());
+
+		assertThat(login.user().campusMemberships())
+			.extracting(CampusMembershipResult::campusId, CampusMembershipResult::campusRole, CampusMembershipResult::status)
+			.containsExactly(org.assertj.core.groups.Tuple.tuple(campus.campusId(), "MEMBER", "ACTIVE"));
+		assertThat(me.campusMemberships())
+			.extracting(CampusMembershipResult::campusId, CampusMembershipResult::campusRole, CampusMembershipResult::status)
+			.containsExactly(org.assertj.core.groups.Tuple.tuple(campus.campusId(), "MEMBER", "ACTIVE"));
 	}
 }
