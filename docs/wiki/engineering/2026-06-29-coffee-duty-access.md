@@ -16,6 +16,7 @@
 - COFFEE 담당자 권한
   - `accountType=COFFEE` 계좌 등록/비활성화 허용
   - `pollType=COFFEE` 투표 생성/마감/미응답자 조회 허용
+  - 기본 COFFEE 템플릿과 직접 COFFEE 투표의 `allowUserOptionAdd` 생략 기본값 true
   - admin charge 조회는 `paymentCategory=COFFEE`로 제한된 경우만 허용
 - 제한 유지
   - `PENALTY` 계좌/청구 관리
@@ -42,3 +43,10 @@
   - 별도 compose override/project `faithlog-qa100`로 격리 스택을 올려 `GET /api/v1/health` `UP` 확인.
   - 실제 HTTP API로 회원가입, ACTIVE 멤버 가입, COFFEE 담당 지정, 로그인/users-me 멤버십, duty me true/false, COFFEE 계좌 등록/비활성화, PENALTY 계좌 403, 다른 캠퍼스 담당자 403, COFFEE 투표 생성, CUSTOM 투표 403, 결과/미응답자/COFFEE 청구 조회 200, PENALTY 청구/멤버관리/대시보드/서비스 ADMIN 403을 검증했다.
   - QA 스택은 `docker compose ... down`으로 정리했다.
+- PM 리뷰 보강:
+  - 기본 COFFEE 템플릿 `allowUserOptionAdd=true`.
+  - 기본 COFFEE 템플릿 기반 생성 poll도 `allowUserOptionAdd=true`.
+  - 직접 COFFEE poll은 requester가 COFFEE 담당자인지와 무관하게 omission/null 기본 true, 명시 false는 false 유지.
+  - CUSTOM 등 커피 외 direct poll omission은 기존 false 유지.
+  - RED: 보강 전 `PollServiceTest` 3건 실패.
+  - GREEN: `./gradlew test --tests com.faithlog.poll.application.PollServiceTest`, `./gradlew test --tests com.faithlog.poll.presentation.PollApiRestDocsTest`, `./gradlew test`(258 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build`, `./gradlew asciidoctor` 성공.

@@ -405,7 +405,8 @@ Issue #34 is P0.
 - Poll result lookup is a single poll-level API: `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`.
 - Active COFFEE duty assignees can create and manage only `pollType=COFFEE` polls in their own campus.
 - Coffee-external poll types such as `CUSTOM`, `WED_SERVICE`, and `SATURDAY_LEADER` keep the existing campus admin or service admin permission.
-- When an active COFFEE duty assignee creates a direct `pollType=COFFEE` poll and omits `allowUserOptionAdd`, the backend defaults it to true. Other direct poll creation defaults omitted `allowUserOptionAdd` to false.
+- Default COFFEE poll templates are provisioned with `allowUserOptionAdd=true`.
+- When a direct `pollType=COFFEE` poll omits `allowUserOptionAdd`, the backend defaults it to true regardless of whether the requester is the active COFFEE duty assignee. Explicit `allowUserOptionAdd=false` is preserved. Other direct poll creation defaults omitted `allowUserOptionAdd` to false.
 - The current user-option-add API accepts only `{ "content": "새 항목" }`; user-added options have no menu catalog snapshot and use `priceAmount=0`. Coffee poll menu-catalog-based option addition needs a separate user-approved API/schema decision before implementing.
 - Do not create option-level poll result endpoints for MVP.
 - For non-anonymous polls, result responses may expose who voted for each option.

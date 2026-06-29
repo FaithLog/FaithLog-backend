@@ -822,7 +822,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("pollType").optional().description("투표 타입"),
 			fieldWithPath("selectionType").optional().description("선택 방식"),
 			fieldWithPath("isAnonymous").description("익명 여부"),
-			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 활성 COFFEE 담당자가 직접 COFFEE 투표를 생성할 때 생략하면 true, 그 외 직접 투표에서 생략하면 false"),
+			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 직접 COFFEE 투표에서 생략하면 true, 명시 false면 false, 그 외 직접 투표에서 생략하면 false"),
 			fieldWithPath("chargeGenerationType").optional().description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),

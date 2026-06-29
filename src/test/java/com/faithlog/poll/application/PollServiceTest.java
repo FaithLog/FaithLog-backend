@@ -154,6 +154,7 @@ class PollServiceTest {
 		assertThat(template.selectionType()).isEqualTo(SelectionType.SINGLE);
 		assertThat(template.chargeGenerationType()).isEqualTo(ChargeGenerationType.OPTION_PRICE);
 		assertThat(template.paymentCategory()).isEqualTo(PaymentCategory.COFFEE);
+		assertThat(template.allowUserOptionAdd()).isTrue();
 		assertThat(pollTemplateOptionRepository.findByTemplateIdOrderBySortOrderAsc(template.id()))
 			.extracting(option -> option.content() + ":" + option.priceAmount())
 			.containsExactly(
@@ -163,6 +164,39 @@ class PollServiceTest {
 				"아이스 라떼:2900",
 				"라떼:2900"
 			);
+	}
+
+	@Test
+	void default_coffee_template_based_poll_copies_user_option_add_enabled() {
+		User manager = saveUser("poll-default-template-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-default-template-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "100기본커피템플릿캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		PollTemplate template = pollTemplateRepository.findByCampusIdAndPollTypeAndIsDefaultTrue(campus.campusId(), PollType.COFFEE)
+			.orElseThrow();
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		ReflectionTestUtils.setField(template, "paymentAccountId", accountId);
+		pollTemplateRepository.saveAndFlush(template);
+
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			template.id(),
+			"기본 템플릿 기반 커피 투표",
+			PollType.COFFEE,
+			null,
+			false,
+			null,
+			null,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of()
+		));
+
+		assertThat(poll.allowUserOptionAdd()).isTrue();
 	}
 
 	@Test
@@ -355,6 +389,69 @@ class PollServiceTest {
 		assertThat(pollRepository.findById(templated.id())).get()
 			.extracting(poll -> poll.status())
 			.isEqualTo(PollStatus.SCHEDULED);
+	}
+
+	@Test
+	void direct_poll_defaults_user_option_add_by_poll_type_and_respects_explicit_false() {
+		User manager = saveUser("poll-direct-default-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-direct-default-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "100직접기본값캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+
+		PollResult coffeeOmitted = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"커피 생략 기본값 투표",
+			PollType.COFFEE,
+			SelectionType.SINGLE,
+			false,
+			null,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+		));
+		PollResult coffeeExplicitFalse = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"커피 명시 비허용 투표",
+			PollType.COFFEE,
+			SelectionType.SINGLE,
+			false,
+			false,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("라떼", null, 2900, 1))
+		));
+		PollResult customOmitted = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"커스텀 생략 기본값 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			null,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("참석", null, 0, 1))
+		));
+
+		assertThat(coffeeOmitted.allowUserOptionAdd()).isTrue();
+		assertThat(coffeeExplicitFalse.allowUserOptionAdd()).isFalse();
+		assertThat(customOmitted.allowUserOptionAdd()).isFalse();
 	}
 
 	@Test

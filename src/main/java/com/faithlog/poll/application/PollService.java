@@ -343,7 +343,7 @@ public class PollService {
 		SelectionType selectionType = command.selectionType() == null ? SelectionType.SINGLE : command.selectionType();
 		ChargeGenerationType chargeGenerationType = command.chargeGenerationType() == null ? ChargeGenerationType.NONE : command.chargeGenerationType();
 		boolean allowUserOptionAdd = command.allowUserOptionAdd() == null
-			? pollType == PollType.COFFEE && pollAccessService.isActiveCoffeeDuty(command.campusId(), command.requesterId())
+			? pollType == PollType.COFFEE
 			: command.allowUserOptionAdd();
 		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolvePollOptions(command.options());
 		requireCoffeePrerequisitesIfNeeded(pollType, chargeGenerationType, command.paymentCategory(), command.paymentAccountId(), command.campusId());

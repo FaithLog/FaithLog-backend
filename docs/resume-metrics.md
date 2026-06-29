@@ -13,7 +13,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-29, 256 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-29, 258 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
@@ -40,6 +40,8 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - #97 옵션 추가 리스크 보고: 현재 `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`는 `{ "content": "새 항목" }`만 받으므로 사용자 추가 옵션이 `composeMenuCode=null`, `priceAmount=0`으로 저장된다. 커피 실주문/정산에 쓰려면 메뉴 카탈로그 기반 API/schema 결정을 별도로 받아야 한다.
   - 검증: focused service/controller 테스트 성공, REST Docs focused 테스트 성공, `./gradlew test` 성공(256 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공.
   - Docker/API QA: 기본 `docker compose up -d --build postgres redis app`는 기존 local named volume credential mismatch로 `FATAL: password authentication failed for user "faithlog"`가 발생해 볼륨 삭제 없이 중단했다. 이후 별도 compose override/project `faithlog-qa100`로 격리된 Postgres/Redis/app을 올려 `GET /api/v1/health` `UP` 확인, 실제 HTTP API로 회원가입/ACTIVE 멤버 가입/COFFEE 담당 지정/로그인 및 users-me 멤버십/duty me/COFFEE 계좌 등록 및 비활성화/COFFEE 투표 생성/결과 및 COFFEE 청구 조회/커피 외 관리자 API 403/다른 캠퍼스 담당자 403을 검증했다. QA 스택은 `docker compose ... down`으로 정리했다.
+  - PM 리뷰 보강: 기본 COFFEE 템플릿의 `allowUserOptionAdd=true`, 기본 COFFEE 템플릿 기반 poll의 true 복사, 직접 COFFEE poll omission/null 기본 true, 명시 false override 유지, CUSTOM omission 기본 false를 테스트로 고정했다.
+  - PM 리뷰 보강 검증: 보강 테스트 RED 확인 후 수정, `./gradlew test --tests com.faithlog.poll.application.PollServiceTest` 성공, `./gradlew test --tests com.faithlog.poll.presentation.PollApiRestDocsTest` 성공, `./gradlew test` 성공(258 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공.
 
 - #97 Flyway V2 migration 보강:
   - PM 결정: Supabase/Cloud Run 운영 DB에서 `V1__initial_schema.sql`이 이미 적용될 수 있으므로 #97 schema 변경은 V1 수정이 아니라 새 Flyway 버전으로 분리한다.
