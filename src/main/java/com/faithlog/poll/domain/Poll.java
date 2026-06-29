@@ -41,6 +41,9 @@ public class Poll {
 	@Column(name = "is_anonymous", nullable = false)
 	private boolean isAnonymous;
 
+	@Column(name = "allow_user_option_add", nullable = false)
+	private boolean allowUserOptionAdd;
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "charge_generation_type", nullable = false, length = 40)
 	private ChargeGenerationType chargeGenerationType;
@@ -81,6 +84,7 @@ public class Poll {
 		PollType pollType,
 		SelectionType selectionType,
 		boolean isAnonymous,
+		boolean allowUserOptionAdd,
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId,
@@ -94,6 +98,7 @@ public class Poll {
 		this.pollType = pollType;
 		this.selectionType = selectionType;
 		this.isAnonymous = isAnonymous;
+		this.allowUserOptionAdd = allowUserOptionAdd;
 		this.chargeGenerationType = chargeGenerationType;
 		this.paymentCategory = paymentCategory;
 		this.paymentAccountId = paymentAccountId;
@@ -110,6 +115,7 @@ public class Poll {
 		PollType pollType,
 		SelectionType selectionType,
 		boolean isAnonymous,
+		boolean allowUserOptionAdd,
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId,
@@ -124,6 +130,7 @@ public class Poll {
 			pollType,
 			selectionType,
 			isAnonymous,
+			allowUserOptionAdd,
 			chargeGenerationType,
 			paymentCategory,
 			paymentAccountId,
@@ -173,6 +180,10 @@ public class Poll {
 		return isAnonymous;
 	}
 
+	public boolean allowUserOptionAdd() {
+		return allowUserOptionAdd;
+	}
+
 	public ChargeGenerationType chargeGenerationType() {
 		return chargeGenerationType;
 	}
@@ -207,5 +218,12 @@ public class Poll {
 
 	public void close() {
 		this.status = PollStatus.CLOSED;
+	}
+
+	public void closeAt(Instant closedAt) {
+		this.status = PollStatus.CLOSED;
+		if (closedAt.isBefore(this.endsAt)) {
+			this.endsAt = closedAt;
+		}
 	}
 }

@@ -137,6 +137,45 @@ public class PollService {
 	}
 
 	@Transactional
+	public PollResult closePoll(Long campusId, Long pollId, Long requesterId) {
+		pollAccessService.requirePollAdmin(campusId, requesterId);
+		Poll poll = getPollInCampus(campusId, pollId);
+		if (poll.status() != PollStatus.OPEN) {
+			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
+		}
+		poll.closeAt(Instant.now());
+		return toResult(poll);
+	}
+
+	@Transactional
+	public PollOptionResult addUserOption(AddPollOptionCommand command) {
+		pollAccessService.requireActiveCampusMember(command.campusId(), command.requesterId());
+		Poll poll = getPollInCampus(command.campusId(), command.pollId());
+		requireOpenPoll(poll);
+		if (!poll.allowUserOptionAdd()) {
+			throw new BusinessException(ErrorCode.POLL_USER_OPTION_ADD_DISABLED);
+		}
+		String content = normalizeOptionContent(command.content());
+		List<PollOption> options = pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id());
+		boolean duplicated = options.stream()
+			.map(PollOption::content)
+			.anyMatch(existingContent -> existingContent.equalsIgnoreCase(content));
+		if (duplicated) {
+			throw new BusinessException(ErrorCode.POLL_OPTION_DUPLICATE_CONTENT);
+		}
+		int nextSortOrder = options.stream()
+			.mapToInt(PollOption::sortOrder)
+			.max()
+			.orElse(0) + 1;
+		return PollOptionResult.from(pollOptionRepository.save(PollOption.createUserAdded(
+			poll.id(),
+			content,
+			nextSortOrder,
+			command.requesterId()
+		)));
+	}
+
+	@Transactional
 	public PollResponseResult respondToPoll(RespondToPollCommand command) {
 		pollAccessService.requireActiveCampusMember(command.campusId(), command.requesterId());
 		Poll poll = getPollInCampus(command.campusId(), command.pollId());
@@ -274,6 +313,7 @@ public class PollService {
 			template.pollType(),
 			template.selectionType(),
 			command.isAnonymous(),
+			template.allowUserOptionAdd(),
 			template.chargeGenerationType(),
 			template.paymentCategory(),
 			template.paymentAccountId(),
@@ -301,6 +341,7 @@ public class PollService {
 		}
 		SelectionType selectionType = command.selectionType() == null ? SelectionType.SINGLE : command.selectionType();
 		ChargeGenerationType chargeGenerationType = command.chargeGenerationType() == null ? ChargeGenerationType.NONE : command.chargeGenerationType();
+		boolean allowUserOptionAdd = Boolean.TRUE.equals(command.allowUserOptionAdd());
 		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolvePollOptions(command.options());
 		requireCoffeePrerequisitesIfNeeded(pollType, chargeGenerationType, command.paymentCategory(), command.paymentAccountId(), command.campusId());
 		Poll poll = pollRepository.save(Poll.create(
@@ -310,6 +351,7 @@ public class PollService {
 			pollType,
 			selectionType,
 			command.isAnonymous(),
+			allowUserOptionAdd,
 			chargeGenerationType,
 			command.paymentCategory(),
 			command.paymentAccountId(),
@@ -359,6 +401,14 @@ public class PollService {
 		if (!account.isActive() || !account.campusId().equals(campusId) || account.accountType() != PaymentCategory.COFFEE) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
 		}
+	}
+
+	private String normalizeOptionContent(String content) {
+		String normalized = content == null ? "" : content.trim();
+		if (normalized.isBlank() || normalized.length() > 200) {
+			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
+		}
+		return normalized;
 	}
 
 	private PollResult toResult(Poll poll) {

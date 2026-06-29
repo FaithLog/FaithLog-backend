@@ -10,6 +10,20 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-29 - Issue #97 Flyway V2 Migration Split
+
+- Context: PR #98 originally placed #97 schema changes into `V1__initial_schema.sql`, but the project now has Supabase/Cloud Run deployment databases and an operational Flyway baseline where V1 may already have been applied.
+- Decision: Do not modify already-applicable `V1__initial_schema.sql` for #97 feature schema changes. Keep V1 at its pre-#97 shape and add #97 poll user-option columns and foreign key through a new Flyway migration version, `V2__add_poll_user_option_fields.sql`.
+- Impact: #97 schema changes are deployable to existing databases through Flyway V2 while preserving clean database setup through V1 followed by V2. Existing rows are handled safely by `BOOLEAN NOT NULL DEFAULT FALSE` for the new boolean columns.
+
+### 2026-06-29 - Issue #97 Poll Close And User Option Add Contract
+
+- Context: Issue #97 adds manual poll closing and user-added poll options. The work changes API behavior and schema, so the PM session recorded explicit user-approved decisions before implementation.
+- Decision: Add an admin-only close endpoint `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/close` that only changes an OPEN poll to CLOSED. It must not run coffee settlement, send notifications, or create charges. Closing a SCHEDULED or already CLOSED poll returns `409 POLL_CLOSE_NOT_ALLOWED` with `종료할 수 없는 투표 상태입니다.`, and the close operation pulls `endsAt` forward to the current time so visibility/result/response policies remain based on the actual close time.
+- Decision: Store the user-option-add setting on both `poll_templates.allow_user_option_add` and `polls.allow_user_option_add`. Template-based poll creation copies the template value. Direct poll creation accepts optional `allowUserOptionAdd`; null or omission means false.
+- Decision: Add a separate user option API `POST /api/v1/campuses/{campusId}/polls/{pollId}/options` with request `{ "content": "새 항목" }`. Only ACTIVE campus members may use it, only while the poll is OPEN and in its active time window, and only when `polls.allow_user_option_add = true`. The server trims content and rejects case-insensitive duplicate option names with `400 POLL_OPTION_DUPLICATE_CONTENT`. Disabled option add returns `403 POLL_USER_OPTION_ADD_DISABLED`.
+- Impact: #97 adds `poll_options.user_added` and `poll_options.created_by_user_id` so user-added options are traceable while preserving the existing poll response `optionIds` contract and `poll_response_options` structure. Detailed API contracts are covered by Spring REST Docs snippets without Swagger documentation annotations.
+
 ### 2026-06-24 - Issue #94 Cloud Run Performance Test Scope
 
 - Context: Issue #94 measures FaithLog backend performance against the live Cloud Run service URL `https://faithlog-549871256004.asia-northeast3.run.app`. Because the target is a production server and may use production data/services, load scope must be explicit before measurement or tuning.

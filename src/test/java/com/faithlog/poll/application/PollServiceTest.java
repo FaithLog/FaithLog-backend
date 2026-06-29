@@ -477,6 +477,232 @@ class PollServiceTest {
 	}
 
 	@Test
+	void poll_close_only_changes_status_and_does_not_run_coffee_settlement() {
+		User manager = saveUser("poll-close-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-close-duty@example.com", UserRole.USER);
+		User member = saveUser("poll-close-member@example.com", UserRole.USER);
+		User normalMember = saveUser("poll-close-normal@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "97종료캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		joinCampus(campus, normalMember);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult poll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "수동 종료 커피 투표");
+		pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(poll.options().get(0).id()),
+			"종료 전 응답"
+		));
+
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), poll.id(), normalMember.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_ADMIN_FORBIDDEN)
+			);
+
+		PollResult closed = pollService.closePoll(campus.campusId(), poll.id(), manager.id());
+
+		assertThat(closed.status()).isEqualTo(PollStatus.CLOSED);
+		assertThat(closed.endsAt()).isBeforeOrEqualTo(Instant.now());
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), member.id()).poll().status())
+			.isEqualTo(PollStatus.CLOSED);
+		assertThat(pollService.getPollResults(campus.campusId(), poll.id(), member.id()).respondedCount())
+			.isEqualTo(1);
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(poll.options().get(1).id()),
+			"종료 후 수정"
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+	}
+
+	@Test
+	void close_poll_rejects_scheduled_or_already_closed_poll() {
+		User manager = saveUser("poll-close-state-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "97상태캠");
+		PollResult scheduled = createScheduledCustomPoll(campus.campusId(), manager.id(), "예약 투표", SelectionType.SINGLE, false, List.of("A"));
+		PollResult opened = createOpenCustomPoll(campus.campusId(), manager.id(), "진행 투표", SelectionType.SINGLE, false, List.of("A"));
+		pollService.closePoll(campus.campusId(), opened.id(), manager.id());
+
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), scheduled.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSE_NOT_ALLOWED)
+			);
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), opened.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSE_NOT_ALLOWED)
+			);
+	}
+
+	@Test
+	void template_user_option_setting_is_copied_to_poll_and_direct_poll_can_override_it() {
+		User manager = saveUser("poll-user-option-template-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "97템플릿옵션캠");
+		PollTemplateResult template = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+			campus.campusId(),
+			manager.id(),
+			"사용자 항목 허용 템플릿",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			true,
+			false,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand("기본", null, 0, 1))
+		));
+
+		PollResult templated = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			template.id(),
+			"템플릿 기반 투표",
+			PollType.CUSTOM,
+			null,
+			false,
+			null,
+			null,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of()
+		));
+		PollResult direct = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"직접 허용 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			true,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("A", null, 0, 1))
+		));
+
+		assertThat(template.allowUserOptionAdd()).isTrue();
+		assertThat(templated.allowUserOptionAdd()).isTrue();
+		assertThat(direct.allowUserOptionAdd()).isTrue();
+	}
+
+	@Test
+	void active_member_can_add_user_option_when_poll_allows_it_and_response_still_uses_option_ids() {
+		User manager = saveUser("poll-user-option-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-user-option-member@example.com", UserRole.USER);
+		User outsider = saveUser("poll-user-option-outsider@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "97사용자옵션캠");
+		joinCampus(campus, member);
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"사용자 항목 추가 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			true,
+			true,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(
+				new CreatePollOptionCommand("기존 A", null, 0, 1),
+				new CreatePollOptionCommand("기존 B", null, 0, 2)
+			)
+		));
+
+		PollOptionResult added = pollService.addUserOption(new AddPollOptionCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			"  새 항목  "
+		));
+		PollResponseResult response = pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			poll.id(),
+			member.id(),
+			List.of(added.id()),
+			"사용자가 추가한 항목 선택"
+		));
+
+		assertThat(added.content()).isEqualTo("새 항목");
+		assertThat(added.sortOrder()).isEqualTo(3);
+		assertThat(added.userAdded()).isTrue();
+		assertThat(response.optionIds()).containsExactly(added.id());
+		assertThat(pollOptionRepository.findById(added.id())).get()
+			.satisfies(option -> {
+				assertThat(option.userAdded()).isTrue();
+				assertThat(option.createdByUserId()).isEqualTo(member.id());
+			});
+		assertThatThrownBy(() -> pollService.addUserOption(new AddPollOptionCommand(campus.campusId(), poll.id(), member.id(), "새 항목")))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_OPTION_DUPLICATE_CONTENT)
+			);
+		assertThatThrownBy(() -> pollService.addUserOption(new AddPollOptionCommand(campus.campusId(), poll.id(), outsider.id(), "외부 항목")))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_ACCESS_FORBIDDEN)
+			);
+	}
+
+	@Test
+	void user_option_add_rejects_disabled_scheduled_or_closed_poll() {
+		User manager = saveUser("poll-user-option-invalid-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-user-option-invalid-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "97옵션거부캠");
+		joinCampus(campus, member);
+		PollResult disabled = createOpenCustomPoll(campus.campusId(), manager.id(), "비허용 투표", SelectionType.SINGLE, false, List.of("A"));
+		PollResult scheduled = createScheduledCustomPoll(campus.campusId(), manager.id(), "예약 투표", SelectionType.SINGLE, false, List.of("A"));
+		setPollAllowUserOptionAdd(scheduled.id(), true);
+		PollResult closed = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"닫힌 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			true,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("A", null, 0, 1))
+		));
+		pollService.closePoll(campus.campusId(), closed.id(), manager.id());
+
+		assertThatThrownBy(() -> pollService.addUserOption(new AddPollOptionCommand(campus.campusId(), disabled.id(), member.id(), "새 항목")))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_USER_OPTION_ADD_DISABLED)
+			);
+		assertThatThrownBy(() -> pollService.addUserOption(new AddPollOptionCommand(campus.campusId(), scheduled.id(), member.id(), "새 항목")))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+		assertThatThrownBy(() -> pollService.addUserOption(new AddPollOptionCommand(campus.campusId(), closed.id(), member.id(), "새 항목")))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+	}
+
+	@Test
 	void future_direct_poll_keeps_scheduled_status() {
 		User manager = saveUser("poll-future-status-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "72예약캠");
@@ -1253,6 +1479,12 @@ class PollServiceTest {
 	private void setPollPaymentAccount(Long pollId, Long paymentAccountId) {
 		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
 		ReflectionTestUtils.setField(poll, "paymentAccountId", paymentAccountId);
+		pollRepository.saveAndFlush(poll);
+	}
+
+	private void setPollAllowUserOptionAdd(Long pollId, boolean allowUserOptionAdd) {
+		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
+		ReflectionTestUtils.setField(poll, "allowUserOptionAdd", allowUserOptionAdd);
 		pollRepository.saveAndFlush(poll);
 	}
 
