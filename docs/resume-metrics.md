@@ -37,6 +37,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - migration 안전성: 기존 row가 있는 운영 DB에도 적용 가능하도록 boolean column은 `BOOLEAN NOT NULL DEFAULT FALSE`로 추가한다.
   - 검증: focused poll test 성공, `./gradlew test` 성공(249 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공.
 
+- #97 PR #98 CI Flyway 테스트 보강:
+  - 실패 원인: V2 migration 추가 후 GitHub Actions `PostgresFlywayMigrationTest`의 `result.migrationsExecuted == 1` 고정 assertion이 실제 실행 수 2와 맞지 않아 실패했다.
+  - 보강 범위: 다중 migration 기준으로 `migrationsExecuted >= 2`, 현재 Flyway version `2` 이상, #97 신규 컬럼 4개와 `fk_poll_options_created_by_user` FK 존재를 PostgreSQL `information_schema`로 검증한다.
+  - 실제 PostgreSQL 검증: 임시 `postgres:17` 컨테이너(`localhost:55432`, `faithlog_test`)에서 `FAITHLOG_RUN_POSTGRES_FLYWAY_TEST=true FLYWAY_TEST_JDBC_URL=jdbc:postgresql://localhost:55432/faithlog_test ./gradlew test --tests com.faithlog.deploy.PostgresFlywayMigrationTest --rerun-tasks` 성공.
+  - 전체 검증: `./gradlew test` 성공(249 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `git diff --check` 성공.
+
 - #97 투표 종료와 사용자 항목 추가 구현:
   - 작업 기준: Issue #97 `[Feat] 투표 종료와 사용자 항목 추가 구현`, 브랜치 `feat/97-poll-close-user-option`.
   - TDD 실패 확인: 선행 커밋 `de0e40f test: #97 투표 종료와 사용자 항목 추가 실패 테스트 추가` 이후 `./gradlew test --tests com.faithlog.poll.application.PollServiceTest --tests com.faithlog.poll.presentation.PollApiRestDocsTest`가 `compileTestJava` 31 errors로 실패했다. 실패 원인은 `closePoll`, `AddPollOptionCommand`, `allowUserOptionAdd`, 신규 `ErrorCode`, REST Docs descriptor 미구현이었다.
