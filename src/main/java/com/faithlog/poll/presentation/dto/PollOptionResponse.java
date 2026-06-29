@@ -7,7 +7,8 @@ public record PollOptionResponse(
 	String content,
 	String composeMenuCode,
 	int priceAmount,
-	int sortOrder
+	int sortOrder,
+	boolean userAdded
 ) {
 
 	public static PollOptionResponse from(PollOptionResult result) {
@@ -16,7 +17,8 @@ public record PollOptionResponse(
 			result.content(),
 			result.composeMenuCode(),
 			result.priceAmount(),
-			result.sortOrder()
+			result.sortOrder(),
+			result.userAdded()
 		);
 	}
 }

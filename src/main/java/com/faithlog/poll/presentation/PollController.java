@@ -4,11 +4,13 @@ import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.poll.application.DeletePollCommentCommand;
 import com.faithlog.poll.application.PollService;
+import com.faithlog.poll.presentation.dto.AddPollOptionRequest;
 import com.faithlog.poll.presentation.dto.PollCommentRequest;
 import com.faithlog.poll.presentation.dto.PollCommentResponse;
 import com.faithlog.poll.presentation.dto.PollDetailResponse;
 import com.faithlog.poll.presentation.dto.PollListResponse;
 import com.faithlog.poll.presentation.dto.PollMyResponseResponse;
+import com.faithlog.poll.presentation.dto.PollOptionResponse;
 import com.faithlog.poll.presentation.dto.PollResultsResponse;
 import com.faithlog.poll.presentation.dto.RespondToPollRequest;
 import jakarta.validation.Valid;
@@ -64,6 +66,18 @@ public class PollController {
 		@Valid @RequestBody RespondToPollRequest request
 	) {
 		return ApiResponse.success(PollMyResponseResponse.from(pollService.respondToPoll(request.toCommand(campusId, pollId, authenticatedUser))));
+	}
+
+	@PostMapping("/{pollId}/options")
+	public ResponseEntity<ApiResponse<PollOptionResponse>> addUserOption(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@PathVariable Long pollId,
+		@Valid @RequestBody AddPollOptionRequest request
+	) {
+		PollOptionResponse response = PollOptionResponse.from(pollService.addUserOption(request.toCommand(campusId, pollId, authenticatedUser)));
+		return ResponseEntity.status(HttpStatus.CREATED)
+			.body(ApiResponse.success(response));
 	}
 
 	@GetMapping("/{pollId}/results")

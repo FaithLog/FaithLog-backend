@@ -15,6 +15,7 @@ public record CreatePollCommand(
 	PollType pollType,
 	SelectionType selectionType,
 	boolean isAnonymous,
+	Boolean allowUserOptionAdd,
 	ChargeGenerationType chargeGenerationType,
 	PaymentCategory paymentCategory,
 	Long paymentAccountId,
@@ -22,4 +23,37 @@ public record CreatePollCommand(
 	Instant endsAt,
 	List<CreatePollOptionCommand> options
 ) {
+
+	public CreatePollCommand(
+		Long campusId,
+		Long requesterId,
+		Long templateId,
+		String title,
+		PollType pollType,
+		SelectionType selectionType,
+		boolean isAnonymous,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory,
+		Long paymentAccountId,
+		Instant startsAt,
+		Instant endsAt,
+		List<CreatePollOptionCommand> options
+	) {
+		this(
+			campusId,
+			requesterId,
+			templateId,
+			title,
+			pollType,
+			selectionType,
+			isAnonymous,
+			null,
+			chargeGenerationType,
+			paymentCategory,
+			paymentAccountId,
+			startsAt,
+			endsAt,
+			options
+		);
+	}
 }

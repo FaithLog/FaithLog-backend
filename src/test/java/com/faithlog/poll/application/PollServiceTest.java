@@ -1482,6 +1482,12 @@ class PollServiceTest {
 		pollRepository.saveAndFlush(poll);
 	}
 
+	private void setPollAllowUserOptionAdd(Long pollId, boolean allowUserOptionAdd) {
+		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
+		ReflectionTestUtils.setField(poll, "allowUserOptionAdd", allowUserOptionAdd);
+		pollRepository.saveAndFlush(poll);
+	}
+
 	private List<ChargeItem> chargesForCampus(Long campusId) {
 		return chargeItemRepository.findAll()
 			.stream()

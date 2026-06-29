@@ -311,6 +311,7 @@ class AutomaticNotificationServiceTest {
 			pollType,
 			SelectionType.SINGLE,
 			false,
+			false,
 			ChargeGenerationType.NONE,
 			null,
 			null,

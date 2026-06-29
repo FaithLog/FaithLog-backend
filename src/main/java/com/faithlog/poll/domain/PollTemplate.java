@@ -48,6 +48,9 @@ public class PollTemplate {
 	@Column(name = "payment_account_id")
 	private Long paymentAccountId;
 
+	@Column(name = "allow_user_option_add", nullable = false)
+	private boolean allowUserOptionAdd;
+
 	@Column(name = "auto_create_enabled", nullable = false)
 	private boolean autoCreateEnabled;
 
@@ -86,6 +89,7 @@ public class PollTemplate {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId,
+		boolean allowUserOptionAdd,
 		boolean autoCreateEnabled,
 		DayOfWeek startDayOfWeek,
 		LocalTime startTime,
@@ -100,6 +104,7 @@ public class PollTemplate {
 		this.chargeGenerationType = chargeGenerationType;
 		this.paymentCategory = paymentCategory;
 		this.paymentAccountId = paymentAccountId;
+		this.allowUserOptionAdd = allowUserOptionAdd;
 		this.autoCreateEnabled = autoCreateEnabled;
 		this.startDayOfWeek = startDayOfWeek.getValue();
 		this.startTime = startTime;
@@ -117,6 +122,7 @@ public class PollTemplate {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId,
+		boolean allowUserOptionAdd,
 		boolean autoCreateEnabled,
 		DayOfWeek startDayOfWeek,
 		LocalTime startTime,
@@ -132,6 +138,7 @@ public class PollTemplate {
 			chargeGenerationType,
 			paymentCategory,
 			paymentAccountId,
+			allowUserOptionAdd,
 			autoCreateEnabled,
 			startDayOfWeek,
 			startTime,
@@ -159,6 +166,7 @@ public class PollTemplate {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId,
+		boolean allowUserOptionAdd,
 		boolean autoCreateEnabled,
 		DayOfWeek startDayOfWeek,
 		LocalTime startTime,
@@ -170,6 +178,7 @@ public class PollTemplate {
 		this.chargeGenerationType = chargeGenerationType;
 		this.paymentCategory = paymentCategory;
 		this.paymentAccountId = paymentAccountId;
+		this.allowUserOptionAdd = allowUserOptionAdd;
 		this.autoCreateEnabled = autoCreateEnabled;
 		this.startDayOfWeek = startDayOfWeek.getValue();
 		this.startTime = startTime;
@@ -215,6 +224,10 @@ public class PollTemplate {
 
 	public Long paymentAccountId() {
 		return paymentAccountId;
+	}
+
+	public boolean allowUserOptionAdd() {
+		return allowUserOptionAdd;
 	}
 
 	public boolean autoCreateEnabled() {

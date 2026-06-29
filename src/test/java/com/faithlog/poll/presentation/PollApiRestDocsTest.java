@@ -748,6 +748,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),
+			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 생략 시 false"),
 			fieldWithPath("autoCreateEnabled").description("자동 생성 설정 여부"),
 			fieldWithPath("startDayOfWeek").description("시작 요일. 1=월요일, 7=일요일"),
 			fieldWithPath("startTime").description("시작 시간"),
@@ -768,6 +769,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),
+			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 생략 시 false"),
 			fieldWithPath("autoCreateEnabled").description("자동 생성 설정 여부"),
 			fieldWithPath("startDayOfWeek").description("시작 요일. 1=월요일, 7=일요일"),
 			fieldWithPath("startTime").description("시작 시간"),
@@ -788,6 +790,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("pollType").optional().description("투표 타입"),
 			fieldWithPath("selectionType").optional().description("선택 방식"),
 			fieldWithPath("isAnonymous").description("익명 여부"),
+			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 생략 시 false"),
 			fieldWithPath("chargeGenerationType").optional().description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),
@@ -811,6 +814,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("data.chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("data.paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("data.paymentAccountId").optional().description("커피 청구 계좌 ID"),
+			fieldWithPath("data.allowUserOptionAdd").description("일반 사용자의 투표 항목 추가 허용 여부"),
 			fieldWithPath("data.autoCreateEnabled").description("자동 생성 설정 여부"),
 			fieldWithPath("data.startDayOfWeek").description("시작 요일"),
 			fieldWithPath("data.startTime").description("시작 시간"),
@@ -831,6 +835,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("data.pollType").description("투표 타입"),
 			fieldWithPath("data.selectionType").description("선택 방식"),
 			fieldWithPath("data.isAnonymous").description("익명 여부"),
+			fieldWithPath("data.allowUserOptionAdd").description("일반 사용자의 투표 항목 추가 허용 여부"),
 			fieldWithPath("data.chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("data.paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("data.paymentAccountId").optional().description("커피 청구 계좌 ID"),
@@ -853,6 +858,23 @@ class PollApiRestDocsTest {
 			fieldWithPath("optionIds").type(JsonFieldType.ARRAY).description("선택한 투표 선택지 ID 목록. 빈 배열은 POLL_RESPONSE_INVALID_SELECTION_COUNT로 실패"),
 			fieldWithPath("memo").optional().description("응답 메모")
 		};
+	}
+
+	private FieldDescriptor[] userOptionAddRequestFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("content").description("추가할 투표 선택지명. 앞뒤 공백은 제거되며 기존 선택지명과 대소문자 무시 중복이면 실패")
+		};
+	}
+
+	private FieldDescriptor[] optionResponseFields() {
+		return apiResponseFields(
+			fieldWithPath("data.id").description("투표 선택지 ID"),
+			fieldWithPath("data.content").description("선택지명"),
+			fieldWithPath("data.composeMenuCode").optional().description("커피 메뉴 코드. 사용자 추가 항목은 null"),
+			fieldWithPath("data.priceAmount").description("선택지 가격. 사용자 추가 항목은 0"),
+			fieldWithPath("data.sortOrder").description("정렬 순서"),
+			fieldWithPath("data.userAdded").description("사용자 추가 선택지 여부")
+		);
 	}
 
 	private FieldDescriptor[] pollMyResponseFields() {

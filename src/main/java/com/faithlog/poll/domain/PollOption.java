@@ -30,19 +30,39 @@ public class PollOption {
 	@Column(name = "sort_order", nullable = false)
 	private int sortOrder;
 
+	@Column(name = "user_added", nullable = false)
+	private boolean userAdded;
+
+	@Column(name = "created_by_user_id")
+	private Long createdByUserId;
+
 	protected PollOption() {
 	}
 
-	private PollOption(Long pollId, String content, String composeMenuCode, int priceAmount, int sortOrder) {
+	private PollOption(
+		Long pollId,
+		String content,
+		String composeMenuCode,
+		int priceAmount,
+		int sortOrder,
+		boolean userAdded,
+		Long createdByUserId
+	) {
 		this.pollId = pollId;
 		this.content = content;
 		this.composeMenuCode = composeMenuCode;
 		this.priceAmount = priceAmount;
 		this.sortOrder = sortOrder;
+		this.userAdded = userAdded;
+		this.createdByUserId = createdByUserId;
 	}
 
 	public static PollOption create(Long pollId, String content, String composeMenuCode, int priceAmount, int sortOrder) {
-		return new PollOption(pollId, content, composeMenuCode, priceAmount, sortOrder);
+		return new PollOption(pollId, content, composeMenuCode, priceAmount, sortOrder, false, null);
+	}
+
+	public static PollOption createUserAdded(Long pollId, String content, int sortOrder, Long createdByUserId) {
+		return new PollOption(pollId, content, null, 0, sortOrder, true, createdByUserId);
 	}
 
 	public Long id() {
@@ -67,5 +87,13 @@ public class PollOption {
 
 	public int sortOrder() {
 		return sortOrder;
+	}
+
+	public boolean userAdded() {
+		return userAdded;
+	}
+
+	public Long createdByUserId() {
+		return createdByUserId;
 	}
 }

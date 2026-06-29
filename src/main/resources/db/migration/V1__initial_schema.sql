@@ -145,6 +145,7 @@ CREATE TABLE poll_templates (
     charge_generation_type VARCHAR(40) NOT NULL DEFAULT 'NONE',
     payment_category VARCHAR(30),
     payment_account_id BIGINT,
+    allow_user_option_add BOOLEAN NOT NULL DEFAULT FALSE,
     auto_create_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     start_day_of_week INTEGER NOT NULL,
     start_time TIME(6) WITHOUT TIME ZONE NOT NULL,
@@ -177,6 +178,7 @@ CREATE TABLE polls (
     poll_type VARCHAR(40) NOT NULL,
     selection_type VARCHAR(30) NOT NULL DEFAULT 'SINGLE',
     is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+    allow_user_option_add BOOLEAN NOT NULL DEFAULT FALSE,
     charge_generation_type VARCHAR(40) NOT NULL DEFAULT 'NONE',
     payment_category VARCHAR(30),
     payment_account_id BIGINT,
@@ -199,7 +201,9 @@ CREATE TABLE poll_options (
     content VARCHAR(200) NOT NULL,
     compose_menu_code VARCHAR(100),
     price_amount INTEGER NOT NULL DEFAULT 0,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    user_added BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by_user_id BIGINT
 );
 
 CREATE TABLE poll_responses (
@@ -410,7 +414,8 @@ ALTER TABLE polls
     ADD CONSTRAINT fk_polls_payment_account FOREIGN KEY (payment_account_id) REFERENCES payment_accounts (id),
     ADD CONSTRAINT fk_polls_created_by FOREIGN KEY (created_by) REFERENCES users (id);
 ALTER TABLE poll_options
-    ADD CONSTRAINT fk_poll_options_poll FOREIGN KEY (poll_id) REFERENCES polls (id);
+    ADD CONSTRAINT fk_poll_options_poll FOREIGN KEY (poll_id) REFERENCES polls (id),
+    ADD CONSTRAINT fk_poll_options_created_by_user FOREIGN KEY (created_by_user_id) REFERENCES users (id);
 ALTER TABLE poll_responses
     ADD CONSTRAINT fk_poll_responses_poll FOREIGN KEY (poll_id) REFERENCES polls (id),
     ADD CONSTRAINT fk_poll_responses_user FOREIGN KEY (user_id) REFERENCES users (id);
