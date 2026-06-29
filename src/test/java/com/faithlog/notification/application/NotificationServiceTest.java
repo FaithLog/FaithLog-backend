@@ -214,6 +214,7 @@ class NotificationServiceTest {
 			PollType.WED_SERVICE,
 			SelectionType.SINGLE,
 			false,
+			false,
 			ChargeGenerationType.NONE,
 			null,
 			null,

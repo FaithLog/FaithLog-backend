@@ -58,6 +58,9 @@ class RoleTokenInvalidationIntegrationTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.role").value("MANAGER"));
 
+		assertThat(userRepository.findById(member.id()).orElseThrow().tokenVersion())
+			.isEqualTo(oldTokenVersion + 1);
+
 		mockMvc.perform(get("/api/v1/users/me")
 				.header("Authorization", "Bearer " + memberTokens.accessToken()))
 			.andExpect(status().isUnauthorized())
@@ -96,6 +99,10 @@ class RoleTokenInvalidationIntegrationTest {
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.campusRole").value(CampusRole.ELDER.name()));
+
+		User member = userRepository.findByEmail("token-version-campus-member@example.com").orElseThrow();
+		assertThat(userRepository.findById(member.id()).orElseThrow().tokenVersion())
+			.isEqualTo(oldTokenVersion + 1);
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}", campus.path("campusId").asLong())
 				.header("Authorization", "Bearer " + memberTokens.accessToken()))

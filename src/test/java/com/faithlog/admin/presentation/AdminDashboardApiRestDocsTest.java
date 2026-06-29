@@ -229,6 +229,7 @@ class AdminDashboardApiRestDocsTest {
 			PollType.CUSTOM,
 			SelectionType.SINGLE,
 			false,
+			false,
 			ChargeGenerationType.NONE,
 			null,
 			null,

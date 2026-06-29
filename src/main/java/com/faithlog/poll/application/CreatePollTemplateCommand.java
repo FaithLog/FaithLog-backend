@@ -17,6 +17,7 @@ public record CreatePollTemplateCommand(
 	ChargeGenerationType chargeGenerationType,
 	PaymentCategory paymentCategory,
 	Long paymentAccountId,
+	boolean allowUserOptionAdd,
 	boolean autoCreateEnabled,
 	DayOfWeek startDayOfWeek,
 	LocalTime startTime,
@@ -24,4 +25,39 @@ public record CreatePollTemplateCommand(
 	LocalTime endTime,
 	List<CreatePollTemplateOptionCommand> options
 ) {
+
+	public CreatePollTemplateCommand(
+		Long campusId,
+		Long requesterId,
+		String title,
+		PollType pollType,
+		SelectionType selectionType,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory,
+		Long paymentAccountId,
+		boolean autoCreateEnabled,
+		DayOfWeek startDayOfWeek,
+		LocalTime startTime,
+		DayOfWeek endDayOfWeek,
+		LocalTime endTime,
+		List<CreatePollTemplateOptionCommand> options
+	) {
+		this(
+			campusId,
+			requesterId,
+			title,
+			pollType,
+			selectionType,
+			chargeGenerationType,
+			paymentCategory,
+			paymentAccountId,
+			false,
+			autoCreateEnabled,
+			startDayOfWeek,
+			startTime,
+			endDayOfWeek,
+			endTime,
+			options
+		);
+	}
 }

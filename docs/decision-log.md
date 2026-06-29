@@ -10,6 +10,44 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-29 - Issue #97 Flyway V2 Migration Split
+
+- Context: PR #98 originally placed #97 schema changes into `V1__initial_schema.sql`, but the project now has Supabase/Cloud Run deployment databases and an operational Flyway baseline where V1 may already have been applied.
+- Decision: Do not modify already-applicable `V1__initial_schema.sql` for #97 feature schema changes. Keep V1 at its pre-#97 shape and add #97 poll user-option columns and foreign key through a new Flyway migration version, `V2__add_poll_user_option_fields.sql`.
+- Impact: #97 schema changes are deployable to existing databases through Flyway V2 while preserving clean database setup through V1 followed by V2. Existing rows are handled safely by `BOOLEAN NOT NULL DEFAULT FALSE` for the new boolean columns.
+
+### 2026-06-29 - Issue #97 Poll Close And User Option Add Contract
+
+- Context: Issue #97 adds manual poll closing and user-added poll options. The work changes API behavior and schema, so the PM session recorded explicit user-approved decisions before implementation.
+- Decision: Add an admin-only close endpoint `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/close` that only changes an OPEN poll to CLOSED. It must not run coffee settlement, send notifications, or create charges. Closing a SCHEDULED or already CLOSED poll returns `409 POLL_CLOSE_NOT_ALLOWED` with `종료할 수 없는 투표 상태입니다.`, and the close operation pulls `endsAt` forward to the current time so visibility/result/response policies remain based on the actual close time.
+- Decision: Store the user-option-add setting on both `poll_templates.allow_user_option_add` and `polls.allow_user_option_add`. Template-based poll creation copies the template value. Direct poll creation accepts optional `allowUserOptionAdd`; null or omission means false.
+- Decision: Add a separate user option API `POST /api/v1/campuses/{campusId}/polls/{pollId}/options` with request `{ "content": "새 항목" }`. Only ACTIVE campus members may use it, only while the poll is OPEN and in its active time window, and only when `polls.allow_user_option_add = true`. The server trims content and rejects case-insensitive duplicate option names with `400 POLL_OPTION_DUPLICATE_CONTENT`. Disabled option add returns `403 POLL_USER_OPTION_ADD_DISABLED`.
+- Impact: #97 adds `poll_options.user_added` and `poll_options.created_by_user_id` so user-added options are traceable while preserving the existing poll response `optionIds` contract and `poll_response_options` structure. Detailed API contracts are covered by Spring REST Docs snippets without Swagger documentation annotations.
+
+### 2026-06-24 - Issue #94 Cloud Run Performance Test Scope
+
+- Context: Issue #94 measures FaithLog backend performance against the live Cloud Run service URL `https://faithlog-549871256004.asia-northeast3.run.app`. Because the target is a production server and may use production data/services, load scope must be explicit before measurement or tuning.
+- Decision: Approved Cloud Run performance testing is read-centered only. The allowed progression is smoke `VUS=1`, `DURATION=30s`; baseline `VUS=10`, `DURATION=3m`; and expanded baseline up to `VUS=30`, `DURATION=5m`. VUS above 30, duration above 10 minutes, write-heavy load, and bulk payment/charge/notification side effects require separate PM approval.
+- Decision: Remote k6 runs must require an explicit remote-load flag such as `ALLOW_REMOTE_LOAD=true`, and Cloud Run result files must be kept separate from local Docker result files. Authenticated read tests require a dedicated perf account and should not reuse arbitrary production users.
+- Decision: Do not change API contracts, authentication security cost/policy, Cloud Run CPU/RAM/concurrency/min instances, DB schema, Flyway migrations, or indexes during #94 without evidence and PM approval. If Cloud Run resource sizing appears to be the bottleneck, report the evidence and recommended values instead of changing the service.
+- Impact: #94 may collect Cloud Run health/read baseline evidence, compare it with #90 local Docker numbers, improve k6 measurement tooling, document measured results, and implement API-contract-preserving code/query optimizations only after bottleneck evidence exists.
+
+### 2026-06-24 - Issue #94 Production PERF Dataset Scope
+
+- Context: The initial Cloud Run baseline found an empty production dataset, so campus-dependent read APIs such as admin dashboard, devotions, billing, polls, and prayers could not be measured meaningfully.
+- Decision: PM approved creating a small production test dataset for Cloud Run performance measurement, limited to records with a `PERF_` prefix or another clear test identifier. The initial dataset scope is one PERF campus, 30 to 50 or fewer test members, devotion weekly/daily samples, `PENALTY`/`COFFEE` charge samples, OPEN/CLOSED poll and response samples, and prayer season/group/submission samples.
+- Decision: Existing production data must not be modified or deleted. Data should be created through actual APIs first. Direct database or Supabase manipulation requires a separate PM question. Bulk write-heavy load, notification blasts, and bulk charge/payment state changes remain prohibited.
+- Decision: Test credentials, passwords, tokens, Firebase JSON, DB/Redis passwords, and other secrets must not be committed or documented. The created dataset identifiers, counts, and cleanup approach should be recorded in repository docs or a separate traceable report.
+- Impact: #94 may create a small `PERF_` dataset with API calls, measure read-centered VUS 10/3m and VUS 30/5m Cloud Run baselines against it, and record the resulting bottleneck evidence before any production tuning recommendation.
+
+### 2026-06-24 - Issue #94 Cloud Run Auth Pattern Split
+
+- Context: The first PERF dataset Cloud Run read baseline included `auth_login` on every k6 iteration. That is useful for login/BCrypt/JWT issuance pressure, but it can overstate latency versus the mobile app's normal pattern of logging in once and reusing an Access Token for multiple read requests.
+- Decision: Preserve `PERF_20260624_CLOUDRUN_A` for now instead of deleting it. Treat current Cloud Run resource settings as the `min instances=0 baseline`: CPU 1, memory 1GiB, concurrency 80, min instances 0, max instances 3.
+- Decision: Split #94 measurements into two explicit patterns. `auth-heavy` includes login on every iteration to measure login/BCrypt/JWT pressure. `steady-state` logs in once during setup and reuses the Access Token for read API iterations to approximate normal app usage within the 3 to 5 minute token-validity window.
+- Decision: Do not change BCrypt cost/security policy, API contracts, Cloud Run settings, DB schema, Flyway migrations, or indexes without further PM approval. The first infrastructure recommendation candidate is to apply min instances 1 and rerun the same conditions, because min instances 0 can mix cold start or instance scale-up outliers into p95/p99/max.
+- Impact: #94 k6 tooling must make the auth pattern explicit, and resume metrics must report auth-heavy and steady-state read results separately under the Cloud Run min instances 0 baseline.
+
 ### 2026-06-23 - Issue #90 Local Docker Performance Measurement Scope
 
 - Context: Issue #90 measures backend coverage and API performance for resume/portfolio metrics. The first Docker k6 baseline identified `auth_login` and `campuses_me` as bottleneck candidates, but authentication performance touches password hash/security policy.

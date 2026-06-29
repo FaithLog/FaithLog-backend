@@ -298,6 +298,7 @@ class AdminDashboardControllerTest {
 			PollType.CUSTOM,
 			SelectionType.SINGLE,
 			false,
+			false,
 			ChargeGenerationType.NONE,
 			null,
 			null,

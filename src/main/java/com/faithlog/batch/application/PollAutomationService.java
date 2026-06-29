@@ -124,6 +124,7 @@ public class PollAutomationService {
 			template.pollType(),
 			template.selectionType(),
 			false,
+			template.allowUserOptionAdd(),
 			template.chargeGenerationType(),
 			template.paymentCategory(),
 			template.paymentAccountId(),
