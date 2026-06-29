@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-29 - Issue #97 Flyway V2 Migration Split
+
+- Context: PR #98 originally placed #97 schema changes into `V1__initial_schema.sql`, but the project now has Supabase/Cloud Run deployment databases and an operational Flyway baseline where V1 may already have been applied.
+- Decision: Do not modify already-applicable `V1__initial_schema.sql` for #97 feature schema changes. Keep V1 at its pre-#97 shape and add #97 poll user-option columns and foreign key through a new Flyway migration version, `V2__add_poll_user_option_fields.sql`.
+- Impact: #97 schema changes are deployable to existing databases through Flyway V2 while preserving clean database setup through V1 followed by V2. Existing rows are handled safely by `BOOLEAN NOT NULL DEFAULT FALSE` for the new boolean columns.
+
 ### 2026-06-29 - Issue #97 Poll Close And User Option Add Contract
 
 - Context: Issue #97 adds manual poll closing and user-added poll options. The work changes API behavior and schema, so the PM session recorded explicit user-approved decisions before implementation.

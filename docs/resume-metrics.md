@@ -31,6 +31,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-06-29
 
+- #97 Flyway V2 migration 보강:
+  - PM 결정: Supabase/Cloud Run 운영 DB에서 `V1__initial_schema.sql`이 이미 적용될 수 있으므로 #97 schema 변경은 V1 수정이 아니라 새 Flyway 버전으로 분리한다.
+  - 변경 범위: `V1__initial_schema.sql`에서 #97 추가분(`poll_templates.allow_user_option_add`, `polls.allow_user_option_add`, `poll_options.user_added`, `poll_options.created_by_user_id`, `fk_poll_options_created_by_user`)을 제거하고, `V2__add_poll_user_option_fields.sql`을 추가했다.
+  - migration 안전성: 기존 row가 있는 운영 DB에도 적용 가능하도록 boolean column은 `BOOLEAN NOT NULL DEFAULT FALSE`로 추가한다.
+  - 검증: focused poll test 성공, `./gradlew test` 성공(249 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공.
+
 - #97 투표 종료와 사용자 항목 추가 구현:
   - 작업 기준: Issue #97 `[Feat] 투표 종료와 사용자 항목 추가 구현`, 브랜치 `feat/97-poll-close-user-option`.
   - TDD 실패 확인: 선행 커밋 `de0e40f test: #97 투표 종료와 사용자 항목 추가 실패 테스트 추가` 이후 `./gradlew test --tests com.faithlog.poll.application.PollServiceTest --tests com.faithlog.poll.presentation.PollApiRestDocsTest`가 `compileTestJava` 31 errors로 실패했다. 실패 원인은 `closePoll`, `AddPollOptionCommand`, `allowUserOptionAdd`, 신규 `ErrorCode`, REST Docs descriptor 미구현이었다.
