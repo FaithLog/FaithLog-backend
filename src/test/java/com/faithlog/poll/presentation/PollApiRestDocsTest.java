@@ -311,6 +311,38 @@ class PollApiRestDocsTest {
 			.as("커피 투표 응답 API는 응답 저장만 수행하고 COFFEE charge_items를 생성하지 않는다")
 			.isEqualTo(chargeCountBeforeCoffeeResponse);
 
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "templateId": null,
+					  "title": "커피 담당자 직접 커피 투표",
+					  "pollType": "COFFEE",
+					  "selectionType": "SINGLE",
+					  "isAnonymous": false,
+					  "chargeGenerationType": "OPTION_PRICE",
+					  "paymentCategory": "COFFEE",
+					  "paymentAccountId": %d,
+					  "startsAt": "2026-07-01T00:00:00Z",
+					  "endsAt": "2026-07-01T09:00:00Z",
+					  "options": [
+					    {"content": null, "menuId": %d, "priceAmount": null, "sortOrder": 1}
+					  ]
+					}
+					""".formatted(coffeeAccountId, americanoMenuId)))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.pollType").value("COFFEE"))
+			.andExpect(jsonPath("$.data.allowUserOptionAdd").value(true))
+			.andDo(document("coffee-duty-poll-create-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				requestFields(pollCreateRequestFields()),
+				relaxedResponseFields(pollResponseFields())
+			));
+
 		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
 				.header("Authorization", "Bearer " + managerToken))
 			.andExpect(status().isOk())
@@ -748,7 +780,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),
-			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 생략 시 false"),
+			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 템플릿은 생략 시 false"),
 			fieldWithPath("autoCreateEnabled").description("자동 생성 설정 여부"),
 			fieldWithPath("startDayOfWeek").description("시작 요일. 1=월요일, 7=일요일"),
 			fieldWithPath("startTime").description("시작 시간"),
@@ -769,7 +801,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),
-			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 생략 시 false"),
+			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 템플릿은 생략 시 false"),
 			fieldWithPath("autoCreateEnabled").description("자동 생성 설정 여부"),
 			fieldWithPath("startDayOfWeek").description("시작 요일. 1=월요일, 7=일요일"),
 			fieldWithPath("startTime").description("시작 시간"),
@@ -790,7 +822,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("pollType").optional().description("투표 타입"),
 			fieldWithPath("selectionType").optional().description("선택 방식"),
 			fieldWithPath("isAnonymous").description("익명 여부"),
-			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 생략 시 false"),
+			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 활성 COFFEE 담당자가 직접 COFFEE 투표를 생성할 때 생략하면 true, 그 외 직접 투표에서 생략하면 false"),
 			fieldWithPath("chargeGenerationType").optional().description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
 			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),

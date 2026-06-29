@@ -28,6 +28,8 @@ import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
+import com.faithlog.campus.application.AssignCoffeeDutyCommand;
+import com.faithlog.campus.application.CampusService;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
@@ -69,6 +71,9 @@ class BillingApiRestDocsTest {
 	private BillingService billingService;
 
 	@Autowired
+	private CampusService campusService;
+
+	@Autowired
 	private ChargeItemRepository chargeItemRepository;
 
 	@Test
@@ -79,6 +84,10 @@ class BillingApiRestDocsTest {
 		long campusId = campus.path("campusId").asLong();
 		String memberToken = signupAndLogin("docs-billing-member@example.com", UserRole.USER);
 		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String dutyToken = signupAndLogin("docs-billing-coffee-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("docs-billing-coffee-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), duty.id()));
 
 		String createBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
 				.header("Authorization", "Bearer " + managerToken)
@@ -151,6 +160,55 @@ class BillingApiRestDocsTest {
 				preprocessResponse(prettyPrint()),
 				authHeader(),
 				pathParameters(parameterWithName("accountId").description("비활성화할 납부 계좌 ID")),
+				responseFields(apiResponseFields(adminAccountFields("data.")))
+			));
+
+		String coffeeAccountBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "accountType": "COFFEE",
+					  "nickname": "48캠 커피 계좌",
+					  "bankName": "카카오뱅크",
+					  "accountNumber": "3333-48-000001",
+					  "accountHolder": "커피회계",
+					  "ownerUserId": %d
+					}
+					""".formatted(duty.id())))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.accountType").value("COFFEE"))
+			.andExpect(jsonPath("$.data.isActive").value(true))
+			.andDo(document("coffee-duty-payment-account-create-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("COFFEE 계좌를 등록할 캠퍼스 ID")),
+				requestFields(
+					fieldWithPath("accountType").description("계좌 유형. 커피 담당자는 `COFFEE`만 등록 가능"),
+					fieldWithPath("nickname").description("계좌 별칭"),
+					fieldWithPath("bankName").description("은행명"),
+					fieldWithPath("accountNumber").description("계좌번호"),
+					fieldWithPath("accountHolder").description("예금주"),
+					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. 없으면 null")
+				),
+				responseFields(apiResponseFields(adminAccountFields("data.")))
+			))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long coffeeAccountId = objectMapper.readTree(coffeeAccountBody).path("data").path("id").asLong();
+
+		mockMvc.perform(patch("/api/v1/admin/payment-accounts/{accountId}/deactivate", coffeeAccountId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.accountType").value("COFFEE"))
+			.andExpect(jsonPath("$.data.isActive").value(false))
+			.andDo(document("coffee-duty-payment-account-deactivate-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("accountId").description("비활성화할 COFFEE 납부 계좌 ID")),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			));
 	}

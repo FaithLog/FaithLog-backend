@@ -87,7 +87,6 @@ public class PollService {
 
 	@Transactional
 	public PollResult createPoll(CreatePollCommand command) {
-		pollAccessService.requirePollCreator(command.campusId(), command.requesterId());
 		if (!command.startsAt().isBefore(command.endsAt())) {
 			throw new BusinessException(ErrorCode.POLL_INVALID_PERIOD);
 		}
@@ -95,6 +94,7 @@ public class PollService {
 		if (command.templateId() != null) {
 			return createFromTemplate(command);
 		}
+		pollAccessService.requirePollCreator(command.campusId(), command.requesterId(), command.pollType());
 		return createDirect(command);
 	}
 
@@ -138,8 +138,8 @@ public class PollService {
 
 	@Transactional
 	public PollResult closePoll(Long campusId, Long pollId, Long requesterId) {
-		pollAccessService.requirePollAdmin(campusId, requesterId);
 		Poll poll = getPollInCampus(campusId, pollId);
+		pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}
@@ -237,8 +237,8 @@ public class PollService {
 
 	@Transactional(readOnly = true)
 	public List<PollMissingMemberResult> getMissingMembers(Long campusId, Long pollId, Long requesterId) {
-		pollAccessService.requirePollAdmin(campusId, requesterId);
 		Poll poll = getPollInCampus(campusId, pollId);
+		pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
 		Set<Long> respondedUserIds = pollResponseRepository.findByPollIdOrderByIdAsc(poll.id())
 			.stream()
 			.map(PollResponse::userId)
@@ -301,6 +301,7 @@ public class PollService {
 		if (!template.isActive()) {
 			throw new BusinessException(ErrorCode.POLL_TEMPLATE_INACTIVE);
 		}
+		pollAccessService.requirePollCreator(command.campusId(), command.requesterId(), template.pollType());
 		List<PollTemplateOption> templateOptions = pollTemplateOptionRepository.findByTemplateIdOrderBySortOrderAsc(template.id());
 		if (templateOptions.isEmpty()) {
 			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
@@ -341,7 +342,9 @@ public class PollService {
 		}
 		SelectionType selectionType = command.selectionType() == null ? SelectionType.SINGLE : command.selectionType();
 		ChargeGenerationType chargeGenerationType = command.chargeGenerationType() == null ? ChargeGenerationType.NONE : command.chargeGenerationType();
-		boolean allowUserOptionAdd = Boolean.TRUE.equals(command.allowUserOptionAdd());
+		boolean allowUserOptionAdd = command.allowUserOptionAdd() == null
+			? pollType == PollType.COFFEE && pollAccessService.isActiveCoffeeDuty(command.campusId(), command.requesterId())
+			: command.allowUserOptionAdd();
 		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolvePollOptions(command.options());
 		requireCoffeePrerequisitesIfNeeded(pollType, chargeGenerationType, command.paymentCategory(), command.paymentAccountId(), command.campusId());
 		Poll poll = pollRepository.save(Poll.create(

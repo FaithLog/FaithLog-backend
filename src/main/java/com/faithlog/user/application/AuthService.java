@@ -1,5 +1,8 @@
 package com.faithlog.user.application;
 
+import com.faithlog.campus.application.CampusMembershipRow;
+import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.domain.CampusMemberStatus;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.global.security.JwtProvider;
@@ -27,6 +30,7 @@ public class AuthService {
 	private final RefreshTokenStore refreshTokenStore;
 	private final AccessTokenBlacklistStore accessTokenBlacklistStore;
 	private final CurrentDeviceFcmTokenDeactivationPort fcmTokenDeactivationPort;
+	private final CampusMemberRepositoryPort campusMemberRepository;
 
 	public AuthService(
 		UserRepository userRepository,
@@ -34,7 +38,8 @@ public class AuthService {
 		JwtProvider jwtProvider,
 		RefreshTokenStore refreshTokenStore,
 		AccessTokenBlacklistStore accessTokenBlacklistStore,
-		CurrentDeviceFcmTokenDeactivationPort fcmTokenDeactivationPort
+		CurrentDeviceFcmTokenDeactivationPort fcmTokenDeactivationPort,
+		CampusMemberRepositoryPort campusMemberRepository
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
@@ -42,6 +47,7 @@ public class AuthService {
 		this.refreshTokenStore = refreshTokenStore;
 		this.accessTokenBlacklistStore = accessTokenBlacklistStore;
 		this.fcmTokenDeactivationPort = fcmTokenDeactivationPort;
+		this.campusMemberRepository = campusMemberRepository;
 	}
 
 	@Transactional
@@ -68,7 +74,7 @@ public class AuthService {
 		user.updateLastLoginAt(loginAt);
 		IssuedTokens tokens = jwtProvider.issueTokens(user);
 		saveRefreshToken(tokens);
-		return LoginResult.of(UserMeResult.from(user), tokens);
+		return LoginResult.of(toUserMeResult(user), tokens);
 	}
 
 	@Transactional
@@ -116,7 +122,26 @@ public class AuthService {
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
-		return UserMeResult.from(user);
+		return toUserMeResult(user);
+	}
+
+	private UserMeResult toUserMeResult(User user) {
+		return UserMeResult.from(user, campusMemberRepository
+			.findMembershipRowsByUserIdAndStatusOrderByIdDesc(user.id(), CampusMemberStatus.ACTIVE)
+			.stream()
+			.map(this::toUserCampusMembershipResult)
+			.toList());
+	}
+
+	private CampusMembershipResult toUserCampusMembershipResult(CampusMembershipRow row) {
+		return new CampusMembershipResult(
+			row.membershipId(),
+			row.campusId(),
+			row.campusName(),
+			row.region(),
+			row.campusRole().name(),
+			row.status().name()
+		);
 	}
 
 	private Claims parseRefreshToken(String refreshToken) {

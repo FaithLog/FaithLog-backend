@@ -10,6 +10,16 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-29 - Issue #100 Coffee Duty Access And My Duty Status Contract
+
+- Context: Frontend login and `GET /api/v1/users/me` responses were returning empty `campusMemberships` even when users had ACTIVE campus memberships, and normal `USER` accounts assigned as active `DutyType.COFFEE` could not create coffee polls or manage coffee payment accounts because existing policies required campus administrator roles.
+- Decision: Login response and `GET /api/v1/users/me` must include the user's actual ACTIVE campus memberships using the same membership fields used by `GET /api/v1/campuses/me`: `membershipId`, `campusId`, `campusName`, `region`, `campusRole`, and `status`.
+- Decision: Add `GET /api/v1/campuses/{campusId}/duty-assignments/me` for ACTIVE campus members to check their own COFFEE duty status. The response returns `userId`, `campusId`, `dutyType=COFFEE`, and `isActive`. A non-duty ACTIVE member receives `200 OK` with `isActive=false`; non-members or inactive members are forbidden.
+- Decision: Active COFFEE duty assignees may use only COFFEE-scoped functions without becoming campus managers: create/deactivate `accountType=COFFEE` payment accounts in their own campus, create/manage `pollType=COFFEE` polls, and query admin charge views only when `paymentCategory=COFFEE`. `PENALTY` accounts/charges, campus member management, devotion admin APIs, service admin APIs, and coffee-external poll types keep the existing campus administrator or service administrator permissions.
+- Decision: When an active COFFEE duty assignee creates a direct `pollType=COFFEE` poll and omits `allowUserOptionAdd`, the backend defaults it to `true`. Other direct poll creation still defaults omitted `allowUserOptionAdd` to `false`.
+- Pending follow-up: The existing #97 user option API `POST /api/v1/campuses/{campusId}/polls/{pollId}/options` accepts only `{ "content": "새 항목" }`, so user-added options are saved with `composeMenuCode=null` and `priceAmount=0`. Because coffee settlement uses option price snapshots, coffee poll user-added options may need a separate menu-catalog-based API decision before they are safe for real paid coffee ordering.
+- Impact: #100 tests and REST Docs must cover membership responses, the new my-duty endpoint, COFFEE-only account/poll/charge access for duty assignees, and denial of coffee-external manager functions. Swagger documentation annotations remain prohibited.
+
 ### 2026-06-29 - Issue #97 Flyway V2 Migration Split
 
 - Context: PR #98 originally placed #97 schema changes into `V1__initial_schema.sql`, but the project now has Supabase/Cloud Run deployment databases and an operational Flyway baseline where V1 may already have been applied.

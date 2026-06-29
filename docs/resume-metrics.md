@@ -13,13 +13,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-29, 249 tests / 0 failures / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-29, 256 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 101 snippet groups (2026-06-29) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 105 snippet groups (2026-06-29) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-29) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
@@ -30,6 +30,16 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## Daily Monitoring Notes
 
 ### 2026-06-29
+
+- #100 커피 담당자 전용 권한과 내 담당 상태 조회:
+  - 작업 기준: Issue #100 `[Feat] 커피 담당자 전용 권한과 내 담당 상태 조회 구현`, Project `FaithLog Backend Kanban` Status/Kanban Status `In Progress`, 브랜치 `feat/100-coffee-duty-access`.
+  - TDD 실패 확인: 구현 전 focused test 묶음이 `CampusService.getMyCoffeeDutyAssignment(Long, Long)` 부재로 `compileTestJava` 실패했다.
+  - 구현 범위: 로그인 응답과 `GET /api/v1/users/me`에 ACTIVE campusMemberships를 포함하고, `GET /api/v1/campuses/{campusId}/duty-assignments/me`를 추가했다. 활성 `COFFEE` 담당자 USER는 본인 캠퍼스의 `COFFEE` 계좌 등록/비활성화, `COFFEE` 투표 생성/마감/미응답자 조회, `paymentCategory=COFFEE` admin charge 조회만 사용할 수 있게 했다.
+  - 제한 검증: `PENALTY` 계좌/청구, `CUSTOM` 등 커피 외 투표, 캠퍼스 멤버 관리, 관리자 대시보드, 서비스 ADMIN API는 커피 담당자 USER에게 계속 403으로 차단했다. 다른 캠퍼스 `COFFEE` 담당자의 접근도 403으로 차단했다.
+  - 계약/문서: Spring REST Docs에 my-duty, coffee-duty 계좌 등록/비활성화, coffee-duty 투표 생성 스니펫을 추가하고 `src/docs/asciidoc/index.adoc`에 반영했다. Swagger 문서화 annotation 추가는 0건으로 확인했다.
+  - #97 옵션 추가 리스크 보고: 현재 `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`는 `{ "content": "새 항목" }`만 받으므로 사용자 추가 옵션이 `composeMenuCode=null`, `priceAmount=0`으로 저장된다. 커피 실주문/정산에 쓰려면 메뉴 카탈로그 기반 API/schema 결정을 별도로 받아야 한다.
+  - 검증: focused service/controller 테스트 성공, REST Docs focused 테스트 성공, `./gradlew test` 성공(256 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공.
+  - Docker/API QA: 기본 `docker compose up -d --build postgres redis app`는 기존 local named volume credential mismatch로 `FATAL: password authentication failed for user "faithlog"`가 발생해 볼륨 삭제 없이 중단했다. 이후 별도 compose override/project `faithlog-qa100`로 격리된 Postgres/Redis/app을 올려 `GET /api/v1/health` `UP` 확인, 실제 HTTP API로 회원가입/ACTIVE 멤버 가입/COFFEE 담당 지정/로그인 및 users-me 멤버십/duty me/COFFEE 계좌 등록 및 비활성화/COFFEE 투표 생성/결과 및 COFFEE 청구 조회/커피 외 관리자 API 403/다른 캠퍼스 담당자 403을 검증했다. QA 스택은 `docker compose ... down`으로 정리했다.
 
 - #97 Flyway V2 migration 보강:
   - PM 결정: Supabase/Cloud Run 운영 DB에서 `V1__initial_schema.sql`이 이미 적용될 수 있으므로 #97 schema 변경은 V1 수정이 아니라 새 Flyway 버전으로 분리한다.

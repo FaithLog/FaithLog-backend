@@ -358,6 +358,59 @@ class PollServiceTest {
 	}
 
 	@Test
+	void coffee_duty_can_create_and_manage_only_coffee_polls_with_user_option_add_enabled_by_default() {
+		User manager = saveUser("poll-duty-access-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-duty-access-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "100커피권한캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+
+		PollResult coffeePoll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			duty.id(),
+			null,
+			"담당자 커피 투표",
+			PollType.COFFEE,
+			SelectionType.SINGLE,
+			false,
+			null,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+		));
+
+		assertThat(coffeePoll.pollType()).isEqualTo(PollType.COFFEE);
+		assertThat(coffeePoll.allowUserOptionAdd()).isTrue();
+		assertThat(pollService.closePoll(campus.campusId(), coffeePoll.id(), duty.id()).status())
+			.isEqualTo(PollStatus.CLOSED);
+		assertThat(pollService.getMissingMembers(campus.campusId(), coffeePoll.id(), duty.id()))
+			.extracting(PollMissingMemberResult::userId)
+			.contains(manager.id(), duty.id());
+		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			duty.id(),
+			null,
+			"담당자 커스텀 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("참석", null, 0, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CREATE_FORBIDDEN)
+			);
+	}
+
+	@Test
 	void direct_current_custom_poll_opens_immediately_and_allows_detail_response_results_and_comment_crud() {
 		User manager = saveUser("poll-current-custom-manager@example.com", UserRole.MANAGER);
 		User member = saveUser("poll-current-custom-member@example.com", UserRole.USER);
