@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-24, 243 tests / 0 failures / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-29, 249 tests / 0 failures / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 96 snippet groups (2026-06-22) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-24) | 성공 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 101 snippet groups (2026-06-29) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-29) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -28,6 +28,20 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-06-29
+
+- #97 투표 종료와 사용자 항목 추가 구현:
+  - 작업 기준: Issue #97 `[Feat] 투표 종료와 사용자 항목 추가 구현`, 브랜치 `feat/97-poll-close-user-option`.
+  - TDD 실패 확인: 선행 커밋 `de0e40f test: #97 투표 종료와 사용자 항목 추가 실패 테스트 추가` 이후 `./gradlew test --tests com.faithlog.poll.application.PollServiceTest --tests com.faithlog.poll.presentation.PollApiRestDocsTest`가 `compileTestJava` 31 errors로 실패했다. 실패 원인은 `closePoll`, `AddPollOptionCommand`, `allowUserOptionAdd`, 신규 `ErrorCode`, REST Docs descriptor 미구현이었다.
+  - 구현 범위: 관리자 투표 종료 API `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/close`, 사용자 옵션 추가 API `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`, `poll_templates.allow_user_option_add`, `polls.allow_user_option_add`, `poll_options.user_added`, `poll_options.created_by_user_id`, 신규 ErrorCode 3개를 추가했다.
+  - API 계약 유지: 투표 응답 request/response의 `optionIds` 배열과 `poll_response_options` 구조를 유지했다. 사용자 추가 옵션도 기존 응답 API에서 `optionIds`로 선택된다.
+  - Spring REST Docs: 신규/변경 API snippets를 추가하고 `src/docs/asciidoc/index.adoc`에 `poll-create-with-user-option-add-success`, `poll-user-option-add-success`, `poll-user-option-add-duplicate-error`, `poll-close-success`, `poll-close-invalid-state-error` include를 추가했다.
+  - focused 검증: `./gradlew test --tests com.faithlog.poll.application.PollServiceTest --tests com.faithlog.poll.presentation.PollApiRestDocsTest` 성공.
+  - 전체 검증: `./gradlew test` 성공(249 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공.
+  - 정적 확인: Swagger 문서화 annotation 검색 0건. 금지어 검색은 허용된 내부 `optionId` 변수/접근자만 매칭됐고 API 요청 필드 단수 `optionId`는 추가하지 않았다. Controller는 DTO 응답을 반환하고 Entity 직접 반환을 추가하지 않았다.
+  - 산출물: REST Docs snippet group은 101개로 확인됐고 `build/docs/asciidoc/index.html`이 생성됐다.
+  - Docker QA: `QA_COMPOSE_PROJECT=faithlog-qa-97 ./scripts/qa_docker_compose_isolated.sh`를 실행했지만, script guard가 기존 `faithlog-postgres` 컨테이너를 compose project `faithlog` 소유로 감지해 중단했다. 정책상 기존 개발/PM stack을 임의로 중지하지 않으므로 Docker health smoke는 미수행으로 기록한다.
 
 ### 2026-06-24
 

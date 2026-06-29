@@ -1656,6 +1656,108 @@ include::{snippets}/poll-create-direct-success/http-response.adoc[]
 
 include::{snippets}/poll-create-direct-success/response-fields.adoc[]
 
+=== Create Poll With User Option Add
+
+`POST /api/v1/admin/campuses/{campusId}/polls`
+
+직접 투표 생성 시 `allowUserOptionAdd`를 true로 보내면 OPEN 기간 동안 ACTIVE 캠퍼스 멤버가 별도 옵션 추가 API로 선택지를 추가할 수 있다. 생략하거나 null이면 false로 처리한다.
+
+==== Request
+
+include::{snippets}/poll-create-with-user-option-add-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-create-with-user-option-add-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-create-with-user-option-add-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-create-with-user-option-add-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-create-with-user-option-add-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-create-with-user-option-add-success/response-fields.adoc[]
+
+=== Add User Poll Option
+
+`POST /api/v1/campuses/{campusId}/polls/{pollId}/options`
+
+ACTIVE 캠퍼스 멤버가 `allowUserOptionAdd=true`인 OPEN 투표에 선택지를 추가한다. 서버는 `content`를 trim하고 기존 선택지와 대소문자 무시 중복을 검증한다.
+
+==== Request
+
+include::{snippets}/poll-user-option-add-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-user-option-add-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-user-option-add-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-user-option-add-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-user-option-add-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-user-option-add-success/response-fields.adoc[]
+
+=== Add User Poll Option Duplicate Error
+
+include::{snippets}/poll-user-option-add-duplicate-error/http-request.adoc[]
+
+include::{snippets}/poll-user-option-add-duplicate-error/http-response.adoc[]
+
+include::{snippets}/poll-user-option-add-duplicate-error/response-fields.adoc[]
+
+=== Close Poll
+
+`PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/close`
+
+관리자가 OPEN 투표를 수동 종료한다. 이 API는 종료만 수행하며 커피 정산, 알림, 청구 생성은 실행하지 않는다.
+
+==== Request
+
+include::{snippets}/poll-close-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-close-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-close-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/poll-close-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-close-success/response-fields.adoc[]
+
+=== Close Poll Invalid State Error
+
+include::{snippets}/poll-close-invalid-state-error/http-request.adoc[]
+
+include::{snippets}/poll-close-invalid-state-error/http-response.adoc[]
+
+include::{snippets}/poll-close-invalid-state-error/response-fields.adoc[]
+
 === Save Coffee Poll Response
 
 `PUT /api/v1/campuses/{campusId}/polls/{pollId}/responses/me`
