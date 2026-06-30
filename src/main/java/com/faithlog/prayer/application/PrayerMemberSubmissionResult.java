@@ -7,6 +7,8 @@ public record PrayerMemberSubmissionResult(
 	String name,
 	Long submissionId,
 	String content,
+	boolean submitted,
+	boolean editable,
 	int version,
 	Instant submittedAt
 ) {

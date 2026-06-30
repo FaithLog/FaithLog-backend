@@ -13,7 +13,10 @@ import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.prayer.domain.PrayerGroupMember;
+import com.faithlog.prayer.domain.PrayerSeason;
+import com.faithlog.prayer.domain.PrayerSeasonStatus;
 import com.faithlog.prayer.infrastructure.jpa.PrayerGroupMemberRepository;
+import com.faithlog.prayer.infrastructure.jpa.PrayerSeasonRepository;
 import com.faithlog.prayer.infrastructure.jpa.PrayerSubmissionRepository;
 import com.faithlog.prayer.infrastructure.jpa.PrayerWeekRepository;
 import com.faithlog.user.domain.User;
@@ -54,6 +57,9 @@ class PrayerServiceTest {
 	@Autowired
 	private PrayerGroupMemberRepository prayerGroupMemberRepository;
 
+	@Autowired
+	private PrayerSeasonRepository prayerSeasonRepository;
+
 	@Test
 	void active_campus_member_reads_all_groups_without_creating_week_or_submissions() {
 		PrayerFixture fixture = createFixture("read-all");
@@ -68,9 +74,14 @@ class PrayerServiceTest {
 		assertThat(board.weekStartDate()).isEqualTo(LocalDate.of(2026, 6, 22));
 		assertThat(board.weekEndDate()).isEqualTo(LocalDate.of(2026, 6, 28));
 		assertThat(board.status()).isEqualTo("OPEN");
+		assertThat(board.currentSeason()).isNotNull();
+		assertThat(board.currentSeason().seasonId()).isEqualTo(fixture.seasonId());
+		assertThat(board.myGroupId()).isEqualTo(fixture.groupAId());
 		assertThat(board.submittedCount()).isZero();
 		assertThat(board.targetMemberCount()).isEqualTo(3);
 		assertThat(board.groups()).hasSize(2);
+		assertThat(board.groups()).extracting(PrayerGroupBoardResult::seasonId)
+			.containsOnly(fixture.seasonId());
 		assertThat(board.groups()).flatExtracting(PrayerGroupBoardResult::members)
 			.extracting(PrayerMemberSubmissionResult::userId)
 			.containsExactly(fixture.memberA().id(), fixture.memberB().id(), fixture.memberC().id());
@@ -80,9 +91,81 @@ class PrayerServiceTest {
 				assertThat(member.content()).isNull();
 				assertThat(member.version()).isZero();
 				assertThat(member.submittedAt()).isNull();
+				assertThat(member.submitted()).isFalse();
 			});
 		assertThat(prayerWeekRepository.count()).isZero();
 		assertThat(prayerSubmissionRepository.count()).isZero();
+	}
+
+	@Test
+	void current_season_returns_active_with_null_end_date_and_excludes_absent_closed_or_inconsistent_rows() {
+		PrayerFixture fixture = createFixture("current-season");
+
+		PrayerSeasonResult current = prayerService.getCurrentSeason(fixture.campusId(), fixture.manager().id());
+
+		assertThat(current).isNotNull();
+		assertThat(current.seasonId()).isEqualTo(fixture.seasonId());
+		assertThat(current.endDate()).isNull();
+		assertThat(current.status()).isEqualTo("ACTIVE");
+
+		prayerService.closeSeason(new ClosePrayerSeasonCommand(
+			fixture.seasonId(),
+			fixture.manager().id(),
+			LocalDate.of(2026, 6, 30)
+		));
+
+		assertThat(prayerService.getCurrentSeason(fixture.campusId(), fixture.manager().id())).isNull();
+
+		PrayerSeason inconsistent = prayerSeasonRepository.save(PrayerSeason.create(
+			fixture.campusId(),
+			"ACTIVE지만 종료일 있음",
+			LocalDate.of(2026, 7, 1),
+			fixture.manager().id()
+		));
+		ReflectionTestUtils.setField(inconsistent, "endDate", LocalDate.of(2026, 8, 1));
+		ReflectionTestUtils.setField(inconsistent, "status", PrayerSeasonStatus.ACTIVE);
+		prayerSeasonRepository.saveAndFlush(inconsistent);
+
+		assertThat(prayerService.getCurrentSeason(fixture.campusId(), fixture.manager().id())).isNull();
+	}
+
+	@Test
+	void member_cannot_read_admin_current_season() {
+		PrayerFixture fixture = createFixture("current-season-member");
+
+		assertThatThrownBy(() -> prayerService.getCurrentSeason(fixture.campusId(), fixture.memberA().id()))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode")
+			.isEqualTo(ErrorCode.PRAYER_MANAGE_FORBIDDEN);
+	}
+
+	@Test
+	void admin_reads_season_groups_and_assignable_members_with_assignment_state() {
+		PrayerFixture fixture = createFixture("admin-list");
+
+		List<PrayerGroupResult> groups = prayerService.getSeasonGroups(fixture.seasonId(), fixture.manager().id());
+		List<PrayerAssignableMemberResult> assignableMembers = prayerService.getAssignableMembers(fixture.seasonId(), fixture.manager().id());
+
+		assertThat(groups).hasSize(2);
+		assertThat(groups.get(0).groupId()).isEqualTo(fixture.groupAId());
+		assertThat(groups.get(0).members()).extracting(PrayerGroupMemberResult::email)
+			.containsExactly(fixture.memberA().email(), fixture.memberB().email());
+		assertThat(assignableMembers)
+			.filteredOn(member -> member.userId().equals(fixture.memberA().id()))
+			.singleElement()
+			.satisfies(member -> {
+				assertThat(member.assignedGroupId()).isEqualTo(fixture.groupAId());
+				assertThat(member.assignedGroupName()).isEqualTo("1조");
+				assertThat(member.assignable()).isFalse();
+			});
+		assertThat(assignableMembers)
+			.filteredOn(member -> member.userId().equals(fixture.manager().id()))
+			.singleElement()
+			.satisfies(member -> {
+				assertThat(member.assignedGroupId()).isNull();
+				assertThat(member.assignedGroupName()).isNull();
+				assertThat(member.assignable()).isTrue();
+			});
 	}
 
 	@Test
@@ -245,11 +328,11 @@ class PrayerServiceTest {
 		PrayerGroupResult group = prayerService.replaceGroupMembers(new ReplacePrayerGroupMembersCommand(
 			fixture.groupAId(),
 			fixture.manager().id(),
-			List.of(fixture.memberB().id(), fixture.memberC().id())
+			List.of(fixture.memberB().id())
 		));
 
 		assertThat(group.members()).extracting(PrayerGroupMemberResult::userId)
-			.containsExactly(fixture.memberB().id(), fixture.memberC().id());
+			.containsExactly(fixture.memberB().id());
 		assertThat(prayerGroupMemberRepository.findByGroupIdOrderByIdAsc(fixture.groupAId()))
 			.filteredOn(member -> member.userId().equals(fixture.memberA().id()))
 			.singleElement()
@@ -259,7 +342,7 @@ class PrayerServiceTest {
 		prayerService.replaceGroupMembers(new ReplacePrayerGroupMembersCommand(
 			fixture.groupAId(),
 			fixture.manager().id(),
-			List.of(fixture.memberA().id(), fixture.memberC().id())
+			List.of(fixture.memberA().id(), fixture.memberB().id())
 		));
 
 		assertThat(prayerGroupMemberRepository.findByGroupIdOrderByIdAsc(fixture.groupAId()))
@@ -267,6 +350,182 @@ class PrayerServiceTest {
 			.singleElement()
 			.extracting(PrayerGroupMember::isActive)
 			.isEqualTo(true);
+	}
+
+	@Test
+	void same_season_member_cannot_be_assigned_to_another_active_group_but_same_group_and_other_season_are_allowed() {
+		PrayerFixture fixture = createFixture("duplicate-assignment");
+
+		assertThatThrownBy(() -> prayerService.replaceGroupMembers(new ReplacePrayerGroupMembersCommand(
+			fixture.groupBId(),
+			fixture.manager().id(),
+			List.of(fixture.memberA().id(), fixture.memberC().id())
+		)))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode")
+			.isEqualTo(ErrorCode.PRAYER_GROUP_MEMBER_ALREADY_ASSIGNED);
+
+		PrayerGroupResult sameGroup = prayerService.replaceGroupMembers(new ReplacePrayerGroupMembersCommand(
+			fixture.groupAId(),
+			fixture.manager().id(),
+			List.of(fixture.memberA().id(), fixture.memberB().id())
+		));
+		assertThat(sameGroup.members()).extracting(PrayerGroupMemberResult::userId)
+			.containsExactly(fixture.memberA().id(), fixture.memberB().id());
+
+		prayerService.closeSeason(new ClosePrayerSeasonCommand(
+			fixture.seasonId(),
+			fixture.manager().id(),
+			LocalDate.of(2026, 6, 30)
+		));
+		PrayerSeasonResult nextSeason = prayerService.createSeason(new CreatePrayerSeasonCommand(
+			fixture.campusId(),
+			fixture.manager().id(),
+			"2026 가을",
+			LocalDate.of(2026, 9, 1)
+		));
+		PrayerGroupResult nextGroup = prayerService.createGroup(new CreatePrayerGroupCommand(
+			nextSeason.seasonId(),
+			fixture.manager().id(),
+			"새 1조",
+			1
+		));
+
+		PrayerGroupResult assignedInOtherSeason = prayerService.replaceGroupMembers(new ReplacePrayerGroupMembersCommand(
+			nextGroup.groupId(),
+			fixture.manager().id(),
+			List.of(fixture.memberA().id())
+		));
+
+		assertThat(assignedInOtherSeason.members()).extracting(PrayerGroupMemberResult::userId)
+			.containsExactly(fixture.memberA().id());
+	}
+
+	@Test
+	void weekly_board_returns_empty_when_current_season_is_absent() {
+		PrayerFixture fixture = createFixture("empty-board");
+		prayerService.closeSeason(new ClosePrayerSeasonCommand(
+			fixture.seasonId(),
+			fixture.manager().id(),
+			LocalDate.of(2026, 6, 30)
+		));
+
+		PrayerWeekBoardResult board = prayerService.getWeeklyBoard(
+			fixture.campusId(),
+			LocalDate.of(2026, 7, 6),
+			fixture.memberA().id()
+		);
+
+		assertThat(board.currentSeason()).isNull();
+		assertThat(board.myGroupId()).isNull();
+		assertThat(board.submittedCount()).isZero();
+		assertThat(board.targetMemberCount()).isZero();
+		assertThat(board.groups()).isEmpty();
+	}
+
+	@Test
+	void weekly_board_editable_is_own_submission_for_member_and_all_members_for_admin() {
+		PrayerFixture fixture = createFixture("editable");
+		LocalDate weekStart = LocalDate.of(2026, 6, 22);
+		prayerService.saveSubmissions(new SavePrayerSubmissionsCommand(
+			fixture.campusId(),
+			weekStart,
+			fixture.manager().id(),
+			List.of(new PrayerSubmissionCommand(fixture.memberA().id(), "A", 0))
+		));
+		User admin = saveUser("prayer-editable-admin@example.com", UserRole.ADMIN);
+
+		PrayerWeekBoardResult memberBoard = prayerService.getWeeklyBoard(fixture.campusId(), weekStart, fixture.memberA().id());
+		PrayerWeekBoardResult adminBoard = prayerService.getWeeklyBoard(fixture.campusId(), weekStart, admin.id());
+
+		assertThat(memberBoard.groups()).flatExtracting(PrayerGroupBoardResult::members)
+			.filteredOn(member -> member.userId().equals(fixture.memberA().id()))
+			.singleElement()
+			.satisfies(member -> {
+				assertThat(member.submitted()).isTrue();
+				assertThat(member.editable()).isTrue();
+			});
+		assertThat(memberBoard.groups()).flatExtracting(PrayerGroupBoardResult::members)
+			.filteredOn(member -> !member.userId().equals(fixture.memberA().id()))
+			.allSatisfy(member -> assertThat(member.editable()).isFalse());
+		assertThat(adminBoard.groups()).flatExtracting(PrayerGroupBoardResult::members)
+			.allSatisfy(member -> assertThat(member.editable()).isTrue());
+	}
+
+	@Test
+	void save_my_submission_creates_and_updates_only_my_assigned_active_group_submission() {
+		PrayerFixture fixture = createFixture("save-me");
+		LocalDate weekStart = LocalDate.of(2026, 6, 22);
+
+		PrayerWeekBoardResult created = prayerService.saveMySubmission(new SaveMyPrayerSubmissionCommand(
+			fixture.campusId(),
+			weekStart,
+			fixture.memberA().id(),
+			"내 기도제목"
+		));
+		PrayerWeekBoardResult updated = prayerService.saveMySubmission(new SaveMyPrayerSubmissionCommand(
+			fixture.campusId(),
+			weekStart,
+			fixture.memberA().id(),
+			"수정한 기도제목"
+		));
+
+		assertThat(prayerSubmissionRepository.count()).isEqualTo(1);
+		assertThat(created.groups()).flatExtracting(PrayerGroupBoardResult::members)
+			.filteredOn(member -> member.userId().equals(fixture.memberA().id()))
+			.singleElement()
+			.extracting(PrayerMemberSubmissionResult::version)
+			.isEqualTo(1);
+		assertThat(updated.groups()).flatExtracting(PrayerGroupBoardResult::members)
+			.filteredOn(member -> member.userId().equals(fixture.memberA().id()))
+			.singleElement()
+			.satisfies(member -> {
+				assertThat(member.content()).isEqualTo("수정한 기도제목");
+				assertThat(member.version()).isEqualTo(2);
+			});
+	}
+
+	@Test
+	void save_my_submission_fails_without_current_season_assignment_or_monday() {
+		PrayerFixture fixture = createFixture("save-me-fail");
+		User unassigned = saveUser("prayer-save-me-unassigned@example.com", UserRole.USER);
+		campusService.joinCampus(new JoinCampusCommand(unassigned.id(), fixture.inviteCode()));
+
+		assertThatThrownBy(() -> prayerService.saveMySubmission(new SaveMyPrayerSubmissionCommand(
+			fixture.campusId(),
+			LocalDate.of(2026, 6, 23),
+			fixture.memberA().id(),
+			"화요일"
+		)))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode")
+			.isEqualTo(ErrorCode.PRAYER_INVALID_WEEK_START_DATE);
+
+		assertThatThrownBy(() -> prayerService.saveMySubmission(new SaveMyPrayerSubmissionCommand(
+			fixture.campusId(),
+			LocalDate.of(2026, 6, 22),
+			unassigned.id(),
+			"미배정"
+		)))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode")
+			.isEqualTo(ErrorCode.PRAYER_GROUP_ASSIGNMENT_REQUIRED);
+
+		prayerService.closeSeason(new ClosePrayerSeasonCommand(
+			fixture.seasonId(),
+			fixture.manager().id(),
+			LocalDate.of(2026, 6, 30)
+		));
+
+		assertThatThrownBy(() -> prayerService.saveMySubmission(new SaveMyPrayerSubmissionCommand(
+			fixture.campusId(),
+			LocalDate.of(2026, 7, 6),
+			fixture.memberA().id(),
+			"종료됨"
+		)))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode")
+			.isEqualTo(ErrorCode.PRAYER_ACTIVE_SEASON_NOT_FOUND);
 	}
 
 	@Test
@@ -335,7 +594,7 @@ class PrayerServiceTest {
 			manager.id(),
 			List.of(memberC.id())
 		));
-		return new PrayerFixture(campus.campusId(), manager, memberA, memberB, memberC, groupA.groupId(), groupB.groupId());
+		return new PrayerFixture(campus.campusId(), campus.inviteCode(), season.seasonId(), manager, memberA, memberB, memberC, groupA.groupId(), groupB.groupId());
 	}
 
 	private User saveUser(String email, UserRole role) {
@@ -353,6 +612,8 @@ class PrayerServiceTest {
 
 	private record PrayerFixture(
 		Long campusId,
+		String inviteCode,
+		Long seasonId,
 		User manager,
 		User memberA,
 		User memberB,

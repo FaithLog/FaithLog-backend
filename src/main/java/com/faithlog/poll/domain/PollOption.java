@@ -65,6 +65,17 @@ public class PollOption {
 		return new PollOption(pollId, content, null, 0, sortOrder, true, createdByUserId);
 	}
 
+	public static PollOption createUserAdded(
+		Long pollId,
+		String content,
+		String composeMenuCode,
+		int priceAmount,
+		int sortOrder,
+		Long createdByUserId
+	) {
+		return new PollOption(pollId, content, composeMenuCode, priceAmount, sortOrder, true, createdByUserId);
+	}
+
 	public Long id() {
 		return id;
 	}

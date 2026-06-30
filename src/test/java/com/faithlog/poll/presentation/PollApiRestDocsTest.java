@@ -636,7 +636,11 @@ class PollApiRestDocsTest {
 		JsonNode campus = createCampus(managerToken, "97문서캠");
 		long campusId = campus.path("campusId").asLong();
 		String memberToken = signupAndLogin("docs-poll97-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-poll97-member@example.com").orElseThrow();
 		joinCampus(memberToken, campus.path("inviteCode").asText());
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), member.id()));
+		long coffeeAccountId = createCoffeeAccount(campusId, manager.id());
+		long latteMenuId = menuId("CAFE_LATTE");
 
 		String pollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
 				.header("Authorization", "Bearer " + managerToken)
@@ -737,6 +741,29 @@ class PollApiRestDocsTest {
 				responseFields(errorResponseFields())
 			));
 
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "content": "커스텀 텍스트",
+					  "menuId": %d
+					}
+					""".formatted(latteMenuId)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("POLL_USER_OPTION_MENU_NOT_ALLOWED"))
+			.andDo(document("poll-user-option-add-menu-not-allowed-error",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				requestFields(userOptionAddRequestFields()),
+				responseFields(errorResponseFields())
+			));
+
 		long chargeCountBeforeClose = chargeItemRepository.count();
 		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/close", campusId, pollId)
 				.header("Authorization", "Bearer " + managerToken))
@@ -753,8 +780,117 @@ class PollApiRestDocsTest {
 				relaxedResponseFields(pollResponseFields())
 			));
 		org.assertj.core.api.Assertions.assertThat(chargeItemRepository.count())
-			.as("투표 종료 API는 종료만 수행하고 청구/정산을 실행하지 않는다")
+			.as("CUSTOM 투표 종료 API는 종료만 수행하고 청구/정산을 실행하지 않는다")
 			.isEqualTo(chargeCountBeforeClose);
+
+		String coffeePollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "templateId": null,
+					  "title": "사용자 메뉴 추가 커피 투표",
+					  "pollType": "COFFEE",
+					  "selectionType": "SINGLE",
+					  "isAnonymous": false,
+					  "allowUserOptionAdd": true,
+					  "chargeGenerationType": "OPTION_PRICE",
+					  "paymentCategory": "COFFEE",
+					  "paymentAccountId": %d,
+					  "startsAt": "2026-06-20T00:00:00Z",
+					  "endsAt": "2026-06-21T00:00:00Z",
+					  "options": [
+					    {"content": "아메리카노", "menuId": null, "priceAmount": 1500, "sortOrder": 1}
+					  ]
+					}
+					""".formatted(coffeeAccountId)))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long coffeePollId = objectMapper.readTree(coffeePollBody).path("data").path("id").asLong();
+		openPoll(coffeePollId);
+
+		String coffeeOptionBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, coffeePollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "menuId": %d
+					}
+					""".formatted(latteMenuId)))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.content").value("카페라떼"))
+			.andExpect(jsonPath("$.data.composeMenuCode").value("CAFE_LATTE"))
+			.andExpect(jsonPath("$.data.priceAmount").value(2900))
+			.andExpect(jsonPath("$.data.userAdded").value(true))
+			.andDo(document("poll-user-option-add-coffee-menu-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("COFFEE 투표 ID")
+				),
+				requestFields(userOptionAddRequestFields()),
+				relaxedResponseFields(optionResponseFields())
+			))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long coffeeAddedOptionId = objectMapper.readTree(coffeeOptionBody).path("data").path("id").asLong();
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, coffeePollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "content": "직접 입력 커피"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("POLL_USER_OPTION_MENU_REQUIRED"))
+			.andDo(document("poll-user-option-add-coffee-content-only-error",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("COFFEE 투표 ID")
+				),
+				requestFields(userOptionAddRequestFields()),
+				responseFields(errorResponseFields())
+			));
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, coffeePollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "optionIds": [%d],
+					  "memo": "카페라떼"
+					}
+					""".formatted(coffeeAddedOptionId)))
+			.andExpect(status().isOk());
+
+		long coffeeChargeCountBeforeClose = chargeItemRepository.count();
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/close", campusId, coffeePollId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("CLOSED"))
+			.andDo(document("poll-close-coffee-settlement-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("COFFEE 투표 ID")
+				),
+				relaxedResponseFields(pollResponseFields())
+			));
+		org.assertj.core.api.Assertions.assertThat(chargeItemRepository.count())
+			.as("COFFEE 투표 종료 API는 종료 후 최종 응답 기준 정산을 실행한다")
+			.isEqualTo(coffeeChargeCountBeforeClose + 1);
 
 		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/close", campusId, pollId)
 				.header("Authorization", "Bearer " + managerToken))
@@ -894,7 +1030,8 @@ class PollApiRestDocsTest {
 
 	private FieldDescriptor[] userOptionAddRequestFields() {
 		return new FieldDescriptor[] {
-			fieldWithPath("content").description("추가할 투표 선택지명. 앞뒤 공백은 제거되며 기존 선택지명과 대소문자 무시 중복이면 실패")
+			fieldWithPath("content").type(JsonFieldType.STRING).optional().description("커피 외 투표에서 추가할 선택지명. COFFEE 투표에서는 content 단독 또는 menuId와 함께 사용할 수 없음"),
+			fieldWithPath("menuId").type(JsonFieldType.NUMBER).optional().description("COFFEE 투표에서 추가할 커피 메뉴 ID. 커피 외 투표에서는 사용할 수 없음")
 		};
 	}
 
@@ -902,8 +1039,8 @@ class PollApiRestDocsTest {
 		return apiResponseFields(
 			fieldWithPath("data.id").description("투표 선택지 ID"),
 			fieldWithPath("data.content").description("선택지명"),
-			fieldWithPath("data.composeMenuCode").optional().description("커피 메뉴 코드. 사용자 추가 항목은 null"),
-			fieldWithPath("data.priceAmount").description("선택지 가격. 사용자 추가 항목은 0"),
+			fieldWithPath("data.composeMenuCode").optional().description("커피 메뉴 코드. COFFEE 메뉴 추가 항목은 메뉴 snapshot, 커피 외 직접 추가 항목은 null"),
+			fieldWithPath("data.priceAmount").description("선택지 가격. COFFEE 메뉴 추가 항목은 메뉴 snapshot 가격, 커피 외 직접 추가 항목은 0"),
 			fieldWithPath("data.sortOrder").description("정렬 순서"),
 			fieldWithPath("data.userAdded").description("사용자 추가 선택지 여부")
 		);

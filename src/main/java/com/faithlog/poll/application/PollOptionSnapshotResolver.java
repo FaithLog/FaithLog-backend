@@ -3,6 +3,7 @@ package com.faithlog.poll.application;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.CoffeeMenuCatalog;
+import com.faithlog.poll.domain.PollType;
 import com.faithlog.poll.infrastructure.jpa.CoffeeMenuCatalogRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -32,6 +33,25 @@ class PollOptionSnapshotResolver {
 			snapshots.add(resolve(command.content(), command.menuId(), command.priceAmount(), command.sortOrder()));
 		}
 		return sortAndValidate(snapshots);
+	}
+
+	PollOptionSnapshot resolveUserAddedOption(PollType pollType, String content, Long menuId, int sortOrder) {
+		if (pollType == PollType.COFFEE) {
+			if (menuId == null) {
+				throw new BusinessException(ErrorCode.POLL_USER_OPTION_MENU_REQUIRED);
+			}
+			if (content != null && !content.isBlank()) {
+				throw new BusinessException(ErrorCode.POLL_USER_OPTION_CONTENT_NOT_ALLOWED);
+			}
+			return resolve(null, menuId, null, sortOrder);
+		}
+		if (menuId != null) {
+			throw new BusinessException(ErrorCode.POLL_USER_OPTION_MENU_NOT_ALLOWED);
+		}
+		if (content == null || content.isBlank() || content.trim().length() > 200) {
+			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
+		}
+		return new PollOptionSnapshot(content.trim(), null, 0, sortOrder);
 	}
 
 	private PollOptionSnapshot resolve(String content, Long menuId, Integer priceAmount, int sortOrder) {

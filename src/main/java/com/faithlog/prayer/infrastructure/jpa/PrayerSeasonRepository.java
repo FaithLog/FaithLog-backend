@@ -9,5 +9,7 @@ public interface PrayerSeasonRepository extends JpaRepository<PrayerSeason, Long
 
 	Optional<PrayerSeason> findByCampusIdAndStatus(Long campusId, PrayerSeasonStatus status);
 
+	Optional<PrayerSeason> findByCampusIdAndStatusAndEndDateIsNull(Long campusId, PrayerSeasonStatus status);
+
 	boolean existsByCampusIdAndStatus(Long campusId, PrayerSeasonStatus status);
 }
