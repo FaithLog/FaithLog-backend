@@ -627,7 +627,7 @@ class PollServiceTest {
 	}
 
 	@Test
-	void poll_close_only_changes_status_and_does_not_run_coffee_settlement() {
+	void coffee_poll_close_triggers_settlement_and_custom_poll_close_does_not_create_charges() {
 		User manager = saveUser("poll-close-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-close-duty@example.com", UserRole.USER);
 		User member = saveUser("poll-close-member@example.com", UserRole.USER);
@@ -656,7 +656,13 @@ class PollServiceTest {
 
 		assertThat(closed.status()).isEqualTo(PollStatus.CLOSED);
 		assertThat(closed.endsAt()).isBeforeOrEqualTo(Instant.now());
-		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+		assertThat(chargesForCampus(campus.campusId())).hasSize(1);
+		assertThat(chargesForCampus(campus.campusId()).get(0)).satisfies(charge -> {
+			assertThat(charge.paymentCategory()).isEqualTo(PaymentCategory.COFFEE);
+			assertThat(charge.sourceType()).isEqualTo(ChargeSourceType.POLL_RESPONSE);
+			assertThat(charge.amount()).isEqualTo(1800);
+			assertThat(charge.paymentAccountId()).isEqualTo(accountId);
+		});
 		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), member.id()).poll().status())
 			.isEqualTo(PollStatus.CLOSED);
 		assertThat(pollService.getPollResults(campus.campusId(), poll.id(), member.id()).respondedCount())
@@ -671,6 +677,20 @@ class PollServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
 			);
+
+		PollResult customPoll = createOpenCustomPoll(campus.campusId(), manager.id(), "정산 없는 커스텀 투표", SelectionType.SINGLE, false, List.of("참석"));
+		pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			customPoll.id(),
+			member.id(),
+			List.of(customPoll.options().get(0).id()),
+			null
+		));
+		long chargeCountBeforeCustomClose = chargesForCampus(campus.campusId()).size();
+
+		pollService.closePoll(campus.campusId(), customPoll.id(), manager.id());
+
+		assertThat(chargesForCampus(campus.campusId())).hasSize((int) chargeCountBeforeCustomClose);
 	}
 
 	@Test
@@ -809,6 +829,83 @@ class PollServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_ACCESS_FORBIDDEN)
 			);
+	}
+
+	@Test
+	void user_option_add_uses_menu_snapshot_only_for_coffee_polls() {
+		User manager = saveUser("poll-user-option-menu-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-user-option-menu-duty@example.com", UserRole.USER);
+		User member = saveUser("poll-user-option-menu-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "104메뉴옵션캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		Long latteMenuId = menuId("CAFE_LATTE");
+		PollResult coffeePoll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "메뉴 추가 커피 투표");
+
+		PollOptionResult added = pollService.addUserOption(new AddPollOptionCommand(
+			campus.campusId(),
+			coffeePoll.id(),
+			member.id(),
+			null,
+			latteMenuId
+		));
+
+		assertThat(added.content()).isEqualTo("카페라떼");
+		assertThat(added.composeMenuCode()).isEqualTo("CAFE_LATTE");
+		assertThat(added.priceAmount()).isEqualTo(2900);
+		assertThat(added.userAdded()).isTrue();
+		assertThatThrownBy(() -> pollService.addUserOption(new AddPollOptionCommand(
+			campus.campusId(),
+			coffeePoll.id(),
+			member.id(),
+			"텍스트 커피 옵션",
+			null
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_USER_OPTION_MENU_REQUIRED)
+			);
+
+		PollResult customPoll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"메뉴 금지 커스텀 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			true,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("기존", null, 0, 1))
+		));
+
+		assertThatThrownBy(() -> pollService.addUserOption(new AddPollOptionCommand(
+			campus.campusId(),
+			customPoll.id(),
+			member.id(),
+			"커스텀 텍스트",
+			latteMenuId
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_USER_OPTION_MENU_NOT_ALLOWED)
+			);
+
+		PollOptionResult customAdded = pollService.addUserOption(new AddPollOptionCommand(
+			campus.campusId(),
+			customPoll.id(),
+			member.id(),
+			"커스텀 텍스트",
+			null
+		));
+
+		assertThat(customAdded.content()).isEqualTo("커스텀 텍스트");
+		assertThat(customAdded.composeMenuCode()).isNull();
+		assertThat(customAdded.priceAmount()).isZero();
 	}
 
 	@Test

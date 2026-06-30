@@ -56,6 +56,7 @@ public class PollService {
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 	private final PollOptionSnapshotResolver optionSnapshotResolver;
 	private final PollAccessService pollAccessService;
+	private final CoffeePollSettlementService coffeePollSettlementService;
 
 	public PollService(
 		PollRepository pollRepository,
@@ -69,7 +70,8 @@ public class PollService {
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
 		PollOptionSnapshotResolver optionSnapshotResolver,
-		PollAccessService pollAccessService
+		PollAccessService pollAccessService,
+		CoffeePollSettlementService coffeePollSettlementService
 	) {
 		this.pollRepository = pollRepository;
 		this.pollOptionRepository = pollOptionRepository;
@@ -83,6 +85,7 @@ public class PollService {
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
 		this.optionSnapshotResolver = optionSnapshotResolver;
 		this.pollAccessService = pollAccessService;
+		this.coffeePollSettlementService = coffeePollSettlementService;
 	}
 
 	@Transactional
@@ -144,6 +147,9 @@ public class PollService {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}
 		poll.closeAt(Instant.now());
+		if (poll.pollType() == PollType.COFFEE) {
+			coffeePollSettlementService.settleClosedCoffeePoll(campusId, pollId);
+		}
 		return toResult(poll);
 	}
 
@@ -155,22 +161,29 @@ public class PollService {
 		if (!poll.allowUserOptionAdd()) {
 			throw new BusinessException(ErrorCode.POLL_USER_OPTION_ADD_DISABLED);
 		}
-		String content = normalizeOptionContent(command.content());
 		List<PollOption> options = pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id());
-		boolean duplicated = options.stream()
-			.map(PollOption::content)
-			.anyMatch(existingContent -> existingContent.equalsIgnoreCase(content));
-		if (duplicated) {
-			throw new BusinessException(ErrorCode.POLL_OPTION_DUPLICATE_CONTENT);
-		}
 		int nextSortOrder = options.stream()
 			.mapToInt(PollOption::sortOrder)
 			.max()
 			.orElse(0) + 1;
+		PollOptionSnapshot snapshot = optionSnapshotResolver.resolveUserAddedOption(
+			poll.pollType(),
+			command.content(),
+			command.menuId(),
+			nextSortOrder
+		);
+		boolean duplicated = options.stream()
+			.map(PollOption::content)
+			.anyMatch(existingContent -> existingContent.equalsIgnoreCase(snapshot.content()));
+		if (duplicated) {
+			throw new BusinessException(ErrorCode.POLL_OPTION_DUPLICATE_CONTENT);
+		}
 		return PollOptionResult.from(pollOptionRepository.save(PollOption.createUserAdded(
 			poll.id(),
-			content,
-			nextSortOrder,
+			snapshot.content(),
+			snapshot.composeMenuCode(),
+			snapshot.priceAmount(),
+			snapshot.sortOrder(),
 			command.requesterId()
 		)));
 	}
@@ -404,14 +417,6 @@ public class PollService {
 		if (!account.isActive() || !account.campusId().equals(campusId) || account.accountType() != PaymentCategory.COFFEE) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
 		}
-	}
-
-	private String normalizeOptionContent(String content) {
-		String normalized = content == null ? "" : content.trim();
-		if (normalized.isBlank() || normalized.length() > 200) {
-			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
-		}
-		return normalized;
 	}
 
 	private PollResult toResult(Poll poll) {

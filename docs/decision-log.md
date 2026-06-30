@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-30 - Issue #104 User-Added Poll Option Menu Contract
+
+- Context: Issue #104 fixes the coffee QA follow-up where user-added COFFEE poll options were being saved from free-text content with `composeMenuCode = null` and `priceAmount = 0`, which made closed coffee poll settlement unable to charge the real menu price.
+- Decision: `POST /api/v1/campuses/{campusId}/polls/{pollId}/options` keeps the existing `{ "content": "..." }` contract for CUSTOM and other non-COFFEE polls. If `menuId` is present for a non-COFFEE poll, including when `content` is also present, the API must return `400`.
+- Decision: For COFFEE polls, `menuId` is the only allowed user-added option contract. The server looks up the active coffee menu catalog row and stores snapshots in `poll_options`: `content = menu.name`, `composeMenuCode = menu.menuCode`, and `priceAmount = menu.priceAmount`. A COFFEE poll request that sends only `content` must return `400`.
+- Impact: Issue #104 must add failing tests before implementation, add or reuse domain-prefixed poll error codes for invalid option-add contracts, update Spring REST Docs for the expanded request body, and preserve the existing `optionIds` poll response contract. Swagger documentation annotations remain prohibited.
+
 ### 2026-06-29 - Issue #100 Coffee Duty Access And My Duty Status Contract
 
 - Context: Frontend login and `GET /api/v1/users/me` responses were returning empty `campusMemberships` even when users had ACTIVE campus memberships, and normal `USER` accounts assigned as active `DutyType.COFFEE` could not create coffee polls or manage coffee payment accounts because existing policies required campus administrator roles.

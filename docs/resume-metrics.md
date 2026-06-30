@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-29, 258 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-30, 259 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 105 snippet groups (2026-06-29) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-29) | 성공 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 109 snippet groups (2026-06-30) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-30) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -28,6 +28,18 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-06-30
+
+- #104 커피 담당자 계좌 권한과 커피 투표 정산 흐름 보강:
+  - 작업 기준: Issue #104 `[Fix] 커피 담당자 계좌 권한과 커피 투표 정산 흐름 보강`, Project `FaithLog Backend Kanban` Status/Kanban Status `In Progress`, 브랜치 `fix/104-coffee-duty-settlement-flow`.
+  - PM 결정 기록: 커피 외 투표의 `menuId`는 400으로 금지하고, COFFEE 투표 사용자 옵션 추가는 `menuId` 전용 계약으로 고정했다. `docs/decision-log.md`에 2026-06-30 결정으로 기록했다.
+  - TDD 실패 확인: 구현 전 `PollServiceTest`에 COFFEE close 정산 트리거와 COFFEE 사용자 옵션 `menuId` snapshot 테스트를 추가했고, `AddPollOptionCommand` 시그니처와 신규 ErrorCode 부재로 `compileTestJava` 실패를 확인했다.
+  - 구현 범위: `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/close`에서 COFFEE 투표만 종료 후 `CoffeePollSettlementService`를 호출한다. CUSTOM 등 커피 외 투표는 종료만 수행한다. `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`는 COFFEE 투표에서 `menuId` 기반 메뉴명/코드/가격 snapshot을 저장하고, 커피 외 투표의 `menuId` 및 COFFEE 투표의 content-only 요청을 400으로 차단한다.
+  - 회귀 고정: #100 계좌/투표/정산 권한 테스트 묶음과 #39 정산 멱등/terminal 보호 테스트 묶음을 함께 실행해 active COFFEE duty USER의 COFFEE 범위 허용, PENALTY/CUSTOM/다른 캠퍼스 403 차단, close 후 중복 charge 방지, terminal charge 보호를 확인했다.
+  - Spring REST Docs: 사용자 옵션 추가 request에 `content`/`menuId` 선택 필드를 문서화하고, `poll-user-option-add-coffee-menu-success`, `poll-user-option-add-menu-not-allowed-error`, `poll-user-option-add-coffee-content-only-error`, `poll-close-coffee-settlement-success` snippets를 추가했다. `src/docs/asciidoc/index.adoc`의 오래된 "content만 허용" 및 "close는 정산 안 함" 문구를 #104 정책으로 갱신했다.
+  - 검증: focused poll service/docs 테스트 성공, billing/poll 권한 확장 focused 테스트 성공, `./gradlew test` 성공(259 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공.
+  - Docker/API QA: 격리 project `faithlog-qa104api`에서 health `UP` 확인 후 실제 HTTP API로 회원가입/로컬 QA용 MANAGER role 부여/캠퍼스 생성/ACTIVE 멤버 가입/COFFEE 담당 지정/COFFEE 계좌 등록 및 비활성화/PENALTY 계좌 등록 403/PENALTY 계좌 비활성화 403/다른 캠퍼스 COFFEE 계좌 등록 403/COFFEE 투표 생성/CUSTOM 투표 생성 403/일반 멤버 menuId 옵션 추가 snapshot(`AMERICANO_HOT`, 1,500원)/content-only 400/응답 저장/close 후 COFFEE charge 1건 1,500원 생성/중복 close 409/COFFEE admin charge 조회 200/PENALTY admin charge 조회 403/비멤버 403/무인증 401을 검증했다. QA 종료 시 `docker compose -p faithlog-qa104api down`으로 같은 project만 정리했고 volume은 삭제하지 않았다.
 
 ### 2026-06-29
 

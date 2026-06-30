@@ -1802,7 +1802,7 @@ include::{snippets}/poll-create-with-user-option-add-success/response-fields.ado
 
 `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`
 
-ACTIVE 캠퍼스 멤버가 `allowUserOptionAdd=true`인 OPEN 투표에 선택지를 추가한다. 서버는 `content`를 trim하고 기존 선택지와 대소문자 무시 중복을 검증한다. 현재 이 API는 `{ "content": "새 항목" }`만 받으므로 사용자 추가 선택지는 `composeMenuCode=null`, `priceAmount=0`으로 저장된다. 커피 투표에서는 정산 금액이 중요하므로 메뉴 카탈로그 기반 사용자 옵션 추가가 필요한지 별도 제품/API 결정이 필요하다.
+ACTIVE 캠퍼스 멤버가 `allowUserOptionAdd=true`인 OPEN 투표에 선택지를 추가한다. CUSTOM 등 커피 외 투표는 기존처럼 `{ "content": "새 항목" }`만 허용한다. COFFEE 투표는 `{ "menuId": 1 }`만 허용하며, 서버가 커피 메뉴 카탈로그에서 메뉴명, 메뉴 코드, 가격 snapshot을 `poll_options`에 복사 저장한다.
 
 ==== Request
 
@@ -1836,11 +1836,57 @@ include::{snippets}/poll-user-option-add-duplicate-error/http-response.adoc[]
 
 include::{snippets}/poll-user-option-add-duplicate-error/response-fields.adoc[]
 
+=== Add Coffee User Poll Option
+
+`POST /api/v1/campuses/{campusId}/polls/{pollId}/options`
+
+COFFEE 투표의 사용자 추가 선택지는 `menuId` 기반 계약만 허용한다. `content`만 보내거나 커피 외 투표에 `menuId`를 보내면 `400`으로 실패한다.
+
+==== Request
+
+include::{snippets}/poll-user-option-add-coffee-menu-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-user-option-add-coffee-menu-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-user-option-add-coffee-menu-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-user-option-add-coffee-menu-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-user-option-add-coffee-menu-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-user-option-add-coffee-menu-success/response-fields.adoc[]
+
+=== Add User Poll Option menuId Not Allowed Error
+
+include::{snippets}/poll-user-option-add-menu-not-allowed-error/http-request.adoc[]
+
+include::{snippets}/poll-user-option-add-menu-not-allowed-error/http-response.adoc[]
+
+include::{snippets}/poll-user-option-add-menu-not-allowed-error/response-fields.adoc[]
+
+=== Add Coffee User Poll Option Content Only Error
+
+include::{snippets}/poll-user-option-add-coffee-content-only-error/http-request.adoc[]
+
+include::{snippets}/poll-user-option-add-coffee-content-only-error/http-response.adoc[]
+
+include::{snippets}/poll-user-option-add-coffee-content-only-error/response-fields.adoc[]
+
 === Close Poll
 
 `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/close`
 
-관리자가 OPEN 투표를 수동 종료한다. 이 API는 종료만 수행하며 커피 정산, 알림, 청구 생성은 실행하지 않는다.
+관리자가 OPEN 투표를 수동 종료한다. CUSTOM 등 커피 외 투표는 종료만 수행한다. COFFEE 투표는 종료 후 같은 트랜잭션에서 CLOSED 커피 투표 정산을 실행해 최종 응답 기준 `COFFEE` 청구를 생성 또는 갱신한다.
 
 ==== Request
 
@@ -1861,6 +1907,14 @@ include::{snippets}/poll-close-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/poll-close-success/response-fields.adoc[]
+
+=== Close Coffee Poll With Settlement
+
+include::{snippets}/poll-close-coffee-settlement-success/http-request.adoc[]
+
+include::{snippets}/poll-close-coffee-settlement-success/http-response.adoc[]
+
+include::{snippets}/poll-close-coffee-settlement-success/response-fields.adoc[]
 
 === Close Poll Invalid State Error
 
