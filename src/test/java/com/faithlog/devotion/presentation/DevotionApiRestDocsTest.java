@@ -490,12 +490,13 @@ class DevotionApiRestDocsTest {
 	}
 
 	@Test
-	void documents_devotion_missing_penalty_account() throws Exception {
-		String managerToken = signupAndLogin("docs-devotion-no-account-manager@example.com", UserRole.MANAGER);
-		JsonNode campus = createCampus(managerToken, "86캠");
+		void documents_devotion_missing_penalty_account() throws Exception {
+			String managerToken = signupAndLogin("docs-devotion-no-account-manager@example.com", UserRole.MANAGER);
+			JsonNode campus = createCampus(managerToken, "86캠");
+			createPenaltyRules(campus.path("campusId").asLong());
 
-		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
-				campus.path("campusId").asLong(),
+			mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+					campus.path("campusId").asLong(),
 				"2026-06-15")
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -758,12 +759,7 @@ class DevotionApiRestDocsTest {
 	}
 
 	private void createPenaltyPrerequisites(long campusId, long managerId, String accountNumber) {
-		penaltyRuleRepository.saveAllAndFlush(List.of(
-			PenaltyRule.create(campusId, PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
-			PenaltyRule.create(campusId, PenaltyRuleType.PRAYER, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
-			PenaltyRule.create(campusId, PenaltyRuleType.BIBLE_READING, PenaltyCalculationType.MISSING_COUNT, 5, 0, 300),
-			PenaltyRule.create(campusId, PenaltyRuleType.SATURDAY_LATE, PenaltyCalculationType.LATE_MINUTE, 0, 1000, 100)
-		));
+		createPenaltyRules(campusId);
 		billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
 			managerId,
@@ -773,6 +769,15 @@ class DevotionApiRestDocsTest {
 			accountNumber,
 			"벌금회계",
 			null
+		));
+	}
+
+	private void createPenaltyRules(long campusId) {
+		penaltyRuleRepository.saveAllAndFlush(List.of(
+			PenaltyRule.create(campusId, PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.PRAYER, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.BIBLE_READING, PenaltyCalculationType.MISSING_COUNT, 5, 0, 300),
+			PenaltyRule.create(campusId, PenaltyRuleType.SATURDAY_LATE, PenaltyCalculationType.LATE_MINUTE, 0, 1000, 100)
 		));
 	}
 

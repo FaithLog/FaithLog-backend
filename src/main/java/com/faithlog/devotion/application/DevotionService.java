@@ -106,9 +106,6 @@ public class DevotionService {
 			.findByCampusIdAndUserIdAndWeekStartDate(command.campusId(), requester.userId(), command.weekStartDate())
 			.orElse(null);
 		validateNotSubmitted(weeklyRecord);
-		if (command.submit()) {
-			penaltyChargePort.requireActivePenaltyAccount(command.campusId());
-		}
 		if (weeklyRecord == null) {
 			weeklyRecord = weeklyRecordRepository.save(WeeklyDevotionRecord.create(
 				command.campusId(),
@@ -168,6 +165,9 @@ public class DevotionService {
 			weeklyRecord.saturdayLateMinutes()
 		), activeRules);
 
+		if (calculation.totalAmount() == 0) {
+			return;
+		}
 		penaltyChargePort.createPenaltyCharge(new DevotionPenaltyChargeCommand(
 			command.campusId(),
 			userId,

@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-30 - Issue #109 Zero Penalty Devotion Submission Charge Policy
+
+- Context: Issue #109 fixes weekly devotion final submission creating or exposing `UNPAID` `PENALTY` charge rows even when the calculated penalty total is 0 KRW.
+- Decision: When a weekly devotion request is submitted with `submit = true` and the calculated penalty `totalAmount` is 0, the backend must not create a `charge_items` row for `paymentCategory = PENALTY`. A 0 KRW `UNPAID` penalty charge must not appear in member or admin charge lists.
+- Decision: Active `PENALTY` payment account lookup is required only when the calculated penalty amount is greater than 0. If the calculated amount is 0, weekly submission succeeds even when the campus has no active `PENALTY` payment account.
+- Impact: Issue #109 must keep the existing weekly devotion response shape, DB schema, `submit = false` draft behavior, duplicate final submission blocking, submitted-week daily edit blocking, and positive penalty charge creation behavior. Tests must cover zero penalty with and without an active `PENALTY` account plus positive penalty charge regression.
+
 ### 2026-06-30 - Issue #106 Prayer Season And Group Management API Contract
 
 - Context: Issue #106 extends the prayer request MVP with admin-facing current season/group management reads, assignable member lookup, duplicate active-group assignment validation, weekly board response fields, and a current-user prayer submission API.

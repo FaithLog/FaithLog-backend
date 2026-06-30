@@ -143,6 +143,12 @@ sourceId = weekly_devotion_records.id
 status = UNPAID
 ```
 
+계산된 벌금 총액이 0원이면 `charge_items`에 `PENALTY` row를 생성하지 않는다.
+
+계산된 벌금 총액이 0원인 주간 제출은 활성 `PENALTY` 계좌가 없어도 성공해야 한다.
+
+계산된 벌금 총액이 1원 이상일 때만 활성 `PENALTY` 계좌를 확인하고 `PENALTY` 청구를 생성한다.
+
 중복 방지 기준:
 
 ```text
@@ -173,7 +179,7 @@ PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate
 
 계좌는 기존 미납 청구가 있어도 비활성화할 수 있다. 새 활성 계좌가 등록되면 기존 `UNPAID` 청구는 새 활성 계좌로 재연결하고 계좌 snapshot도 새 계좌 정보로 갱신한다. 이미 종료된 `PAID`, `WAIVED`, `CANCELED` 청구의 snapshot은 과거 기록으로 유지한다.
 
-벌금 청구 생성 시 활성 PENALTY 계좌를 자동 연결한다.
+1원 이상 벌금 청구 생성 시 활성 PENALTY 계좌를 자동 연결한다.
 
 ```text
 payment_accounts.account_type = PENALTY
@@ -197,7 +203,7 @@ account_number_snapshot
 account_holder_snapshot
 ```
 
-활성 계좌가 없는 경우에는 조용히 청구를 생성하지 말고, 명확한 예외 또는 실패 결과를 반환한다.
+필수 활성 계좌가 없는 경우에는 조용히 청구를 생성하지 말고, 명확한 예외 또는 실패 결과를 반환한다. 단, 계산된 벌금 총액이 0원인 경건생활 제출은 청구를 생성하지 않으므로 활성 PENALTY 계좌를 요구하지 않는다.
 
 Issue #34는 청구 기반 서비스까지만 구현하고, 실제 경건생활 제출과 CLOSED 커피 투표 정산 흐름 연결은 각각 Issue #33과 Issue #39에서 처리한다.
 
