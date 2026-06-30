@@ -37,6 +37,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -353,6 +354,72 @@ class DevotionServiceTest {
 	}
 
 	@Test
+	void updateWeeklyCheck_zero_penalty_submit_does_not_create_charge() {
+		User manager = saveUser("devotion-zero-charge-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "75캠");
+		User member = saveUser("devotion-zero-charge-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-107");
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		WeeklyDevotionResult result = devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			fullyCheckedWeekdays(weekStartDate),
+			0,
+			true
+		));
+
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(campus.campusId(), member.id(), weekStartDate)
+			.orElseThrow();
+		assertThat(result.submittedAt()).isNotNull();
+		assertThat(result.weeklyRecordId()).isEqualTo(weeklyRecord.id());
+		assertThat(chargeItemRepository.count()).isZero();
+		assertThat(chargeItemRepository.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+			campus.campusId(),
+			member.id(),
+			PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD,
+			weeklyRecord.id()
+		)).isEmpty();
+	}
+
+	@Test
+	void updateWeeklyCheck_zero_penalty_submit_succeeds_without_active_penalty_account() {
+		User manager = saveUser("devotion-zero-no-account-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "76캠");
+		User member = saveUser("devotion-zero-no-account-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyRules(campus.campusId());
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		WeeklyDevotionResult result = devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(),
+			member.id(),
+			weekStartDate,
+			fullyCheckedWeekdays(weekStartDate),
+			0,
+			true
+		));
+
+		assertThat(result.submittedAt()).isNotNull();
+		assertThat(result.quietTimeCount()).isEqualTo(5);
+		assertThat(result.prayerCount()).isEqualTo(5);
+		assertThat(result.bibleReadingCount()).isEqualTo(5);
+		assertThat(chargeItemRepository.count()).isZero();
+		assertThat(weeklyRecordRepository.findByCampusIdAndUserIdAndWeekStartDate(
+			campus.campusId(),
+			member.id(),
+			weekStartDate
+		))
+			.get()
+			.satisfies(weeklyRecord -> assertThat(weeklyRecord.submittedAt()).isNotNull());
+	}
+
+	@Test
 	void updateWeeklyCheck_submit_false_does_not_create_or_update_penalty_charge() {
 		User manager = saveUser("devotion-draft-charge-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "70캠");
@@ -383,6 +450,7 @@ class DevotionServiceTest {
 	}
 
 	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	void updateWeeklyCheck_without_active_penalty_account_fails_whole_submission_without_submittedAt_or_charge() {
 		User manager = saveUser("devotion-no-account-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "71캠");
@@ -842,6 +910,16 @@ class DevotionServiceTest {
 			PenaltyRule.create(campusId, PenaltyRuleType.BIBLE_READING, PenaltyCalculationType.MISSING_COUNT, 5, 0, 300),
 			PenaltyRule.create(campusId, PenaltyRuleType.SATURDAY_LATE, PenaltyCalculationType.LATE_MINUTE, 0, 1000, 100)
 		));
+	}
+
+	private List<DevotionDailyCheckCommand> fullyCheckedWeekdays(LocalDate weekStartDate) {
+		return List.of(
+			new DevotionDailyCheckCommand(weekStartDate, true, true, true),
+			new DevotionDailyCheckCommand(weekStartDate.plusDays(1), true, true, true),
+			new DevotionDailyCheckCommand(weekStartDate.plusDays(2), true, true, true),
+			new DevotionDailyCheckCommand(weekStartDate.plusDays(3), true, true, true),
+			new DevotionDailyCheckCommand(weekStartDate.plusDays(4), true, true, true)
+		);
 	}
 
 	private User saveUser(String email, UserRole role) {

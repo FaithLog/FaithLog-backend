@@ -281,8 +281,9 @@ Rules:
 - Devotion submission and admin missing-user checks are based on `weekly_devotion_records.submitted_at`, not on daily row existence.
 - `submit = false` weekly saves are allowed only before final submission and must not create or update `PENALTY` charges.
 - Weekly devotion submission is one-time. If `weekly_devotion_records.submitted_at` already exists for the same campus/user/week, another `submit = true` request must fail.
-- The first `submit = true` weekly submission calculates penalties and creates one combined `PENALTY` charge through issue #33.
-- If there is no active `PENALTY` account, issue #33 must fail the whole `submit = true` request with the user-facing message `관리자에게 문의하세요` and must not create a `charge_items` row.
+- The first `submit = true` weekly submission calculates penalties and creates one combined `PENALTY` charge through issue #33 when the calculated total is greater than 0 KRW.
+- If the calculated penalty total is 0 KRW, do not create a `charge_items` row and do not require an active `PENALTY` account.
+- If the calculated penalty total is greater than 0 KRW and there is no active `PENALTY` account, issue #33 must fail the whole `submit = true` request with the user-facing message `관리자에게 문의하세요` and must not create a `charge_items` row.
 
 Penalty table:
 
@@ -386,7 +387,7 @@ Issue #34 is P0.
 - Do not store administrator status-change reasons in Issue #35.
 - Charge creation must save `payment_account_id`, `bank_name_snapshot`, `account_number_snapshot`, and `account_holder_snapshot`.
 - Do not create incomplete `charge_items` rows when a required account is missing.
-- If the active `PENALTY` account is missing during penalty charge creation, fail with the user-facing message `관리자에게 문의하세요`.
+- If the active `PENALTY` account is missing during positive-amount penalty charge creation, fail with the user-facing message `관리자에게 문의하세요`.
 - Manual admin charge creation is not part of the MVP.
 - Issue #34 implements the billing foundation service only. Devotion and poll flows connect to it in Issue #33 and Issue #39.
 - Detailed API contracts must be documented with Spring REST Docs tests. Swagger/springdoc remains only for simple API exploration.

@@ -13,7 +13,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-30, 267 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-30, 269 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
@@ -30,6 +30,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## Daily Monitoring Notes
 
 ### 2026-06-30
+
+- #109 경건생활 벌금 0원 청구 생성 방지:
+  - 작업 기준: Issue #109 `[Fix] 경건생활 벌금 0원 청구 생성 방지`, 브랜치 `fix/109-zero-penalty-charge-skip`.
+  - TDD 실패 확인: 구현 전 `DevotionServiceTest`에 0원 벌금 제출 시 charge 미생성, 활성 PENALTY 계좌 없이 0원 제출 성공 테스트를 추가했고, `./gradlew test --tests 'com.faithlog.devotion.application.DevotionServiceTest'`가 19 tests 중 2 failures로 실패했다. 실패 원인은 기존 코드가 제출 전 활성 PENALTY 계좌를 선확인하고 0원이어도 billing port를 호출하는 구조였다.
+  - 구현 범위: `DevotionService.createPenaltyCharge(...)`에서 계산된 `totalAmount == 0`이면 billing port 호출 전 반환하도록 변경했다. 1원 이상 벌금은 기존 `BillingService.createPenaltyCharge(...)` 경로를 유지해 활성 계좌 확인, 계좌 snapshot 저장, 기존 #33 벌금 자동 생성 정책을 보존했다.
+  - 회귀 보강: 양수 벌금 + 활성 PENALTY 계좌 없음 케이스는 계속 `BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING`으로 실패하도록 service/docs 테스트 fixture를 양수 벌금 조건으로 고정했다.
+  - 문서화: `docs/decision-log.md`, `docs/backend-implementation-policy.md`, `docs/codex/FAITHLOG_CODEX_HOOK.md`에 0원 벌금 청구 미생성 및 0원 제출 시 활성 PENALTY 계좌 미요구 정책을 기록했다.
+  - 검증: focused devotion service/docs 테스트 성공, `./gradlew test` 성공(269 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `git diff --check` 성공. Swagger 문서화 annotation 추가 0건, #109 변경 파일 기준 금지어/단수 `optionId` 추가 없음.
+  - Docker QA: 코드 변경이 서비스 분기와 테스트 보강에 한정되어 있고 동일 흐름을 Spring Boot 통합 테스트와 REST Docs 테스트로 검증했으므로 별도 Docker API QA는 수행하지 않았다.
 
 - #106 기도 운영 기간과 기도조 관리 조회 API 보강:
   - 작업 기준: Issue #106 `[Feat] 기도 운영 기간과 기도조 관리 조회 API 보강`, Project `FaithLog Backend Kanban` Status/Kanban Status `In Progress`, 브랜치 `feat/106-prayer-season-group-management`.
