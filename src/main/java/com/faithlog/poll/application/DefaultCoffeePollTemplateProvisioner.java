@@ -58,6 +58,7 @@ public class DefaultCoffeePollTemplateProvisioner implements CampusCreationSideE
 			null,
 			true,
 			false,
+			false,
 			DayOfWeek.SUNDAY,
 			LocalTime.of(20, 0),
 			DayOfWeek.MONDAY,
