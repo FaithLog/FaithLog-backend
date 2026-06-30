@@ -120,6 +120,7 @@ public class PrayerService {
 				throw new BusinessException(ErrorCode.PRAYER_MEMBER_NOT_FOUND);
 			}
 		}
+		validateNoOtherActiveGroupAssignment(season.id(), group.id(), requestedUserIds);
 
 		Map<Long, PrayerGroupMember> existingMembers = groupMemberRepository.findByGroupIdOrderByIdAsc(group.id())
 			.stream()
@@ -141,20 +142,62 @@ public class PrayerService {
 	}
 
 	@Transactional(readOnly = true)
+	public PrayerSeasonResult getCurrentSeason(Long campusId, Long requesterId) {
+		requirePrayerManager(campusId, requesterId);
+		return findCurrentSeason(campusId)
+			.map(PrayerSeasonResult::from)
+			.orElse(null);
+	}
+
+	@Transactional(readOnly = true)
+	public List<PrayerGroupResult> getSeasonGroups(Long seasonId, Long requesterId) {
+		PrayerSeason season = getSeason(seasonId);
+		requirePrayerManager(season.campusId(), requesterId);
+		return groupRepository.findBySeasonIdAndIsActiveTrueOrderBySortOrderAscIdAsc(season.id())
+			.stream()
+			.map(this::toGroupResult)
+			.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public List<PrayerAssignableMemberResult> getAssignableMembers(Long seasonId, Long requesterId) {
+		PrayerSeason season = getSeason(seasonId);
+		requirePrayerManager(season.campusId(), requesterId);
+		List<PrayerGroup> groups = groupRepository.findBySeasonIdAndIsActiveTrueOrderBySortOrderAscIdAsc(season.id());
+		Map<Long, PrayerGroup> groupById = groups.stream()
+			.collect(Collectors.toMap(PrayerGroup::id, Function.identity()));
+		Map<Long, Long> assignedGroupIdByUserId = new HashMap<>();
+		if (!groups.isEmpty()) {
+			List<Long> groupIds = groups.stream().map(PrayerGroup::id).toList();
+			for (PrayerGroupMember member : groupMemberRepository.findByGroupIdInAndIsActiveTrueOrderByIdAsc(groupIds)) {
+				assignedGroupIdByUserId.putIfAbsent(member.userId(), member.groupId());
+			}
+		}
+		return campusMemberRepository.findByCampusIdAndStatusOrderByIdAsc(season.campusId(), CampusMemberStatus.ACTIVE)
+			.stream()
+			.map(CampusMember::userId)
+			.map(userId -> toAssignableMember(userId, assignedGroupIdByUserId, groupById))
+			.toList();
+	}
+
+	@Transactional(readOnly = true)
 	public PrayerWeekBoardResult getWeeklyBoard(Long campusId, LocalDate weekStartDate, Long requesterId) {
 		validateWeekStartDate(weekStartDate);
-		requirePrayerReader(campusId, requesterId);
-		PrayerSeason season = getActiveSeason(campusId);
+		CampusUserLookupResult requester = requirePrayerReader(campusId, requesterId);
+		PrayerSeason season = findCurrentSeason(campusId).orElse(null);
+		if (season == null) {
+			return PrayerWeekBoardResult.empty(campusId, weekStartDate);
+		}
 		PrayerWeek week = weekRepository.findByCampusIdAndSeasonIdAndWeekStartDate(campusId, season.id(), weekStartDate).orElse(null);
 		List<PrayerSubmission> submissions = week == null ? List.of() : submissionRepository.findByPrayerWeekId(week.id());
-		return buildBoard(campusId, season, weekStartDate, week, submissions);
+		return buildBoard(campusId, season, weekStartDate, week, submissions, requester);
 	}
 
 	@Transactional
 	public PrayerWeekBoardResult saveSubmissions(SavePrayerSubmissionsCommand command) {
 		validateWeekStartDate(command.weekStartDate());
 		CampusUserLookupResult requester = getActiveUser(command.requesterId(), ErrorCode.AUTH_UNAUTHORIZED);
-		PrayerSeason season = getActiveSeason(command.campusId());
+		PrayerSeason season = getCurrentSeasonOrThrow(command.campusId());
 		TargetMembers targetMembers = loadTargetMembers(command.campusId(), season.id());
 		requireSubmissionPermission(command.campusId(), requester, command.submissions(), targetMembers);
 		Map<Long, PrayerSubmissionCommand> requestedByUserId = requestedSubmissionMap(command.submissions());
@@ -191,7 +234,40 @@ public class PrayerService {
 			}
 		}
 		List<PrayerSubmission> submissions = submissionRepository.findByPrayerWeekId(week.id());
-		return buildBoard(command.campusId(), season, command.weekStartDate(), week, submissions);
+		return buildBoard(command.campusId(), season, command.weekStartDate(), week, submissions, requester);
+	}
+
+	@Transactional
+	public PrayerWeekBoardResult saveMySubmission(SaveMyPrayerSubmissionCommand command) {
+		validateWeekStartDate(command.weekStartDate());
+		CampusUserLookupResult requester = getActiveUser(command.requesterId(), ErrorCode.AUTH_UNAUTHORIZED);
+		PrayerSeason season = getCurrentSeasonOrThrow(command.campusId());
+		requirePrayerReader(command.campusId(), requester.userId());
+		TargetMembers targetMembers = loadTargetMembers(command.campusId(), season.id());
+		Long groupId = targetMembers.groupIdByUserId().get(requester.userId());
+		if (groupId == null) {
+			throw new BusinessException(ErrorCode.PRAYER_GROUP_ASSIGNMENT_REQUIRED);
+		}
+
+		PrayerWeek week = weekRepository
+			.findByCampusIdAndSeasonIdAndWeekStartDate(command.campusId(), season.id(), command.weekStartDate())
+			.orElseGet(() -> weekRepository.save(PrayerWeek.create(command.campusId(), season.id(), command.weekStartDate())));
+		Instant now = Instant.now();
+		PrayerSubmission existing = submissionRepository.findByPrayerWeekIdAndUserId(week.id(), requester.userId()).orElse(null);
+		if (existing == null) {
+			submissionRepository.save(PrayerSubmission.create(
+				week.id(),
+				groupId,
+				requester.userId(),
+				command.content(),
+				requester.userId(),
+				now
+			));
+		} else {
+			submissionRepository.updateContent(existing.id(), command.content(), requester.userId(), now);
+		}
+		List<PrayerSubmission> submissions = submissionRepository.findByPrayerWeekId(week.id());
+		return buildBoard(command.campusId(), season, command.weekStartDate(), week, submissions, requester);
 	}
 
 	private void updateExistingSubmission(
@@ -215,7 +291,10 @@ public class PrayerService {
 	private PrayerGroupResult toGroupResult(PrayerGroup group) {
 		List<PrayerGroupMemberResult> members = groupMemberRepository.findByGroupIdAndIsActiveTrueOrderByIdAsc(group.id())
 			.stream()
-			.map(member -> new PrayerGroupMemberResult(member.userId(), getUserOrThrow(member.userId()).name()))
+			.map(member -> {
+				CampusUserLookupResult user = getUserOrThrow(member.userId());
+				return new PrayerGroupMemberResult(member.userId(), user.name(), user.email());
+			})
 			.toList();
 		return PrayerGroupResult.of(group, members);
 	}
@@ -225,18 +304,21 @@ public class PrayerService {
 		PrayerSeason season,
 		LocalDate weekStartDate,
 		PrayerWeek week,
-		List<PrayerSubmission> submissions
+		List<PrayerSubmission> submissions,
+		CampusUserLookupResult requester
 	) {
 		TargetMembers targetMembers = loadTargetMembers(campusId, season.id());
 		Map<Long, PrayerSubmission> submissionsByUserId = submissions.stream()
 			.collect(Collectors.toMap(PrayerSubmission::userId, Function.identity(), (left, right) -> left));
+		Long myGroupId = targetMembers.groupIdByUserId().get(requester.userId());
+		boolean canEditAll = requester.isAdmin() || isCampusManager(campusId, requester.userId());
 		List<PrayerGroupBoardResult> groups = targetMembers.groups().stream()
 			.map(group -> {
 				List<PrayerMemberSubmissionResult> members = targetMembers.membersByGroupId().getOrDefault(group.id(), List.of())
 					.stream()
-					.map(member -> toMemberSubmission(member, submissionsByUserId.get(member.userId())))
+					.map(member -> toMemberSubmission(member, submissionsByUserId.get(member.userId()), canEditAll, requester.userId(), myGroupId))
 					.toList();
-				return new PrayerGroupBoardResult(group.id(), group.name(), group.sortOrder(), members);
+				return new PrayerGroupBoardResult(group.id(), group.seasonId(), group.name(), group.sortOrder(), members);
 			})
 			.toList();
 		long targetMemberCount = groups.stream()
@@ -250,6 +332,8 @@ public class PrayerService {
 			campusId,
 			weekStartDate,
 			weekStartDate.plusDays(6),
+			PrayerSeasonResult.from(season),
+			myGroupId,
 			week == null ? PrayerWeekStatus.OPEN.name() : week.status().name(),
 			submittedCount,
 			targetMemberCount,
@@ -257,16 +341,25 @@ public class PrayerService {
 		);
 	}
 
-	private PrayerMemberSubmissionResult toMemberSubmission(PrayerGroupMember member, PrayerSubmission submission) {
+	private PrayerMemberSubmissionResult toMemberSubmission(
+		PrayerGroupMember member,
+		PrayerSubmission submission,
+		boolean canEditAll,
+		Long requesterId,
+		Long requesterGroupId
+	) {
 		CampusUserLookupResult user = getUserOrThrow(member.userId());
+		boolean editable = canEditAll || (member.userId().equals(requesterId) && member.groupId().equals(requesterGroupId));
 		if (submission == null) {
-			return new PrayerMemberSubmissionResult(user.userId(), user.name(), null, null, 0, null);
+			return new PrayerMemberSubmissionResult(user.userId(), user.name(), null, null, false, editable, 0, null);
 		}
 		return new PrayerMemberSubmissionResult(
 			user.userId(),
 			user.name(),
 			submission.id(),
 			submission.content(),
+			submission.submittedAt() != null,
+			editable,
 			submission.version(),
 			submission.submittedAt()
 		);
@@ -289,6 +382,40 @@ public class PrayerService {
 			groupIdByUserId.put(member.userId(), member.groupId());
 		}
 		return new TargetMembers(groups, membersByGroupId, groupIdByUserId);
+	}
+
+	private PrayerAssignableMemberResult toAssignableMember(
+		Long userId,
+		Map<Long, Long> assignedGroupIdByUserId,
+		Map<Long, PrayerGroup> groupById
+	) {
+		CampusUserLookupResult user = getUserOrThrow(userId);
+		Long assignedGroupId = assignedGroupIdByUserId.get(userId);
+		PrayerGroup assignedGroup = assignedGroupId == null ? null : groupById.get(assignedGroupId);
+		return new PrayerAssignableMemberResult(
+			user.userId(),
+			user.name(),
+			user.email(),
+			assignedGroupId,
+			assignedGroup == null ? null : assignedGroup.name(),
+			assignedGroupId == null
+		);
+	}
+
+	private void validateNoOtherActiveGroupAssignment(Long seasonId, Long currentGroupId, List<Long> requestedUserIds) {
+		List<Long> otherActiveGroupIds = groupRepository.findBySeasonIdAndIsActiveTrueOrderBySortOrderAscIdAsc(seasonId)
+			.stream()
+			.map(PrayerGroup::id)
+			.filter(groupId -> !groupId.equals(currentGroupId))
+			.toList();
+		if (otherActiveGroupIds.isEmpty()) {
+			return;
+		}
+		for (Long userId : requestedUserIds) {
+			if (groupMemberRepository.existsByGroupIdInAndUserIdAndIsActiveTrue(otherActiveGroupIds, userId)) {
+				throw new BusinessException(ErrorCode.PRAYER_GROUP_MEMBER_ALREADY_ASSIGNED);
+			}
+		}
 	}
 
 	private void requireSubmissionPermission(
@@ -358,14 +485,15 @@ public class PrayerService {
 		}
 	}
 
-	private void requirePrayerReader(Long campusId, Long requesterId) {
+	private CampusUserLookupResult requirePrayerReader(Long campusId, Long requesterId) {
 		CampusUserLookupResult requester = getActiveUser(requesterId, ErrorCode.AUTH_UNAUTHORIZED);
 		if (requester.isAdmin()) {
-			return;
+			return requester;
 		}
 		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.PRAYER_ACCESS_FORBIDDEN));
+		return requester;
 	}
 
 	private void requirePrayerManager(Long campusId, Long requesterId) {
@@ -397,8 +525,12 @@ public class PrayerService {
 			.collect(Collectors.toMap(CampusMember::userId, Function.identity()));
 	}
 
-	private PrayerSeason getActiveSeason(Long campusId) {
-		return seasonRepository.findByCampusIdAndStatus(campusId, PrayerSeasonStatus.ACTIVE)
+	private java.util.Optional<PrayerSeason> findCurrentSeason(Long campusId) {
+		return seasonRepository.findByCampusIdAndStatusAndEndDateIsNull(campusId, PrayerSeasonStatus.ACTIVE);
+	}
+
+	private PrayerSeason getCurrentSeasonOrThrow(Long campusId) {
+		return findCurrentSeason(campusId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.PRAYER_ACTIVE_SEASON_NOT_FOUND));
 	}
 

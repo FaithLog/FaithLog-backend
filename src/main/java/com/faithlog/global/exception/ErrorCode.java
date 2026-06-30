@@ -99,6 +99,8 @@ public enum ErrorCode {
 	PRAYER_SEASON_NOT_FOUND(HttpStatus.NOT_FOUND, "기도 시즌을 찾을 수 없습니다."),
 	PRAYER_GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "기도조를 찾을 수 없습니다."),
 	PRAYER_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "기도조 멤버를 찾을 수 없습니다."),
+	PRAYER_GROUP_MEMBER_ALREADY_ASSIGNED(HttpStatus.CONFLICT, "이미 다른 기도조에 배정된 멤버가 있습니다."),
+	PRAYER_GROUP_ASSIGNMENT_REQUIRED(HttpStatus.FORBIDDEN, "기도조에 배정된 멤버만 기도제목을 저장할 수 있습니다."),
 	PRAYER_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "기도제목 관리 권한이 없습니다."),
 	PRAYER_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "기도제목 조회 권한이 없습니다."),
 	PRAYER_SUBMISSION_FORBIDDEN(HttpStatus.FORBIDDEN, "기도제목 저장 권한이 없습니다."),

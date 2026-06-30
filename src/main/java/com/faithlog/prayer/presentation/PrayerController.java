@@ -4,6 +4,7 @@ import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.prayer.application.PrayerService;
 import com.faithlog.prayer.presentation.dto.PrayerWeekBoardResponse;
+import com.faithlog.prayer.presentation.dto.SaveMyPrayerSubmissionRequest;
 import com.faithlog.prayer.presentation.dto.SavePrayerSubmissionsRequest;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
@@ -42,5 +43,15 @@ public class PrayerController {
 		@Valid @RequestBody SavePrayerSubmissionsRequest request
 	) {
 		return ApiResponse.success(PrayerWeekBoardResponse.from(prayerService.saveSubmissions(request.toCommand(campusId, weekStartDate, authenticatedUser))));
+	}
+
+	@PutMapping("/weeks/{weekStartDate}/me")
+	public ApiResponse<PrayerWeekBoardResponse> saveMySubmission(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@PathVariable LocalDate weekStartDate,
+		@RequestBody SaveMyPrayerSubmissionRequest request
+	) {
+		return ApiResponse.success(PrayerWeekBoardResponse.from(prayerService.saveMySubmission(request.toCommand(campusId, weekStartDate, authenticatedUser))));
 	}
 }

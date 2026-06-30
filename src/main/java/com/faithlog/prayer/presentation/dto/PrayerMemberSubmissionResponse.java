@@ -8,6 +8,8 @@ public record PrayerMemberSubmissionResponse(
 	String name,
 	Long submissionId,
 	String content,
+	boolean submitted,
+	boolean editable,
 	int version,
 	Instant submittedAt
 ) {
@@ -18,6 +20,8 @@ public record PrayerMemberSubmissionResponse(
 			result.name(),
 			result.submissionId(),
 			result.content(),
+			result.submitted(),
+			result.editable(),
 			result.version(),
 			result.submittedAt()
 		);

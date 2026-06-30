@@ -13,13 +13,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-30, 259 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-30, 267 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 109 snippet groups (2026-06-30) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 115 snippet groups (2026-06-30) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-30) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
@@ -30,6 +30,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## Daily Monitoring Notes
 
 ### 2026-06-30
+
+- #106 기도 운영 기간과 기도조 관리 조회 API 보강:
+  - 작업 기준: Issue #106 `[Feat] 기도 운영 기간과 기도조 관리 조회 API 보강`, Project `FaithLog Backend Kanban` Status/Kanban Status `In Progress`, 브랜치 `feat/106-prayer-season-group-management`.
+  - TDD 실패 확인: 구현 전 `PrayerServiceTest`에 current season, groups, assignable members, duplicate active group assignment, enhanced board, `/me` save 테스트를 추가했고, 신규 service 메서드/result/command/ErrorCode 부재로 `compileTestJava` 27 errors 실패를 확인했다.
+  - 구현 범위: admin current season 조회, season groups 조회, assignable members 조회, 같은 season active group 중복 배정 409 검증, weekly board `currentSeason/myGroupId/seasonId/submitted/editable` 보강, 사용자 본인 `/me` 기도제목 저장 API를 추가했다.
+  - API 계약: current season은 `status=ACTIVE` 및 `endDate=null` 기준이고 없으면 `data=null`이다. 운영 중 season이 없으면 weekly board는 빈 응답을 반환한다. `/me` 저장은 기존 nullable content 정책을 유지하고 보강된 weekly board 응답을 반환한다.
+  - Spring REST Docs: `prayer-season-current-success`, `prayer-season-current-member-forbidden`, `prayer-season-groups-get-success`, `prayer-season-assignable-members-get-success`, `prayer-group-members-duplicate-assignment-conflict`, `prayer-my-submission-save-success` snippets를 추가하고 `src/docs/asciidoc/index.adoc`에 반영했다.
+  - 검증: focused prayer service/docs 테스트 성공, prayer package 전체 테스트 성공, `./gradlew test` 성공(267 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공.
+  - Docker smoke: 격리 project `faithlog-qa-106`으로 `scripts/qa_docker_compose_isolated.sh --project-name faithlog-qa-106` 실행, app health `UP` 확인, 같은 project만 `docker compose -p faithlog-qa-106 down`으로 정리했다. 다단계 API QA는 별도 관리자 role/fixture 세팅이 필요해 이번 검증에서는 수행하지 않았다.
 
 - #104 커피 담당자 계좌 권한과 커피 투표 정산 흐름 보강:
   - 작업 기준: Issue #104 `[Fix] 커피 담당자 계좌 권한과 커피 투표 정산 흐름 보강`, Project `FaithLog Backend Kanban` Status/Kanban Status `In Progress`, 브랜치 `fix/104-coffee-duty-settlement-flow`.

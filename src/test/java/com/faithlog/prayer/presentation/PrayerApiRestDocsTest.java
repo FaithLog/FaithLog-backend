@@ -110,6 +110,38 @@ class PrayerApiRestDocsTest {
 			.getContentAsString();
 		long seasonId = objectMapper.readTree(seasonBody).path("data").path("seasonId").asLong();
 
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/prayer-seasons/current", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.seasonId").value(seasonId))
+			.andExpect(jsonPath("$.data.endDate").isEmpty())
+			.andDo(document("prayer-season-current-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				relaxedResponseFields(apiResponseFields(
+					fieldWithPath("data.seasonId").description("현재 운영 중인 기도 시즌 ID"),
+					fieldWithPath("data.campusId").description("캠퍼스 ID"),
+					fieldWithPath("data.name").description("기도 시즌 이름"),
+					fieldWithPath("data.startDate").description("기도 시즌 시작일"),
+					fieldWithPath("data.endDate").type(JsonFieldType.NULL).description("현재 운영 중인 시즌은 null"),
+					fieldWithPath("data.status").description("기도 시즌 상태. 현재 운영 기간은 ACTIVE")
+				))
+			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/prayer-seasons/current", campusId)
+				.header("Authorization", "Bearer " + memberAToken))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("PRAYER_MANAGE_FORBIDDEN"))
+			.andDo(document("prayer-season-current-member-forbidden",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				responseFields(errorResponseFields())
+			));
+
 		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/prayer-seasons", campusId)
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -162,15 +194,85 @@ class PrayerApiRestDocsTest {
 		replaceGroupMembers(managerToken, groupAId, memberA.id(), memberB.id());
 		replaceGroupMembers(managerToken, groupBId, memberC.id());
 
+		mockMvc.perform(put("/api/v1/admin/prayer-groups/{groupId}/members", groupBId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userIds": [%d, %d]
+					}
+					""".formatted(memberA.id(), memberC.id())))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("PRAYER_GROUP_MEMBER_ALREADY_ASSIGNED"))
+			.andDo(document("prayer-group-members-duplicate-assignment-conflict",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("groupId").description("기도조 ID")),
+				requestFields(fieldWithPath("userIds[]").description("전체 교체할 사용자 ID 목록")),
+				responseFields(errorResponseFields())
+			));
+
+		mockMvc.perform(get("/api/v1/admin/prayer-seasons/{seasonId}/groups", seasonId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].groupId").value(groupAId))
+			.andExpect(jsonPath("$.data[0].members[0].email").value(memberA.email()))
+			.andDo(document("prayer-season-groups-get-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("seasonId").description("기도 시즌 ID")),
+				relaxedResponseFields(apiResponseFields(
+					fieldWithPath("data[]").description("기도 시즌의 활성 기도조 목록"),
+					fieldWithPath("data[].groupId").description("기도조 ID"),
+					fieldWithPath("data[].seasonId").description("기도 시즌 ID"),
+					fieldWithPath("data[].name").description("기도조 이름"),
+					fieldWithPath("data[].sortOrder").description("정렬 순서"),
+					fieldWithPath("data[].active").description("활성 여부"),
+					fieldWithPath("data[].members[]").description("활성 조원 목록"),
+					fieldWithPath("data[].members[].userId").description("조원 사용자 ID"),
+					fieldWithPath("data[].members[].name").description("조원 이름"),
+					fieldWithPath("data[].members[].email").description("조원 이메일")
+				))
+			));
+
+		mockMvc.perform(get("/api/v1/admin/prayer-seasons/{seasonId}/members/assignable", seasonId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[1].assignedGroupId").value(groupAId))
+			.andExpect(jsonPath("$.data[1].assignable").value(false))
+			.andDo(document("prayer-season-assignable-members-get-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("seasonId").description("기도 시즌 ID")),
+				relaxedResponseFields(apiResponseFields(
+					fieldWithPath("data[]").description("기도조 배정 가능 여부를 포함한 캠퍼스 ACTIVE 멤버 목록"),
+					fieldWithPath("data[].userId").description("사용자 ID"),
+					fieldWithPath("data[].name").description("사용자 이름"),
+					fieldWithPath("data[].email").description("사용자 이메일"),
+					fieldWithPath("data[].assignedGroupId").type(JsonFieldType.VARIES).optional().description("이미 배정된 active 기도조 ID. 미배정은 null"),
+					fieldWithPath("data[].assignedGroupName").type(JsonFieldType.VARIES).optional().description("이미 배정된 active 기도조 이름. 미배정은 null"),
+					fieldWithPath("data[].assignable").description("현재 season에서 active 기도조에 미배정이면 true")
+				))
+			));
+
 		long weekCountBeforeGet = prayerWeekRepository.count();
 		long submissionCountBeforeGet = prayerSubmissionRepository.count();
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}", campusId, "2026-06-22")
 				.header("Authorization", "Bearer " + memberAToken))
 			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.currentSeason.seasonId").value(seasonId))
+			.andExpect(jsonPath("$.data.myGroupId").value(groupAId))
 			.andExpect(jsonPath("$.data.submittedCount").value(0))
 			.andExpect(jsonPath("$.data.targetMemberCount").value(3))
+			.andExpect(jsonPath("$.data.groups[0].seasonId").value(seasonId))
 			.andExpect(jsonPath("$.data.groups[0].members[0].submissionId").isEmpty())
 			.andExpect(jsonPath("$.data.groups[0].members[0].content").isEmpty())
+			.andExpect(jsonPath("$.data.groups[0].members[0].submitted").value(false))
+			.andExpect(jsonPath("$.data.groups[0].members[0].editable").value(true))
+			.andExpect(jsonPath("$.data.groups[0].members[1].editable").value(false))
 			.andExpect(jsonPath("$.data.groups[0].members[0].version").value(0))
 			.andDo(document("prayer-week-board-get-success",
 				preprocessRequest(prettyPrint()),
@@ -262,6 +364,30 @@ class PrayerApiRestDocsTest {
 					parameterWithName("weekStartDate").description("저장할 주차의 월요일")
 				),
 				responseFields(errorResponseFields())
+			));
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/me", campusId, "2026-07-06")
+				.header("Authorization", "Bearer " + memberAToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "content": "이번 주 제 기도제목입니다."
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.weekStartDate").value("2026-07-06"))
+			.andExpect(jsonPath("$.data.groups[0].members[0].content").value("이번 주 제 기도제목입니다."))
+			.andExpect(jsonPath("$.data.groups[0].members[0].version").value(1))
+			.andDo(document("prayer-my-submission-save-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("저장할 주차의 월요일")
+				),
+				requestFields(fieldWithPath("content").type(JsonFieldType.STRING).optional().description("본인 기도제목 내용. null 저장 가능")),
+				relaxedResponseFields(boardResponseFields())
 			));
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}", campusId, "2026-06-23")
@@ -365,7 +491,8 @@ class PrayerApiRestDocsTest {
 			fieldWithPath("data.active").description("활성 여부"),
 			fieldWithPath("data.members[]").description("활성 조원 목록"),
 			fieldWithPath("data.members[].userId").type(JsonFieldType.NUMBER).optional().description("조원 사용자 ID"),
-			fieldWithPath("data.members[].name").type(JsonFieldType.STRING).optional().description("조원 이름")
+			fieldWithPath("data.members[].name").type(JsonFieldType.STRING).optional().description("조원 이름"),
+			fieldWithPath("data.members[].email").type(JsonFieldType.STRING).optional().description("조원 이메일")
 		);
 	}
 
@@ -374,11 +501,20 @@ class PrayerApiRestDocsTest {
 			fieldWithPath("data.campusId").description("캠퍼스 ID"),
 			fieldWithPath("data.weekStartDate").description("조회/저장 주차 월요일"),
 			fieldWithPath("data.weekEndDate").description("조회/저장 주차 일요일"),
+			fieldWithPath("data.currentSeason").description("현재 운영 중인 기도 시즌. 없으면 null"),
+			fieldWithPath("data.currentSeason.seasonId").description("현재 기도 시즌 ID"),
+			fieldWithPath("data.currentSeason.campusId").description("현재 기도 시즌 캠퍼스 ID"),
+			fieldWithPath("data.currentSeason.name").description("현재 기도 시즌 이름"),
+			fieldWithPath("data.currentSeason.startDate").description("현재 기도 시즌 시작일"),
+			fieldWithPath("data.currentSeason.endDate").type(JsonFieldType.NULL).description("현재 운영 중인 시즌은 null"),
+			fieldWithPath("data.currentSeason.status").description("현재 기도 시즌 상태"),
+			fieldWithPath("data.myGroupId").type(JsonFieldType.NUMBER).optional().description("로그인 사용자가 배정된 현재 시즌 active 기도조 ID. 미배정은 null"),
 			fieldWithPath("data.status").description("주차 게시판 상태"),
 			fieldWithPath("data.submittedCount").description("작성 완료 인원 수"),
 			fieldWithPath("data.targetMemberCount").description("작성 대상 활성 조원 수"),
 			fieldWithPath("data.groups[]").description("활성 기도조 목록"),
 			fieldWithPath("data.groups[].groupId").description("기도조 ID"),
+			fieldWithPath("data.groups[].seasonId").description("기도 시즌 ID"),
 			fieldWithPath("data.groups[].groupName").description("기도조 이름"),
 			fieldWithPath("data.groups[].sortOrder").description("기도조 정렬 순서"),
 			fieldWithPath("data.groups[].members[]").description("기도조 활성 조원별 기도제목"),
@@ -386,6 +522,8 @@ class PrayerApiRestDocsTest {
 			fieldWithPath("data.groups[].members[].name").description("조원 이름"),
 			fieldWithPath("data.groups[].members[].submissionId").type(JsonFieldType.NUMBER).optional().description("기도제목 row ID. 미작성은 null"),
 			fieldWithPath("data.groups[].members[].content").type(JsonFieldType.STRING).optional().description("기도제목 내용. 미작성 또는 null 저장 시 null 가능"),
+			fieldWithPath("data.groups[].members[].submitted").description("저장된 기도제목 row가 있으면 true"),
+			fieldWithPath("data.groups[].members[].editable").description("로그인 사용자가 해당 항목을 수정할 수 있으면 true"),
 			fieldWithPath("data.groups[].members[].version").description("기도제목 version. 미작성은 0"),
 			fieldWithPath("data.groups[].members[].submittedAt").type(JsonFieldType.STRING).optional().description("실제 저장 시각. 미작성은 null")
 		);

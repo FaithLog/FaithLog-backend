@@ -6,14 +6,17 @@ import com.faithlog.prayer.application.PrayerService;
 import com.faithlog.prayer.presentation.dto.ClosePrayerSeasonRequest;
 import com.faithlog.prayer.presentation.dto.CreatePrayerGroupRequest;
 import com.faithlog.prayer.presentation.dto.CreatePrayerSeasonRequest;
+import com.faithlog.prayer.presentation.dto.PrayerAssignableMemberResponse;
 import com.faithlog.prayer.presentation.dto.PrayerGroupResponse;
 import com.faithlog.prayer.presentation.dto.PrayerSeasonResponse;
 import com.faithlog.prayer.presentation.dto.ReplacePrayerGroupMembersRequest;
 import com.faithlog.prayer.presentation.dto.UpdatePrayerGroupRequest;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,6 +45,15 @@ public class AdminPrayerController {
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 
+	@GetMapping("/campuses/{campusId}/prayer-seasons/current")
+	public ApiResponse<PrayerSeasonResponse> getCurrentSeason(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId
+	) {
+		var result = prayerService.getCurrentSeason(campusId, authenticatedUser.userId());
+		return ApiResponse.success(result == null ? null : PrayerSeasonResponse.from(result));
+	}
+
 	@PatchMapping("/prayer-seasons/{seasonId}/close")
 	public ApiResponse<PrayerSeasonResponse> closeSeason(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
@@ -59,6 +71,28 @@ public class AdminPrayerController {
 	) {
 		PrayerGroupResponse response = PrayerGroupResponse.from(prayerService.createGroup(request.toCommand(seasonId, authenticatedUser)));
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+	}
+
+	@GetMapping("/prayer-seasons/{seasonId}/groups")
+	public ApiResponse<List<PrayerGroupResponse>> getSeasonGroups(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long seasonId
+	) {
+		return ApiResponse.success(prayerService.getSeasonGroups(seasonId, authenticatedUser.userId())
+			.stream()
+			.map(PrayerGroupResponse::from)
+			.toList());
+	}
+
+	@GetMapping("/prayer-seasons/{seasonId}/members/assignable")
+	public ApiResponse<List<PrayerAssignableMemberResponse>> getAssignableMembers(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long seasonId
+	) {
+		return ApiResponse.success(prayerService.getAssignableMembers(seasonId, authenticatedUser.userId())
+			.stream()
+			.map(PrayerAssignableMemberResponse::from)
+			.toList());
 	}
 
 	@PatchMapping("/prayer-groups/{groupId}")
