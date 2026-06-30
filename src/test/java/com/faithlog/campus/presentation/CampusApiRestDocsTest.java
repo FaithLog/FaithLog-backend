@@ -380,6 +380,22 @@ class CampusApiRestDocsTest {
 				))
 			));
 
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/duty-assignments/me", campusId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.dutyType").value("COFFEE"))
+			.andExpect(jsonPath("$.data.isActive").value(true))
+			.andDo(document("my-coffee-duty-assignment-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID")
+				),
+				responseFields(apiResponseFields(myDutyAssignmentFields("data.")))
+			));
+
 		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}",
 				campusId,
 				assignmentId)
@@ -518,6 +534,15 @@ class CampusApiRestDocsTest {
 			fieldWithPath(prefix + "dutyType").description("담당 유형"),
 			fieldWithPath(prefix + "isActive").description("활성 여부"),
 			fieldWithPath(prefix + "assignedAt").description("담당 지정 시각")
+		};
+	}
+
+	private static FieldDescriptor[] myDutyAssignmentFields(String prefix) {
+		return new FieldDescriptor[] {
+			fieldWithPath(prefix + "userId").description("현재 사용자 ID"),
+			fieldWithPath(prefix + "campusId").description("캠퍼스 ID"),
+			fieldWithPath(prefix + "dutyType").description("담당 유형. 현재는 `COFFEE`"),
+			fieldWithPath(prefix + "isActive").description("현재 사용자가 해당 캠퍼스의 활성 COFFEE 담당자인지 여부")
 		};
 	}
 

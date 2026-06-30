@@ -8,6 +8,7 @@ import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
+import com.faithlog.campus.application.AssignCoffeeDutyCommand;
 import com.faithlog.campus.application.CampusCreateResult;
 import com.faithlog.campus.application.CampusService;
 import com.faithlog.campus.application.CreateCampusCommand;
@@ -230,6 +231,50 @@ class BillingQueryServiceTest {
 			campus.campusId(), admin.id(), null, null, null, null,
 			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
 		))).isNotNull();
+	}
+
+	@Test
+	void coffee_duty_can_query_only_coffee_admin_charges_for_own_campus() {
+		User manager = saveUser("query-coffee-duty-manager@example.com", UserRole.MANAGER, "관리자");
+		User duty = saveUser("query-coffee-duty@example.com", UserRole.USER, "커피담당");
+		User member = saveUser("query-coffee-duty-member@example.com", UserRole.USER, "멤버");
+		CampusCreateResult campus = createCampus(manager, "65커피캠");
+		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		PaymentAccountResult coffeeAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.COFFEE, "777-777");
+		PaymentAccountResult penaltyAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.PENALTY, "888-888");
+		saveCharge(campus.campusId(), member.id(), coffeeAccount, PaymentCategory.COFFEE, ChargeSourceType.POLL_RESPONSE,
+			9401L, "커피 주문", 4500, ChargeStatus.UNPAID, null);
+		saveCharge(campus.campusId(), member.id(), penaltyAccount, PaymentCategory.PENALTY, ChargeSourceType.DEVOTION_RECORD,
+			9402L, "경건생활 벌금", 3000, ChargeStatus.UNPAID, LocalDate.of(2026, 6, 22));
+
+		AdminCampusChargesResult coffeeList = billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
+			campus.campusId(), duty.id(), PaymentCategory.COFFEE, null, null, null,
+			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+		));
+		AdminMemberChargesResult memberCoffeeList = billingQueryService.listAdminMemberCharges(new AdminMemberChargeListQuery(
+			campus.campusId(), member.id(), duty.id(), PaymentCategory.COFFEE, null,
+			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+		));
+
+		assertThat(coffeeList.summary().totalAmount()).isEqualTo(4500);
+		assertThat(coffeeList.members()).singleElement()
+			.satisfies(result -> assertThat(result.userId()).isEqualTo(member.id()));
+		assertThat(memberCoffeeList.items()).singleElement()
+			.satisfies(item -> assertThat(item.paymentCategory()).isEqualTo(PaymentCategory.COFFEE));
+		assertThatThrownBy(() -> billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
+			campus.campusId(), duty.id(), null, null, null, null,
+			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 청구 조회 권한이 없습니다.");
+		assertThatThrownBy(() -> billingQueryService.listAdminMemberCharges(new AdminMemberChargeListQuery(
+			campus.campusId(), member.id(), duty.id(), PaymentCategory.PENALTY, null,
+			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 청구 조회 권한이 없습니다.");
 	}
 
 	private CampusCreateResult createCampus(User manager, String name) {

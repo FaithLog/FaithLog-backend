@@ -156,6 +156,23 @@ public class CampusService {
 			.toList();
 	}
 
+	@Transactional(readOnly = true)
+	public MyDutyAssignmentResult getMyCoffeeDutyAssignment(Long campusId, Long requesterId) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_VIEW_FORBIDDEN));
+		boolean active = dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
+			.map(assignment -> assignment.userId().equals(requester.userId()))
+			.orElse(false);
+		return new MyDutyAssignmentResult(
+			requester.userId(),
+			campusId,
+			DutyType.COFFEE.name(),
+			active
+		);
+	}
+
 	@Transactional
 	public DutyAssignmentResult assignCoffeeDuty(AssignCoffeeDutyCommand command) {
 		requireCampusManager(

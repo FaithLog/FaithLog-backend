@@ -10,6 +10,7 @@ import com.faithlog.billing.domain.PaymentAccount;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.jpa.PaymentAccountRepository;
+import com.faithlog.campus.application.AssignCoffeeDutyCommand;
 import com.faithlog.campus.application.CampusCreateResult;
 import com.faithlog.campus.application.CampusService;
 import com.faithlog.campus.application.CreateCampusCommand;
@@ -181,6 +182,55 @@ class BillingServiceTest {
 		));
 
 		assertThatThrownBy(() -> billingService.deactivatePaymentAccount(account.id(), member.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("납부 계좌 관리 권한이 없습니다.");
+	}
+
+	@Test
+	void coffee_duty_can_manage_only_coffee_payment_accounts_in_own_campus() {
+		User manager = saveUser("billing-coffee-duty-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("billing-coffee-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "42커피캠");
+		CampusCreateResult otherCampus = createCampus(manager, "42다른캠");
+		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+
+		PaymentAccountResult coffeeAccount = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			duty.id(),
+			PaymentCategory.COFFEE,
+			"커피 계좌",
+			"카카오뱅크",
+			"3333-42-000001",
+			"커피회계",
+			duty.id()
+		));
+		PaymentAccountResult deactivated = billingService.deactivatePaymentAccount(coffeeAccount.id(), duty.id());
+
+		assertThat(coffeeAccount.accountType()).isEqualTo(PaymentCategory.COFFEE);
+		assertThat(deactivated.isActive()).isFalse();
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			duty.id(),
+			PaymentCategory.PENALTY,
+			"벌금 계좌",
+			"신한은행",
+			"110-42-000001",
+			"벌금회계",
+			duty.id()
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("납부 계좌 관리 권한이 없습니다.");
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			otherCampus.campusId(),
+			duty.id(),
+			PaymentCategory.COFFEE,
+			"다른 캠퍼스 커피 계좌",
+			"카카오뱅크",
+			"3333-42-000002",
+			"커피회계",
+			duty.id()
+		)))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("납부 계좌 관리 권한이 없습니다.");
 	}

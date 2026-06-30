@@ -403,6 +403,51 @@ class CampusControllerTest {
 			.andExpect(jsonPath("$.data.length()").value(0));
 	}
 
+	@Test
+	void my_coffee_duty_assignment_returns_active_status_for_active_members() throws Exception {
+		String managerToken = signupAndLogin("coffee-me-http-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "19캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("coffee-me-http-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("coffee-me-http-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		String memberToken = signupAndLogin("coffee-me-http-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("coffee-me-http-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String outsiderToken = signupAndLogin("coffee-me-http-outsider@example.com", UserRole.USER);
+
+		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(duty.id())))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/duty-assignments/me", campusId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(duty.id()))
+			.andExpect(jsonPath("$.data.campusId").value(campusId))
+			.andExpect(jsonPath("$.data.dutyType").value("COFFEE"))
+			.andExpect(jsonPath("$.data.isActive").value(true));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/duty-assignments/me", campusId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(member.id()))
+			.andExpect(jsonPath("$.data.campusId").value(campusId))
+			.andExpect(jsonPath("$.data.dutyType").value("COFFEE"))
+			.andExpect(jsonPath("$.data.isActive").value(false));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/duty-assignments/me", campusId)
+				.header("Authorization", "Bearer " + outsiderToken))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("CAMPUS_VIEW_FORBIDDEN"));
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)
