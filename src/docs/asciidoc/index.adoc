@@ -2210,6 +2210,40 @@ include::{snippets}/prayer-season-create-active-duplicate/http-response.adoc[]
 
 include::{snippets}/prayer-season-create-active-duplicate/response-fields.adoc[]
 
+=== Get Current Prayer Season
+
+`GET /api/v1/admin/campuses/{campusId}/prayer-seasons/current`
+
+캠퍼스 관리자 또는 서비스 ADMIN이 현재 운영 중인 기도 시즌을 조회한다. 현재 시즌은 `status=ACTIVE`이고 `endDate=null`인 시즌이다. 현재 운영 기간이 없으면 성공 응답의 `data`가 `null`이다.
+
+==== Request
+
+include::{snippets}/prayer-season-current-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/prayer-season-current-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/prayer-season-current-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-season-current-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-season-current-success/response-fields.adoc[]
+
+=== Get Current Prayer Season Forbidden
+
+include::{snippets}/prayer-season-current-member-forbidden/http-request.adoc[]
+
+include::{snippets}/prayer-season-current-member-forbidden/http-response.adoc[]
+
+include::{snippets}/prayer-season-current-member-forbidden/response-fields.adoc[]
+
 === Close Prayer Season
 
 `PATCH /api/v1/admin/prayer-seasons/{seasonId}/close`
@@ -2249,6 +2283,58 @@ include::{snippets}/prayer-group-create-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/prayer-group-create-success/response-fields.adoc[]
+
+=== Get Prayer Season Groups
+
+`GET /api/v1/admin/prayer-seasons/{seasonId}/groups`
+
+해당 기도 시즌의 active 기도조와 active 조원을 조회한다.
+
+==== Request
+
+include::{snippets}/prayer-season-groups-get-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/prayer-season-groups-get-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/prayer-season-groups-get-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-season-groups-get-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-season-groups-get-success/response-fields.adoc[]
+
+=== Get Assignable Prayer Members
+
+`GET /api/v1/admin/prayer-seasons/{seasonId}/members/assignable`
+
+해당 시즌 campus의 ACTIVE 멤버 전체를 반환하고, 같은 시즌의 active 기도조 배정 여부를 함께 표시한다.
+
+==== Request
+
+include::{snippets}/prayer-season-assignable-members-get-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/prayer-season-assignable-members-get-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/prayer-season-assignable-members-get-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-season-assignable-members-get-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-season-assignable-members-get-success/response-fields.adoc[]
 
 === Update Prayer Group
 
@@ -2291,6 +2377,14 @@ include::{snippets}/prayer-group-members-replace-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/prayer-group-members-replace-success/response-fields.adoc[]
+
+=== Replace Prayer Group Members Duplicate Assignment Conflict
+
+include::{snippets}/prayer-group-members-duplicate-assignment-conflict/http-request.adoc[]
+
+include::{snippets}/prayer-group-members-duplicate-assignment-conflict/http-response.adoc[]
+
+include::{snippets}/prayer-group-members-duplicate-assignment-conflict/response-fields.adoc[]
 
 === Get Prayer Week Board
 
@@ -2355,6 +2449,36 @@ include::{snippets}/prayer-submissions-save-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/prayer-submissions-save-success/response-fields.adoc[]
+
+=== Save My Prayer Submission
+
+`PUT /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/me`
+
+현재 로그인 사용자의 현재 시즌 active 기도조 배정 기준으로 본인 기도제목만 생성하거나 수정한다. 응답은 보강된 주간 board 형식을 반환한다.
+
+==== Request
+
+include::{snippets}/prayer-my-submission-save-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/prayer-my-submission-save-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/prayer-my-submission-save-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/prayer-my-submission-save-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/prayer-my-submission-save-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/prayer-my-submission-save-success/response-fields.adoc[]
 
 === Save Prayer Submissions Forbidden
 

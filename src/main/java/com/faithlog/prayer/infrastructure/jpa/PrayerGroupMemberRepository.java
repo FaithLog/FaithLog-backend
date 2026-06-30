@@ -15,4 +15,6 @@ public interface PrayerGroupMemberRepository extends JpaRepository<PrayerGroupMe
 	List<PrayerGroupMember> findByGroupIdInAndIsActiveTrueOrderByIdAsc(Collection<Long> groupIds);
 
 	Optional<PrayerGroupMember> findByGroupIdAndUserId(Long groupId, Long userId);
+
+	boolean existsByGroupIdInAndUserIdAndIsActiveTrue(Collection<Long> groupIds, Long userId);
 }

@@ -10,6 +10,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-06-30 - Issue #106 Prayer Season And Group Management API Contract
+
+- Context: Issue #106 extends the prayer request MVP with admin-facing current season/group management reads, assignable member lookup, duplicate active-group assignment validation, weekly board response fields, and a current-user prayer submission API.
+- Decision: The backend current prayer season lookup uses `status = ACTIVE` and `endDate = null` together. A closed season is represented by `status = CLOSED` with non-null `endDate`, is excluded from current-season lookup, and is excluded from weekly board groups. When no current season exists, weekly board lookup succeeds with `currentSeason = null`, `myGroupId = null`, `submittedCount = 0`, `targetMemberCount = 0`, and `groups = []`.
+- Decision: Within the same season, one `userId` may belong to only one active prayer group. Replacing a group's members may keep or reactivate members already in that same group, and the same user may be assigned again in a different season. Assigning a user already active in another group of the same season fails with `409 PRAYER_GROUP_MEMBER_ALREADY_ASSIGNED`.
+- Decision: `GET /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}` now returns `currentSeason`, `myGroupId`, group `seasonId`, member `submitted`, member `editable`, and existing `version`. Campus managers and service ADMIN can edit all board items; normal ACTIVE members see only their own current-group item as editable.
+- Decision: `PUT /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/me` saves only the authenticated user's own prayer submission in the current active season and returns the enhanced weekly board response. The request body is `{ "content": "..." }`; `content` keeps the existing nullable `prayer_submissions.content` policy.
+- Impact: Issue #106 must add Spring REST Docs snippets and `src/docs/asciidoc/index.adoc` sections for current season, season groups, assignable members, duplicate assignment conflict, weekly board enhancements, and `/me` save. Swagger documentation annotations remain prohibited.
+
 ### 2026-06-30 - Issue #104 User-Added Poll Option Menu Contract
 
 - Context: Issue #104 fixes the coffee QA follow-up where user-added COFFEE poll options were being saved from free-text content with `composeMenuCode = null` and `priceAmount = 0`, which made closed coffee poll settlement unable to charge the real menu price.

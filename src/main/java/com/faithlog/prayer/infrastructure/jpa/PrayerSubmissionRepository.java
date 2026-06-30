@@ -33,4 +33,21 @@ public interface PrayerSubmissionRepository extends JpaRepository<PrayerSubmissi
 		@Param("submittedAt") Instant submittedAt,
 		@Param("expectedVersion") int expectedVersion
 	);
+
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		update PrayerSubmission submission
+		set submission.content = :content,
+			submission.submittedBy = :submittedBy,
+			submission.submittedAt = :submittedAt,
+			submission.updatedAt = :submittedAt,
+			submission.version = submission.version + 1
+		where submission.id = :id
+		""")
+	int updateContent(
+		@Param("id") Long id,
+		@Param("content") String content,
+		@Param("submittedBy") Long submittedBy,
+		@Param("submittedAt") Instant submittedAt
+	);
 }
