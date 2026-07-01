@@ -147,4 +147,12 @@ public class PaymentAccount {
 	public Instant deactivatedAt() {
 		return deactivatedAt;
 	}
+
+	public Instant createdAt() {
+		return createdAt;
+	}
+
+	public Instant updatedAt() {
+		return updatedAt;
+	}
 }

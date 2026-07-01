@@ -149,8 +149,8 @@ class PollAutomationServiceTest {
 		joinCampus(campus, duty);
 		joinCampus(campus, member);
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
-		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
-		PollTemplateResult template = createCoffeeTemplate(campus.campusId(), manager.id(), accountId);
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		PollTemplateResult template = createCoffeeTemplate(campus.campusId(), duty.id(), accountId);
 		pollAutomationService.createDuePolls(mondayAt(11, 0).toInstant());
 		Poll poll = pollRepository.findAll().stream()
 			.filter(item -> template.id().equals(item.templateId()))
@@ -221,16 +221,16 @@ class PollAutomationServiceTest {
 		return ZonedDateTime.of(2026, 6, 15, hour, minute, 0, 0, PollAutomationService.SEOUL_ZONE);
 	}
 
-	private Long createCoffeeAccount(Long campusId, Long managerId) {
+	private Long createCoffeeAccount(Long campusId, Long requesterId, Long ownerUserId) {
 		return billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
-			managerId,
+			requesterId,
 			PaymentCategory.COFFEE,
 			"커피 계좌",
 			"카카오뱅크",
 			"3333-24-000001",
 			"커피회계",
-			null
+			ownerUserId
 		)).id();
 	}
 

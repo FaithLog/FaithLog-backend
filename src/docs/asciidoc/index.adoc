@@ -1076,6 +1076,32 @@ include::{snippets}/payment-account-list-success/http-response.adoc[]
 
 include::{snippets}/payment-account-list-success/response-fields.adoc[]
 
+=== List Admin Payment Accounts
+
+`GET /api/v1/admin/campuses/{campusId}/payment-accounts`
+
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`은 해당 캠퍼스의 모든 납부 계좌와 관리 메타데이터를 조회한다. 활성 `COFFEE` 담당자는 본인이 owner인 활성 `COFFEE` 계좌만 조회할 수 있고, `PENALTY` 계좌는 조회할 수 없다. 응답에는 `ownerUserId`, `isActive`, `createdAt`, `deactivatedAt`을 포함한다.
+
+==== Request
+
+include::{snippets}/payment-account-admin-list-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/payment-account-admin-list-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/payment-account-admin-list-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/payment-account-admin-list-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/payment-account-admin-list-success/response-fields.adoc[]
+
 === Deactivate Payment Account
 
 `PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate`
@@ -1222,7 +1248,7 @@ include::{snippets}/charge-my-paid-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/charges`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 캠퍼스 전체 청구 집계를 조회한다. 서비스 `MANAGER` 역할만으로는 권한이 없다. 활성 `COFFEE` 담당자는 `paymentCategory=COFFEE`로 제한된 조회만 사용할 수 있고, `paymentCategory`를 생략하거나 `PENALTY`로 조회하면 기존 관리자 권한을 요구한다. 응답은 `summary + members[]` 집계만 포함하고 개별 청구 item 목록은 포함하지 않는다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 캠퍼스 전체 청구 집계를 조회한다. 서비스 `MANAGER` 역할만으로는 권한이 없다. `paymentAccountId`가 있으면 해당 계좌에 연결된 청구만 `summary + members[]`로 집계하며, `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 활성 `COFFEE` 담당자는 본인이 조회 가능한 활성 `COFFEE` 계좌 범위로 제한되고, `PENALTY` 조회는 기존 관리자 권한을 요구한다. 응답은 `summary + members[]` 집계만 포함하고 개별 청구 item 목록은 포함하지 않는다.
 
 ==== Request
 
@@ -1247,6 +1273,36 @@ include::{snippets}/charge-admin-campus-summary-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/charge-admin-campus-summary-success/response-fields.adoc[]
+
+=== List Admin Campus Charge Summary For My Accounts
+
+`GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`
+
+현재 로그인 사용자가 owner인 활성 납부 계좌에 연결된 청구만 `summary + members[]`로 집계한다. 캠퍼스 관리자와 전역 `ADMIN`은 본인이 owner인 활성 계좌 전체 범위를 조회할 수 있고, 활성 `COFFEE` 담당자는 본인이 owner인 활성 `COFFEE` 계좌 범위만 조회할 수 있다. `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다.
+
+==== Request
+
+include::{snippets}/charge-admin-my-accounts-summary-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/charge-admin-my-accounts-summary-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/charge-admin-my-accounts-summary-success/path-parameters.adoc[]
+
+==== Query Parameters
+
+include::{snippets}/charge-admin-my-accounts-summary-success/query-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/charge-admin-my-accounts-summary-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/charge-admin-my-accounts-summary-success/response-fields.adoc[]
 
 === List Admin Member Charges
 

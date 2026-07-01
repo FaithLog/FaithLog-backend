@@ -8,6 +8,8 @@ import com.faithlog.campus.domain.CampusMemberStatus;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.domain.DutyType;
 import com.faithlog.global.exception.BusinessException;
+import com.faithlog.poll.domain.PollType;
+import com.faithlog.poll.infrastructure.jpa.PollTemplateRepository;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.jpa.CampusRepository;
 import com.faithlog.user.domain.User;
@@ -45,6 +47,9 @@ class CampusServiceTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private PollTemplateRepository pollTemplateRepository;
 
 	@Autowired
 	private UserRepository userRepository;
@@ -92,6 +97,21 @@ class CampusServiceTest {
 				assertThat(member.campusRole().name()).isEqualTo("MINISTER");
 				assertThat(member.status().name()).isEqualTo("ACTIVE");
 			});
+	}
+
+	@Test
+	void createCampus_does_not_create_default_coffee_template_or_recurring_poll_side_effect() {
+		User manager = saveUser("campus-no-coffee-template-manager@example.com", UserRole.MANAGER);
+
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"112커피템플릿없는캠",
+			"분당",
+			"커피 기본 템플릿 자동 생성 금지"
+		));
+
+		assertThat(pollTemplateRepository.findByCampusIdAndPollTypeAndIsDefaultTrue(campus.campusId(), PollType.COFFEE))
+			.isEmpty();
 	}
 
 	@Test

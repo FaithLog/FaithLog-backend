@@ -236,6 +236,50 @@ class BillingServiceTest {
 	}
 
 	@Test
+	void listAdminPaymentAccounts_returns_management_metadata_with_role_scoped_visibility() {
+		User manager = saveUser("billing-admin-account-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("billing-admin-account-duty@example.com", UserRole.USER);
+		User otherDuty = saveUser("billing-admin-account-other-duty@example.com", UserRole.USER);
+		User member = saveUser("billing-admin-account-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "112관리계좌캠");
+		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(otherDuty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		PaymentAccountResult penalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "벌금 계좌", "하나은행", "112-201", "벌금회계", manager.id()
+		));
+		PaymentAccountResult otherCoffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "다른 커피 계좌", "하나은행", "112-203", "커피회계", otherDuty.id()
+		));
+		PaymentAccountResult dutyCoffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), duty.id(), PaymentCategory.COFFEE, "담당자 커피 계좌", "하나은행", "112-202", "커피회계", duty.id()
+		));
+		billingService.deactivatePaymentAccount(penalty.id(), manager.id());
+
+		List<PaymentAccountResult> managerResults = billingService.listAdminPaymentAccounts(campus.campusId(), manager.id());
+		List<PaymentAccountResult> dutyResults = billingService.listAdminPaymentAccounts(campus.campusId(), duty.id());
+
+		assertThat(managerResults)
+			.extracting(PaymentAccountResult::id)
+			.containsExactly(penalty.id(), otherCoffee.id(), dutyCoffee.id());
+		assertThat(managerResults)
+			.filteredOn(result -> result.id().equals(penalty.id()))
+			.singleElement()
+			.satisfies(result -> {
+				assertThat(result.isActive()).isFalse();
+				assertThat(result.createdAt()).isNotNull();
+				assertThat(result.deactivatedAt()).isNotNull();
+			});
+		assertThat(dutyResults)
+			.extracting(PaymentAccountResult::id)
+			.containsExactly(dutyCoffee.id());
+		assertThatThrownBy(() -> billingService.listAdminPaymentAccounts(campus.campusId(), member.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 납부 계좌 조회 권한이 없습니다.");
+	}
+
+	@Test
 	void replacingActiveAccount_relinks_unpaid_charges_and_preserves_terminal_snapshots() {
 		User manager = saveUser("billing-relink-manager@example.com", UserRole.MANAGER);
 		User member = saveUser("billing-relink-member@example.com", UserRole.USER);
