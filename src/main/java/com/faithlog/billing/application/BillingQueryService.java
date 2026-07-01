@@ -388,6 +388,9 @@ public class BillingQueryService {
 				return null;
 			}
 			PaymentAccount account = getAccountInCampus(campusId, paymentAccountId);
+			if (!requester.isAdmin()) {
+				requireOwnedCoffeeAccountForFilter(account, requester.userId());
+			}
 			return Set.of(account.id());
 		}
 		if (!isActiveCoffeeDuty(campusId, requester.userId())) {
@@ -402,7 +405,7 @@ public class BillingQueryService {
 			return Set.of(account.id());
 		}
 		return paymentAccountRepository
-			.findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueOrderByIdAsc(
+			.findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(
 				campusId,
 				requester.userId(),
 				PaymentCategory.COFFEE
@@ -420,7 +423,7 @@ public class BillingQueryService {
 	) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		List<PaymentAccount> ownerAccounts = paymentAccountRepository
-			.findByCampusIdAndOwnerUserIdAndIsActiveTrueOrderByIdAsc(campusId, requester.userId());
+			.findByCampusIdAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(campusId, requester.userId());
 		if (requester.isAdmin() || isCampusChargeManager(campusId, requester.userId())) {
 			return filterOwnerAccountIds(ownerAccounts, paymentCategory, paymentAccountId);
 		}
@@ -453,6 +456,7 @@ public class BillingQueryService {
 
 	private PaymentAccount getAccountInCampus(Long campusId, Long paymentAccountId) {
 		PaymentAccount account = paymentAccountRepository.findById(paymentAccountId)
+			.filter(paymentAccount -> !paymentAccount.isDeleted())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 		if (!account.campusId().equals(campusId)) {
 			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND);
@@ -464,7 +468,13 @@ public class BillingQueryService {
 		if (!account.isActive() || account.accountType() != PaymentCategory.COFFEE) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
 		}
-		if (account.ownerUserId() != null && !account.ownerUserId().equals(requesterId)) {
+		if (!requesterId.equals(account.ownerUserId())) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
+		}
+	}
+
+	private void requireOwnedCoffeeAccountForFilter(PaymentAccount account, Long requesterId) {
+		if (account.accountType() == PaymentCategory.COFFEE && !requesterId.equals(account.ownerUserId())) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
 		}
 	}

@@ -319,12 +319,17 @@ class BillingQueryServiceTest {
 		User duty = saveUser("query-my-account-duty@example.com", UserRole.USER, "커피담당");
 		User otherDuty = saveUser("query-my-account-other-duty@example.com", UserRole.USER, "다른담당");
 		User member = saveUser("query-my-account-member@example.com", UserRole.USER, "멤버");
+		User serviceAdmin = saveUser("query-my-account-admin@example.com", UserRole.ADMIN, "서비스관리자");
 		CampusCreateResult campus = createCampus(manager, "112내계좌캠");
 		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
 		campusService.joinCampus(new JoinCampusCommand(otherDuty.id(), campus.inviteCode()));
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
-		PaymentAccountResult otherAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.COFFEE, "112-102", otherDuty.id());
+		CampusMember otherDutyMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), otherDuty.id())
+			.orElseThrow();
+		ReflectionTestUtils.setField(otherDutyMembership, "campusRole", CampusRole.ELDER);
+		campusMemberRepository.saveAndFlush(otherDutyMembership);
+		PaymentAccountResult otherAccount = createAccount(campus.campusId(), otherDuty.id(), PaymentCategory.COFFEE, "112-102", otherDuty.id());
 		PaymentAccountResult dutyAccount = createAccount(campus.campusId(), duty.id(), PaymentCategory.COFFEE, "112-101", duty.id());
 		saveCharge(campus.campusId(), member.id(), dutyAccount, PaymentCategory.COFFEE, ChargeSourceType.POLL_RESPONSE,
 			11211L, "담당자 계좌 커피", 1800, ChargeStatus.UNPAID, null);
@@ -353,8 +358,14 @@ class BillingQueryServiceTest {
 		)))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("캠퍼스 청구 조회 권한이 없습니다.");
-		assertThat(billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
+		assertThatThrownBy(() -> billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
 			campus.campusId(), manager.id(), PaymentCategory.COFFEE, null, null, null, otherAccount.id(),
+			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 청구 조회 권한이 없습니다.");
+		assertThat(billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
+			campus.campusId(), serviceAdmin.id(), PaymentCategory.COFFEE, null, null, null, otherAccount.id(),
 			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
 		)).summary().totalAmount()).isEqualTo(2900);
 	}

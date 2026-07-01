@@ -34,12 +34,12 @@ class PollAccessService {
 	}
 
 	void requireCoffeeTemplateManager(Long campusId, Long requesterId) {
-		requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
+		requireCampusManagerOrCoffeeDuty(campusId, requesterId, PollType.COFFEE, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
 	}
 
 	void requirePollCreator(Long campusId, Long requesterId, PollType pollType) {
 		if (pollType == PollType.COFFEE) {
-			requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
+			requireCampusManagerOrCoffeeDuty(campusId, requesterId, pollType, ErrorCode.POLL_CREATE_FORBIDDEN);
 			return;
 		}
 		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);

@@ -236,6 +236,97 @@ class BillingServiceTest {
 	}
 
 	@Test
+	void coffee_accounts_keep_active_scope_per_owner_and_do_not_reconnect_existing_charges() {
+		User minister = saveUser("billing-coffee-owner-minister@example.com", UserRole.MANAGER);
+		User elder = saveUser("billing-coffee-owner-elder@example.com", UserRole.USER);
+		User member = saveUser("billing-coffee-owner-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(minister, "114커피소유캠");
+		campusService.joinCampus(new JoinCampusCommand(elder.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		CampusMember elderMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), elder.id())
+			.orElseThrow();
+		ReflectionTestUtils.setField(elderMembership, "campusRole", CampusRole.ELDER);
+		campusMemberRepository.saveAndFlush(elderMembership);
+
+		PaymentAccountResult ministerFirst = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			minister.id(),
+			PaymentCategory.COFFEE,
+			"목사 커피 계좌",
+			"하나은행",
+			"114-COFFEE-1",
+			"목사",
+			minister.id()
+		));
+		ChargeItem coffeeCharge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(),
+			member.id(),
+			PaymentCategory.COFFEE,
+			ministerFirst.id(),
+			ministerFirst.bankName(),
+			ministerFirst.accountNumber(),
+			ministerFirst.accountHolder(),
+			ChargeSourceType.POLL_RESPONSE,
+			11401L,
+			"커피 주문",
+			"기존 커피 정산",
+			1800,
+			null
+		));
+
+		PaymentAccountResult elderAccount = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			elder.id(),
+			PaymentCategory.COFFEE,
+			"장로 커피 계좌",
+			"국민은행",
+			"114-COFFEE-2",
+			"장로",
+			elder.id()
+		));
+		PaymentAccountResult ministerSecond = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			minister.id(),
+			PaymentCategory.COFFEE,
+			"목사 새 커피 계좌",
+			"신한은행",
+			"114-COFFEE-3",
+			"목사",
+			minister.id()
+		));
+
+		assertThat(paymentAccountRepository.getReferenceById(ministerFirst.id()).isActive()).isFalse();
+		assertThat(paymentAccountRepository.getReferenceById(elderAccount.id()).isActive()).isTrue();
+		assertThat(paymentAccountRepository.getReferenceById(ministerSecond.id()).isActive()).isTrue();
+		assertThat(chargeItemRepository.findById(coffeeCharge.id())).get()
+			.satisfies(charge -> {
+				assertThat(charge.paymentAccountId()).isEqualTo(ministerFirst.id());
+				assertThat(charge.accountNumberSnapshot()).isEqualTo("114-COFFEE-1");
+			});
+	}
+
+	@Test
+	void coffee_payment_account_creation_allows_only_requester_owned_account() {
+		User manager = saveUser("billing-coffee-owner-mismatch-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-coffee-owner-mismatch-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "114커피본인계좌캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.COFFEE,
+			"다른 사람 커피 계좌",
+			"하나은행",
+			"114-OWNER-MISMATCH",
+			"다른사람",
+			member.id()
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("본인 커피 계좌만 등록할 수 있습니다.");
+	}
+
+	@Test
 	void listAdminPaymentAccounts_returns_management_metadata_with_role_scoped_visibility() {
 		User manager = saveUser("billing-admin-account-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("billing-admin-account-duty@example.com", UserRole.USER);
@@ -246,11 +337,15 @@ class BillingServiceTest {
 		campusService.joinCampus(new JoinCampusCommand(otherDuty.id(), campus.inviteCode()));
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		CampusMember otherDutyMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), otherDuty.id())
+			.orElseThrow();
+		ReflectionTestUtils.setField(otherDutyMembership, "campusRole", CampusRole.ELDER);
+		campusMemberRepository.saveAndFlush(otherDutyMembership);
 		PaymentAccountResult penalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "벌금 계좌", "하나은행", "112-201", "벌금회계", manager.id()
 		));
 		PaymentAccountResult otherCoffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
-			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "다른 커피 계좌", "하나은행", "112-203", "커피회계", otherDuty.id()
+			campus.campusId(), otherDuty.id(), PaymentCategory.COFFEE, "다른 커피 계좌", "하나은행", "112-203", "커피회계", otherDuty.id()
 		));
 		PaymentAccountResult dutyCoffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campus.campusId(), duty.id(), PaymentCategory.COFFEE, "담당자 커피 계좌", "하나은행", "112-202", "커피회계", duty.id()
@@ -262,8 +357,8 @@ class BillingServiceTest {
 
 		assertThat(managerResults)
 			.extracting(PaymentAccountResult::id)
-			.containsExactly(penalty.id(), otherCoffee.id(), dutyCoffee.id());
-		assertThat(managerResults)
+			.containsExactly(otherCoffee.id(), dutyCoffee.id());
+		assertThat(billingService.listAdminPaymentAccounts(campus.campusId(), manager.id(), null, true))
 			.filteredOn(result -> result.id().equals(penalty.id()))
 			.singleElement()
 			.satisfies(result -> {
@@ -277,6 +372,135 @@ class BillingServiceTest {
 		assertThatThrownBy(() -> billingService.listAdminPaymentAccounts(campus.campusId(), member.id()))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("캠퍼스 납부 계좌 조회 권한이 없습니다.");
+	}
+
+	@Test
+	void listAdminPaymentAccounts_defaults_to_active_only_and_can_include_inactive_penalty_accounts() {
+		User manager = saveUser("billing-admin-filter-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "116관리목록캠");
+		PaymentAccountResult firstPenalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "이전 벌금 계좌", "하나은행", "116-PENALTY-1", "이전회계", null
+		));
+		PaymentAccountResult activePenalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "현재 벌금 계좌", "국민은행", "116-PENALTY-2", "현재회계", null
+		));
+		PaymentAccountResult coffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "커피 계좌", "신한은행", "116-COFFEE-1", "커피회계", manager.id()
+		));
+		billingService.deletePaymentAccount(campus.campusId(), firstPenalty.id(), manager.id());
+
+		List<PaymentAccountResult> defaultResults = billingService.listAdminPaymentAccounts(
+			campus.campusId(),
+			manager.id(),
+			null,
+			false
+		);
+		List<PaymentAccountResult> penaltyResults = billingService.listAdminPaymentAccounts(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			true
+		);
+
+		assertThat(defaultResults)
+			.extracting(PaymentAccountResult::id)
+			.containsExactly(activePenalty.id(), coffee.id());
+		assertThat(penaltyResults)
+			.extracting(PaymentAccountResult::id)
+			.containsExactly(activePenalty.id());
+		assertThat(paymentAccountRepository.getReferenceById(firstPenalty.id()))
+			.satisfies(deleted -> assertThat(deleted.deletedAt()).isNotNull());
+	}
+
+	@Test
+	void activatePenaltyPaymentAccount_switches_active_account_and_is_idempotent_for_already_active_account() {
+		User manager = saveUser("billing-activate-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "116활성화캠");
+		PaymentAccountResult first = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "이전 벌금 계좌", "하나은행", "116-ACTIVE-1", "이전회계", null
+		));
+		PaymentAccountResult second = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "현재 벌금 계좌", "국민은행", "116-ACTIVE-2", "현재회계", null
+		));
+
+		PaymentAccountResult activated = billingService.activatePenaltyPaymentAccount(campus.campusId(), first.id(), manager.id());
+		PaymentAccountResult idempotent = billingService.activatePenaltyPaymentAccount(campus.campusId(), first.id(), manager.id());
+
+		assertThat(activated.id()).isEqualTo(first.id());
+		assertThat(activated.isActive()).isTrue();
+		assertThat(idempotent.id()).isEqualTo(first.id());
+		assertThat(idempotent.isActive()).isTrue();
+		assertThat(paymentAccountRepository.getReferenceById(first.id())).satisfies(account -> {
+			assertThat(account.isActive()).isTrue();
+			assertThat(account.deactivatedAt()).isNull();
+		});
+		assertThat(paymentAccountRepository.getReferenceById(second.id())).satisfies(account -> {
+			assertThat(account.isActive()).isFalse();
+			assertThat(account.deactivatedAt()).isNotNull();
+		});
+	}
+
+	@Test
+	void activatePenaltyPaymentAccount_rejects_deleted_mismatched_campus_and_coffee_accounts() {
+		User manager = saveUser("billing-activate-invalid-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "116활성화오류캠");
+		CampusCreateResult otherCampus = createCampus(manager, "116다른활성화오류캠");
+		PaymentAccountResult penalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "벌금 계좌", "하나은행", "116-ACTIVATE-DEL", "벌금회계", null
+		));
+		PaymentAccountResult otherPenalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			otherCampus.campusId(), manager.id(), PaymentCategory.PENALTY, "다른 벌금 계좌", "하나은행", "116-ACTIVATE-OTHER", "벌금회계", null
+		));
+		PaymentAccountResult coffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "커피 계좌", "신한은행", "116-ACTIVATE-COFFEE", "커피회계", manager.id()
+		));
+		billingService.deactivatePaymentAccount(coffee.id(), manager.id());
+		billingService.deactivatePaymentAccount(penalty.id(), manager.id());
+		billingService.deletePaymentAccount(campus.campusId(), penalty.id(), manager.id());
+
+		assertThatThrownBy(() -> billingService.activatePenaltyPaymentAccount(campus.campusId(), penalty.id(), manager.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("납부 계좌를 찾을 수 없습니다.");
+		assertThatThrownBy(() -> billingService.activatePenaltyPaymentAccount(campus.campusId(), otherPenalty.id(), manager.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("납부 계좌를 찾을 수 없습니다.");
+		assertThatThrownBy(() -> billingService.activatePenaltyPaymentAccount(campus.campusId(), coffee.id(), manager.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("PENALTY 계좌만 활성화할 수 있습니다.");
+	}
+
+	@Test
+	void deletePaymentAccount_allows_only_inactive_accounts_and_preserves_charge_snapshots() {
+		User manager = saveUser("billing-delete-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-delete-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "116삭제캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult first = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "이전 벌금 계좌", "하나은행", "116-DELETE-1", "이전회계", null
+		));
+		ChargeItem charge = saveCharge(campus.campusId(), member.id(), first, 11601L);
+		charge.markPaid();
+		chargeItemRepository.saveAndFlush(charge);
+		PaymentAccountResult active = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "현재 벌금 계좌", "국민은행", "116-DELETE-2", "현재회계", null
+		));
+
+		assertThatThrownBy(() -> billingService.deletePaymentAccount(campus.campusId(), active.id(), manager.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("활성 계좌는 삭제할 수 없습니다.");
+
+		billingService.deletePaymentAccount(campus.campusId(), first.id(), manager.id());
+
+		assertThat(paymentAccountRepository.getReferenceById(first.id())).satisfies(account -> {
+			assertThat(account.isActive()).isFalse();
+			assertThat(account.deletedAt()).isNotNull();
+		});
+		assertThat(chargeItemRepository.findById(charge.id())).get().satisfies(saved -> {
+			assertThat(saved.paymentAccountId()).isEqualTo(first.id());
+			assertThat(saved.bankNameSnapshot()).isEqualTo("하나은행");
+			assertThat(saved.accountNumberSnapshot()).isEqualTo("116-DELETE-1");
+			assertThat(saved.accountHolderSnapshot()).isEqualTo("이전회계");
+		});
 	}
 
 	@Test

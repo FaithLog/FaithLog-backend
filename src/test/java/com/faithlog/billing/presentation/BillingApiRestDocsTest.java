@@ -12,6 +12,7 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.response
 import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.restdocs.request.RequestDocumentation.pathParameters;
 import static org.springframework.restdocs.request.RequestDocumentation.queryParameters;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,6 +25,7 @@ import com.faithlog.billing.application.BillingService;
 import com.faithlog.billing.application.ChargeItemResult;
 import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.application.CreatePenaltyChargeCommand;
+import com.faithlog.billing.application.PaymentAccountResult;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.PaymentCategory;
@@ -117,7 +119,7 @@ class BillingApiRestDocsTest {
 					fieldWithPath("bankName").description("은행명"),
 					fieldWithPath("accountNumber").description("계좌번호. 납부에 필요하므로 전체 저장 및 노출"),
 					fieldWithPath("accountHolder").description("예금주"),
-					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. 없으면 null")
+					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. COFFEE는 생략 시 requester 본인이 owner가 되며, 다른 사용자 ID는 403으로 거부")
 				),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			))
@@ -163,6 +165,105 @@ class BillingApiRestDocsTest {
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			));
 
+		String secondPenaltyBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "accountType": "PENALTY",
+					  "nickname": "48캠 현재 벌금 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "0048-11-222222",
+					  "accountHolder": "현재회계",
+					  "ownerUserId": %d
+					}
+					""".formatted(manager.id())))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.isActive").value(true))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long secondPenaltyAccountId = objectMapper.readTree(secondPenaltyBody).path("data").path("id").asLong();
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("accountType", "PENALTY"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(secondPenaltyAccountId))
+			.andExpect(jsonPath("$.data[0].isActive").value(true))
+			.andDo(document("payment-account-admin-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("관리자용 납부 계좌를 조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("accountType").optional().description("계좌 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("includeInactive").optional().description("비활성 계좌 포함 여부. 기본 `false`; `true`이면 active + inactive 반환")
+				),
+				responseFields(apiResponseFields(combine(
+					fields(fieldWithPath("data[]").description("관리자용 납부 계좌 목록. 기본값은 active 계좌만 반환")),
+					adminAccountFields("data[].")
+				)))
+			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("accountType", "PENALTY")
+				.param("includeInactive", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.length()").value(2))
+			.andExpect(jsonPath("$.data[0].id").value(accountId))
+			.andExpect(jsonPath("$.data[0].isActive").value(false))
+			.andExpect(jsonPath("$.data[1].id").value(secondPenaltyAccountId))
+			.andExpect(jsonPath("$.data[1].isActive").value(true))
+			.andDo(document("payment-account-admin-list-include-inactive-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("관리자용 납부 계좌를 조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("accountType").optional().description("계좌 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("includeInactive").optional().description("비활성 계좌 포함 여부. `true`이면 active + inactive 반환")
+				),
+				responseFields(apiResponseFields(combine(
+					fields(fieldWithPath("data[]").description("active + inactive 관리자용 납부 계좌 목록. soft deleted 계좌는 항상 제외")),
+					adminAccountFields("data[].")
+				)))
+			));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate", campusId, accountId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.id").value(accountId))
+			.andExpect(jsonPath("$.data.isActive").value(true))
+			.andDo(document("payment-account-activate-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("활성화할 PENALTY 계좌의 캠퍼스 ID"),
+					parameterWithName("paymentAccountId").description("활성화할 inactive PENALTY 납부 계좌 ID")
+				),
+				responseFields(apiResponseFields(adminAccountFields("data.")))
+			));
+
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}", campusId, secondPenaltyAccountId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNoContent())
+			.andDo(document("payment-account-delete-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("삭제할 inactive 납부 계좌의 캠퍼스 ID"),
+					parameterWithName("paymentAccountId").description("soft delete 처리할 inactive 납부 계좌 ID")
+				)
+			));
+
 		String coffeeAccountBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
 				.header("Authorization", "Bearer " + dutyToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -190,7 +291,7 @@ class BillingApiRestDocsTest {
 					fieldWithPath("bankName").description("은행명"),
 					fieldWithPath("accountNumber").description("계좌번호"),
 					fieldWithPath("accountHolder").description("예금주"),
-					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. 없으면 null")
+					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. COFFEE는 생략 시 requester 본인이 owner가 되며, 다른 사용자 ID는 403으로 거부")
 				),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			))
@@ -424,7 +525,7 @@ class BillingApiRestDocsTest {
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
 					parameterWithName("userId").optional().description("사용자 ID 필터"),
 					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
-					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 지정 계좌에 연결된 청구만 집계"),
+					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 지정 계좌에 연결된 청구만 집계. COFFEE 계좌는 캠퍼스 관리자/담당자 모두 본인 소유 계좌만 필터 가능하며 전역 ADMIN은 전체 접근 가능"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
 					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
@@ -688,7 +789,7 @@ class BillingApiRestDocsTest {
 			fieldWithPath(prefix + "bankName").description("은행명"),
 			fieldWithPath(prefix + "accountNumber").description("전체 계좌번호"),
 			fieldWithPath(prefix + "accountHolder").description("예금주"),
-			fieldWithPath(prefix + "ownerUserId").optional().description("계좌 소유 사용자 ID"),
+			fieldWithPath(prefix + "ownerUserId").optional().description("계좌 소유 사용자 ID. COFFEE active 기준은 campusId + accountType + ownerUserId"),
 			fieldWithPath(prefix + "isActive").description("계좌 활성 여부"),
 			fieldWithPath(prefix + "createdAt").description("계좌 생성 시각"),
 			fieldWithPath(prefix + "deactivatedAt").optional().description("계좌 비활성화 시각. 활성 계좌는 null")
