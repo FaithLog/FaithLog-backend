@@ -21,6 +21,7 @@ import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
 import com.faithlog.campus.application.AssignCoffeeDutyCommand;
 import com.faithlog.campus.application.CampusService;
+import com.faithlog.campus.application.ChangeCampusRoleCommand;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
@@ -592,6 +593,126 @@ class BillingControllerTest {
 	}
 
 	@Test
+	void campus_role_admin_can_create_penalty_account_and_query_admin_charges_with_fresh_token() throws Exception {
+		String managerToken = signupAndLogin("billing-http-119-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-119-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "119권한캠");
+		long campusId = campus.path("campusId").asLong();
+		String campusAdminTokenBeforeRoleChange = signupAndLogin("billing-http-119-campus-admin@example.com", UserRole.USER);
+		User campusAdmin = userRepository.findByEmail("billing-http-119-campus-admin@example.com").orElseThrow();
+		joinCampus(campusAdminTokenBeforeRoleChange, campus.path("inviteCode").asText());
+		CampusMember campusAdminMembership = campusMemberRepository
+			.findByCampusIdAndUserId(campusId, campusAdmin.id())
+			.orElseThrow();
+		campusService.changeCampusRole(new ChangeCampusRoleCommand(
+			campusId,
+			campusAdminMembership.id(),
+			manager.id(),
+			CampusRole.MINISTER
+		));
+		String campusAdminToken = login("billing-http-119-campus-admin@example.com");
+		String memberToken = signupAndLogin("billing-http-119-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-119-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+
+		String firstBody = createPenaltyAccountByHttp(campusId, campusAdminToken, "119-OLD");
+		long firstAccountId = objectMapper.readTree(firstBody).path("data").path("id").asLong();
+		createPenaltyCharge(campusId, member.id(), 11901L);
+
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + campusAdminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "accountType": "PENALTY",
+					  "nickname": "119캠 새 벌금 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "119-NEW",
+					  "accountHolder": "회계"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.accountType").value("PENALTY"))
+			.andExpect(jsonPath("$.data.accountNumber").value("119-NEW"))
+			.andExpect(jsonPath("$.data.ownerUserId").hasJsonPath())
+			.andExpect(jsonPath("$.data.isActive").value(true))
+			.andExpect(jsonPath("$.data.createdAt").isNotEmpty());
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + campusAdminToken)
+				.param("accountType", "PENALTY")
+				.param("includeInactive", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].id").value(firstAccountId))
+			.andExpect(jsonPath("$.data[0].isActive").value(false))
+			.andExpect(jsonPath("$.data[1].accountNumber").value("119-NEW"))
+			.andExpect(jsonPath("$.data[1].isActive").value(true));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + campusAdminToken)
+				.param("status", "UNPAID")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.unpaidAmount").value(2500))
+			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()));
+	}
+
+	@Test
+	void billing_admin_apis_return_forbidden_for_member_and_unauthorized_without_token() throws Exception {
+		String managerToken = signupAndLogin("billing-http-119-boundary-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-119-boundary-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "119경계캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-119-boundary-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-119-boundary-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "119-BOUNDARY");
+		createPenaltyCharge(campusId, member.id(), 11902L);
+
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "accountType": "PENALTY",
+					  "nickname": "권한 없는 벌금 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "119-FORBIDDEN",
+					  "accountHolder": "회계"
+					}
+					"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN"));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("status", "UNPAID"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_LIST_FORBIDDEN"));
+
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "accountType": "PENALTY",
+					  "nickname": "무토큰 벌금 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "119-UNAUTHORIZED",
+					  "accountHolder": "회계"
+					}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.param("status", "UNPAID"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+	}
+
+	@Test
 	void charge_query_apis_reject_unsupported_sort_properties_and_directions() throws Exception {
 		String managerToken = signupAndLogin("billing-http-admin-sort-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("billing-http-admin-sort-manager@example.com").orElseThrow();
@@ -739,6 +860,25 @@ class BillingControllerTest {
 			.andExpect(status().isCreated());
 	}
 
+	private String createPenaltyAccountByHttp(Long campusId, String accessToken, String accountNumber) throws Exception {
+		return mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "accountType": "PENALTY",
+					  "nickname": "119캠 벌금 계좌",
+					  "bankName": "하나은행",
+					  "accountNumber": "%s",
+					  "accountHolder": "회계"
+					}
+					""".formatted(accountNumber)))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+	}
+
 	private String signupAndLogin(String email, UserRole role) throws Exception {
 		mockMvc.perform(post("/api/v1/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -755,6 +895,10 @@ class BillingControllerTest {
 		ReflectionTestUtils.setField(user, "role", role);
 		userRepository.saveAndFlush(user);
 
+		return login(email);
+	}
+
+	private String login(String email) throws Exception {
 		String loginBody = mockMvc.perform(post("/api/v1/auth/login")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
