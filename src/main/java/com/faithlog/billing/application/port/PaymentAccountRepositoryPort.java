@@ -11,15 +11,31 @@ public interface PaymentAccountRepositoryPort {
 
 	Optional<PaymentAccount> findById(Long accountId);
 
-	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrue(Long campusId, PaymentCategory accountType);
+	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(Long campusId, PaymentCategory accountType);
 
-	List<PaymentAccount> findByCampusIdAndIsActiveTrueOrderByIdAsc(Long campusId);
+	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNull(
+		Long campusId,
+		PaymentCategory accountType,
+		Long ownerUserId
+	);
 
-	List<PaymentAccount> findByCampusIdOrderByIdAsc(Long campusId);
+	List<PaymentAccount> findByCampusIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(Long campusId);
 
-	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndIsActiveTrueOrderByIdAsc(Long campusId, Long ownerUserId);
+	List<PaymentAccount> findByCampusIdAndDeletedAtIsNullOrderByIdAsc(Long campusId);
 
-	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueOrderByIdAsc(
+	List<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(
+		Long campusId,
+		PaymentCategory accountType
+	);
+
+	List<PaymentAccount> findByCampusIdAndAccountTypeAndDeletedAtIsNullOrderByIdAsc(
+		Long campusId,
+		PaymentCategory accountType
+	);
+
+	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(Long campusId, Long ownerUserId);
+
+	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(
 		Long campusId,
 		Long ownerUserId,
 		PaymentCategory accountType

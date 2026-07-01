@@ -1,5 +1,6 @@
 package com.faithlog.billing.presentation;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -12,6 +13,7 @@ import com.faithlog.billing.application.BillingService;
 import com.faithlog.billing.application.ChargeItemResult;
 import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.application.CreatePenaltyChargeCommand;
+import com.faithlog.billing.application.PaymentAccountResult;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.ChargeStatus;
@@ -183,6 +185,113 @@ class BillingControllerTest {
 					}
 					"""))
 			.andExpect(status().isCreated());
+	}
+
+	@Test
+	void admin_payment_account_list_activate_and_delete_api_exposes_penalty_active_inactive_policy() throws Exception {
+		String managerToken = signupAndLogin("billing-http-116-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-116-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "116HTTP캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-116-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-116-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		PaymentAccountResult first = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId, manager.id(), PaymentCategory.PENALTY, "이전 벌금 계좌", "하나은행", "116-HTTP-1", "이전회계", null
+		));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			member.id(),
+			PaymentCategory.PENALTY,
+			first.id(),
+			first.bankName(),
+			first.accountNumber(),
+			first.accountHolder(),
+			ChargeSourceType.DEVOTION_RECORD,
+			11602L,
+			"경건생활 벌금",
+			"2026-07-01 주간",
+			2500,
+			LocalDate.of(2026, 7, 6)
+		));
+		charge.markPaid();
+		chargeItemRepository.saveAndFlush(charge);
+		PaymentAccountResult second = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId, manager.id(), PaymentCategory.PENALTY, "현재 벌금 계좌", "국민은행", "116-HTTP-2", "현재회계", null
+		));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("accountType", "PENALTY"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(second.id()))
+			.andExpect(jsonPath("$.data[0].isActive").value(true));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("accountType", "PENALTY")
+				.param("includeInactive", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(2))
+			.andExpect(jsonPath("$.data[0].id").value(first.id()))
+			.andExpect(jsonPath("$.data[0].isActive").value(false))
+			.andExpect(jsonPath("$.data[1].id").value(second.id()))
+			.andExpect(jsonPath("$.data[1].isActive").value(true));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate", campusId, first.id())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.id").value(first.id()))
+			.andExpect(jsonPath("$.data.isActive").value(true));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate", campusId, first.id())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.id").value(first.id()))
+			.andExpect(jsonPath("$.data.isActive").value(true));
+
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}", campusId, first.id())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BILLING_PAYMENT_ACCOUNT_ACTIVE_DELETE_FORBIDDEN"));
+
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}", campusId, second.id())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("accountType", "PENALTY")
+				.param("includeInactive", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(first.id()));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate", campusId, second.id())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("BILLING_PAYMENT_ACCOUNT_NOT_FOUND"));
+
+		assertThatChargeSnapshotPreserved(charge.id(), first.id(), "하나은행", "116-HTTP-1", "이전회계");
+	}
+
+	@Test
+	void admin_payment_account_activate_rejects_coffee_account() throws Exception {
+		String managerToken = signupAndLogin("billing-http-116-coffee-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-116-coffee-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "116커피활성화HTTP캠");
+		long campusId = campus.path("campusId").asLong();
+		PaymentAccountResult coffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId, manager.id(), PaymentCategory.COFFEE, "커피 계좌", "하나은행", "116-HTTP-COFFEE", "커피회계", manager.id()
+		));
+		billingService.deactivatePaymentAccount(coffee.id(), manager.id());
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate", campusId, coffee.id())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("BILLING_PAYMENT_ACCOUNT_ACTIVATE_UNSUPPORTED"))
+			.andExpect(jsonPath("$.message").value("PENALTY 계좌만 활성화할 수 있습니다."));
 	}
 
 	@Test
@@ -470,7 +579,7 @@ class BillingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.length()").value(2))
 			.andExpect(jsonPath("$.data[0].ownerUserId").value(manager.id()))
-			.andExpect(jsonPath("$.data[0].isActive").value(false))
+			.andExpect(jsonPath("$.data[0].isActive").value(true))
 			.andExpect(jsonPath("$.data[0].createdAt").isNotEmpty())
 			.andExpect(jsonPath("$.data[1].ownerUserId").value(duty.id()))
 			.andExpect(jsonPath("$.data[1].isActive").value(true));
@@ -703,5 +812,19 @@ class BillingControllerTest {
 			amount,
 			null
 		));
+	}
+
+	private void assertThatChargeSnapshotPreserved(
+		Long chargeId,
+		Long accountId,
+		String bankName,
+		String accountNumber,
+		String accountHolder
+	) {
+		ChargeItem saved = chargeItemRepository.findById(chargeId).orElseThrow();
+		org.assertj.core.api.Assertions.assertThat(saved.paymentAccountId()).isEqualTo(accountId);
+		org.assertj.core.api.Assertions.assertThat(saved.bankNameSnapshot()).isEqualTo(bankName);
+		org.assertj.core.api.Assertions.assertThat(saved.accountNumberSnapshot()).isEqualTo(accountNumber);
+		org.assertj.core.api.Assertions.assertThat(saved.accountHolderSnapshot()).isEqualTo(accountHolder);
 	}
 }

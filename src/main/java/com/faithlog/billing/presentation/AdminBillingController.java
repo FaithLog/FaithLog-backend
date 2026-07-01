@@ -21,12 +21,14 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -65,13 +67,40 @@ public class AdminBillingController {
 	@GetMapping("/campuses/{campusId}/payment-accounts")
 	public ApiResponse<List<PaymentAccountAdminResponse>> listAdminPaymentAccounts(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-		@PathVariable Long campusId
+		@PathVariable Long campusId,
+		@RequestParam(required = false) PaymentCategory accountType,
+		@RequestParam(defaultValue = "false") boolean includeInactive
 	) {
-		List<PaymentAccountAdminResponse> responses = billingService.listAdminPaymentAccounts(campusId, authenticatedUser.userId())
+		List<PaymentAccountAdminResponse> responses = billingService
+			.listAdminPaymentAccounts(campusId, authenticatedUser.userId(), accountType, includeInactive)
 			.stream()
 			.map(PaymentAccountAdminResponse::from)
 			.toList();
 		return ApiResponse.success(responses);
+	}
+
+	@PatchMapping("/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate")
+	public ApiResponse<PaymentAccountAdminResponse> activatePaymentAccount(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@PathVariable Long paymentAccountId
+	) {
+		PaymentAccountResult result = billingService.activatePenaltyPaymentAccount(
+			campusId,
+			paymentAccountId,
+			authenticatedUser.userId()
+		);
+		return ApiResponse.success(PaymentAccountAdminResponse.from(result), "납부 계좌가 활성화되었습니다.");
+	}
+
+	@DeleteMapping("/campuses/{campusId}/payment-accounts/{paymentAccountId}")
+	public ResponseEntity<Void> deletePaymentAccount(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@PathVariable Long paymentAccountId
+	) {
+		billingService.deletePaymentAccount(campusId, paymentAccountId, authenticatedUser.userId());
+		return ResponseEntity.noContent().build();
 	}
 
 	@PatchMapping("/charges/{chargeItemId}/status")

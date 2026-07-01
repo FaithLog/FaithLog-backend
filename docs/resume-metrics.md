@@ -13,23 +13,46 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-01, 276 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-01, `./gradlew test` BUILD SUCCESSFUL; #116 focused billing 41 tests / 0 failures / 0 errors / 0 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 117 snippet groups (2026-07-01) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 120 snippet groups (2026-07-01) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-01) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 4 (Flyway V1-V4, 2026-07-01) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-07-01
+
+- #116 벌금 계좌 활성화와 삭제 정책 구현:
+  - 작업 기준: Issue #116 `[Fix] 벌금 계좌 활성화와 삭제 정책 구현`, Project `FaithLog Backend Kanban` Status/Kanban Status `In Progress`, 브랜치 `fix/116-penalty-account-policy`, worktree `/Users/josephuk77/.codex/worktrees/f6ed/FaithLog`.
+  - TDD 실패 확인: 구현 전 `BillingServiceTest`, `BillingControllerTest`, `BillingApiRestDocsTest`에 PENALTY active/inactive 목록, idempotent activate, COFFEE activate 거부, active delete 409, inactive soft delete, soft deleted 목록/activate 제외, terminal charge snapshot 보존 테스트를 추가했다. focused billing 테스트 최초 실행은 `deletePaymentAccount`, `activatePenaltyPaymentAccount`, `deletedAt` 부재 등 15개 compile error로 실패했다.
+  - 구현 범위: `payment_accounts.deleted_at` soft-delete 필드를 추가하고 V4 Flyway migration으로 반영했다. admin payment account list는 기본 active-only로 바꾸고 `accountType`, `includeInactive` query를 추가했다. `includeInactive=true`는 active + inactive를 반환하되 soft deleted 계좌는 항상 제외한다.
+  - API 계약: `PATCH /api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate`는 PENALTY 전용이며 이미 active인 대상은 idempotent 성공이다. `COFFEE` activate는 `400 BILLING_PAYMENT_ACCOUNT_ACTIVATE_UNSUPPORTED`로 실패한다. `DELETE /api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}`는 inactive 계좌만 soft delete하고 active 계좌는 `409 BILLING_PAYMENT_ACCOUNT_ACTIVE_DELETE_FORBIDDEN`으로 실패한다.
+  - 회귀 방지: #114 COFFEE 사용자별 active 계좌 기준은 유지했고, billing query의 owner 계좌 조회도 soft deleted 계좌를 제외하도록 보강했다. 기존 청구에 연결된 계좌를 soft delete해도 `charge_items.payment_account_id`와 snapshot은 변경하지 않는다.
+  - Spring REST Docs: `payment-account-admin-list-success`, `payment-account-admin-list-include-inactive-success`, `payment-account-activate-success`, `payment-account-delete-success` snippets를 추가하고 `src/docs/asciidoc/index.adoc`에 query parameter와 신규 endpoint 섹션을 반영했다. Swagger 문서화 annotation은 추가하지 않았다.
+  - 검증: PM 세션에서 focused billing service/controller/REST Docs 테스트 41개 성공 확인. Codex 세션에서 `./gradlew test` 성공, `./gradlew build` 성공, `./gradlew asciidoctor` 성공(최초 sandbox Gradle wrapper lock 실패 후 승인 경로 재실행 성공), `git diff --check` 성공, Docker compose health `UP` 확인, 실제 API QA 성공.
+  - Docker/API QA: 기본 `docker compose`로 Postgres/Redis/app을 올리고 컨테이너 내부 `GET /api/v1/health` 200/`UP` 확인. 실제 API로 MANAGER 테스트 계정 생성/승격, 캠퍼스 생성, PENALTY 계좌 2개 등록, 기본 active-only 목록 1건, `includeInactive=true` 목록 2건, inactive activate, active delete 409, inactive soft delete, soft-deleted 계좌 목록 제외를 확인했다. QA 결과 `QA116_API_FLOW=PASS`를 확인했고, QA 후 `docker compose down`으로 컨테이너와 네트워크를 정리했다.
+  - 트러블슈팅: QA 전용 compose project는 `docker-compose.yml`의 고정 `container_name` 때문에 기존 컨테이너와 충돌해 중단됐다. 기본 compose 재검증 중 기존 `faithlog_postgres-data` volume의 Postgres password와 현재 compose env가 달라 app boot가 실패했으나, 볼륨 삭제 없이 로컬 컨테이너의 `faithlog` DB role password를 compose 기본값으로 맞춘 뒤 health/API QA를 완료했다.
+
+- #114 사용자별 커피 계좌와 커피투표 정산 권한 정리:
+  - 작업 기준: Issue #114 `[Fix] 사용자별 커피 계좌와 커피투표 정산 권한 정리`, Project `FaithLog Backend Kanban` Status/Kanban Status `In Progress`, 브랜치 `fix/114-coffee-account-owner`, worktree `FaithLog-worktrees/fix-114-coffee-account-owner`.
+  - TDD 실패 확인: 구현 전 `BillingServiceTest`와 `PollServiceTest`에 사용자별 COFFEE active 계좌 분리, 본인 소유 COFFEE 계좌 제한, 관리자/담당자 COFFEE poll/template 본인 계좌 요구 테스트를 추가했고 focused 테스트가 4 failures로 실패하는 것을 확인했다.
+  - 구현 범위: COFFEE 계좌 active 기준을 `campusId + accountType + ownerUserId`로 분리하고, 같은 사용자의 새 COFFEE 계좌 등록 시 본인 이전 active 계좌만 비활성화하도록 변경했다. PENALTY 계좌는 캠퍼스 단위 active 1개와 기존 unpaid PENALTY charge 재연결 정책을 유지했다.
+  - 권한 보강: COFFEE 계좌 생성은 requester 본인 소유만 허용하고 다른 `ownerUserId`는 `403 BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN`으로 고정했다. 캠퍼스 관리자와 active COFFEE 담당자는 본인 COFFEE 계좌를 등록할 수 있고, 일반 MEMBER는 active COFFEE 담당자가 아니면 403이다. COFFEE 담당자 단독 PENALTY 계좌 생성/비활성화는 403이다.
+  - 커피투표/정산: 캠퍼스 관리자와 active COFFEE 담당자 모두 COFFEE poll/template을 만들 수 있지만, requester 본인 소유 active COFFEE `paymentAccountId`가 필수다. null/비활성/타 캠퍼스/PENALTY/타인 COFFEE 계좌는 실패한다. 종료 정산으로 생성되는 COFFEE charge는 poll의 `paymentAccountId`에 연결되고, 새 COFFEE 계좌 등록 후 기존 미납 COFFEE charge는 재연결되지 않는다.
+  - 정산 조회: 캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`)와 전역 `ADMIN`의 admin charge 접근을 보강했고, 권한 없는 인증 사용자는 403, 인증 실패는 401 계약을 유지했다. `paymentAccountId` COFFEE 필터는 캠퍼스 관리자/담당자 모두 본인 계좌로 제한하고 전역 `ADMIN`은 전체 접근 가능하도록 했다.
+  - DB/Flyway: `V3__split_active_coffee_payment_account_owner_scope.sql`을 추가해 기존 active payment account 인덱스를 PENALTY campus 단위와 COFFEE owner 단위 partial unique index로 분리했다. V1/V2는 수정하지 않았다.
+  - 문서화: `docs/decision-log.md`, `docs/backend-implementation-policy.md`, Spring REST Docs 스니펫 설명, `src/docs/asciidoc/index.adoc`를 #114 정책으로 갱신했다. 새 캠퍼스 생성 시 기본 COFFEE 템플릿/반복투표 미생성 정책은 기존 테스트로 재검증했다.
+  - 검증: 구현 전 실패 테스트 확인 후 focused billing/poll service 테스트 성공, focused billing/poll controller/REST Docs 테스트 성공, `./gradlew test` 성공(280 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. `./gradlew asciidoctor` 최초 실행은 샌드박스의 `~/.gradle` lock 파일 접근 제한으로 실패했고 승인 경로 재실행에서 성공했다.
+  - Docker/API QA: Docker daemon socket(`unix:///Users/josephuk77/.docker/run/docker.sock`)이 없어 `docker ps`가 sandbox/승인 경로 모두 실패했다. 따라서 compose health와 실제 Docker API QA는 수행하지 못했고, Spring Boot 통합 테스트와 REST Docs 계약 테스트로 필수 정책을 검증했다.
 
 - #112 계좌 기준 정산 조회와 커피 투표 권한 정책 정리:
   - 작업 기준: Issue #112 `[Fix] 계좌 기준 정산 조회와 커피 투표 권한 정책 정리`, 브랜치 `fix/112-billing-account-scope-coffee-poll-policy`.

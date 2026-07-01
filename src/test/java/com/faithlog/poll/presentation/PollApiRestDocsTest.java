@@ -219,9 +219,9 @@ class PollApiRestDocsTest {
 					{
 					  "title": "수정된 투표 템플릿",
 					  "selectionType": "MULTIPLE",
-					  "chargeGenerationType": "NONE",
-					  "paymentCategory": null,
-					  "paymentAccountId": null,
+					  "chargeGenerationType": "OPTION_PRICE",
+					  "paymentCategory": "COFFEE",
+					  "paymentAccountId": %d,
 					  "autoCreateEnabled": true,
 					  "startDayOfWeek": 2,
 					  "startTime": "10:00:00",
@@ -232,7 +232,7 @@ class PollApiRestDocsTest {
 					    {"content": "불참", "menuId": null, "priceAmount": 0, "sortOrder": 2}
 					  ]
 					}
-					"""))
+					""".formatted(coffeeAccountId)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.autoCreateEnabled").value(true))
 			.andDo(document("poll-template-update-success",
@@ -915,7 +915,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("selectionType").description("선택 방식"),
 			fieldWithPath("chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
-			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),
+			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID. COFFEE 템플릿은 requester 본인 소유 active COFFEE 계좌 ID가 필수"),
 			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 템플릿은 생략 시 false"),
 			fieldWithPath("autoCreateEnabled").description("자동 생성 설정 여부"),
 			fieldWithPath("startDayOfWeek").description("시작 요일. 1=월요일, 7=일요일"),
@@ -936,7 +936,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("selectionType").description("선택 방식"),
 			fieldWithPath("chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
-			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),
+			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID. COFFEE 템플릿 수정 시 requester 본인 소유 active COFFEE 계좌 ID가 필수"),
 			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 템플릿은 생략 시 false"),
 			fieldWithPath("autoCreateEnabled").description("자동 생성 설정 여부"),
 			fieldWithPath("startDayOfWeek").description("시작 요일. 1=월요일, 7=일요일"),
@@ -961,7 +961,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("allowUserOptionAdd").type(JsonFieldType.BOOLEAN).optional().description("일반 사용자의 투표 항목 추가 허용 여부. 직접 COFFEE 투표에서 생략하면 true, 명시 false면 false, 그 외 직접 투표에서 생략하면 false"),
 			fieldWithPath("chargeGenerationType").optional().description("청구 생성 방식"),
 			fieldWithPath("paymentCategory").optional().description("청구 카테고리"),
-			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID"),
+			fieldWithPath("paymentAccountId").optional().description("커피 청구 계좌 ID. COFFEE 투표는 requester 본인 소유 active COFFEE 계좌 ID가 필수"),
 			fieldWithPath("startsAt").description("투표 시작 시각"),
 			fieldWithPath("endsAt").description("투표 종료 시각"),
 			fieldWithPath("options[]").optional().description("직접 선택지 목록. 템플릿 기반 생성 시 사용하지 않음"),
@@ -981,7 +981,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("data.selectionType").description("선택 방식"),
 			fieldWithPath("data.chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("data.paymentCategory").optional().description("청구 카테고리"),
-			fieldWithPath("data.paymentAccountId").optional().description("커피 청구 계좌 ID"),
+			fieldWithPath("data.paymentAccountId").optional().description("커피 청구 계좌 ID. COFFEE 템플릿은 requester 본인 소유 active COFFEE 계좌"),
 			fieldWithPath("data.allowUserOptionAdd").description("일반 사용자의 투표 항목 추가 허용 여부"),
 			fieldWithPath("data.autoCreateEnabled").description("자동 생성 설정 여부"),
 			fieldWithPath("data.startDayOfWeek").description("시작 요일"),
@@ -1006,7 +1006,7 @@ class PollApiRestDocsTest {
 			fieldWithPath("data.allowUserOptionAdd").description("일반 사용자의 투표 항목 추가 허용 여부"),
 			fieldWithPath("data.chargeGenerationType").description("청구 생성 방식"),
 			fieldWithPath("data.paymentCategory").optional().description("청구 카테고리"),
-			fieldWithPath("data.paymentAccountId").optional().description("커피 청구 계좌 ID"),
+			fieldWithPath("data.paymentAccountId").optional().description("커피 청구 계좌 ID. COFFEE 투표 정산은 이 계좌에 연결"),
 			fieldWithPath("data.startsAt").description("시작 시각"),
 			fieldWithPath("data.endsAt").description("종료 시각"),
 			fieldWithPath("data.status").description("투표 상태"),
