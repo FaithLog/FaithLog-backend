@@ -117,6 +117,16 @@ class PollAccessService {
 		CampusRolePolicy.requireCampusManager(requesterMembership, errorCode);
 	}
 
+	private void requireActiveCoffeeDuty(Long campusId, Long requesterId, ErrorCode errorCode) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(errorCode));
+		if (!isActiveCoffeeDuty(campusId, requester.userId())) {
+			throw new BusinessException(errorCode);
+		}
+	}
+
 	boolean isActiveCoffeeDuty(Long campusId, Long userId) {
 		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
 			.map(assignment -> assignment.userId().equals(userId))

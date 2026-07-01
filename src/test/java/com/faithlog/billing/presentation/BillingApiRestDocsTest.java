@@ -312,6 +312,23 @@ class BillingApiRestDocsTest {
 				pathParameters(parameterWithName("accountId").description("비활성화할 COFFEE 납부 계좌 ID")),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data[0].ownerUserId").value(manager.id()))
+			.andExpect(jsonPath("$.data[0].createdAt").isNotEmpty())
+			.andDo(document("payment-account-admin-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("관리자/담당자용 납부 계좌를 조회할 캠퍼스 ID")),
+				responseFields(apiResponseFields(combine(
+					fields(fieldWithPath("data[]").description("관리자/담당자용 납부 계좌 목록")),
+					adminAccountFields("data[].")
+				)))
+			));
 	}
 
 	@Test
