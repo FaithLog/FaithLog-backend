@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-06-30, 269 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-01, 276 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 115 snippet groups (2026-06-30) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-06-30) | 성공 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 117 snippet groups (2026-07-01) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-01) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -28,6 +28,18 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 1 (Flyway V1 initial schema, 2026-06-22) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-01
+
+- #112 계좌 기준 정산 조회와 커피 투표 권한 정책 정리:
+  - 작업 기준: Issue #112 `[Fix] 계좌 기준 정산 조회와 커피 투표 권한 정책 정리`, 브랜치 `fix/112-billing-account-scope-coffee-poll-policy`.
+  - TDD 실패 확인: 구현 전 billing/campus/poll focused 테스트를 먼저 추가했고, `./gradlew test --tests com.faithlog.billing.application.BillingQueryServiceTest --tests com.faithlog.billing.application.BillingServiceTest --tests com.faithlog.campus.application.CampusServiceTest --tests com.faithlog.poll.application.PollServiceTest`가 `AdminCampusChargeListQuery.paymentAccountId`, `BillingService.listAdminPaymentAccounts`, `PaymentAccountResult.createdAt/deactivatedAt` 부재로 `compileTestJava` 실패했다.
+  - 구현 범위: admin campus charge summary에 optional `paymentAccountId` 필터를 추가하고 기존 `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 조합되도록 했다. `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`와 `GET /api/v1/admin/campuses/{campusId}/payment-accounts`를 추가해 owner 계좌 기준 집계와 관리자/담당자용 계좌 메타데이터 조회를 분리했다.
+  - 권한 보강: PENALTY 계좌/청구 조회는 캠퍼스 관리자 또는 전역 ADMIN으로 유지하고, active COFFEE duty USER는 본인 활성 COFFEE 계좌/청구 범위로 제한했다. COFFEE poll 및 COFFEE poll template 생성/수정은 현재 active COFFEE duty만 가능하도록 제한했고, 비담당 캠퍼스 관리자와 전역 ADMIN의 COFFEE 생성 요청은 403으로 차단했다.
+  - 자동 생성 정책: 신규 캠퍼스 생성 시 default COFFEE poll template과 반복 poll이 자동 생성되지 않도록 캠퍼스 생성 side effect 연결을 제거했다. 기존 캠퍼스에 이미 생성된 자동 커피 템플릿은 이번 작업에서 삭제/비활성화하지 않는다.
+  - Spring REST Docs: admin charge summary query parameter에 `paymentAccountId`를 문서화하고, admin payment account list 및 my-accounts charge summary snippets와 `src/docs/asciidoc/index.adoc` 섹션을 추가했다. Swagger 문서화 annotation은 추가하지 않았다.
+  - 검증: focused service 테스트 성공, focused billing controller/REST Docs 테스트 성공, `./gradlew test` 성공(276 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공. forbidden-term 검색은 정책 문서의 금지 목록과 기존 내부 변수/도메인 메서드명만 검출되어 API 요청 계약 회귀는 없었다. Spring REST Docs snippet group은 117개로 증가했다.
+  - Docker/API QA: Spring Boot 통합 테스트와 REST Docs 계약 테스트로 필수 정책을 검증했고, 별도 Docker compose 실제 API QA는 수행하지 않았다.
 
 ### 2026-06-30
 

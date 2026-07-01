@@ -14,4 +14,14 @@ public interface PaymentAccountRepository extends JpaRepository<PaymentAccount, 
 	List<PaymentAccount> findByCampusIdAndAccountTypeOrderByIdAsc(Long campusId, PaymentCategory accountType);
 
 	List<PaymentAccount> findByCampusIdAndIsActiveTrueOrderByIdAsc(Long campusId);
+
+	List<PaymentAccount> findByCampusIdOrderByIdAsc(Long campusId);
+
+	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndIsActiveTrueOrderByIdAsc(Long campusId, Long ownerUserId);
+
+	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueOrderByIdAsc(
+		Long campusId,
+		Long ownerUserId,
+		PaymentCategory accountType
+	);
 }

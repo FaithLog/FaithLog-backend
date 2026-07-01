@@ -319,7 +319,14 @@ public class PollService {
 		if (templateOptions.isEmpty()) {
 			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
 		}
-		requireCoffeePrerequisitesIfNeeded(template.pollType(), template.chargeGenerationType(), template.paymentCategory(), template.paymentAccountId(), command.campusId());
+		requireCoffeePrerequisitesIfNeeded(
+			template.pollType(),
+			template.chargeGenerationType(),
+			template.paymentCategory(),
+			template.paymentAccountId(),
+			command.campusId(),
+			command.requesterId()
+		);
 		Poll poll = pollRepository.save(Poll.create(
 			command.campusId(),
 			template.id(),
@@ -359,7 +366,14 @@ public class PollService {
 			? pollType == PollType.COFFEE
 			: command.allowUserOptionAdd();
 		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolvePollOptions(command.options());
-		requireCoffeePrerequisitesIfNeeded(pollType, chargeGenerationType, command.paymentCategory(), command.paymentAccountId(), command.campusId());
+		requireCoffeePrerequisitesIfNeeded(
+			pollType,
+			chargeGenerationType,
+			command.paymentCategory(),
+			command.paymentAccountId(),
+			command.campusId(),
+			command.requesterId()
+		);
 		Poll poll = pollRepository.save(Poll.create(
 			command.campusId(),
 			null,
@@ -400,11 +414,13 @@ public class PollService {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId,
-		Long campusId
+		Long campusId,
+		Long requesterId
 	) {
 		if (pollType == PollType.COFFEE) {
 			dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-				.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+				.filter(assignment -> assignment.userId().equals(requesterId))
+				.orElseThrow(() -> new BusinessException(ErrorCode.POLL_CREATE_FORBIDDEN));
 		}
 		if (chargeGenerationType != ChargeGenerationType.OPTION_PRICE && paymentCategory != PaymentCategory.COFFEE) {
 			return;
@@ -414,7 +430,10 @@ public class PollService {
 		}
 		PaymentAccount account = paymentAccountRepository.findById(paymentAccountId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
-		if (!account.isActive() || !account.campusId().equals(campusId) || account.accountType() != PaymentCategory.COFFEE) {
+		if (!account.isActive()
+			|| !account.campusId().equals(campusId)
+			|| account.accountType() != PaymentCategory.COFFEE
+			|| (account.ownerUserId() != null && !account.ownerUserId().equals(requesterId))) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
 		}
 	}

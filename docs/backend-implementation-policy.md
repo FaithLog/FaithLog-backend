@@ -353,7 +353,7 @@ Issue #39 is P0.
 - Compose Coffee seed source policy is official-first. Prefer official Compose Coffee menu boards, official app data, official menu images, or another official Compose Coffee source.
 - If official verification is blocked or impossible, a latest menu/price source explicitly approved by the user may be used as the seed baseline.
 - The actual Issue #37 implementation uses the user-approved 2026 Compose Coffee menu/price source recorded in `docs/decision-log.md`.
-- The default coffee poll template starts with iced americano, americano, iced tea, iced latte, and latte options.
+- New campus creation must not automatically create a default COFFEE poll template or recurring coffee poll. Existing auto-created COFFEE templates are not deleted or deactivated by Issue #112.
 - Additional coffee template options are selected from the backend menu catalog and copied into `poll_template_options`.
 - `poll_template_options` and `poll_options` keep copied `composeMenuCode`, display name, and `priceAmount` snapshots so later catalog price changes do not mutate existing templates, polls, or charges.
 - Brand/menu admin CRUD and additional brand onboarding are outside Issue #37 unless the user approves a separate issue.
@@ -367,10 +367,17 @@ Issue #34 is P0.
   - `GET /api/v1/campuses/{campusId}/payment-accounts`
   - `POST /api/v1/admin/campuses/{campusId}/payment-accounts`
   - `PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate`
+  - `GET /api/v1/admin/campuses/{campusId}/payment-accounts`
+  - `GET /api/v1/admin/campuses/{campusId}/charges`
+  - `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`
 - All active campus members can list payment accounts for their campus.
 - Only campus admin roles can create or deactivate payment accounts.
 - Active COFFEE duty assignees can create and deactivate only `COFFEE` payment accounts in their own campus.
 - `PENALTY` payment account creation/deactivation keeps the existing campus admin or service admin permission.
+- `GET /api/v1/admin/campuses/{campusId}/payment-accounts` returns manager-facing metadata including `ownerUserId`, `isActive`, `createdAt`, and `deactivatedAt`. Campus managers and service-level `ADMIN` can see all campus accounts. Active COFFEE duty users can see only active COFFEE accounts they own.
+- `GET /api/v1/admin/campuses/{campusId}/charges` supports optional `paymentAccountId`; when present, `summary + members[]` must include only charge items linked to that payment account and must compose with existing filters.
+- `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts` aggregates only active payment accounts owned by the current user. Active COFFEE duty users are limited to owned active COFFEE accounts.
+- PENALTY account and charge views require service-level `ADMIN` or a campus manager role (`MINISTER`, `ELDER`, `CAMPUS_LEADER`). Active COFFEE duty alone must not expose PENALTY account or charge data.
 - Account numbers are fully visible in account list responses because members need them for bank transfer payment. Do not expose unnecessary admin-only metadata in member-facing responses.
 - A campus can have only one active payment account per `account_type`.
 - Creating a new active account automatically deactivates the previous active account for the same campus and `account_type`.
@@ -406,7 +413,9 @@ Issue #34 is P0.
 - Poll result lookup is a single poll-level API: `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`.
 - Active COFFEE duty assignees can create and manage only `pollType=COFFEE` polls in their own campus.
 - Coffee-external poll types such as `CUSTOM`, `WED_SERVICE`, and `SATURDAY_LEADER` keep the existing campus admin or service admin permission.
-- Default COFFEE poll templates are provisioned with `allowUserOptionAdd=true`.
+- COFFEE poll and COFFEE poll template creation/update require the current active `DutyType.COFFEE` assignee. A campus manager or service-level `ADMIN` who is not the active COFFEE duty assignee must receive `403` for COFFEE creation/update.
+- Selected COFFEE `paymentAccountId` values must point to an active same-campus COFFEE account usable by the active COFFEE duty requester.
+- New campus creation must not automatically provision default COFFEE poll templates or recurring coffee polls. Existing auto-created templates are retained unless a separate cleanup issue is approved.
 - When a direct `pollType=COFFEE` poll omits `allowUserOptionAdd`, the backend defaults it to true regardless of whether the requester is the active COFFEE duty assignee. Explicit `allowUserOptionAdd=false` is preserved. Other direct poll creation defaults omitted `allowUserOptionAdd` to false.
 - The current user-option-add API accepts only `{ "content": "새 항목" }`; user-added options have no menu catalog snapshot and use `priceAmount=0`. Coffee poll menu-catalog-based option addition needs a separate user-approved API/schema decision before implementing.
 - Do not create option-level poll result endpoints for MVP.

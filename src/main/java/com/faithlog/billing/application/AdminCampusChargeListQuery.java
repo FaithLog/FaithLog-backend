@@ -11,6 +11,19 @@ public record AdminCampusChargeListQuery(
 	ChargeStatus status,
 	Long userId,
 	String keyword,
+	Long paymentAccountId,
 	Pageable pageable
 ) {
+
+	public AdminCampusChargeListQuery(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Long userId,
+		String keyword,
+		Pageable pageable
+	) {
+		this(campusId, requesterId, paymentCategory, status, userId, keyword, null, pageable);
+	}
 }

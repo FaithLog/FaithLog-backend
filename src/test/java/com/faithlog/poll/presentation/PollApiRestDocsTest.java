@@ -86,7 +86,7 @@ class PollApiRestDocsTest {
 		User duty = userRepository.findByEmail("docs-poll-duty@example.com").orElseThrow();
 		joinCampus(dutyToken, campus.path("inviteCode").asText());
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), duty.id()));
-		long coffeeAccountId = createCoffeeAccount(campusId, manager.id());
+		long coffeeAccountId = createCoffeeAccount(campusId, duty.id(), duty.id());
 		long americanoMenuId = menuId("AMERICANO_HOT");
 		long latteMenuId = menuId("CAFE_LATTE");
 
@@ -133,8 +133,8 @@ class PollApiRestDocsTest {
 				))
 			));
 
-		String templateBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/poll-templates", campusId)
-				.header("Authorization", "Bearer " + managerToken)
+			String templateBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/poll-templates", campusId)
+					.header("Authorization", "Bearer " + dutyToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -212,8 +212,8 @@ class PollApiRestDocsTest {
 				responseFields(errorResponseFields())
 			));
 
-		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
-				.header("Authorization", "Bearer " + managerToken)
+			mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
+					.header("Authorization", "Bearer " + dutyToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -247,8 +247,8 @@ class PollApiRestDocsTest {
 				relaxedResponseFields(templateResponseFields())
 			));
 
-		String directPollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
-				.header("Authorization", "Bearer " + managerToken)
+			String directPollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
+					.header("Authorization", "Bearer " + dutyToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -639,7 +639,7 @@ class PollApiRestDocsTest {
 		User member = userRepository.findByEmail("docs-poll97-member@example.com").orElseThrow();
 		joinCampus(memberToken, campus.path("inviteCode").asText());
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), member.id()));
-		long coffeeAccountId = createCoffeeAccount(campusId, manager.id());
+		long coffeeAccountId = createCoffeeAccount(campusId, member.id(), member.id());
 		long latteMenuId = menuId("CAFE_LATTE");
 
 		String pollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
@@ -783,8 +783,8 @@ class PollApiRestDocsTest {
 			.as("CUSTOM 투표 종료 API는 종료만 수행하고 청구/정산을 실행하지 않는다")
 			.isEqualTo(chargeCountBeforeClose);
 
-		String coffeePollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
-				.header("Authorization", "Bearer " + managerToken)
+			String coffeePollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
+					.header("Authorization", "Bearer " + memberToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -1186,16 +1186,16 @@ class PollApiRestDocsTest {
 		return objectMapper.readTree(body).path("data").path("accessToken").asText();
 	}
 
-	private long createCoffeeAccount(Long campusId, Long managerId) {
+	private long createCoffeeAccount(Long campusId, Long requesterId, Long ownerUserId) {
 		return billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
-			managerId,
+			requesterId,
 			PaymentCategory.COFFEE,
 			"커피 계좌",
 			"카카오뱅크",
 			"3333-37-000002",
 			"커피회계",
-			null
+			ownerUserId
 		)).id();
 	}
 

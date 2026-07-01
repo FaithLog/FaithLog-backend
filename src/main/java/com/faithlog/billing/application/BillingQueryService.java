@@ -1,9 +1,11 @@
 package com.faithlog.billing.application;
 
 import com.faithlog.billing.application.port.ChargeItemRepositoryPort;
+import com.faithlog.billing.application.port.PaymentAccountRepositoryPort;
 import com.faithlog.billing.application.policy.BillingAccessPolicy;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeStatus;
+import com.faithlog.billing.domain.PaymentAccount;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.campus.application.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
@@ -47,19 +49,22 @@ public class BillingQueryService {
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
+	private final PaymentAccountRepositoryPort paymentAccountRepository;
 
 	public BillingQueryService(
 		ChargeItemRepositoryPort chargeItemRepository,
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusUserLookupPort userLookupPort,
-		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
+		PaymentAccountRepositoryPort paymentAccountRepository
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
+		this.paymentAccountRepository = paymentAccountRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -134,7 +139,12 @@ public class BillingQueryService {
 	@Transactional(readOnly = true)
 	public AdminCampusChargesResult listAdminCampusCharges(AdminCampusChargeListQuery query) {
 		Campus campus = getCampus(query.campusId());
-		requireCampusChargeManager(query.campusId(), query.requesterId(), query.paymentCategory());
+		Set<Long> paymentAccountIds = resolveChargePaymentAccountIds(
+			query.campusId(),
+			query.requesterId(),
+			query.paymentCategory(),
+			query.paymentAccountId()
+		);
 		List<CampusUserLookupResult> targetUsers = targetUsers(query.campusId(), query.userId(), query.keyword());
 		Set<Long> targetUserIds = targetUsers.stream()
 			.map(CampusUserLookupResult::userId)
@@ -146,7 +156,41 @@ public class BillingQueryService {
 			query.campusId(),
 			targetUserIds,
 			query.paymentCategory(),
-			query.status()
+			query.status(),
+			paymentAccountIds
+		));
+		List<AdminCampusChargeMemberResult> members = aggregateMembers(charges, usersById, query.pageable());
+		return new AdminCampusChargesResult(
+			campus.id(),
+			campus.name(),
+			campus.region(),
+			summarize(charges),
+			members
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public AdminCampusChargesResult listAdminCampusChargesForMyAccounts(AdminCampusChargeListQuery query) {
+		Campus campus = getCampus(query.campusId());
+		Set<Long> paymentAccountIds = resolveMyChargePaymentAccountIds(
+			query.campusId(),
+			query.requesterId(),
+			query.paymentCategory(),
+			query.paymentAccountId()
+		);
+		List<CampusUserLookupResult> targetUsers = targetUsers(query.campusId(), query.userId(), query.keyword());
+		Set<Long> targetUserIds = targetUsers.stream()
+			.map(CampusUserLookupResult::userId)
+			.collect(Collectors.toSet());
+		Map<Long, CampusUserLookupResult> usersById = targetUsers.stream()
+			.collect(Collectors.toMap(CampusUserLookupResult::userId, Function.identity()));
+
+		List<ChargeItem> charges = chargeItemRepository.searchCharges(new ChargeSearchCriteria(
+			query.campusId(),
+			targetUserIds,
+			query.paymentCategory(),
+			query.status(),
+			paymentAccountIds
 		));
 		List<AdminCampusChargeMemberResult> members = aggregateMembers(charges, usersById, query.pageable());
 		return new AdminCampusChargesResult(
@@ -330,6 +374,117 @@ public class BillingQueryService {
 	private Campus getCampus(Long campusId) {
 		return campusRepository.findById(campusId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+	}
+
+	private Set<Long> resolveChargePaymentAccountIds(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory paymentCategory,
+		Long paymentAccountId
+	) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin() || isCampusChargeManager(campusId, requester.userId())) {
+			if (paymentAccountId == null) {
+				return null;
+			}
+			PaymentAccount account = getAccountInCampus(campusId, paymentAccountId);
+			return Set.of(account.id());
+		}
+		if (!isActiveCoffeeDuty(campusId, requester.userId())) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
+		}
+		if (paymentCategory != null && paymentCategory != PaymentCategory.COFFEE) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
+		}
+		if (paymentAccountId != null) {
+			PaymentAccount account = getAccountInCampus(campusId, paymentAccountId);
+			requireUsableCoffeeAccount(account, requester.userId());
+			return Set.of(account.id());
+		}
+		return paymentAccountRepository
+			.findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueOrderByIdAsc(
+				campusId,
+				requester.userId(),
+				PaymentCategory.COFFEE
+			)
+			.stream()
+			.map(PaymentAccount::id)
+			.collect(Collectors.toSet());
+	}
+
+	private Set<Long> resolveMyChargePaymentAccountIds(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory paymentCategory,
+		Long paymentAccountId
+	) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		List<PaymentAccount> ownerAccounts = paymentAccountRepository
+			.findByCampusIdAndOwnerUserIdAndIsActiveTrueOrderByIdAsc(campusId, requester.userId());
+		if (requester.isAdmin() || isCampusChargeManager(campusId, requester.userId())) {
+			return filterOwnerAccountIds(ownerAccounts, paymentCategory, paymentAccountId);
+		}
+		if (isActiveCoffeeDuty(campusId, requester.userId())) {
+			if (paymentCategory != null && paymentCategory != PaymentCategory.COFFEE) {
+				throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
+			}
+			return filterOwnerAccountIds(
+				ownerAccounts.stream()
+					.filter(account -> account.accountType() == PaymentCategory.COFFEE)
+					.toList(),
+				paymentCategory,
+				paymentAccountId
+			);
+		}
+		throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
+	}
+
+	private Set<Long> filterOwnerAccountIds(
+		List<PaymentAccount> ownerAccounts,
+		PaymentCategory paymentCategory,
+		Long paymentAccountId
+	) {
+		return ownerAccounts.stream()
+			.filter(account -> paymentCategory == null || account.accountType() == paymentCategory)
+			.filter(account -> paymentAccountId == null || account.id().equals(paymentAccountId))
+			.map(PaymentAccount::id)
+			.collect(Collectors.toSet());
+	}
+
+	private PaymentAccount getAccountInCampus(Long campusId, Long paymentAccountId) {
+		PaymentAccount account = paymentAccountRepository.findById(paymentAccountId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
+		if (!account.campusId().equals(campusId)) {
+			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND);
+		}
+		return account;
+	}
+
+	private void requireUsableCoffeeAccount(PaymentAccount account, Long requesterId) {
+		if (!account.isActive() || account.accountType() != PaymentCategory.COFFEE) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
+		}
+		if (account.ownerUserId() != null && !account.ownerUserId().equals(requesterId)) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
+		}
+	}
+
+	private boolean isCampusChargeManager(Long campusId, Long requesterId) {
+		return campusMemberRepository.findByCampusIdAndUserId(campusId, requesterId)
+			.filter(CampusMember::isActive)
+			.map(membership -> {
+				try {
+					BillingAccessPolicy.requireCampusManager(
+						membership,
+						ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN,
+						ADMIN_CHARGE_LIST_FORBIDDEN
+					);
+					return true;
+				} catch (BusinessException exception) {
+					return false;
+				}
+			})
+			.orElse(false);
 	}
 
 	private void requireCampusChargeManager(Long campusId, Long requesterId, PaymentCategory paymentCategory) {

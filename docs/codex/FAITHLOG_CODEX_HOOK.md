@@ -165,11 +165,22 @@ Issue #34 계좌 관리 API 기준:
 GET   /api/v1/campuses/{campusId}/payment-accounts
 POST  /api/v1/admin/campuses/{campusId}/payment-accounts
 PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate
+GET   /api/v1/admin/campuses/{campusId}/payment-accounts
+GET   /api/v1/admin/campuses/{campusId}/charges
+GET   /api/v1/admin/campuses/{campusId}/charges/my-accounts
 ```
 
 계좌 조회는 해당 캠퍼스의 모든 ACTIVE 멤버가 사용할 수 있다.
 
 계좌 등록과 비활성화는 캠퍼스 관리자 권한이 필요하다.
+
+활성 COFFEE 담당자는 자기 캠퍼스의 COFFEE 계좌 범위만 사용할 수 있고, PENALTY 계좌/청구 조회와 관리는 캠퍼스 관리자 또는 전역 ADMIN 권한이 필요하다.
+
+관리자 청구 집계 `GET /api/v1/admin/campuses/{campusId}/charges`는 선택 query `paymentAccountId`를 지원한다. 값이 있으면 해당 계좌에 연결된 `charge_items`만 `summary + members[]`로 집계하며 기존 `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 동작해야 한다.
+
+`GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`는 현재 로그인 사용자가 owner인 활성 계좌 기준으로만 집계한다.
+
+`GET /api/v1/admin/campuses/{campusId}/payment-accounts`는 관리자/담당자용 계좌 목록이며 `ownerUserId`, `isActive`, `createdAt`, `deactivatedAt` 같은 관리 메타데이터를 포함한다.
 
 캠퍼스별 활성 계좌는 `account_type`별로 1개만 허용한다.
 
@@ -298,7 +309,8 @@ ChargeItem.requestPayment()
 
 투표 템플릿 생성 기준:
 
-- 커피 투표 템플릿은 기본 템플릿으로 제공한다.
+- 신규 캠퍼스 생성 시 커피 투표 템플릿과 커피 반복 투표를 자동 생성하지 않는다.
+- 기존 캠퍼스에 이미 생성된 커피 기본 템플릿은 Issue #112에서 삭제/비활성화하지 않는다.
 - 수요예배 투표 템플릿은 기본 제공하지 않고 관리자가 생성한다.
 - 토요목자모임 투표 템플릿은 기본 제공하지 않고 관리자가 생성한다.
 - 커스텀 투표 템플릿은 관리자가 생성한다.
@@ -412,7 +424,7 @@ DELETE /api/v1/campuses/{campusId}/polls/{pollId}/comments/{commentId}
 
 커피 주문은 투표 기능을 사용한다.
 
-커피 투표 템플릿은 기본으로 제공한다.
+신규 캠퍼스 생성 시 커피 투표 템플릿과 커피 반복 투표를 자동 생성하지 않는다. 기존 캠퍼스에 이미 생성된 자동 커피 템플릿은 별도 cleanup 이슈 없이는 삭제/비활성화하지 않는다.
 
 커피 주문 브랜드는 MVP에서 컴포즈커피만 사용한다.
 
@@ -429,7 +441,7 @@ MVP seed 기준:
 
 - `coffee_brands`: 컴포즈커피 1개
 - `coffee_menu_catalog`: 현재 컴포즈커피 전체 메뉴
-- 기본 커피 투표 템플릿 옵션: 아이스 아메리카노, 아메리카노, 아이스티, 아이스 라떼, 라떼
+- 수동으로 생성하는 커피 투표 템플릿 옵션은 백엔드 메뉴 카탈로그에서 선택한다.
 
 추가 선택지는 프론트가 백엔드 메뉴 카탈로그를 조회한 뒤 선택해서 `poll_template_options`에 복사 저장한다.
 
@@ -441,6 +453,10 @@ MVP seed 기준:
 
 - 매주 커피 투표가 자동 생성되는 시간
 - 생성된 커피 투표가 마감되는 시간
+
+COFFEE 투표와 COFFEE 투표 템플릿 생성/수정은 현재 활성 COFFEE 담당자만 수행할 수 있다. 캠퍼스 관리자 또는 전역 ADMIN이라도 현재 활성 COFFEE 담당자가 아니면 `pollType=COFFEE`, `paymentCategory=COFFEE`, 또는 `chargeGenerationType=OPTION_PRICE`와 `paymentCategory=COFFEE` 생성/수정은 403으로 거절한다.
+
+선택한 `paymentAccountId`는 요청자가 사용할 수 있는 활성 같은 캠퍼스 COFFEE 계좌여야 한다.
 
 구현 시 실제 DB 칼럼명은 Notion ERD의 `poll_templates`/`polls` 설계를 따른다. Codex는 칼럼명을 추측해서 새로 정하지 않는다.
 

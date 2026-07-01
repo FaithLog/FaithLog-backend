@@ -1,7 +1,6 @@
 package com.faithlog.poll.application;
 
 import com.faithlog.billing.domain.PaymentCategory;
-import com.faithlog.campus.application.port.CampusCreationSideEffectPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.ChargeGenerationType;
@@ -16,11 +15,8 @@ import com.faithlog.poll.infrastructure.jpa.PollTemplateRepository;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
-@Component
-public class DefaultCoffeePollTemplateProvisioner implements CampusCreationSideEffectPort {
+public class DefaultCoffeePollTemplateProvisioner {
 
 	private final CoffeeMenuCatalogRepository coffeeMenuCatalogRepository;
 	private final PollTemplateRepository pollTemplateRepository;
@@ -34,12 +30,6 @@ public class DefaultCoffeePollTemplateProvisioner implements CampusCreationSideE
 		this.coffeeMenuCatalogRepository = coffeeMenuCatalogRepository;
 		this.pollTemplateRepository = pollTemplateRepository;
 		this.pollTemplateOptionRepository = pollTemplateOptionRepository;
-	}
-
-	@Override
-	@Transactional
-	public void afterCampusCreated(Long campusId) {
-		provision(campusId);
 	}
 
 	public PollTemplate provision(Long campusId) {

@@ -8,6 +8,16 @@ public record ChargeSearchCriteria(
 	Long campusId,
 	Set<Long> userIds,
 	PaymentCategory paymentCategory,
-	ChargeStatus status
+	ChargeStatus status,
+	Set<Long> paymentAccountIds
 ) {
+
+	public ChargeSearchCriteria(
+		Long campusId,
+		Set<Long> userIds,
+		PaymentCategory paymentCategory,
+		ChargeStatus status
+	) {
+		this(campusId, userIds, paymentCategory, status, null);
+	}
 }

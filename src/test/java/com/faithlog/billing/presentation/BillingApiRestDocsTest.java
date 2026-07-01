@@ -211,6 +211,23 @@ class BillingApiRestDocsTest {
 				pathParameters(parameterWithName("accountId").description("비활성화할 COFFEE 납부 계좌 ID")),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data[0].ownerUserId").value(manager.id()))
+			.andExpect(jsonPath("$.data[0].createdAt").isNotEmpty())
+			.andDo(document("payment-account-admin-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("관리자/담당자용 납부 계좌를 조회할 캠퍼스 ID")),
+				responseFields(apiResponseFields(combine(
+					fields(fieldWithPath("data[]").description("관리자/담당자용 납부 계좌 목록")),
+					adminAccountFields("data[].")
+				)))
+			));
 	}
 
 	@Test
@@ -327,7 +344,7 @@ class BillingApiRestDocsTest {
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me/summary", campusId)
 				.header("Authorization", "Bearer " + memberToken)
 				.param("year", "2026")
-				.param("month", "6"))
+				.param("month", "7"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.data.userId").value(member.id()))
@@ -356,10 +373,38 @@ class BillingApiRestDocsTest {
 					fieldWithPath("data.monthlyByCategory[].unpaidAmount").description("해당 월 생성 청구 중 미납 금액"),
 					fieldWithPath("data.monthlyByCategory[].totalAmount").description("해당 월 생성 청구 중 전체 금액")
 				))
-			));
+				));
+
+		long managerCoffeeAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			manager.id(),
+			PaymentCategory.COFFEE,
+			"50캠 커피 계좌",
+			"하나은행",
+			"123-456789-019",
+			"커피회계",
+			manager.id()
+		)).id();
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			member.id(),
+			PaymentCategory.COFFEE,
+			managerCoffeeAccountId,
+			"하나은행",
+			"123-456789-019",
+			"커피회계",
+			ChargeSourceType.POLL_RESPONSE,
+			7103L,
+			"커피 주문",
+			"컴포즈커피 주문",
+			1800,
+			null
+		));
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
 				.header("Authorization", "Bearer " + managerToken)
+				.param("paymentAccountId", String.valueOf(managerCoffeeAccountId))
+				.param("paymentCategory", "COFFEE")
 				.param("status", "UNPAID")
 				.param("keyword", "docs-billing-query-member")
 				.param("page", "0")
@@ -368,11 +413,57 @@ class BillingApiRestDocsTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.data.members[0].items").doesNotExist())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(1800))
 			.andDo(document("charge-admin-campus-summary-success",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
 				authHeader(),
 				pathParameters(parameterWithName("campusId").description("청구 집계를 조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
+					parameterWithName("userId").optional().description("사용자 ID 필터"),
+					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
+					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 지정 계좌에 연결된 청구만 집계"),
+					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
+					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
+					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
+				),
+				responseFields(apiResponseFields(combine(
+					fields(
+						fieldWithPath("data.campusId").description("캠퍼스 ID"),
+						fieldWithPath("data.campusName").description("캠퍼스명"),
+						fieldWithPath("data.region").optional().description("캠퍼스 지역")
+					),
+					chargeAmountSummaryFields("data.summary."),
+					fields(
+						fieldWithPath("data.members[]").description("회원별 청구 집계 목록. 개별 청구 item 목록은 포함하지 않음"),
+						fieldWithPath("data.members[].userId").description("사용자 ID"),
+						fieldWithPath("data.members[].name").description("사용자 이름"),
+						fieldWithPath("data.members[].email").description("사용자 이메일"),
+						fieldWithPath("data.members[].totalAmount").description("회원별 전체 청구 금액"),
+						fieldWithPath("data.members[].unpaidAmount").description("회원별 미납 금액"),
+						fieldWithPath("data.members[].paidAmount").description("회원별 납부 완료 금액"),
+						fieldWithPath("data.members[].waivedAmount").description("회원별 면제 금액"),
+						fieldWithPath("data.members[].canceledAmount").description("회원별 취소 금액")
+					)
+				)))
+			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("paymentCategory", "COFFEE")
+				.param("page", "0")
+				.param("size", "20")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(1800))
+			.andDo(document("charge-admin-my-accounts-summary-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("내 owner 계좌 기준 청구 집계를 조회할 캠퍼스 ID")),
 				queryParameters(
 					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
@@ -390,7 +481,7 @@ class BillingApiRestDocsTest {
 					),
 					chargeAmountSummaryFields("data.summary."),
 					fields(
-						fieldWithPath("data.members[]").description("회원별 청구 집계 목록. 개별 청구 item 목록은 포함하지 않음"),
+						fieldWithPath("data.members[]").description("내 활성 owner 계좌에 연결된 회원별 청구 집계 목록"),
 						fieldWithPath("data.members[].userId").description("사용자 ID"),
 						fieldWithPath("data.members[].name").description("사용자 이름"),
 						fieldWithPath("data.members[].email").description("사용자 이메일"),
@@ -598,7 +689,9 @@ class BillingApiRestDocsTest {
 			fieldWithPath(prefix + "accountNumber").description("전체 계좌번호"),
 			fieldWithPath(prefix + "accountHolder").description("예금주"),
 			fieldWithPath(prefix + "ownerUserId").optional().description("계좌 소유 사용자 ID"),
-			fieldWithPath(prefix + "isActive").description("계좌 활성 여부")
+			fieldWithPath(prefix + "isActive").description("계좌 활성 여부"),
+			fieldWithPath(prefix + "createdAt").description("계좌 생성 시각"),
+			fieldWithPath(prefix + "deactivatedAt").optional().description("계좌 비활성화 시각. 활성 계좌는 null")
 		};
 	}
 
