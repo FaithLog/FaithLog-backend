@@ -77,6 +77,7 @@ public class BillingService {
 	@Transactional
 	public PaymentAccountResult deactivatePaymentAccount(Long accountId, Long requesterId) {
 		PaymentAccount account = paymentAccountRepository.findById(accountId)
+			.filter(paymentAccount -> !paymentAccount.isDeleted())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
 		requirePaymentAccountManager(account.campusId(), requesterId, account.accountType());
@@ -85,10 +86,42 @@ public class BillingService {
 		return PaymentAccountResult.from(account);
 	}
 
+	@Transactional
+	public PaymentAccountResult activatePenaltyPaymentAccount(Long campusId, Long paymentAccountId, Long requesterId) {
+		lockCampusOrThrow(campusId);
+		PaymentAccount account = findPaymentAccountInCampus(campusId, paymentAccountId);
+		if (account.accountType() != PaymentCategory.PENALTY) {
+			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_ACTIVATE_UNSUPPORTED);
+		}
+		requirePaymentAccountManager(campusId, requesterId, PaymentCategory.PENALTY);
+		if (account.isActive()) {
+			return PaymentAccountResult.from(account);
+		}
+
+		paymentAccountRepository
+			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(campusId, PaymentCategory.PENALTY)
+			.filter(activeAccount -> !activeAccount.id().equals(account.id()))
+			.ifPresent(PaymentAccount::deactivate);
+		account.activate();
+		reconnectUnpaidCharges(account);
+		return PaymentAccountResult.from(account);
+	}
+
+	@Transactional
+	public void deletePaymentAccount(Long campusId, Long paymentAccountId, Long requesterId) {
+		PaymentAccount account = findPaymentAccountInCampus(campusId, paymentAccountId);
+		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
+		requirePaymentAccountManager(campusId, requesterId, account.accountType());
+		if (account.isActive()) {
+			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_ACTIVE_DELETE_FORBIDDEN);
+		}
+		account.softDelete();
+	}
+
 	@Transactional(readOnly = true)
 	public List<PaymentAccountResult> listPaymentAccounts(Long campusId, Long requesterId) {
 		requirePaymentAccountListAccess(campusId, requesterId);
-		return paymentAccountRepository.findByCampusIdAndIsActiveTrueOrderByIdAsc(campusId)
+		return paymentAccountRepository.findByCampusIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(campusId)
 			.stream()
 			.map(PaymentAccountResult::from)
 			.toList();
@@ -96,16 +129,23 @@ public class BillingService {
 
 	@Transactional(readOnly = true)
 	public List<PaymentAccountResult> listAdminPaymentAccounts(Long campusId, Long requesterId) {
+		return listAdminPaymentAccounts(campusId, requesterId, null, false);
+	}
+
+	@Transactional(readOnly = true)
+	public List<PaymentAccountResult> listAdminPaymentAccounts(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory accountType,
+		boolean includeInactive
+	) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		if (requester.isAdmin() || isCampusManager(campusId, requester.userId())) {
-			return paymentAccountRepository.findByCampusIdOrderByIdAsc(campusId)
-				.stream()
-				.map(PaymentAccountResult::from)
-				.toList();
+			return findAdminPaymentAccounts(campusId, accountType, includeInactive);
 		}
-		if (isActiveCoffeeDuty(campusId, requester.userId())) {
+		if (isActiveCoffeeDuty(campusId, requester.userId()) && (accountType == null || accountType == PaymentCategory.COFFEE)) {
 			return paymentAccountRepository
-				.findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueOrderByIdAsc(
+				.findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(
 					campusId,
 					requester.userId(),
 					PaymentCategory.COFFEE
@@ -120,14 +160,14 @@ public class BillingService {
 	@Transactional(readOnly = true)
 	public void requireActivePenaltyAccount(Long campusId) {
 		paymentAccountRepository
-			.findByCampusIdAndAccountTypeAndIsActiveTrue(campusId, PaymentCategory.PENALTY)
+			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(campusId, PaymentCategory.PENALTY)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
 	}
 
 	@Transactional
 	public ChargeItemResult createPenaltyCharge(CreatePenaltyChargeCommand command) {
 		PaymentAccount account = paymentAccountRepository
-			.findByCampusIdAndAccountTypeAndIsActiveTrue(command.campusId(), PaymentCategory.PENALTY)
+			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(command.campusId(), PaymentCategory.PENALTY)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
 
 		ChargeItem existingCharge = chargeItemRepository
@@ -268,12 +308,12 @@ public class BillingService {
 	private void deactivatePreviousActiveAccount(Long campusId, PaymentCategory accountType, Long ownerUserId) {
 		if (accountType == PaymentCategory.COFFEE) {
 			paymentAccountRepository
-				.findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrue(campusId, accountType, ownerUserId)
+				.findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNull(campusId, accountType, ownerUserId)
 				.ifPresent(PaymentAccount::deactivate);
 			return;
 		}
 		paymentAccountRepository
-			.findByCampusIdAndAccountTypeAndIsActiveTrue(campusId, accountType)
+			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(campusId, accountType)
 			.ifPresent(PaymentAccount::deactivate);
 	}
 
@@ -296,10 +336,38 @@ public class BillingService {
 		}
 		PaymentAccount account = paymentAccountRepository.findById(command.paymentAccountId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
-		if (!account.isActive() || !account.campusId().equals(command.campusId()) || account.accountType() != PaymentCategory.COFFEE) {
+		if (account.isDeleted() || !account.isActive() || !account.campusId().equals(command.campusId()) || account.accountType() != PaymentCategory.COFFEE) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
 		}
 		return account;
+	}
+
+	private List<PaymentAccountResult> findAdminPaymentAccounts(
+		Long campusId,
+		PaymentCategory accountType,
+		boolean includeInactive
+	) {
+		List<PaymentAccount> accounts;
+		if (accountType != null && includeInactive) {
+			accounts = paymentAccountRepository.findByCampusIdAndAccountTypeAndDeletedAtIsNullOrderByIdAsc(campusId, accountType);
+		} else if (accountType != null) {
+			accounts = paymentAccountRepository
+				.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(campusId, accountType);
+		} else if (includeInactive) {
+			accounts = paymentAccountRepository.findByCampusIdAndDeletedAtIsNullOrderByIdAsc(campusId);
+		} else {
+			accounts = paymentAccountRepository.findByCampusIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(campusId);
+		}
+		return accounts.stream()
+			.map(PaymentAccountResult::from)
+			.toList();
+	}
+
+	private PaymentAccount findPaymentAccountInCampus(Long campusId, Long paymentAccountId) {
+		return paymentAccountRepository.findById(paymentAccountId)
+			.filter(account -> !account.isDeleted())
+			.filter(account -> account.campusId().equals(campusId))
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 	}
 
 	private void requirePaymentAccountManager(Long campusId, Long requesterId, PaymentCategory accountType) {

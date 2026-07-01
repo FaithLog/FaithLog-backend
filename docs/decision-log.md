@@ -10,6 +10,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-01 - Issue #116 Penalty Payment Account Activation And Soft Delete Policy
+
+- Context: Issue #116 implements the front-end contract for showing the active `PENALTY` account at the top and inactive `PENALTY` accounts in a lower management list with activate/delete actions.
+- Decision: A campus may have at most one active `PENALTY` account. Creating a new `PENALTY` account or activating an inactive `PENALTY` account deactivates the previous active `PENALTY` account for that campus. `PATCH /api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate` is `PENALTY`-only; if the target `PENALTY` account is already active, the API is idempotent and returns the current account as success.
+- Decision: `COFFEE` account activation is not part of Issue #116. A `COFFEE` account sent to the activate API fails with `400 BILLING_PAYMENT_ACCOUNT_ACTIVATE_UNSUPPORTED`. Issue #114's `campusId + accountType + ownerUserId` active COFFEE account policy remains unchanged.
+- Decision: Admin payment account list defaults to active accounts only. `GET /api/v1/admin/campuses/{campusId}/payment-accounts` accepts optional `accountType` and `includeInactive`; `includeInactive=true` returns active + inactive accounts. Soft deleted accounts are always hidden, and no `includeDeleted=true` API is added. Admin account responses include `id`, `campusId`, `accountType`, `nickname`, `bankName`, `accountNumber`, `accountHolder`, `ownerUserId`, `isActive`, `createdAt`, and `deactivatedAt`; `deletedAt` is not exposed.
+- Decision: Payment account delete is a soft delete and only inactive accounts can be deleted. Deleting an active account fails with `409 BILLING_PAYMENT_ACCOUNT_ACTIVE_DELETE_FORBIDDEN`. Existing `charge_items.payment_account_id` and account snapshot fields remain unchanged when an inactive account is soft deleted.
+- Impact: Issue #116 adds `payment_accounts.deleted_at` with Flyway V4, new activate/delete admin APIs, Spring REST Docs snippets and `index.adoc` sections, focused service/controller/docs tests, and keeps controller responses DTO-based without Swagger documentation annotations.
+
 ### 2026-07-01 - Issue #114 User-Owned Coffee Account And Coffee Poll Settlement Permission Policy
 
 - Context: Issue #114 follows up Issue #112 after QA found that campus-level active COFFEE account replacement could deactivate another user's coffee account, relink existing unpaid COFFEE charges to the newest account, and block campus managers from creating paid coffee polls even when they have their own account.

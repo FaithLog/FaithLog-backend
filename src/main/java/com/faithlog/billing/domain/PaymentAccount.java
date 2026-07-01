@@ -48,6 +48,9 @@ public class PaymentAccount {
 	@Column(name = "deactivated_at")
 	private Instant deactivatedAt;
 
+	@Column(name = "deleted_at")
+	private Instant deletedAt;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -108,6 +111,22 @@ public class PaymentAccount {
 		this.deactivatedAt = Instant.now();
 	}
 
+	public void activate() {
+		if (isActive) {
+			return;
+		}
+		this.isActive = true;
+		this.deactivatedAt = null;
+	}
+
+	public void softDelete() {
+		this.deletedAt = Instant.now();
+	}
+
+	public boolean isDeleted() {
+		return deletedAt != null;
+	}
+
 	public Long id() {
 		return id;
 	}
@@ -146,6 +165,10 @@ public class PaymentAccount {
 
 	public Instant deactivatedAt() {
 		return deactivatedAt;
+	}
+
+	public Instant deletedAt() {
+		return deletedAt;
 	}
 
 	public Instant createdAt() {
