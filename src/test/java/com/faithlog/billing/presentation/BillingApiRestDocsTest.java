@@ -12,6 +12,7 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.response
 import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.restdocs.request.RequestDocumentation.pathParameters;
 import static org.springframework.restdocs.request.RequestDocumentation.queryParameters;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,6 +25,7 @@ import com.faithlog.billing.application.BillingService;
 import com.faithlog.billing.application.ChargeItemResult;
 import com.faithlog.billing.application.CreatePaymentAccountCommand;
 import com.faithlog.billing.application.CreatePenaltyChargeCommand;
+import com.faithlog.billing.application.PaymentAccountResult;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.PaymentCategory;
@@ -163,6 +165,105 @@ class BillingApiRestDocsTest {
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			));
 
+		String secondPenaltyBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "accountType": "PENALTY",
+					  "nickname": "48캠 현재 벌금 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "0048-11-222222",
+					  "accountHolder": "현재회계",
+					  "ownerUserId": %d
+					}
+					""".formatted(manager.id())))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.isActive").value(true))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long secondPenaltyAccountId = objectMapper.readTree(secondPenaltyBody).path("data").path("id").asLong();
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("accountType", "PENALTY"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(secondPenaltyAccountId))
+			.andExpect(jsonPath("$.data[0].isActive").value(true))
+			.andDo(document("payment-account-admin-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("관리자용 납부 계좌를 조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("accountType").optional().description("계좌 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("includeInactive").optional().description("비활성 계좌 포함 여부. 기본 `false`; `true`이면 active + inactive 반환")
+				),
+				responseFields(apiResponseFields(combine(
+					fields(fieldWithPath("data[]").description("관리자용 납부 계좌 목록. 기본값은 active 계좌만 반환")),
+					adminAccountFields("data[].")
+				)))
+			));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("accountType", "PENALTY")
+				.param("includeInactive", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.length()").value(2))
+			.andExpect(jsonPath("$.data[0].id").value(accountId))
+			.andExpect(jsonPath("$.data[0].isActive").value(false))
+			.andExpect(jsonPath("$.data[1].id").value(secondPenaltyAccountId))
+			.andExpect(jsonPath("$.data[1].isActive").value(true))
+			.andDo(document("payment-account-admin-list-include-inactive-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("관리자용 납부 계좌를 조회할 캠퍼스 ID")),
+				queryParameters(
+					parameterWithName("accountType").optional().description("계좌 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("includeInactive").optional().description("비활성 계좌 포함 여부. `true`이면 active + inactive 반환")
+				),
+				responseFields(apiResponseFields(combine(
+					fields(fieldWithPath("data[]").description("active + inactive 관리자용 납부 계좌 목록. soft deleted 계좌는 항상 제외")),
+					adminAccountFields("data[].")
+				)))
+			));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate", campusId, accountId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.id").value(accountId))
+			.andExpect(jsonPath("$.data.isActive").value(true))
+			.andDo(document("payment-account-activate-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("활성화할 PENALTY 계좌의 캠퍼스 ID"),
+					parameterWithName("paymentAccountId").description("활성화할 inactive PENALTY 납부 계좌 ID")
+				),
+				responseFields(apiResponseFields(adminAccountFields("data.")))
+			));
+
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}", campusId, secondPenaltyAccountId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNoContent())
+			.andDo(document("payment-account-delete-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("삭제할 inactive 납부 계좌의 캠퍼스 ID"),
+					parameterWithName("paymentAccountId").description("soft delete 처리할 inactive 납부 계좌 ID")
+				)
+			));
+
 		String coffeeAccountBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
 				.header("Authorization", "Bearer " + dutyToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -210,23 +311,6 @@ class BillingApiRestDocsTest {
 				authHeader(),
 				pathParameters(parameterWithName("accountId").description("비활성화할 COFFEE 납부 계좌 ID")),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
-			));
-
-		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
-				.header("Authorization", "Bearer " + managerToken))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.success").value(true))
-			.andExpect(jsonPath("$.data[0].ownerUserId").value(manager.id()))
-			.andExpect(jsonPath("$.data[0].createdAt").isNotEmpty())
-			.andDo(document("payment-account-admin-list-success",
-				preprocessRequest(prettyPrint()),
-				preprocessResponse(prettyPrint()),
-				authHeader(),
-				pathParameters(parameterWithName("campusId").description("관리자/담당자용 납부 계좌를 조회할 캠퍼스 ID")),
-				responseFields(apiResponseFields(combine(
-					fields(fieldWithPath("data[]").description("관리자/담당자용 납부 계좌 목록")),
-					adminAccountFields("data[].")
-				)))
 			));
 	}
 

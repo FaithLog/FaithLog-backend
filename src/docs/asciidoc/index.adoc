@@ -1080,7 +1080,7 @@ include::{snippets}/payment-account-list-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/payment-accounts`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`은 해당 캠퍼스의 모든 납부 계좌와 관리 메타데이터를 조회한다. 활성 `COFFEE` 담당자는 본인이 owner인 활성 `COFFEE` 계좌만 조회할 수 있고, `PENALTY` 계좌는 조회할 수 없다. 응답에는 `ownerUserId`, `isActive`, `createdAt`, `deactivatedAt`을 포함한다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`은 해당 캠퍼스의 active 납부 계좌와 관리 메타데이터를 조회한다. `accountType`으로 `PENALTY` 또는 `COFFEE`를 필터링할 수 있고, `includeInactive=true`를 보내면 inactive 계좌도 함께 반환한다. soft deleted 계좌는 항상 제외한다. 활성 `COFFEE` 담당자는 본인이 owner인 활성 `COFFEE` 계좌만 조회할 수 있고, `PENALTY` 계좌는 조회할 수 없다. 응답에는 `ownerUserId`, `isActive`, `createdAt`, `deactivatedAt`을 포함하며 `deletedAt`은 노출하지 않는다.
 
 ==== Request
 
@@ -1094,6 +1094,10 @@ include::{snippets}/payment-account-admin-list-success/request-headers.adoc[]
 
 include::{snippets}/payment-account-admin-list-success/path-parameters.adoc[]
 
+==== Query Parameters
+
+include::{snippets}/payment-account-admin-list-success/query-parameters.adoc[]
+
 ==== Response
 
 include::{snippets}/payment-account-admin-list-success/http-response.adoc[]
@@ -1101,6 +1105,36 @@ include::{snippets}/payment-account-admin-list-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/payment-account-admin-list-success/response-fields.adoc[]
+
+=== List Admin Payment Accounts Including Inactive
+
+`GET /api/v1/admin/campuses/{campusId}/payment-accounts?accountType=PENALTY&includeInactive=true`
+
+프론트가 active PENALTY 계좌와 inactive PENALTY 계좌를 분리 표시할 수 있도록 active + inactive 목록을 반환한다. soft deleted 계좌는 `includeInactive=true`에도 반환하지 않는다.
+
+==== Request
+
+include::{snippets}/payment-account-admin-list-include-inactive-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/payment-account-admin-list-include-inactive-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/payment-account-admin-list-include-inactive-success/path-parameters.adoc[]
+
+==== Query Parameters
+
+include::{snippets}/payment-account-admin-list-include-inactive-success/query-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/payment-account-admin-list-include-inactive-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/payment-account-admin-list-include-inactive-success/response-fields.adoc[]
 
 === Deactivate Payment Account
 
@@ -1153,6 +1187,54 @@ include::{snippets}/coffee-duty-payment-account-deactivate-success/http-response
 ==== Response Fields
 
 include::{snippets}/coffee-duty-payment-account-deactivate-success/response-fields.adoc[]
+
+=== Activate Penalty Payment Account
+
+`PATCH /api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}/activate`
+
+inactive `PENALTY` 계좌를 active로 전환한다. 전환 시 같은 캠퍼스의 기존 active `PENALTY` 계좌는 inactive 처리된다. 대상 계좌가 이미 active이면 idempotent 성공으로 기존 계좌를 그대로 반환한다. `COFFEE` 계좌 activate는 이 API 범위가 아니며 `400 BILLING_PAYMENT_ACCOUNT_ACTIVATE_UNSUPPORTED`로 실패한다.
+
+==== Request
+
+include::{snippets}/payment-account-activate-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/payment-account-activate-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/payment-account-activate-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/payment-account-activate-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/payment-account-activate-success/response-fields.adoc[]
+
+=== Delete Inactive Payment Account
+
+`DELETE /api/v1/admin/campuses/{campusId}/payment-accounts/{paymentAccountId}`
+
+inactive 계좌만 soft delete 처리한다. active 계좌 삭제는 `409 BILLING_PAYMENT_ACCOUNT_ACTIVE_DELETE_FORBIDDEN`으로 실패한다. soft deleted 계좌는 기본 목록과 `includeInactive=true` 목록, activate 대상에서 숨긴다. 기존 청구의 `paymentAccountId`와 계좌 snapshot은 변경하지 않는다.
+
+==== Request
+
+include::{snippets}/payment-account-delete-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/payment-account-delete-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/payment-account-delete-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/payment-account-delete-success/http-response.adoc[]
 
 === List My Charges
 

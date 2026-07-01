@@ -9,9 +9,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PaymentAccountRepository extends JpaRepository<PaymentAccount, Long>, PaymentAccountRepositoryPort {
 
-	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrue(Long campusId, PaymentCategory accountType);
+	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(Long campusId, PaymentCategory accountType);
 
-	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrue(
+	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNull(
 		Long campusId,
 		PaymentCategory accountType,
 		Long ownerUserId
@@ -19,13 +19,23 @@ public interface PaymentAccountRepository extends JpaRepository<PaymentAccount, 
 
 	List<PaymentAccount> findByCampusIdAndAccountTypeOrderByIdAsc(Long campusId, PaymentCategory accountType);
 
-	List<PaymentAccount> findByCampusIdAndIsActiveTrueOrderByIdAsc(Long campusId);
+	List<PaymentAccount> findByCampusIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(Long campusId);
 
-	List<PaymentAccount> findByCampusIdOrderByIdAsc(Long campusId);
+	List<PaymentAccount> findByCampusIdAndDeletedAtIsNullOrderByIdAsc(Long campusId);
 
-	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndIsActiveTrueOrderByIdAsc(Long campusId, Long ownerUserId);
+	List<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(
+		Long campusId,
+		PaymentCategory accountType
+	);
 
-	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueOrderByIdAsc(
+	List<PaymentAccount> findByCampusIdAndAccountTypeAndDeletedAtIsNullOrderByIdAsc(
+		Long campusId,
+		PaymentCategory accountType
+	);
+
+	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(Long campusId, Long ownerUserId);
+
+	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(
 		Long campusId,
 		Long ownerUserId,
 		PaymentCategory accountType
