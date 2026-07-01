@@ -54,10 +54,9 @@ public class BillingService {
 	public PaymentAccountResult createPaymentAccount(CreatePaymentAccountCommand command) {
 		requirePaymentAccountManager(command.campusId(), command.requesterId(), command.accountType());
 		lockCampusOrThrow(command.campusId());
+		Long ownerUserId = resolveOwnerUserId(command);
 
-		paymentAccountRepository
-			.findByCampusIdAndAccountTypeAndIsActiveTrue(command.campusId(), command.accountType())
-			.ifPresent(PaymentAccount::deactivate);
+		deactivatePreviousActiveAccount(command.campusId(), command.accountType(), ownerUserId);
 
 		PaymentAccount account = paymentAccountRepository.save(PaymentAccount.create(
 			command.campusId(),
@@ -66,10 +65,12 @@ public class BillingService {
 			command.bankName(),
 			command.accountNumber(),
 			command.accountHolder(),
-			command.ownerUserId()
+			ownerUserId
 		));
 
-		reconnectUnpaidCharges(account);
+		if (account.accountType() == PaymentCategory.PENALTY) {
+			reconnectUnpaidCharges(account);
+		}
 		return PaymentAccountResult.from(account);
 	}
 
@@ -77,6 +78,7 @@ public class BillingService {
 	public PaymentAccountResult deactivatePaymentAccount(Long accountId, Long requesterId) {
 		PaymentAccount account = paymentAccountRepository.findById(accountId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
+		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
 		requirePaymentAccountManager(account.campusId(), requesterId, account.accountType());
 
 		account.deactivate();
@@ -251,6 +253,41 @@ public class BillingService {
 				ChargeStatus.UNPAID
 			)
 			.forEach(chargeItem -> chargeItem.reconnectPaymentAccount(account));
+	}
+
+	private Long resolveOwnerUserId(CreatePaymentAccountCommand command) {
+		if (command.accountType() != PaymentCategory.COFFEE) {
+			return command.ownerUserId();
+		}
+		if (command.ownerUserId() != null && !command.ownerUserId().equals(command.requesterId())) {
+			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN);
+		}
+		return command.requesterId();
+	}
+
+	private void deactivatePreviousActiveAccount(Long campusId, PaymentCategory accountType, Long ownerUserId) {
+		if (accountType == PaymentCategory.COFFEE) {
+			paymentAccountRepository
+				.findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrue(campusId, accountType, ownerUserId)
+				.ifPresent(PaymentAccount::deactivate);
+			return;
+		}
+		paymentAccountRepository
+			.findByCampusIdAndAccountTypeAndIsActiveTrue(campusId, accountType)
+			.ifPresent(PaymentAccount::deactivate);
+	}
+
+	private void requireCoffeeAccountOwnerIfNeeded(PaymentAccount account, Long requesterId) {
+		if (account.accountType() != PaymentCategory.COFFEE) {
+			return;
+		}
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin()) {
+			return;
+		}
+		if (!requester.userId().equals(account.ownerUserId())) {
+			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN);
+		}
 	}
 
 	private PaymentAccount findValidCoffeeAccount(CreateCoffeeChargeCommand command) {

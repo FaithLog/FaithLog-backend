@@ -34,12 +34,12 @@ class PollAccessService {
 	}
 
 	void requireCoffeeTemplateManager(Long campusId, Long requesterId) {
-		requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
+		requireCampusManagerOrCoffeeDuty(campusId, requesterId, PollType.COFFEE, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
 	}
 
 	void requirePollCreator(Long campusId, Long requesterId, PollType pollType) {
 		if (pollType == PollType.COFFEE) {
-			requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
+			requireCampusManagerOrCoffeeDuty(campusId, requesterId, pollType, ErrorCode.POLL_CREATE_FORBIDDEN);
 			return;
 		}
 		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
@@ -115,16 +115,6 @@ class PollAccessService {
 			return;
 		}
 		CampusRolePolicy.requireCampusManager(requesterMembership, errorCode);
-	}
-
-	private void requireActiveCoffeeDuty(Long campusId, Long requesterId, ErrorCode errorCode) {
-		CampusUserLookupResult requester = getActiveUser(requesterId);
-		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
-			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(errorCode));
-		if (!isActiveCoffeeDuty(campusId, requester.userId())) {
-			throw new BusinessException(errorCode);
-		}
 	}
 
 	boolean isActiveCoffeeDuty(Long campusId, Long userId) {

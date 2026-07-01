@@ -470,7 +470,7 @@ class BillingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.length()").value(2))
 			.andExpect(jsonPath("$.data[0].ownerUserId").value(manager.id()))
-			.andExpect(jsonPath("$.data[0].isActive").value(false))
+			.andExpect(jsonPath("$.data[0].isActive").value(true))
 			.andExpect(jsonPath("$.data[0].createdAt").isNotEmpty())
 			.andExpect(jsonPath("$.data[1].ownerUserId").value(duty.id()))
 			.andExpect(jsonPath("$.data[1].isActive").value(true));

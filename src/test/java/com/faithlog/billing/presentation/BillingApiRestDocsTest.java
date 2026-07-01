@@ -117,7 +117,7 @@ class BillingApiRestDocsTest {
 					fieldWithPath("bankName").description("은행명"),
 					fieldWithPath("accountNumber").description("계좌번호. 납부에 필요하므로 전체 저장 및 노출"),
 					fieldWithPath("accountHolder").description("예금주"),
-					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. 없으면 null")
+					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. COFFEE는 생략 시 requester 본인이 owner가 되며, 다른 사용자 ID는 403으로 거부")
 				),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			))
@@ -190,7 +190,7 @@ class BillingApiRestDocsTest {
 					fieldWithPath("bankName").description("은행명"),
 					fieldWithPath("accountNumber").description("계좌번호"),
 					fieldWithPath("accountHolder").description("예금주"),
-					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. 없으면 null")
+					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. COFFEE는 생략 시 requester 본인이 owner가 되며, 다른 사용자 ID는 403으로 거부")
 				),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			))
@@ -424,7 +424,7 @@ class BillingApiRestDocsTest {
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
 					parameterWithName("userId").optional().description("사용자 ID 필터"),
 					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
-					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 지정 계좌에 연결된 청구만 집계"),
+					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 지정 계좌에 연결된 청구만 집계. COFFEE 계좌는 캠퍼스 관리자/담당자 모두 본인 소유 계좌만 필터 가능하며 전역 ADMIN은 전체 접근 가능"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
 					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
@@ -688,7 +688,7 @@ class BillingApiRestDocsTest {
 			fieldWithPath(prefix + "bankName").description("은행명"),
 			fieldWithPath(prefix + "accountNumber").description("전체 계좌번호"),
 			fieldWithPath(prefix + "accountHolder").description("예금주"),
-			fieldWithPath(prefix + "ownerUserId").optional().description("계좌 소유 사용자 ID"),
+			fieldWithPath(prefix + "ownerUserId").optional().description("계좌 소유 사용자 ID. COFFEE active 기준은 campusId + accountType + ownerUserId"),
 			fieldWithPath(prefix + "isActive").description("계좌 활성 여부"),
 			fieldWithPath(prefix + "createdAt").description("계좌 생성 시각"),
 			fieldWithPath(prefix + "deactivatedAt").optional().description("계좌 비활성화 시각. 활성 계좌는 null")

@@ -236,6 +236,97 @@ class BillingServiceTest {
 	}
 
 	@Test
+	void coffee_accounts_keep_active_scope_per_owner_and_do_not_reconnect_existing_charges() {
+		User minister = saveUser("billing-coffee-owner-minister@example.com", UserRole.MANAGER);
+		User elder = saveUser("billing-coffee-owner-elder@example.com", UserRole.USER);
+		User member = saveUser("billing-coffee-owner-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(minister, "114커피소유캠");
+		campusService.joinCampus(new JoinCampusCommand(elder.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		CampusMember elderMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), elder.id())
+			.orElseThrow();
+		ReflectionTestUtils.setField(elderMembership, "campusRole", CampusRole.ELDER);
+		campusMemberRepository.saveAndFlush(elderMembership);
+
+		PaymentAccountResult ministerFirst = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			minister.id(),
+			PaymentCategory.COFFEE,
+			"목사 커피 계좌",
+			"하나은행",
+			"114-COFFEE-1",
+			"목사",
+			minister.id()
+		));
+		ChargeItem coffeeCharge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(),
+			member.id(),
+			PaymentCategory.COFFEE,
+			ministerFirst.id(),
+			ministerFirst.bankName(),
+			ministerFirst.accountNumber(),
+			ministerFirst.accountHolder(),
+			ChargeSourceType.POLL_RESPONSE,
+			11401L,
+			"커피 주문",
+			"기존 커피 정산",
+			1800,
+			null
+		));
+
+		PaymentAccountResult elderAccount = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			elder.id(),
+			PaymentCategory.COFFEE,
+			"장로 커피 계좌",
+			"국민은행",
+			"114-COFFEE-2",
+			"장로",
+			elder.id()
+		));
+		PaymentAccountResult ministerSecond = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			minister.id(),
+			PaymentCategory.COFFEE,
+			"목사 새 커피 계좌",
+			"신한은행",
+			"114-COFFEE-3",
+			"목사",
+			minister.id()
+		));
+
+		assertThat(paymentAccountRepository.getReferenceById(ministerFirst.id()).isActive()).isFalse();
+		assertThat(paymentAccountRepository.getReferenceById(elderAccount.id()).isActive()).isTrue();
+		assertThat(paymentAccountRepository.getReferenceById(ministerSecond.id()).isActive()).isTrue();
+		assertThat(chargeItemRepository.findById(coffeeCharge.id())).get()
+			.satisfies(charge -> {
+				assertThat(charge.paymentAccountId()).isEqualTo(ministerFirst.id());
+				assertThat(charge.accountNumberSnapshot()).isEqualTo("114-COFFEE-1");
+			});
+	}
+
+	@Test
+	void coffee_payment_account_creation_allows_only_requester_owned_account() {
+		User manager = saveUser("billing-coffee-owner-mismatch-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-coffee-owner-mismatch-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "114커피본인계좌캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.COFFEE,
+			"다른 사람 커피 계좌",
+			"하나은행",
+			"114-OWNER-MISMATCH",
+			"다른사람",
+			member.id()
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("본인 커피 계좌만 등록할 수 있습니다.");
+	}
+
+	@Test
 	void listAdminPaymentAccounts_returns_management_metadata_with_role_scoped_visibility() {
 		User manager = saveUser("billing-admin-account-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("billing-admin-account-duty@example.com", UserRole.USER);
@@ -246,11 +337,15 @@ class BillingServiceTest {
 		campusService.joinCampus(new JoinCampusCommand(otherDuty.id(), campus.inviteCode()));
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		CampusMember otherDutyMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), otherDuty.id())
+			.orElseThrow();
+		ReflectionTestUtils.setField(otherDutyMembership, "campusRole", CampusRole.ELDER);
+		campusMemberRepository.saveAndFlush(otherDutyMembership);
 		PaymentAccountResult penalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "벌금 계좌", "하나은행", "112-201", "벌금회계", manager.id()
 		));
 		PaymentAccountResult otherCoffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
-			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "다른 커피 계좌", "하나은행", "112-203", "커피회계", otherDuty.id()
+			campus.campusId(), otherDuty.id(), PaymentCategory.COFFEE, "다른 커피 계좌", "하나은행", "112-203", "커피회계", otherDuty.id()
 		));
 		PaymentAccountResult dutyCoffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campus.campusId(), duty.id(), PaymentCategory.COFFEE, "담당자 커피 계좌", "하나은행", "112-202", "커피회계", duty.id()
