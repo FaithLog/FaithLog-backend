@@ -10,6 +10,17 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-01 - Issue #114 User-Owned Coffee Account And Coffee Poll Settlement Permission Policy
+
+- Context: Issue #114 follows up Issue #112 after QA found that campus-level active COFFEE account replacement could deactivate another user's coffee account, relink existing unpaid COFFEE charges to the newest account, and block campus managers from creating paid coffee polls even when they have their own account.
+- Decision: `PENALTY` payment accounts keep the existing campus-level active uniqueness policy. `COFFEE` payment accounts are user-owned and active uniqueness is scoped by `campusId + accountType + ownerUserId`. Creating a new COFFEE account deactivates only the requester's previous active COFFEE account; it must not deactivate another user's COFFEE account.
+- Decision: COFFEE account creation is requester-owned. If a COFFEE account create request includes a different `ownerUserId`, the API must reject it with `403 BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN`. Campus managers and active COFFEE duty assignees may create their own COFFEE accounts. Normal members without active COFFEE duty may not create COFFEE accounts. PENALTY account management remains limited to campus managers or service-level `ADMIN`; a COFFEE duty user alone cannot create or deactivate PENALTY accounts.
+- Decision: COFFEE poll and COFFEE poll template creation/update may be performed by campus managers or active COFFEE duty assignees, but the selected `paymentAccountId` is required and must be an active same-campus COFFEE account owned by the requester. A null account, inactive account, account from another campus, PENALTY account, or another user's COFFEE account must fail clearly with the billing account error contract.
+- Decision: Closed COFFEE poll settlement must use the poll's selected `paymentAccountId` and save that account snapshot to generated COFFEE charges. Creating a newer COFFEE account must not relink existing unpaid COFFEE charges that came from an earlier poll/account. PENALTY account replacement keeps its existing unpaid charge relink behavior.
+- Decision: Admin charge summary access remains available to campus managers (`MINISTER`, `ELDER`, `CAMPUS_LEADER`) and service-level `ADMIN`; unauthorized authenticated users receive `403`, while only authentication failure or expired tokens receive `401`. COFFEE `paymentAccountId` filtering for campus managers and COFFEE duty users is limited to their own COFFEE account; service-level `ADMIN` can access all.
+- Decision: New campus creation must continue not to auto-create a default COFFEE poll template or recurring coffee poll. Existing historical default templates are not deleted or deactivated by this issue.
+- Impact: Issue #114 adds a Flyway V3 partial unique-index migration for active account scope, updates Spring REST Docs and `index.adoc`, and supersedes the Issue #112 decision that COFFEE poll/template creation required the current active COFFEE duty assignee.
+
 ### 2026-07-01 - Issue #112 Billing Account Scope And Coffee Poll Permission Policy
 
 - Context: Issue #112 fixes admin billing summaries so they can be scoped by payment account, and tightens COFFEE poll/template creation so campus manager roles alone cannot create paid coffee flows.
