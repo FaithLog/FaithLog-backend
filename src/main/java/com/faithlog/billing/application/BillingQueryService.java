@@ -388,6 +388,9 @@ public class BillingQueryService {
 				return null;
 			}
 			PaymentAccount account = getAccountInCampus(campusId, paymentAccountId);
+			if (!requester.isAdmin()) {
+				requireOwnedCoffeeAccountForFilter(account, requester.userId());
+			}
 			return Set.of(account.id());
 		}
 		if (!isActiveCoffeeDuty(campusId, requester.userId())) {
@@ -464,7 +467,13 @@ public class BillingQueryService {
 		if (!account.isActive() || account.accountType() != PaymentCategory.COFFEE) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
 		}
-		if (account.ownerUserId() != null && !account.ownerUserId().equals(requesterId)) {
+		if (!requesterId.equals(account.ownerUserId())) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
+		}
+	}
+
+	private void requireOwnedCoffeeAccountForFilter(PaymentAccount account, Long requesterId) {
+		if (account.accountType() == PaymentCategory.COFFEE && !requesterId.equals(account.ownerUserId())) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
 		}
 	}

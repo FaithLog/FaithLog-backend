@@ -48,6 +48,7 @@ public class PollTemplateService {
 			command.paymentCategory()
 		);
 		requirePaymentAccountIfNeeded(
+			command.pollType(),
 			command.chargeGenerationType(),
 			command.paymentCategory(),
 			command.paymentAccountId(),
@@ -88,6 +89,7 @@ public class PollTemplateService {
 			command.paymentCategory()
 		);
 		requirePaymentAccountIfNeeded(
+			template.pollType(),
 			command.chargeGenerationType(),
 			command.paymentCategory(),
 			command.paymentAccountId(),
@@ -168,13 +170,16 @@ public class PollTemplateService {
 	}
 
 	private void requirePaymentAccountIfNeeded(
+		PollType pollType,
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId,
 		Long campusId,
 		Long requesterId
 	) {
-		if (chargeGenerationType != ChargeGenerationType.OPTION_PRICE && paymentCategory != PaymentCategory.COFFEE) {
+		if (pollType != PollType.COFFEE
+			&& chargeGenerationType != ChargeGenerationType.OPTION_PRICE
+			&& paymentCategory != PaymentCategory.COFFEE) {
 			return;
 		}
 		if (paymentAccountId == null) {
@@ -185,7 +190,7 @@ public class PollTemplateService {
 		if (!account.isActive()
 			|| !account.campusId().equals(campusId)
 			|| account.accountType() != PaymentCategory.COFFEE
-			|| (account.ownerUserId() != null && !account.ownerUserId().equals(requesterId))) {
+			|| !requesterId.equals(account.ownerUserId())) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
 		}
 	}

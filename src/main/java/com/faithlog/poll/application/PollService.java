@@ -417,12 +417,9 @@ public class PollService {
 		Long campusId,
 		Long requesterId
 	) {
-		if (pollType == PollType.COFFEE) {
-			dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-				.filter(assignment -> assignment.userId().equals(requesterId))
-				.orElseThrow(() -> new BusinessException(ErrorCode.POLL_CREATE_FORBIDDEN));
-		}
-		if (chargeGenerationType != ChargeGenerationType.OPTION_PRICE && paymentCategory != PaymentCategory.COFFEE) {
+		if (pollType != PollType.COFFEE
+			&& chargeGenerationType != ChargeGenerationType.OPTION_PRICE
+			&& paymentCategory != PaymentCategory.COFFEE) {
 			return;
 		}
 		if (paymentAccountId == null) {
@@ -433,7 +430,7 @@ public class PollService {
 		if (!account.isActive()
 			|| !account.campusId().equals(campusId)
 			|| account.accountType() != PaymentCategory.COFFEE
-			|| (account.ownerUserId() != null && !account.ownerUserId().equals(requesterId))) {
+			|| !requesterId.equals(account.ownerUserId())) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
 		}
 	}

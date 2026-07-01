@@ -13,6 +13,12 @@ public interface PaymentAccountRepositoryPort {
 
 	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrue(Long campusId, PaymentCategory accountType);
 
+	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrue(
+		Long campusId,
+		PaymentCategory accountType,
+		Long ownerUserId
+	);
+
 	List<PaymentAccount> findByCampusIdAndIsActiveTrueOrderByIdAsc(Long campusId);
 
 	List<PaymentAccount> findByCampusIdOrderByIdAsc(Long campusId);
