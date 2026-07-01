@@ -17,6 +17,8 @@ import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.ChargeStatus;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
+import com.faithlog.campus.application.AssignCoffeeDutyCommand;
+import com.faithlog.campus.application.CampusService;
 import com.faithlog.campus.domain.CampusMember;
 import com.faithlog.campus.domain.CampusRole;
 import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
@@ -53,6 +55,9 @@ class BillingControllerTest {
 
 	@Autowired
 	private BillingService billingService;
+
+	@Autowired
+	private CampusService campusService;
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
@@ -332,7 +337,7 @@ class BillingControllerTest {
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me/summary", campusId)
 				.header("Authorization", "Bearer " + memberToken)
 				.param("year", "2026")
-				.param("month", "6"))
+				.param("month", "7"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.userId").value(member.id()))
 			.andExpect(jsonPath("$.data.name").value("빌링테스트"))
@@ -414,6 +419,67 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data.members[0].waivedAmount").value(0))
 			.andExpect(jsonPath("$.data.members[0].canceledAmount").value(0))
 			.andExpect(jsonPath("$.data.members[0].items").doesNotExist());
+	}
+
+	@Test
+	void admin_charge_query_supports_payment_account_scope_my_accounts_and_admin_account_list() throws Exception {
+		String managerToken = signupAndLogin("billing-http-112-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-112-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "112캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("billing-http-112-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("billing-http-112-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		String memberToken = signupAndLogin("billing-http-112-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-112-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), duty.id()));
+		long managerAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId, manager.id(), PaymentCategory.COFFEE, "관리자 커피 계좌", "하나은행", "112-HTTP-1", "관리회계", manager.id()
+		)).id();
+		long dutyAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId, duty.id(), PaymentCategory.COFFEE, "담당자 커피 계좌", "하나은행", "112-HTTP-2", "담당회계", duty.id()
+		)).id();
+		saveCoffeeCharge(campusId, member.id(), managerAccountId, 6501L, 2900);
+		saveCoffeeCharge(campusId, member.id(), dutyAccountId, 6502L, 1800);
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("paymentAccountId", String.valueOf(managerAccountId))
+				.param("paymentCategory", "COFFEE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2900))
+			.andExpect(jsonPath("$.data.members.length()").value(1));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.param("paymentAccountId", String.valueOf(managerAccountId))
+				.param("paymentCategory", "COFFEE"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_LIST_FORBIDDEN"));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.param("paymentCategory", "COFFEE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(1800))
+			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(2))
+			.andExpect(jsonPath("$.data[0].ownerUserId").value(manager.id()))
+			.andExpect(jsonPath("$.data[0].isActive").value(false))
+			.andExpect(jsonPath("$.data[0].createdAt").isNotEmpty())
+			.andExpect(jsonPath("$.data[1].ownerUserId").value(duty.id()))
+			.andExpect(jsonPath("$.data[1].isActive").value(true));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(dutyAccountId));
 	}
 
 	@Test
@@ -618,6 +684,24 @@ class BillingControllerTest {
 			"2026-06-15 주간",
 			2500,
 			LocalDate.of(2026, 6, 22)
+		));
+	}
+
+	private void saveCoffeeCharge(Long campusId, Long memberId, Long accountId, Long sourceId, int amount) {
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			memberId,
+			PaymentCategory.COFFEE,
+			accountId,
+			"하나은행",
+			"112-HTTP",
+			"커피회계",
+			ChargeSourceType.POLL_RESPONSE,
+			sourceId,
+			"커피 주문",
+			"테스트",
+			amount,
+			null
 		));
 	}
 }

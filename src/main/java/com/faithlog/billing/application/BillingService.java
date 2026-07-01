@@ -93,6 +93,29 @@ public class BillingService {
 	}
 
 	@Transactional(readOnly = true)
+	public List<PaymentAccountResult> listAdminPaymentAccounts(Long campusId, Long requesterId) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin() || isCampusManager(campusId, requester.userId())) {
+			return paymentAccountRepository.findByCampusIdOrderByIdAsc(campusId)
+				.stream()
+				.map(PaymentAccountResult::from)
+				.toList();
+		}
+		if (isActiveCoffeeDuty(campusId, requester.userId())) {
+			return paymentAccountRepository
+				.findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueOrderByIdAsc(
+					campusId,
+					requester.userId(),
+					PaymentCategory.COFFEE
+				)
+				.stream()
+				.map(PaymentAccountResult::from)
+				.toList();
+		}
+		throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_LIST_FORBIDDEN, ACCOUNT_LIST_FORBIDDEN);
+	}
+
+	@Transactional(readOnly = true)
 	public void requireActivePenaltyAccount(Long campusId) {
 		paymentAccountRepository
 			.findByCampusIdAndAccountTypeAndIsActiveTrue(campusId, PaymentCategory.PENALTY)
@@ -254,6 +277,20 @@ public class BillingService {
 			return;
 		}
 		BillingAccessPolicy.requirePaymentAccountManager(requesterMembership);
+	}
+
+	private boolean isCampusManager(Long campusId, Long requesterId) {
+		return campusMemberRepository.findByCampusIdAndUserId(campusId, requesterId)
+			.filter(CampusMember::isActive)
+			.map(membership -> {
+				try {
+					BillingAccessPolicy.requirePaymentAccountManager(membership);
+					return true;
+				} catch (BusinessException exception) {
+					return false;
+				}
+			})
+			.orElse(false);
 	}
 
 	private boolean isActiveCoffeeDuty(Long campusId, Long userId) {

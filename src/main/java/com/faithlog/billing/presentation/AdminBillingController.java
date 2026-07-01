@@ -17,6 +17,7 @@ import com.faithlog.billing.presentation.dto.PaymentAccountAdminResponse;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -61,6 +62,18 @@ public class AdminBillingController {
 		return ApiResponse.success(PaymentAccountAdminResponse.from(result), "납부 계좌가 비활성화되었습니다.");
 	}
 
+	@GetMapping("/campuses/{campusId}/payment-accounts")
+	public ApiResponse<List<PaymentAccountAdminResponse>> listAdminPaymentAccounts(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId
+	) {
+		List<PaymentAccountAdminResponse> responses = billingService.listAdminPaymentAccounts(campusId, authenticatedUser.userId())
+			.stream()
+			.map(PaymentAccountAdminResponse::from)
+			.toList();
+		return ApiResponse.success(responses);
+	}
+
 	@PatchMapping("/charges/{chargeItemId}/status")
 	public ApiResponse<ChargeItemResponse> changeChargeStatus(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
@@ -79,6 +92,7 @@ public class AdminBillingController {
 		@org.springframework.web.bind.annotation.RequestParam(required = false) ChargeStatus status,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) Long userId,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) String keyword,
+		@org.springframework.web.bind.annotation.RequestParam(required = false) Long paymentAccountId,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
@@ -91,6 +105,34 @@ public class AdminBillingController {
 				status,
 				userId,
 				keyword,
+				paymentAccountId,
+				BillingPageRequests.adminMembers(page, size, sort)
+			))
+		);
+		return ApiResponse.success(response);
+	}
+
+	@GetMapping("/campuses/{campusId}/charges/my-accounts")
+	public ApiResponse<AdminCampusChargesResponse> listAdminCampusChargesForMyAccounts(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@org.springframework.web.bind.annotation.RequestParam(required = false) PaymentCategory paymentCategory,
+		@org.springframework.web.bind.annotation.RequestParam(required = false) ChargeStatus status,
+		@org.springframework.web.bind.annotation.RequestParam(required = false) Long userId,
+		@org.springframework.web.bind.annotation.RequestParam(required = false) String keyword,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
+	) {
+		AdminCampusChargesResponse response = AdminCampusChargesResponse.from(
+			billingQueryService.listAdminCampusChargesForMyAccounts(new AdminCampusChargeListQuery(
+				campusId,
+				authenticatedUser.userId(),
+				paymentCategory,
+				status,
+				userId,
+				keyword,
+				null,
 				BillingPageRequests.adminMembers(page, size, sort)
 			))
 		);

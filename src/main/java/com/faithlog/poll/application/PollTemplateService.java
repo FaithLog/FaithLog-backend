@@ -8,6 +8,7 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.ChargeGenerationType;
 import com.faithlog.poll.domain.PollTemplate;
 import com.faithlog.poll.domain.PollTemplateOption;
+import com.faithlog.poll.domain.PollType;
 import com.faithlog.poll.infrastructure.jpa.PollTemplateOptionRepository;
 import com.faithlog.poll.infrastructure.jpa.PollTemplateRepository;
 import java.util.List;
@@ -39,8 +40,20 @@ public class PollTemplateService {
 
 	@Transactional
 	public PollTemplateResult createTemplate(CreatePollTemplateCommand command) {
-		pollAccessService.requireTemplateManager(command.campusId(), command.requesterId());
-		requirePaymentAccountIfNeeded(command.chargeGenerationType(), command.paymentCategory(), command.paymentAccountId(), command.campusId());
+		requireTemplateManageAccess(
+			command.campusId(),
+			command.requesterId(),
+			command.pollType(),
+			command.chargeGenerationType(),
+			command.paymentCategory()
+		);
+		requirePaymentAccountIfNeeded(
+			command.chargeGenerationType(),
+			command.paymentCategory(),
+			command.paymentAccountId(),
+			command.campusId(),
+			command.requesterId()
+		);
 		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolveTemplateOptions(command.options());
 		PollTemplate template = pollTemplateRepository.save(PollTemplate.create(
 			command.campusId(),
@@ -67,8 +80,20 @@ public class PollTemplateService {
 		PollTemplate template = pollTemplateRepository.findById(command.templateId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
 		requireSameCampusScope(template, command.campusId());
-		pollAccessService.requireTemplateManager(command.campusId(), command.requesterId());
-		requirePaymentAccountIfNeeded(command.chargeGenerationType(), command.paymentCategory(), command.paymentAccountId(), command.campusId());
+		requireTemplateManageAccess(
+			command.campusId(),
+			command.requesterId(),
+			template.pollType(),
+			command.chargeGenerationType(),
+			command.paymentCategory()
+		);
+		requirePaymentAccountIfNeeded(
+			command.chargeGenerationType(),
+			command.paymentCategory(),
+			command.paymentAccountId(),
+			command.campusId(),
+			command.requesterId()
+		);
 		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolveTemplateOptions(command.options());
 		template.update(
 			command.title(),
@@ -146,7 +171,8 @@ public class PollTemplateService {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId,
-		Long campusId
+		Long campusId,
+		Long requesterId
 	) {
 		if (chargeGenerationType != ChargeGenerationType.OPTION_PRICE && paymentCategory != PaymentCategory.COFFEE) {
 			return;
@@ -156,8 +182,28 @@ public class PollTemplateService {
 		}
 		PaymentAccount account = paymentAccountRepository.findById(paymentAccountId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
-		if (!account.isActive() || !account.campusId().equals(campusId) || account.accountType() != PaymentCategory.COFFEE) {
+		if (!account.isActive()
+			|| !account.campusId().equals(campusId)
+			|| account.accountType() != PaymentCategory.COFFEE
+			|| (account.ownerUserId() != null && !account.ownerUserId().equals(requesterId))) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
 		}
+	}
+
+	private void requireTemplateManageAccess(
+		Long campusId,
+		Long requesterId,
+		PollType pollType,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory
+	) {
+		boolean coffeeTemplate = pollType == PollType.COFFEE
+			|| paymentCategory == PaymentCategory.COFFEE
+			|| (chargeGenerationType == ChargeGenerationType.OPTION_PRICE && paymentCategory == PaymentCategory.COFFEE);
+		if (coffeeTemplate) {
+			pollAccessService.requireCoffeeTemplateManager(campusId, requesterId);
+			return;
+		}
+		pollAccessService.requireTemplateManager(campusId, requesterId);
 	}
 }

@@ -10,6 +10,23 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-01 - Issue #112 Billing Account Scope And Coffee Poll Permission Policy
+
+- Context: Issue #112 fixes admin billing summaries so they can be scoped by payment account, and tightens COFFEE poll/template creation so campus manager roles alone cannot create paid coffee flows.
+- Decision: `GET /api/v1/admin/campuses/{campusId}/charges` adds optional query parameter `paymentAccountId`. When present, the summary and `members[]` aggregation must include only charge items linked to that account, and it must compose with existing `paymentCategory`, `status`, `userId`, `keyword`, `page`, `size`, and `sort` filters.
+- Decision: Add `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts` to aggregate only active payment accounts owned by the current user. Add `GET /api/v1/admin/campuses/{campusId}/payment-accounts` for manager-facing account metadata including `ownerUserId`, `isActive`, `createdAt`, and `deactivatedAt`.
+- Decision: `PENALTY` account and settlement views remain limited to service-level `ADMIN` or campus managers (`MINISTER`, `ELDER`, `CAMPUS_LEADER`). Active `COFFEE` duty users can use only COFFEE-scoped account and charge views, and cannot query PENALTY data through admin billing APIs.
+- Decision: Creating `pollType=COFFEE`, `paymentCategory=COFFEE`, or `chargeGenerationType=OPTION_PRICE` with `paymentCategory=COFFEE` is allowed only to the current active `DutyType.COFFEE` assignee. A campus manager or service-level `ADMIN` who is not the active COFFEE duty assignee must receive `403` for COFFEE poll/template creation or update. A selected `paymentAccountId` must be an active same-campus COFFEE account usable by the requester.
+- Decision: New campus creation must not automatically create a default COFFEE poll template or recurring coffee poll. Existing auto-created COFFEE templates in existing campuses are not deleted or deactivated in this issue; cleanup, if needed, belongs to a separate issue.
+- Impact: Issue #112 must not change DB schema. It uses existing `payment_accounts.owner_user_id`, `charge_items.payment_account_id`, and `campus_duty_assignments`. Spring REST Docs must cover the new query parameter and new admin billing/account APIs. Swagger documentation annotations remain prohibited.
+
+### 2026-06-30 - Issue #109 Zero Penalty Devotion Submission Charge Policy
+
+- Context: Issue #109 fixes weekly devotion final submission creating or exposing `UNPAID` `PENALTY` charge rows even when the calculated penalty total is 0 KRW.
+- Decision: When a weekly devotion request is submitted with `submit = true` and the calculated penalty `totalAmount` is 0, the backend must not create a `charge_items` row for `paymentCategory = PENALTY`. A 0 KRW `UNPAID` penalty charge must not appear in member or admin charge lists.
+- Decision: Active `PENALTY` payment account lookup is required only when the calculated penalty amount is greater than 0. If the calculated amount is 0, weekly submission succeeds even when the campus has no active `PENALTY` payment account.
+- Impact: Issue #109 must keep the existing weekly devotion response shape, DB schema, `submit = false` draft behavior, duplicate final submission blocking, submitted-week daily edit blocking, and positive penalty charge creation behavior. Tests must cover zero penalty with and without an active `PENALTY` account plus positive penalty charge regression.
+
 ### 2026-06-30 - Issue #106 Prayer Season And Group Management API Contract
 
 - Context: Issue #106 extends the prayer request MVP with admin-facing current season/group management reads, assignable member lookup, duplicate active-group assignment validation, weekly board response fields, and a current-user prayer submission API.

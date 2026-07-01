@@ -2,6 +2,7 @@ package com.faithlog.billing.presentation.dto;
 
 import com.faithlog.billing.application.PaymentAccountResult;
 import com.faithlog.billing.domain.PaymentCategory;
+import java.time.Instant;
 
 public record PaymentAccountAdminResponse(
 	Long id,
@@ -12,7 +13,9 @@ public record PaymentAccountAdminResponse(
 	String accountNumber,
 	String accountHolder,
 	Long ownerUserId,
-	boolean isActive
+	boolean isActive,
+	Instant createdAt,
+	Instant deactivatedAt
 ) {
 
 	public static PaymentAccountAdminResponse from(PaymentAccountResult result) {
@@ -25,7 +28,9 @@ public record PaymentAccountAdminResponse(
 			result.accountNumber(),
 			result.accountHolder(),
 			result.ownerUserId(),
-			result.isActive()
+			result.isActive(),
+			result.createdAt(),
+			result.deactivatedAt()
 		);
 	}
 }
