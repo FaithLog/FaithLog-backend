@@ -31,6 +31,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-07-01
 
+- #119 캠퍼스 관리자 벌금 계좌와 정산 조회 권한 회귀 검증:
+  - 작업 기준: Issue #119 `[Fix] 캠퍼스 관리자 벌금 계좌와 정산 조회 권한 수정`, 브랜치 `fix/119-admin-billing-campus-role-permission`, worktree `/private/tmp/faithlog-admin-billing-permission`.
+  - QA 재현 범위: 프론트 QA에서 `POST /api/v1/admin/campuses/{campusId}/payment-accounts` PENALTY 등록과 `GET /api/v1/admin/campuses/{campusId}/charges`가 campus 관리자 role에서 `401 AUTH_UNAUTHORIZED`로 보이는 문제를 검증했다.
+  - 확인 결과: 최신 `develop`의 production authorization 정책은 이미 campus role `MINISTER`, `ELDER`, `CAMPUS_LEADER` 및 service-level `ADMIN`을 허용하고, 일반 `MEMBER`는 403, 무토큰/무효 토큰은 401로 분리되어 있다.
+  - 보강 테스트: `users.role = USER`이지만 campus role이 `MINISTER`인 사용자가 role 변경 후 fresh login token으로 PENALTY 계좌 등록과 관리자 정산 조회에 성공하는 HTTP 회귀 테스트를 추가했다. 같은 API에 대해 일반 `MEMBER`는 각각 `403 BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN`, `403 BILLING_CHARGE_LIST_FORBIDDEN`, 토큰 없음은 `401 AUTH_UNAUTHORIZED`로 고정했다.
+  - 원인 분석: campus role 변경 시 #76 정책에 따라 대상 사용자의 `users.token_version`이 증가한다. 따라서 권한 변경 직후 refresh/login 없이 기존 access token을 그대로 쓰면 `AUTH_UNAUTHORIZED` 401이 정상적으로 발생할 수 있다. 프론트는 campus role 변경/권한 상승 이후 401을 받으면 refresh token으로 access token을 재발급하거나 재로그인해야 최신 campus 권한이 반영된다.
+  - 검증: `./gradlew test --tests com.faithlog.billing.presentation.BillingControllerTest` 성공, `./gradlew test` 성공, `./gradlew build` 성공, `git diff --check` 성공.
+
 - #116 벌금 계좌 활성화와 삭제 정책 구현:
   - 작업 기준: Issue #116 `[Fix] 벌금 계좌 활성화와 삭제 정책 구현`, Project `FaithLog Backend Kanban` Status/Kanban Status `In Progress`, 브랜치 `fix/116-penalty-account-policy`, worktree `/Users/josephuk77/.codex/worktrees/f6ed/FaithLog`.
   - TDD 실패 확인: 구현 전 `BillingServiceTest`, `BillingControllerTest`, `BillingApiRestDocsTest`에 PENALTY active/inactive 목록, idempotent activate, COFFEE activate 거부, active delete 409, inactive soft delete, soft deleted 목록/activate 제외, terminal charge snapshot 보존 테스트를 추가했다. focused billing 테스트 최초 실행은 `deletePaymentAccount`, `activatePenaltyPaymentAccount`, `deletedAt` 부재 등 15개 compile error로 실패했다.
