@@ -13,7 +13,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-02, `./gradlew test` BUILD SUCCESSFUL; 291 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-02, `./gradlew test` BUILD SUCCESSFUL; 293 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
@@ -30,6 +30,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## Daily Monitoring Notes
 
 ### 2026-07-02
+
+- #125 계좌 활성 전환과 정산 API 계약 보강:
+  - 작업 기준: Issue #125 `[Fix] 계좌 활성 전환과 정산 API 계약 보강`, 브랜치 `fix/125-payment-account-activation-contract`, worktree `/Users/josephuk77/.codex/worktrees/6840/FaithLog`.
+  - TDD 실패 확인: 구현 전 `BillingServiceUnitTest`에 `PENALTY` 교체 등록 시 기존 active 비활성화 후 repository `flush()`가 새 계좌 `save()`보다 먼저 호출되어야 한다는 순서 테스트를 추가했다. 최초 실행은 `PaymentAccountRepositoryPort.flush()` 부재로 `compileTestJava` 실패했다.
+  - 구현 범위: `BillingService.createPaymentAccount`에서 기존 active 계좌를 비활성화한 경우 즉시 repository `flush()`를 호출한 뒤 새 active 계좌를 저장하도록 보강했다. `activatePenaltyPaymentAccount`도 기존 active `PENALTY`를 inactive 처리하고 flush한 뒤 선택 계좌를 active로 전환하도록 수정했다.
+  - 회귀 방지: `COFFEE` 계좌는 기존처럼 `campusId + accountType + ownerUserId` 기준으로 같은 owner의 이전 active만 비활성화한다. `PENALTY` owner 생략 시 requester 저장, inactive 목록 유지, activate/delete soft delete, `charges/my-accounts` PENALTY/COFFEE 분리 정책은 기존 계약을 유지했다. DB 스키마 변경과 Swagger 문서화 annotation은 추가하지 않았다.
+  - 검증: `./gradlew test --tests com.faithlog.billing.application.BillingServiceUnitTest` 성공, focused billing service/query/controller/REST Docs 테스트 성공, `./gradlew test` 성공(293 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. `./gradlew asciidoctor` 최초 실행은 sandbox의 `~/.gradle` wrapper lock 접근 제한으로 실패했고 승인 경로 재실행에서 성공했다.
+  - Docker/API QA: `scripts/qa_docker_compose_isolated.sh --suffix 125-flush-health`로 Docker isolated health `UP` 확인 후 stack down 완료. 추가 compose project `faithlog-qa-125-api`에서 실제 API A-F를 실행하고 stack down 완료했다. 확인 결과: 기존 active PENALTY가 있는 상태에서 새 PENALTY 등록 201, 기존 inactive/새 active 목록 확인, inactive PENALTY activate 200, active delete 409, inactive delete 204, COFFEE owner별 active 2건 유지, manager `my-accounts` PENALTY 3500/COFFEE 1800, coffee duty `my-accounts` COFFEE 2200, 무토큰 401 `AUTH_UNAUTHORIZED`, 일반 MEMBER 403 `BILLING_CHARGE_LIST_FORBIDDEN`.
+  - 트러블슈팅: Docker API QA 중 보조 DB 상태 출력용 `string_agg` SQL의 콜론 quoting이 잘못되어 DB 진단 문자열만 비어 있었다. 동일 상태는 API list 응답의 `isActive`, `deactivatedAt`, soft-deleted 제외 결과로 확인했다.
 
 - #122 PENALTY 계좌 owner와 내 계좌 정산 조회 정책 보강:
   - 작업 기준: Issue #122 `[Fix] PENALTY 계좌 owner와 내 계좌 정산 조회 정책 보강`, 브랜치 `fix/122-penalty-owner-my-accounts`, worktree `/Users/josephuk77/.codex/worktrees/6dd8/FaithLog`.

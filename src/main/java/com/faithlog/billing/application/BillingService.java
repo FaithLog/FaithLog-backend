@@ -56,7 +56,9 @@ public class BillingService {
 		lockCampusOrThrow(command.campusId());
 		Long ownerUserId = resolveOwnerUserId(command);
 
-		deactivatePreviousActiveAccount(command.campusId(), command.accountType(), ownerUserId);
+		if (deactivatePreviousActiveAccount(command.campusId(), command.accountType(), ownerUserId)) {
+			paymentAccountRepository.flush();
+		}
 
 		PaymentAccount account = paymentAccountRepository.save(PaymentAccount.create(
 			command.campusId(),
@@ -101,7 +103,10 @@ public class BillingService {
 		paymentAccountRepository
 			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(campusId, PaymentCategory.PENALTY)
 			.filter(activeAccount -> !activeAccount.id().equals(account.id()))
-			.ifPresent(PaymentAccount::deactivate);
+			.ifPresent(activeAccount -> {
+				activeAccount.deactivate();
+				paymentAccountRepository.flush();
+			});
 		account.activate();
 		reconnectUnpaidCharges(account);
 		return PaymentAccountResult.from(account);
@@ -305,16 +310,23 @@ public class BillingService {
 		return command.requesterId();
 	}
 
-	private void deactivatePreviousActiveAccount(Long campusId, PaymentCategory accountType, Long ownerUserId) {
+	private boolean deactivatePreviousActiveAccount(Long campusId, PaymentCategory accountType, Long ownerUserId) {
 		if (accountType == PaymentCategory.COFFEE) {
-			paymentAccountRepository
+			return paymentAccountRepository
 				.findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNull(campusId, accountType, ownerUserId)
-				.ifPresent(PaymentAccount::deactivate);
-			return;
+				.map(activeAccount -> {
+					activeAccount.deactivate();
+					return true;
+				})
+				.orElse(false);
 		}
-		paymentAccountRepository
+		return paymentAccountRepository
 			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(campusId, accountType)
-			.ifPresent(PaymentAccount::deactivate);
+			.map(activeAccount -> {
+				activeAccount.deactivate();
+				return true;
+			})
+			.orElse(false);
 	}
 
 	private void requireCoffeeAccountOwnerIfNeeded(PaymentAccount account, Long requesterId) {

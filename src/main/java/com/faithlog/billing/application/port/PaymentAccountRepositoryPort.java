@@ -9,6 +9,8 @@ public interface PaymentAccountRepositoryPort {
 
 	PaymentAccount save(PaymentAccount paymentAccount);
 
+	void flush();
+
 	Optional<PaymentAccount> findById(Long accountId);
 
 	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(Long campusId, PaymentCategory accountType);
