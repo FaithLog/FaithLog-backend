@@ -550,8 +550,12 @@ class BillingControllerTest {
 		long dutyAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId, duty.id(), PaymentCategory.COFFEE, "담당자 커피 계좌", "하나은행", "112-HTTP-2", "담당회계", duty.id()
 		)).id();
+		billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId, manager.id(), PaymentCategory.PENALTY, "담당자 메타 벌금 계좌", "국민은행", "122-HTTP-PENALTY", "벌금회계", duty.id()
+		));
 		saveCoffeeCharge(campusId, member.id(), managerAccountId, 6501L, 2900);
 		saveCoffeeCharge(campusId, member.id(), dutyAccountId, 6502L, 1800);
+		createPenaltyCharge(campusId, member.id(), 6503L);
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
 				.header("Authorization", "Bearer " + managerToken)
@@ -569,6 +573,20 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_LIST_FORBIDDEN"));
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(5400))
+			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()))
+			.andExpect(jsonPath("$.data.members[0].totalAmount").value(5400));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("paymentCategory", "COFFEE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2900))
+			.andExpect(jsonPath("$.data.members[0].totalAmount").value(2900));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
 				.header("Authorization", "Bearer " + dutyToken)
 				.param("paymentCategory", "COFFEE"))
 			.andExpect(status().isOk())
@@ -578,12 +596,14 @@ class BillingControllerTest {
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
 				.header("Authorization", "Bearer " + managerToken))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.length()").value(2))
+			.andExpect(jsonPath("$.data.length()").value(3))
 			.andExpect(jsonPath("$.data[0].ownerUserId").value(manager.id()))
 			.andExpect(jsonPath("$.data[0].isActive").value(true))
 			.andExpect(jsonPath("$.data[0].createdAt").isNotEmpty())
 			.andExpect(jsonPath("$.data[1].ownerUserId").value(duty.id()))
-			.andExpect(jsonPath("$.data[1].isActive").value(true));
+			.andExpect(jsonPath("$.data[1].isActive").value(true))
+			.andExpect(jsonPath("$.data[2].accountType").value("PENALTY"))
+			.andExpect(jsonPath("$.data[2].ownerUserId").value(duty.id()));
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
 				.header("Authorization", "Bearer " + dutyToken))
@@ -692,6 +712,12 @@ class BillingControllerTest {
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_LIST_FORBIDDEN"));
 
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("status", "UNPAID"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_LIST_FORBIDDEN"));
+
 		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/payment-accounts", campusId)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -707,6 +733,11 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.param("status", "UNPAID"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
 				.param("status", "UNPAID"))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));

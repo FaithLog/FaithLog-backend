@@ -10,6 +10,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-02 - Issue #122 Penalty Owner Metadata And My Accounts Settlement Policy
+
+- Context: Issue #122 clarifies how `PENALTY` payment account `ownerUserId` should behave after the frontend moved settlement screens to `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`.
+- Decision: `COFFEE` payment accounts remain strongly separated by owner. `PENALTY` payment accounts are campus-shared accounts, so `ownerUserId` is registration/management metadata and is not a mandatory settlement filter for campus managers or service-level `ADMIN`.
+- Decision: Creating a `PENALTY` payment account stores the supplied `ownerUserId` when present. If `ownerUserId` is omitted, the requester user ID is stored. `COFFEE` creation keeps the existing requester-owned policy: omitted owner defaults to requester, and a different `ownerUserId` fails with `403 BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN`.
+- Decision: `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts` includes active `PENALTY` accounts for campus managers (`MINISTER`, `ELDER`, `CAMPUS_LEADER`) and service-level `ADMIN` regardless of owner match, including legacy active `PENALTY` accounts where `ownerUserId = null`. `COFFEE` remains limited to requester-owned active `COFFEE` accounts. Active `COFFEE` duty users remain limited to their own active `COFFEE` account scope. Normal `MEMBER`/`USER` access stays `403`, and missing or expired authentication stays `401`.
+- Decision: Issue #122 does not add a COFFEE inactive account activate API, does not backfill existing production data, does not change API paths, and does not add Swagger documentation annotations.
+- Impact: Billing creation/query services, Spring REST Docs snippets, `src/docs/asciidoc/index.adoc`, and regression tests must reflect the owner-metadata distinction between `PENALTY` and `COFFEE`.
+
 ### 2026-07-01 - Issue #116 Penalty Payment Account Activation And Soft Delete Policy
 
 - Context: Issue #116 implements the front-end contract for showing the active `PENALTY` account at the top and inactive `PENALTY` accounts in a lower management list with activate/delete actions.

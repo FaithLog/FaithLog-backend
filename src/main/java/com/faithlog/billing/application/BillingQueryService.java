@@ -422,19 +422,24 @@ public class BillingQueryService {
 		Long paymentAccountId
 	) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
-		List<PaymentAccount> ownerAccounts = paymentAccountRepository
-			.findByCampusIdAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(campusId, requester.userId());
 		if (requester.isAdmin() || isCampusChargeManager(campusId, requester.userId())) {
-			return filterOwnerAccountIds(ownerAccounts, paymentCategory, paymentAccountId);
+			return filterAccountIds(
+				managerMyAccountCandidates(campusId, requester.userId(), paymentCategory),
+				paymentCategory,
+				paymentAccountId
+			);
 		}
 		if (isActiveCoffeeDuty(campusId, requester.userId())) {
 			if (paymentCategory != null && paymentCategory != PaymentCategory.COFFEE) {
 				throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
 			}
-			return filterOwnerAccountIds(
-				ownerAccounts.stream()
-					.filter(account -> account.accountType() == PaymentCategory.COFFEE)
-					.toList(),
+			return filterAccountIds(
+				paymentAccountRepository
+					.findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(
+						campusId,
+						requester.userId(),
+						PaymentCategory.COFFEE
+					),
 				paymentCategory,
 				paymentAccountId
 			);
@@ -442,12 +447,33 @@ public class BillingQueryService {
 		throw new BusinessException(ErrorCode.BILLING_CHARGE_LIST_FORBIDDEN, ADMIN_CHARGE_LIST_FORBIDDEN);
 	}
 
-	private Set<Long> filterOwnerAccountIds(
-		List<PaymentAccount> ownerAccounts,
+	private List<PaymentAccount> managerMyAccountCandidates(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory paymentCategory
+	) {
+		List<PaymentAccount> accounts = new ArrayList<>();
+		if (paymentCategory == null || paymentCategory == PaymentCategory.PENALTY) {
+			accounts.addAll(paymentAccountRepository
+				.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(campusId, PaymentCategory.PENALTY));
+		}
+		if (paymentCategory == null || paymentCategory == PaymentCategory.COFFEE) {
+			accounts.addAll(paymentAccountRepository
+				.findByCampusIdAndOwnerUserIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(
+					campusId,
+					requesterId,
+					PaymentCategory.COFFEE
+				));
+		}
+		return accounts;
+	}
+
+	private Set<Long> filterAccountIds(
+		List<PaymentAccount> accounts,
 		PaymentCategory paymentCategory,
 		Long paymentAccountId
 	) {
-		return ownerAccounts.stream()
+		return accounts.stream()
 			.filter(account -> paymentCategory == null || account.accountType() == paymentCategory)
 			.filter(account -> paymentAccountId == null || account.id().equals(paymentAccountId))
 			.map(PaymentAccount::id)
