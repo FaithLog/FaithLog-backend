@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.faithlog.billing.domain.ChargeItem;
 import com.faithlog.billing.domain.ChargeSourceType;
 import com.faithlog.billing.domain.ChargeStatus;
+import com.faithlog.billing.domain.PaymentAccount;
 import com.faithlog.billing.domain.PaymentCategory;
 import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
+import com.faithlog.billing.infrastructure.jpa.PaymentAccountRepository;
 import com.faithlog.campus.application.AssignCoffeeDutyCommand;
 import com.faithlog.campus.application.CampusCreateResult;
 import com.faithlog.campus.application.CampusService;
@@ -47,6 +49,9 @@ class BillingQueryServiceTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private PaymentAccountRepository paymentAccountRepository;
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
@@ -311,6 +316,137 @@ class BillingQueryServiceTest {
 				assertThat(memberResult.userId()).isEqualTo(member.id());
 				assertThat(memberResult.totalAmount()).isEqualTo(2900);
 			});
+	}
+
+	@Test
+	void campus_manager_my_accounts_includes_active_penalty_regardless_of_owner_and_only_owned_coffee_accounts() {
+		User manager = saveUser("query-122-manager@example.com", UserRole.MANAGER, "관리자");
+		User treasurer = saveUser("query-122-treasurer@example.com", UserRole.USER, "회계담당");
+		User otherManager = saveUser("query-122-other-manager@example.com", UserRole.USER, "다른관리자");
+		User member = saveUser("query-122-member@example.com", UserRole.USER, "멤버");
+		CampusCreateResult campus = createCampus(manager, "122내계좌정책캠");
+		campusService.joinCampus(new JoinCampusCommand(treasurer.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(otherManager.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		CampusMember otherManagerMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), otherManager.id())
+			.orElseThrow();
+		ReflectionTestUtils.setField(otherManagerMembership, "campusRole", CampusRole.ELDER);
+		campusMemberRepository.saveAndFlush(otherManagerMembership);
+		PaymentAccountResult penaltyAccount = createAccount(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"122-PENALTY-OTHER-OWNER",
+			treasurer.id()
+		);
+		PaymentAccountResult managerCoffeeAccount = createAccount(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.COFFEE,
+			"122-COFFEE-MANAGER",
+			manager.id()
+		);
+		PaymentAccountResult otherCoffeeAccount = createAccount(
+			campus.campusId(),
+			otherManager.id(),
+			PaymentCategory.COFFEE,
+			"122-COFFEE-OTHER",
+			otherManager.id()
+		);
+		saveCharge(campus.campusId(), member.id(), penaltyAccount, PaymentCategory.PENALTY, ChargeSourceType.DEVOTION_RECORD,
+			12201L, "다른 owner 벌금", 3000, ChargeStatus.UNPAID, LocalDate.of(2026, 7, 1));
+		saveCharge(campus.campusId(), member.id(), managerCoffeeAccount, PaymentCategory.COFFEE, ChargeSourceType.POLL_RESPONSE,
+			12202L, "내 커피", 1800, ChargeStatus.UNPAID, null);
+		saveCharge(campus.campusId(), member.id(), otherCoffeeAccount, PaymentCategory.COFFEE, ChargeSourceType.POLL_RESPONSE,
+			12203L, "다른 owner 커피", 2900, ChargeStatus.UNPAID, null);
+
+		AdminCampusChargesResult allMyAccounts = billingQueryService.listAdminCampusChargesForMyAccounts(
+			new AdminCampusChargeListQuery(
+				campus.campusId(),
+				manager.id(),
+				null,
+				null,
+				null,
+				null,
+				null,
+				PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+			)
+		);
+		AdminCampusChargesResult coffeeOnly = billingQueryService.listAdminCampusChargesForMyAccounts(
+			new AdminCampusChargeListQuery(
+				campus.campusId(),
+				manager.id(),
+				PaymentCategory.COFFEE,
+				null,
+				null,
+				null,
+				null,
+				PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+			)
+		);
+
+		assertThat(allMyAccounts.summary().totalAmount()).isEqualTo(4800);
+		assertThat(allMyAccounts.members()).singleElement()
+			.satisfies(memberResult -> {
+				assertThat(memberResult.userId()).isEqualTo(member.id());
+				assertThat(memberResult.totalAmount()).isEqualTo(4800);
+			});
+		assertThat(coffeeOnly.summary().totalAmount()).isEqualTo(1800);
+		assertThat(coffeeOnly.members()).singleElement()
+			.satisfies(memberResult -> assertThat(memberResult.totalAmount()).isEqualTo(1800));
+	}
+
+	@Test
+	void campus_manager_and_service_admin_my_accounts_include_legacy_active_penalty_account_with_null_owner() {
+		User manager = saveUser("query-122-null-owner-manager@example.com", UserRole.MANAGER, "관리자");
+		User serviceAdmin = saveUser("query-122-null-owner-admin@example.com", UserRole.ADMIN, "서비스관리자");
+		User member = saveUser("query-122-null-owner-member@example.com", UserRole.USER, "멤버");
+		CampusCreateResult campus = createCampus(manager, "122nullOwner캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccount legacyPenaltyAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(),
+			PaymentCategory.PENALTY,
+			"기존 null owner 벌금 계좌",
+			"하나은행",
+			"122-PENALTY-NULL",
+			"기존회계",
+			null
+		));
+		PaymentAccountResult legacyPenalty = PaymentAccountResult.from(legacyPenaltyAccount);
+		saveCharge(campus.campusId(), member.id(), legacyPenalty, PaymentCategory.PENALTY, ChargeSourceType.DEVOTION_RECORD,
+			12211L, "null owner 벌금", 2500, ChargeStatus.UNPAID, LocalDate.of(2026, 7, 1));
+
+		AdminCampusChargesResult managerResult = billingQueryService.listAdminCampusChargesForMyAccounts(
+			new AdminCampusChargeListQuery(
+				campus.campusId(),
+				manager.id(),
+				PaymentCategory.PENALTY,
+				null,
+				null,
+				null,
+				null,
+				PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+			)
+		);
+		AdminCampusChargesResult adminResult = billingQueryService.listAdminCampusChargesForMyAccounts(
+			new AdminCampusChargeListQuery(
+				campus.campusId(),
+				serviceAdmin.id(),
+				PaymentCategory.PENALTY,
+				null,
+				null,
+				null,
+				null,
+				PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+			)
+		);
+
+		assertThat(managerResult.summary().totalAmount()).isEqualTo(2500);
+		assertThat(managerResult.members()).singleElement()
+			.satisfies(memberResult -> assertThat(memberResult.userId()).isEqualTo(member.id()));
+		assertThat(adminResult.summary().totalAmount()).isEqualTo(2500);
+		assertThat(adminResult.members()).singleElement()
+			.satisfies(memberResult -> assertThat(memberResult.userId()).isEqualTo(member.id()));
 	}
 
 	@Test

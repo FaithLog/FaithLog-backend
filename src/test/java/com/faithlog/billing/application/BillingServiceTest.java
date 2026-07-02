@@ -58,6 +58,40 @@ class BillingServiceTest {
 	private UserRepository userRepository;
 
 	@Test
+	void createPenaltyPaymentAccount_defaults_missing_owner_to_requester_and_preserves_explicit_owner() {
+		User manager = saveUser("billing-122-penalty-owner-manager@example.com", UserRole.MANAGER);
+		User treasurer = saveUser("billing-122-penalty-owner-treasurer@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "122벌금소유자캠");
+		campusService.joinCampus(new JoinCampusCommand(treasurer.id(), campus.inviteCode()));
+
+		PaymentAccountResult defaultOwner = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"기본 owner 벌금 계좌",
+			"하나은행",
+			"122-PENALTY-DEFAULT",
+			"회계",
+			null
+		));
+		PaymentAccountResult explicitOwner = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"명시 owner 벌금 계좌",
+			"국민은행",
+			"122-PENALTY-EXPLICIT",
+			"담당회계",
+			treasurer.id()
+		));
+
+		assertThat(defaultOwner.ownerUserId()).isEqualTo(manager.id());
+		assertThat(paymentAccountRepository.getReferenceById(defaultOwner.id()).ownerUserId()).isEqualTo(manager.id());
+		assertThat(explicitOwner.ownerUserId()).isEqualTo(treasurer.id());
+		assertThat(paymentAccountRepository.getReferenceById(explicitOwner.id()).ownerUserId()).isEqualTo(treasurer.id());
+	}
+
+	@Test
 	void createPaymentAccount_deactivates_previous_active_account_per_campus_and_type() {
 		User manager = saveUser("billing-account-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "40캠");

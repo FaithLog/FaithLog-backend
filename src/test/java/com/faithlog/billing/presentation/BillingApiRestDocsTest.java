@@ -119,7 +119,7 @@ class BillingApiRestDocsTest {
 					fieldWithPath("bankName").description("은행명"),
 					fieldWithPath("accountNumber").description("계좌번호. 납부에 필요하므로 전체 저장 및 노출"),
 					fieldWithPath("accountHolder").description("예금주"),
-					fieldWithPath("ownerUserId").optional().description("계좌 소유 사용자 ID. COFFEE는 생략 시 requester 본인이 owner가 되며, 다른 사용자 ID는 403으로 거부")
+					fieldWithPath("ownerUserId").optional().description("계좌 소유/관리 담당 사용자 ID. PENALTY는 생략 시 requester가 저장되고 명시 값은 메타데이터로 저장. COFFEE는 requester 본인만 허용")
 				),
 				responseFields(apiResponseFields(adminAccountFields("data.")))
 			))
@@ -408,6 +408,16 @@ class BillingApiRestDocsTest {
 		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
 		paid.markPaid();
 		chargeItemRepository.saveAndFlush(paid);
+		billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"50캠 다른 담당자 벌금 계좌",
+			"국민은행",
+			"123-456789-020",
+			"벌금회계",
+			member.id()
+		));
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
 				.header("Authorization", "Bearer " + memberToken)
@@ -553,20 +563,20 @@ class BillingApiRestDocsTest {
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
 				.header("Authorization", "Bearer " + managerToken)
-				.param("paymentCategory", "COFFEE")
+				.param("paymentCategory", "PENALTY")
 				.param("page", "0")
 				.param("size", "20")
 				.param("sort", "createdAt,desc"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.success").value(true))
-			.andExpect(jsonPath("$.data.summary.totalAmount").value(1800))
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2500))
 			.andDo(document("charge-admin-my-accounts-summary-success",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
 				authHeader(),
-				pathParameters(parameterWithName("campusId").description("내 owner 계좌 기준 청구 집계를 조회할 캠퍼스 ID")),
+				pathParameters(parameterWithName("campusId").description("내 담당 계좌 기준 청구 집계를 조회할 캠퍼스 ID")),
 				queryParameters(
-					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`. 캠퍼스 관리자와 전역 ADMIN의 `PENALTY` 조회는 active PENALTY 계좌 owner와 무관하게 포함하고, `COFFEE`는 requester owner 계좌만 포함"),
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
 					parameterWithName("userId").optional().description("사용자 ID 필터"),
 					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
@@ -582,7 +592,7 @@ class BillingApiRestDocsTest {
 					),
 					chargeAmountSummaryFields("data.summary."),
 					fields(
-						fieldWithPath("data.members[]").description("내 활성 owner 계좌에 연결된 회원별 청구 집계 목록"),
+						fieldWithPath("data.members[]").description("담당 범위의 active 계좌에 연결된 회원별 청구 집계 목록. PENALTY는 캠퍼스 공용 active 계좌, COFFEE는 requester owner active 계좌 기준"),
 						fieldWithPath("data.members[].userId").description("사용자 ID"),
 						fieldWithPath("data.members[].name").description("사용자 이름"),
 						fieldWithPath("data.members[].email").description("사용자 이메일"),

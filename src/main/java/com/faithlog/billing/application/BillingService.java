@@ -296,8 +296,8 @@ public class BillingService {
 	}
 
 	private Long resolveOwnerUserId(CreatePaymentAccountCommand command) {
-		if (command.accountType() != PaymentCategory.COFFEE) {
-			return command.ownerUserId();
+		if (command.accountType() == PaymentCategory.PENALTY) {
+			return command.ownerUserId() == null ? command.requesterId() : command.ownerUserId();
 		}
 		if (command.ownerUserId() != null && !command.ownerUserId().equals(command.requesterId())) {
 			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN);
