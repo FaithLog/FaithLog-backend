@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-01, `./gradlew test` BUILD SUCCESSFUL; #116 focused billing 41 tests / 0 failures / 0 errors / 0 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-02, `./gradlew test` BUILD SUCCESSFUL; 291 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 120 snippet groups (2026-07-01) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-01) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-02) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -28,6 +28,18 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 4 (Flyway V1-V4, 2026-07-01) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-02
+
+- #122 PENALTY 계좌 owner와 내 계좌 정산 조회 정책 보강:
+  - 작업 기준: Issue #122 `[Fix] PENALTY 계좌 owner와 내 계좌 정산 조회 정책 보강`, 브랜치 `fix/122-penalty-owner-my-accounts`, worktree `/Users/josephuk77/.codex/worktrees/6dd8/FaithLog`.
+  - TDD 실패 확인: 구현 전 `BillingServiceTest`, `BillingQueryServiceTest`, `BillingControllerTest`, `BillingApiRestDocsTest`에 PENALTY owner 기본값, 명시 owner 저장, campus manager/service ADMIN의 active PENALTY 포함, legacy `ownerUserId=null` active PENALTY 포함, COFFEE owner 제한, active COFFEE 담당자 범위, MEMBER 403, REST Docs 정책 테스트를 추가했다. 최초 focused billing 테스트는 54 tests 중 5 failures로 실패했다.
+  - 구현 범위: `BillingService.createPaymentAccount`에서 `PENALTY` 생성 시 `ownerUserId` 생략이면 requester userId를 저장하고, 명시 값은 메타데이터로 그대로 저장하도록 보강했다. `BillingQueryService.listAdminCampusChargesForMyAccounts`는 campus manager/service ADMIN에 대해 active PENALTY 계좌를 owner와 무관하게 후보에 포함하고, COFFEE는 requester-owned active 계좌만 포함하도록 분리했다.
+  - 권한/정책 회귀 방지: active COFFEE 담당자는 기존처럼 본인 active COFFEE 계좌 범위만 조회 가능하고 PENALTY 데이터는 403으로 유지한다. 일반 MEMBER의 admin `my-accounts` 접근은 403, 인증 없음은 401을 유지한다. COFFEE inactive 계좌 activate API, 운영 데이터 backfill, API 경로 변경, Swagger annotation은 추가하지 않았다.
+  - 문서화: `docs/decision-log.md`, `docs/backend-implementation-policy.md`, Spring REST Docs 설명, `src/docs/asciidoc/index.adoc`에 PENALTY owner 메타데이터와 `my-accounts` PENALTY 포함 정책을 기록했다. snippet group 수는 120개로 유지했다.
+  - 검증: focused billing service/query/controller/REST Docs 테스트 성공, `./gradlew test` 성공(291 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, Docker compose health `UP` 확인, Docker API QA 성공.
+  - Docker/API QA: `scripts/qa_docker_compose_isolated.sh --suffix 122-penalty-owner`로 app health `UP` 확인 후 stack down 완료. 추가 격리 compose project `faithlog-qa-122-api`에서 회원가입, test-only DB role 승격, 캠퍼스 생성, PENALTY 계좌 owner 생략 생성(`defaultOwner=managerId`), owner 명시 생성(`explicitOwner=memberId`), manager `GET /charges/my-accounts?paymentCategory=PENALTY` 200, member `GET /charges/my-accounts` 403을 확인하고 `docker compose -p faithlog-qa-122-api down`으로 정리했다.
+  - 트러블슈팅: `./gradlew asciidoctor` 최초 실행은 sandbox의 `~/.gradle` wrapper lock 접근 제한으로 실패해 승인 경로로 재실행했다. API QA 첫 검증 스크립트는 psql `UPDATE ... returning` 출력에 `UPDATE 1`이 함께 붙어 shell assertion만 실패했으며, DB select 기반으로 파싱을 고쳐 재검증했다.
 
 ### 2026-07-01
 
