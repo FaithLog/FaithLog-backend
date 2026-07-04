@@ -9,13 +9,19 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface UserFcmTokenRepository extends JpaRepository<UserFcmToken, Long> {
 
-	Optional<UserFcmToken> findByToken(String token);
-
 	Optional<UserFcmToken> findByIdAndUserId(Long id, Long userId);
+
+	Optional<UserFcmToken> findByUserIdAndClientInstanceIdAndTokenAndIsActiveTrue(
+		Long userId,
+		String clientInstanceId,
+		String token
+	);
 
 	List<UserFcmToken> findByUserIdAndClientInstanceIdAndIsActiveTrue(Long userId, String clientInstanceId);
 
 	List<UserFcmToken> findByUserIdAndTokenAndIsActiveTrue(Long userId, String token);
+
+	List<UserFcmToken> findByTokenAndIsActiveTrue(String token);
 
 	@Query("""
 		select token

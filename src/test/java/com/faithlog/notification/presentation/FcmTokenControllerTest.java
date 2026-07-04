@@ -55,6 +55,7 @@ class FcmTokenControllerTest {
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.tokenId").isNumber())
+			.andExpect(jsonPath("$.data.token").value("http-fcm-token"))
 			.andExpect(jsonPath("$.data.deviceType").value("IOS"))
 			.andExpect(jsonPath("$.data.clientInstanceId").value("http-client"))
 			.andExpect(jsonPath("$.data.appVersion").value("1.0.0"))

@@ -25,9 +25,19 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 4 (Flyway V1-V4, 2026-07-01) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 5 (Flyway V1-V5, 2026-07-04) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-04
+
+- #128 FCM 토큰 upsert와 로그아웃 비활성화 무결성 보강:
+  - 작업 기준: Issue #128 `[Fix] FCM 토큰 upsert와 로그아웃 비활성화 무결성 보강`, 브랜치 `fix/128-fcm-token-upsert-integrity`.
+  - TDD 실패 확인: 기존 `FcmTokenServiceTest`는 같은 token을 다른 user가 등록할 때 같은 row의 ownership을 이동하는 동작을 기대했다. 이를 이전 ownership inactive 이력 유지 + 현재 user active row 생성 정책으로 변경한 뒤 focused 테스트가 실패하는 것을 확인했다.
+  - 구현 범위: FCM 등록은 active `userId + clientInstanceId + token`이 이미 있으면 같은 row를 반환하고 metadata를 갱신한다. 같은 user/client의 다른 active token은 inactive 처리하고, 같은 active token의 다른 user/client ownership도 inactive 처리한 뒤 새 active row를 저장한다. 응답 DTO에는 등록된 `token`을 포함한다.
+  - DB 마이그레이션: V5에서 기존 `uk_user_fcm_tokens_token` 전체 unique constraint를 제거하고 active-only unique index `uk_user_fcm_tokens_active_token`, `uk_user_fcm_tokens_active_user_client`를 추가했다. 마이그레이션 적용 전 기존 active user/client 중복이 있으면 최신 row만 active로 유지하고 나머지는 inactive 처리한다.
+  - 검증: focused FCM service/controller/REST Docs/Flyway migration 테스트 성공, `./gradlew test` 성공, `./gradlew build` 성공, `./gradlew asciidoctor` 성공. `./gradlew asciidoctor` 최초 실행은 sandbox의 Gradle wrapper lock 접근 제한으로 실패했고 승인 경로 재실행에서 성공했다.
+  - Docker/Flyway/API QA: Docker app image build는 Docker Hub `eclipse-temurin` metadata 조회가 2회 연속 `DeadlineExceeded`로 실패해 app-container health QA는 완료하지 못했다. 대신 로컬 캐시가 있는 Docker Postgres/Redis를 띄우고 실제 PostgreSQL `PostgresFlywayMigrationTest`를 `FAITHLOG_RUN_POSTGRES_FLYWAY_TEST=true`로 실행해 V1-V5 migration 및 active FCM unique index 존재를 검증했다. 이후 로컬 Spring 앱을 Docker Postgres/Redis에 연결해 실제 HTTP API로 signup/login, FCM token A 등록, 같은 user/client token B 등록으로 A inactive, 같은 token 재등록 같은 tokenId 반환, 다른 user가 token B 등록 시 이전 ownership inactive + 새 active row 생성, logout by `clientInstanceId`/`fcmToken` 후 current token inactive를 확인했다. DB 조회 결과 QA token 3건은 모두 기대한 이유로 inactive이며 `deactivated_at`이 존재했다. QA 후 app process 중지와 `docker compose down` 완료.
 
 ### 2026-07-02
 
