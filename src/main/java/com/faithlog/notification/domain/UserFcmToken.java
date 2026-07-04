@@ -29,7 +29,7 @@ public class UserFcmToken {
 	@Column(name = "user_id", nullable = false)
 	private Long userId;
 
-	@Column(nullable = false, unique = true, columnDefinition = "text")
+	@Column(nullable = false, columnDefinition = "text")
 	private String token;
 
 	@Column(name = "client_instance_id", nullable = false, length = 100)

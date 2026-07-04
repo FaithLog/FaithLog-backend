@@ -87,7 +87,7 @@ class FcmTokenServiceTest {
 	}
 
 	@Test
-	void registerToken_transfers_same_token_to_current_user() {
+	void registerToken_deactivates_previous_active_owner_and_creates_current_owner_for_same_token() {
 		User previousUser = saveUser("fcm-previous-owner@example.com");
 		User currentUser = saveUser("fcm-current-owner@example.com");
 		FcmTokenResult previous = fcmTokenService.registerToken(new RegisterFcmTokenCommand(
@@ -106,12 +106,52 @@ class FcmTokenServiceTest {
 			"1.0.1"
 		));
 
-		assertThat(current.id()).isEqualTo(previous.id());
-		UserFcmToken transferred = userFcmTokenRepository.findById(current.id()).orElseThrow();
-		assertThat(transferred.userId()).isEqualTo(currentUser.id());
-		assertThat(transferred.clientInstanceId()).isEqualTo("client-new");
-		assertThat(transferred.isActive()).isTrue();
+		assertThat(current.id()).isNotEqualTo(previous.id());
+		UserFcmToken previousOwnership = userFcmTokenRepository.findById(previous.id()).orElseThrow();
+		UserFcmToken currentOwnership = userFcmTokenRepository.findById(current.id()).orElseThrow();
+		assertThat(previousOwnership.userId()).isEqualTo(previousUser.id());
+		assertThat(previousOwnership.clientInstanceId()).isEqualTo("client-old");
+		assertThat(previousOwnership.isActive()).isFalse();
+		assertThat(previousOwnership.deactivatedAt()).isNotNull();
+		assertThat(currentOwnership.userId()).isEqualTo(currentUser.id());
+		assertThat(currentOwnership.clientInstanceId()).isEqualTo("client-new");
+		assertThat(currentOwnership.isActive()).isTrue();
 		assertThat(userFcmTokenRepository.findActiveSendableTokens(previousUser.id())).isEmpty();
+		assertThat(userFcmTokenRepository.findActiveSendableTokens(currentUser.id()))
+			.extracting(UserFcmToken::id)
+			.containsExactly(current.id());
+	}
+
+	@Test
+	void registerToken_keeps_only_one_active_token_for_same_user_and_client_instance() {
+		User user = saveUser("fcm-single-active-client@example.com");
+		FcmTokenResult first = fcmTokenService.registerToken(new RegisterFcmTokenCommand(
+			user.id(),
+			"client-token-1",
+			"client-repeat",
+			DeviceType.IOS,
+			"1.0.0"
+		));
+		FcmTokenResult second = fcmTokenService.registerToken(new RegisterFcmTokenCommand(
+			user.id(),
+			"client-token-2",
+			"client-repeat",
+			DeviceType.IOS,
+			"1.0.1"
+		));
+		FcmTokenResult refreshed = fcmTokenService.registerToken(new RegisterFcmTokenCommand(
+			user.id(),
+			"client-token-2",
+			"client-repeat",
+			DeviceType.IOS,
+			"1.0.2"
+		));
+
+		assertThat(refreshed.id()).isEqualTo(second.id());
+		assertThat(userFcmTokenRepository.findById(first.id())).get().extracting(UserFcmToken::isActive).isEqualTo(false);
+		assertThat(userFcmTokenRepository.findByUserIdAndClientInstanceIdAndIsActiveTrue(user.id(), "client-repeat"))
+			.extracting(UserFcmToken::id)
+			.containsExactly(second.id());
 	}
 
 	@Test
