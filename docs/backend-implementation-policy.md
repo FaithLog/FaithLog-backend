@@ -206,9 +206,10 @@ FCM token lifecycle policy:
 - `POST /api/v1/users/me/fcm-tokens` must be idempotent and behave as an upsert.
 - `user_fcm_tokens` is the source of truth for FCM tokens. Redis is not the source of truth.
 - The request must include `clientInstanceId`, a frontend-generated app-installation identifier, plus `token`, `deviceType`, and optionally `appVersion`.
-- If the same `userId + token` already exists, reactivate it if needed and update `lastSeenAt`, `lastRefreshedAt`, and `appVersion`.
-- If the same `userId + clientInstanceId` has a different active token, deactivate the previous token and save the new token.
-- If the same token is registered under another user, deactivate the previous user's token ownership before associating it with the current user so notifications do not leak across accounts on shared devices.
+- If the same active `userId + clientInstanceId + token` already exists, return the same token row and update `lastSeenAt`, `lastRefreshedAt`, device metadata, and `appVersion`.
+- Active `userId + clientInstanceId` must be unique. If the same user/client instance registers a different token, deactivate the previous active row before saving the new active row.
+- Active `token` must be unique. If the same token is registered under another user or another client instance, deactivate the previous active ownership row before saving the current user's active row so notifications do not leak across accounts on shared devices.
+- Inactive FCM token rows may remain as history. Do not enforce global uniqueness on inactive token history.
 - Logout should deactivate the current device token when the client provides the token or `clientInstanceId`.
 - Notification sends must target only `isActive = true` tokens that are not stale.
 - A token is stale when `lastSeenAt` or `lastRefreshedAt` is older than 90 days. Stale tokens must be excluded from sending and may be deactivated by a cleanup job.

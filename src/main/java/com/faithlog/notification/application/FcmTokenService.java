@@ -29,8 +29,18 @@ public class FcmTokenService implements CurrentDeviceFcmTokenDeactivationPort {
 			.filter(User::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
 
-		deactivateOtherActiveTokensForClient(requester.id(), command.clientInstanceId(), command.token());
-		UserFcmToken token = userFcmTokenRepository.findByToken(command.token())
+		boolean deactivated = deactivateOtherActiveTokensForClient(requester.id(), command.clientInstanceId(), command.token());
+		deactivated = deactivateOtherActiveOwnersForToken(requester.id(), command.clientInstanceId(), command.token()) || deactivated;
+		if (deactivated) {
+			userFcmTokenRepository.flush();
+		}
+
+		UserFcmToken token = userFcmTokenRepository
+			.findByUserIdAndClientInstanceIdAndTokenAndIsActiveTrue(
+				requester.id(),
+				command.clientInstanceId(),
+				command.token()
+			)
 			.orElseGet(() -> userFcmTokenRepository.save(UserFcmToken.create(
 				requester.id(),
 				command.token(),
@@ -67,11 +77,23 @@ public class FcmTokenService implements CurrentDeviceFcmTokenDeactivationPort {
 		}
 	}
 
-	private void deactivateOtherActiveTokensForClient(Long userId, String clientInstanceId, String currentToken) {
+	private boolean deactivateOtherActiveTokensForClient(Long userId, String clientInstanceId, String currentToken) {
 		List<UserFcmToken> activeTokens = userFcmTokenRepository
 			.findByUserIdAndClientInstanceIdAndIsActiveTrue(userId, clientInstanceId);
-		activeTokens.stream()
+		return deactivateAll(activeTokens.stream()
 			.filter(token -> !token.token().equals(currentToken))
-			.forEach(UserFcmToken::deactivate);
+			.toList());
+	}
+
+	private boolean deactivateOtherActiveOwnersForToken(Long userId, String clientInstanceId, String currentToken) {
+		List<UserFcmToken> activeTokens = userFcmTokenRepository.findByTokenAndIsActiveTrue(currentToken);
+		return deactivateAll(activeTokens.stream()
+			.filter(token -> !token.userId().equals(userId) || !token.clientInstanceId().equals(clientInstanceId))
+			.toList());
+	}
+
+	private boolean deactivateAll(List<UserFcmToken> tokens) {
+		tokens.forEach(UserFcmToken::deactivate);
+		return !tokens.isEmpty();
 	}
 }

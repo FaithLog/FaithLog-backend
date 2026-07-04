@@ -98,6 +98,7 @@ class NotificationApiRestDocsTest {
 				),
 				responseFields(successEnvelopeData(
 					fieldWithPath("data.tokenId").type(JsonFieldType.NUMBER).description("등록 또는 갱신된 FCM 토큰 ID"),
+					fieldWithPath("data.token").type(JsonFieldType.STRING).description("등록 또는 갱신된 FCM 토큰"),
 					fieldWithPath("data.deviceType").type(JsonFieldType.STRING).description("기기 유형"),
 					fieldWithPath("data.clientInstanceId").type(JsonFieldType.STRING).description("앱 설치 단위 식별값"),
 					fieldWithPath("data.appVersion").type(JsonFieldType.STRING).optional().description("앱 버전"),

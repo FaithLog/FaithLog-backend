@@ -33,7 +33,7 @@ class PostgresFlywayMigrationTest {
 		assertThat(result.success).isTrue();
 		assertThat(result.migrationsExecuted).isGreaterThanOrEqualTo(2);
 		assertThat(flyway.info().current()).isNotNull();
-		assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(MigrationVersion.fromVersion("2"));
+		assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(MigrationVersion.fromVersion("5"));
 		assertTableExists(jdbcUrl, username, password, "users");
 		assertTableExists(jdbcUrl, username, password, "poll_response_options");
 		assertTableExists(jdbcUrl, username, password, "flyway_schema_history");
@@ -42,6 +42,8 @@ class PostgresFlywayMigrationTest {
 		assertColumnExists(jdbcUrl, username, password, "poll_options", "user_added");
 		assertColumnExists(jdbcUrl, username, password, "poll_options", "created_by_user_id");
 		assertConstraintExists(jdbcUrl, username, password, "poll_options", "fk_poll_options_created_by_user");
+		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_token");
+		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_user_client");
 	}
 
 	private static String envOrDefault(String name, String defaultValue) {
@@ -84,6 +86,19 @@ class PostgresFlywayMigrationTest {
 				+ "where table_schema = 'public' and table_name = ? and constraint_name = ?)",
 			tableName,
 			constraintName
+		);
+	}
+
+	private static void assertIndexExists(String jdbcUrl, String username, String password, String tableName,
+		String indexName) throws Exception {
+		assertExists(
+			jdbcUrl,
+			username,
+			password,
+			"select exists (select 1 from pg_indexes "
+				+ "where schemaname = 'public' and tablename = ? and indexname = ?)",
+			tableName,
+			indexName
 		);
 	}
 
