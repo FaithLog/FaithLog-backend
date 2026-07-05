@@ -270,7 +270,7 @@ class AuthApiRestDocsTest {
 					fieldWithPath("password").description("현재 비밀번호와 다른 값"),
 					fieldWithPath("confirmText").description("회원 탈퇴 확인 문구")
 				),
-				responseFields(unauthorizedResponseFields())
+				responseFields(errorResponseFields())
 			));
 	}
 
