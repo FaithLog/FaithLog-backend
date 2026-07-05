@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-06 - Issue #131 Account Deletion Soft Delete Policy
+
+- Context: App Store Review rejected the iOS app under Guideline 5.1.1(v) because the app supports account creation but did not provide in-app account deletion. The user approved adding an in-app account deletion flow and keeping backend referential integrity through soft delete.
+- Decision: Implement `DELETE /api/v1/users/me` for the authenticated user. The request requires the current password and the confirmation text `회원탈퇴`. Account deletion is soft delete plus privacy anonymization: set `users.is_active = false`, set `users.deleted_at = now()`, replace email with `deleted_user_{id}@deleted.faithlog.local`, replace name with `탈퇴한 사용자`, and replace the password hash with an unusable random hash. The existing email becomes available for re-signup. Deactivate the user's campus memberships by setting `campus_members.status = INACTIVE`, deactivate all active FCM tokens for the user, delete refresh token sessions, blacklist the current access token, and increase `users.token_version` so previously issued access tokens fail.
+- Impact: Existing devotion, prayer, poll, comment, charge, and notification records are retained for FK and service-history integrity, but user-facing screens should display deleted users as `탈퇴한 사용자`. The API uses detailed errors `USER_DELETE_PASSWORD_MISMATCH`, `USER_DELETE_CONFIRM_TEXT_INVALID`, and `USER_ALREADY_DELETED`. Spring REST Docs must document the deletion API, and Flyway adds `users.deleted_at`.
+
 ### 2026-07-02 - Issue #122 Penalty Owner Metadata And My Accounts Settlement Policy
 
 - Context: Issue #122 clarifies how `PENALTY` payment account `ownerUserId` should behave after the frontend moved settlement screens to `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`.

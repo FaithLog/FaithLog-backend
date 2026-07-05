@@ -42,6 +42,9 @@ public class User {
 	@Column(name = "token_version", nullable = false, columnDefinition = "bigint default 0")
 	private long tokenVersion;
 
+	@Column(name = "deleted_at")
+	private Instant deletedAt;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -92,6 +95,15 @@ public class User {
 		this.tokenVersion++;
 	}
 
+	public void deleteAccount(String anonymizedEmail, String anonymizedName, String disabledPasswordHash, Instant deletedAt) {
+		this.email = anonymizedEmail;
+		this.name = anonymizedName;
+		this.passwordHash = disabledPasswordHash;
+		this.isActive = false;
+		this.deletedAt = deletedAt;
+		increaseTokenVersion();
+	}
+
 	public Long id() {
 		return id;
 	}
@@ -126,5 +138,9 @@ public class User {
 
 	public Instant lastLoginAt() {
 		return lastLoginAt;
+	}
+
+	public Instant deletedAt() {
+		return deletedAt;
 	}
 }

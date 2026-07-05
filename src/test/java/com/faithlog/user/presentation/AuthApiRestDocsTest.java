@@ -9,6 +9,7 @@ import static org.springframework.restdocs.operation.preprocess.Preprocessors.pr
 import static org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath;
 import static org.springframework.restdocs.payload.PayloadDocumentation.requestFields;
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -184,7 +185,7 @@ class AuthApiRestDocsTest {
 				requestHeaders(
 					headerWithName("Authorization").description("Refresh Token을 Bearer로 사용한 잘못된 인증 헤더")
 				),
-				responseFields(unauthorizedResponseFields())
+				responseFields(errorResponseFields())
 			));
 	}
 
@@ -205,6 +206,69 @@ class AuthApiRestDocsTest {
 				preprocessResponse(prettyPrint()),
 				requestHeaders(
 					headerWithName("Authorization").description("비활성 사용자가 발급받았던 Access Token")
+				),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_delete_my_account_success() throws Exception {
+		TokenPair tokens = signupAndLogin("docs-delete-me@example.com");
+
+		mockMvc.perform(delete("/api/v1/users/me")
+				.header("Authorization", "Bearer " + tokens.accessToken())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "password": "1234",
+					  "confirmText": "회원탈퇴"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.message").value("회원 탈퇴가 완료되었습니다."))
+			.andExpect(jsonPath("$.data.deletedAt").exists())
+			.andDo(document("users-me-delete-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("password").description("현재 비밀번호"),
+					fieldWithPath("confirmText").description("회원 탈퇴 확인 문구. `회원탈퇴` 고정")
+				),
+				responseFields(apiResponseFields(
+					fieldWithPath("data.deletedAt").description("회원 탈퇴 처리 시각")
+				))
+			));
+	}
+
+	@Test
+	void documents_delete_my_account_password_mismatch() throws Exception {
+		TokenPair tokens = signupAndLogin("docs-delete-mismatch@example.com");
+
+		mockMvc.perform(delete("/api/v1/users/me")
+				.header("Authorization", "Bearer " + tokens.accessToken())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "password": "wrong",
+					  "confirmText": "회원탈퇴"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("USER_DELETE_PASSWORD_MISMATCH"))
+			.andDo(document("users-me-delete-password-mismatch",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("password").description("현재 비밀번호와 다른 값"),
+					fieldWithPath("confirmText").description("회원 탈퇴 확인 문구")
 				),
 				responseFields(unauthorizedResponseFields())
 			));
@@ -389,6 +453,16 @@ class AuthApiRestDocsTest {
 		return new org.springframework.restdocs.payload.FieldDescriptor[] {
 			fieldWithPath("success").description("요청 성공 여부. 실패 응답에서는 `false`"),
 			fieldWithPath("code").description("오류 코드. 인증 실패는 `AUTH_UNAUTHORIZED`"),
+			fieldWithPath("message").description("오류 메시지"),
+			fieldWithPath("data").optional().description("실패 응답에서는 생략된다"),
+			fieldWithPath("timestamp").description("응답 생성 시각")
+		};
+	}
+
+	private static org.springframework.restdocs.payload.FieldDescriptor[] errorResponseFields() {
+		return new org.springframework.restdocs.payload.FieldDescriptor[] {
+			fieldWithPath("success").description("요청 성공 여부. 실패 응답에서는 `false`"),
+			fieldWithPath("code").description("도메인 세부 오류 코드"),
 			fieldWithPath("message").description("오류 메시지"),
 			fieldWithPath("data").optional().description("실패 응답에서는 생략된다"),
 			fieldWithPath("timestamp").description("응답 생성 시각")
