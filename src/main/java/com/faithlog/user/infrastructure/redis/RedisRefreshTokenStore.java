@@ -2,6 +2,7 @@ package com.faithlog.user.infrastructure.redis;
 
 import com.faithlog.user.application.port.RefreshTokenStore;
 import java.time.Duration;
+import java.util.Set;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -32,6 +33,15 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
 	@Override
 	public void deleteSession(Long userId, String sessionId) {
 		redisTemplate.delete(key(userId, sessionId));
+	}
+
+	@Override
+	public void deleteAllSessions(Long userId) {
+		Set<String> keys = redisTemplate.keys(KEY_PREFIX + userId + ":*");
+		if (keys == null || keys.isEmpty()) {
+			return;
+		}
+		redisTemplate.delete(keys);
 	}
 
 	private String key(Long userId, String sessionId) {

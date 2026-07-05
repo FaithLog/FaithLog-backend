@@ -19,6 +19,8 @@ public interface UserFcmTokenRepository extends JpaRepository<UserFcmToken, Long
 
 	List<UserFcmToken> findByUserIdAndClientInstanceIdAndIsActiveTrue(Long userId, String clientInstanceId);
 
+	List<UserFcmToken> findByUserIdAndIsActiveTrue(Long userId);
+
 	List<UserFcmToken> findByUserIdAndTokenAndIsActiveTrue(Long userId, String token);
 
 	List<UserFcmToken> findByTokenAndIsActiveTrue(String token);

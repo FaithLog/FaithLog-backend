@@ -33,7 +33,7 @@ class PostgresFlywayMigrationTest {
 		assertThat(result.success).isTrue();
 		assertThat(result.migrationsExecuted).isGreaterThanOrEqualTo(2);
 		assertThat(flyway.info().current()).isNotNull();
-		assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(MigrationVersion.fromVersion("5"));
+		assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(MigrationVersion.fromVersion("6"));
 		assertTableExists(jdbcUrl, username, password, "users");
 		assertTableExists(jdbcUrl, username, password, "poll_response_options");
 		assertTableExists(jdbcUrl, username, password, "flyway_schema_history");
@@ -41,6 +41,7 @@ class PostgresFlywayMigrationTest {
 		assertColumnExists(jdbcUrl, username, password, "polls", "allow_user_option_add");
 		assertColumnExists(jdbcUrl, username, password, "poll_options", "user_added");
 		assertColumnExists(jdbcUrl, username, password, "poll_options", "created_by_user_id");
+		assertColumnExists(jdbcUrl, username, password, "users", "deleted_at");
 		assertConstraintExists(jdbcUrl, username, password, "poll_options", "fk_poll_options_created_by_user");
 		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_token");
 		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_user_client");
