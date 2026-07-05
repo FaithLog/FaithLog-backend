@@ -234,6 +234,40 @@ include::{snippets}/users-me-inactive-user-unauthorized/http-response.adoc[]
 
 include::{snippets}/users-me-inactive-user-unauthorized/response-fields.adoc[]
 
+=== Delete My Account
+
+`DELETE /api/v1/users/me`
+
+회원 탈퇴는 App Store 계정 삭제 요건 대응 API다. 사용자는 앱 안에서 본인 비밀번호와 확인 문구 `회원탈퇴`를 입력해 계정 삭제를 완료한다. 서버는 `users` row를 soft delete로 유지하지만 개인정보를 익명화하고, 캠퍼스 멤버십/FCM token/session/tokenVersion을 정리한다.
+
+==== Request
+
+include::{snippets}/users-me-delete-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/users-me-delete-success/request-headers.adoc[]
+
+==== Request Fields
+
+include::{snippets}/users-me-delete-success/request-fields.adoc[]
+
+==== Success Response
+
+include::{snippets}/users-me-delete-success/http-response.adoc[]
+
+==== Success Response Fields
+
+include::{snippets}/users-me-delete-success/response-fields.adoc[]
+
+==== Error: Password Mismatch
+
+include::{snippets}/users-me-delete-password-mismatch/http-request.adoc[]
+
+include::{snippets}/users-me-delete-password-mismatch/http-response.adoc[]
+
+include::{snippets}/users-me-delete-password-mismatch/response-fields.adoc[]
+
 == Notifications
 
 === Register My FCM Token

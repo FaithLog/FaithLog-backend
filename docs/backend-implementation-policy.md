@@ -29,10 +29,22 @@ Final auth APIs:
 
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
+- `DELETE /api/v1/users/me`
 
 Do not use:
 
 - `POST /api/v1/auth/reissue`
+
+Account deletion policy:
+
+- `DELETE /api/v1/users/me` provides the App Store account deletion flow.
+- Account deletion is soft delete plus privacy anonymization, not physical row deletion.
+- The request requires the current password and confirmation text `회원탈퇴`.
+- Deletion sets `users.is_active = false` and `users.deleted_at = now()`.
+- Deletion anonymizes `users.email` to `deleted_user_{id}@deleted.faithlog.local`, changes `users.name` to `탈퇴한 사용자`, and replaces `users.password_hash` with an unusable random hash.
+- The original email must become available for signup again.
+- Deletion increments `users.token_version`, blacklists the current access token, removes refresh sessions, deactivates all active user FCM tokens, and changes the user's campus memberships to `INACTIVE`.
+- Existing devotion, prayer, poll, comment, charge, and notification rows remain for FK and service-history integrity.
 
 Recommended Redis keys:
 

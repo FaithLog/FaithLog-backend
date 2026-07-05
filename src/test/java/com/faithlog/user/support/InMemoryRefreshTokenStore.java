@@ -24,6 +24,11 @@ public class InMemoryRefreshTokenStore implements RefreshTokenStore {
 		currentRefreshJtiBySession.remove(key(userId, sessionId));
 	}
 
+	@Override
+	public void deleteAllSessions(Long userId) {
+		currentRefreshJtiBySession.keySet().removeIf(key -> key.startsWith(userId + ":"));
+	}
+
 	public boolean contains(Long userId, String sessionId, String refreshJti) {
 		return refreshJti.equals(currentRefreshJtiBySession.get(key(userId, sessionId)));
 	}

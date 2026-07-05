@@ -13,21 +13,30 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-02, `./gradlew test` BUILD SUCCESSFUL; 293 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-06, `./gradlew test` BUILD SUCCESSFUL; 298 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 120 snippet groups (2026-07-01) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-02) | 성공 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-06) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 5 (Flyway V1-V5, 2026-07-04) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-06
+
+- #131 회원 탈퇴와 계정 소프트 삭제 구현:
+  - 작업 기준: Issue #131 `[Feat] 회원 탈퇴와 계정 소프트 삭제 구현`, 브랜치 `feat/131-account-deletion-soft-delete`, worktree `/private/tmp/FaithLog-131`.
+  - TDD 실패 확인: 구현 전 `UserDeletionControllerTest`를 먼저 추가하고 `./gradlew test --tests com.faithlog.user.presentation.UserDeletionControllerTest`를 실행해 `User.deletedAt()` 등 탈퇴 구현 부재로 `compileTestJava` 실패를 확인했다.
+  - 구현 범위: `DELETE /api/v1/users/me`를 추가해 현재 비밀번호와 확인 문구 `회원탈퇴`를 검증한다. 성공 시 `users.is_active=false`, `users.deleted_at=now()`, email/name/password anonymization, `tokenVersion` 증가, campus membership `INACTIVE`, active FCM token 비활성화, refresh session 삭제, current access token blacklist를 한 트랜잭션으로 처리한다.
+  - 문서화: Spring REST Docs에 회원 탈퇴 성공/비밀번호 불일치 계약을 추가하고 `src/docs/asciidoc/index.adoc`, `docs/decision-log.md`, `docs/backend-implementation-policy.md`를 갱신했다. Flyway V6에서 `users.deleted_at` 컬럼을 추가한다.
+  - 검증: focused deletion/controller/REST Docs 테스트 성공, `./gradlew test` 성공(298 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. `./gradlew asciidoctor` 최초 실행은 sandbox의 Gradle wrapper lock 접근 제한으로 실패했고 승인 경로 재실행에서 성공했다. `git diff --check` 성공, Swagger 문서화 annotation 검색 0건, REST Docs snippet group 122개를 확인했다.
 
 ### 2026-07-04
 

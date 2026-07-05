@@ -9,4 +9,7 @@ public interface RefreshTokenStore {
 	boolean matchesCurrent(Long userId, String sessionId, String refreshJti);
 
 	void deleteSession(Long userId, String sessionId);
+
+	default void deleteAllSessions(Long userId) {
+	}
 }
