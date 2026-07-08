@@ -226,10 +226,13 @@ public class PollService {
 		for (PollResponseOption responseOption : responseOptions) {
 			byOptionId.computeIfAbsent(responseOption.optionId(), ignored -> new ArrayList<>()).add(responseOption);
 		}
+		Map<Long, CampusUserLookupResult> usersById = poll.isAnonymous()
+			? Map.of()
+			: pollAccessService.getUsers(responses.stream().map(PollResponse::userId).toList());
 		List<PollOptionResultView> optionResults = options.stream()
-			.map(option -> optionResult(poll, option, byOptionId.getOrDefault(option.id(), List.of()), responsesById))
+			.map(option -> optionResult(poll, option, byOptionId.getOrDefault(option.id(), List.of()), responsesById, usersById))
 			.toList();
-		long targetMemberCount = campusMemberRepository.findByCampusIdAndStatusOrderByIdAsc(campusId, CampusMemberStatus.ACTIVE).size();
+		long targetMemberCount = campusMemberRepository.countByCampusIdAndStatus(campusId, CampusMemberStatus.ACTIVE);
 		long respondedCount = responses.size();
 		return new PollResultView(
 			poll.id(),
@@ -513,7 +516,8 @@ public class PollService {
 		Poll poll,
 		PollOption option,
 		List<PollResponseOption> responseOptions,
-		Map<Long, PollResponse> responsesById
+		Map<Long, PollResponse> responsesById,
+		Map<Long, CampusUserLookupResult> usersById
 	) {
 		List<PollRespondentResult> respondents = poll.isAnonymous()
 			? List.of()
@@ -522,7 +526,7 @@ public class PollService {
 				.filter(response -> response != null)
 				.sorted(Comparator.comparing(PollResponse::id))
 				.map(response -> {
-					CampusUserLookupResult user = pollAccessService.getUser(response.userId());
+					CampusUserLookupResult user = usersById.get(response.userId());
 					return new PollRespondentResult(user.userId(), user.name(), user.email());
 				})
 				.toList();

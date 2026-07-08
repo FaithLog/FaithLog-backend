@@ -10,6 +10,11 @@ import com.faithlog.campus.domain.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.PollType;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -90,6 +95,20 @@ class PollAccessService {
 
 	CampusUserLookupResult getUser(Long userId) {
 		return getActiveUser(userId);
+	}
+
+	Map<Long, CampusUserLookupResult> getUsers(Collection<Long> userIds) {
+		Set<Long> distinctUserIds = new HashSet<>(userIds);
+		Map<Long, CampusUserLookupResult> usersById = new HashMap<>();
+		userLookupPort.findCampusUsersByIds(distinctUserIds)
+			.forEach(user -> usersById.put(user.userId(), user));
+		for (Long userId : distinctUserIds) {
+			CampusUserLookupResult user = usersById.get(userId);
+			if (user == null || !user.active()) {
+				throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
+			}
+		}
+		return usersById;
 	}
 
 	private void requireCampusManager(Long campusId, Long requesterId, ErrorCode errorCode) {

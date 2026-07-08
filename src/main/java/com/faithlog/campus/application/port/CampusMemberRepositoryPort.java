@@ -18,6 +18,8 @@ public interface CampusMemberRepositoryPort {
 
 	List<CampusMember> findByCampusIdAndStatusOrderByIdAsc(Long campusId, CampusMemberStatus status);
 
+	long countByCampusIdAndStatus(Long campusId, CampusMemberStatus status);
+
 	List<CampusMember> findByUserIdAndStatusOrderByIdDesc(Long userId, CampusMemberStatus status);
 
 	List<CampusMembershipRow> findMembershipRowsByUserIdAndStatusOrderByIdDesc(Long userId, CampusMemberStatus status);
