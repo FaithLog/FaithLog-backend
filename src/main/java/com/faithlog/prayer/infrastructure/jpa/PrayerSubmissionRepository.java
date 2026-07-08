@@ -50,4 +50,8 @@ public interface PrayerSubmissionRepository extends JpaRepository<PrayerSubmissi
 		@Param("submittedBy") Long submittedBy,
 		@Param("submittedAt") Instant submittedAt
 	);
+
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("delete from PrayerSubmission submission where submission.createdAt < :createdAt")
+	int deleteByCreatedAtBefore(@Param("createdAt") Instant createdAt);
 }

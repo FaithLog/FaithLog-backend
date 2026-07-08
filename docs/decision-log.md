@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-08 - Issue #136 Data Retention Cleanup Timestamp Basis
+
+- Context: Issue #136 defines operational data retention cleanup for `prayer_submissions` and `charge_items`, but the issue text did not name the exact timestamp column for those two tables. Codex asked the user before implementation because retention deletion criteria affect production data safety.
+- Decision: Use `created_at` as the timestamp basis for both `prayer_submissions` 1-year cleanup and annual `charge_items` cleanup. Annual `charge_items` cleanup deletes only terminal statuses `PAID`, `WAIVED`, and `CANCELED`; `UNPAID` is never deleted by the retention job.
+- Impact: The #136 cleanup service uses `prayer_submissions.created_at < now(Asia/Seoul) - 1 year` for daily cleanup and `charge_items.created_at` within the previous calendar year for the February 1 annual cleanup. No DB schema change or user-facing API is added.
+
 ### 2026-07-06 - Issue #131 Account Deletion Soft Delete Policy
 
 - Context: App Store Review rejected the iOS app under Guideline 5.1.1(v) because the app supports account creation but did not provide in-app account deletion. The user approved adding an in-app account deletion flow and keeping backend referential integrity through soft delete.

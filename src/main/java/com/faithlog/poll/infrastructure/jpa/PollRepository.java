@@ -7,6 +7,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface PollRepository extends JpaRepository<Poll, Long> {
 
@@ -41,4 +44,11 @@ public interface PollRepository extends JpaRepository<Poll, Long> {
 		Instant startsAt,
 		Instant endsAt
 	);
+
+	@Query("select poll.id from Poll poll where poll.endsAt < :endsAt")
+	List<Long> findIdsByEndsAtBefore(@Param("endsAt") Instant endsAt);
+
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("delete from Poll poll where poll.id in :pollIds")
+	int deleteByIdIn(@Param("pollIds") List<Long> pollIds);
 }

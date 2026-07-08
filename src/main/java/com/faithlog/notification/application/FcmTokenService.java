@@ -8,7 +8,9 @@ import com.faithlog.user.application.port.CurrentDeviceFcmTokenDeactivationComma
 import com.faithlog.user.application.port.CurrentDeviceFcmTokenDeactivationPort;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,14 +69,16 @@ public class FcmTokenService implements CurrentDeviceFcmTokenDeactivationPort {
 	@Override
 	@Transactional
 	public void deactivateCurrentDevice(CurrentDeviceFcmTokenDeactivationCommand command) {
+		Map<Long, UserFcmToken> deletionTargets = new LinkedHashMap<>();
 		if (command.fcmToken() != null) {
 			userFcmTokenRepository.findByUserIdAndTokenAndIsActiveTrue(command.userId(), command.fcmToken())
-				.forEach(UserFcmToken::deactivate);
+				.forEach(token -> deletionTargets.put(token.id(), token));
 		}
 		if (command.clientInstanceId() != null) {
 			userFcmTokenRepository.findByUserIdAndClientInstanceIdAndIsActiveTrue(command.userId(), command.clientInstanceId())
-				.forEach(UserFcmToken::deactivate);
+				.forEach(token -> deletionTargets.put(token.id(), token));
 		}
+		userFcmTokenRepository.deleteAll(deletionTargets.values());
 	}
 
 	private boolean deactivateOtherActiveTokensForClient(Long userId, String clientInstanceId, String currentToken) {

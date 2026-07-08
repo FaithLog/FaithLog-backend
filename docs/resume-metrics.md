@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-06, `./gradlew test` BUILD SUCCESSFUL; 298 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-08, `./gradlew test` BUILD SUCCESSFUL; 310 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-06) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-08) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -28,6 +28,19 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-08
+
+- #136 운영 데이터 보관 기간과 정리 배치 구현:
+  - 작업 기준: Issue #136 `[Build] 운영 데이터 보관 기간과 정리 배치 구현`, 브랜치 `build/136-data-retention-cleanup`, worktree `/Users/josephuk77/.codex/worktrees/7d03/FaithLog`.
+  - 사용자 확정 정책: 모든 정리 배치는 `Asia/Seoul` 기준 04:30에 실행한다. `prayer_submissions` 1년 보관 기준과 `charge_items` 전년도 완료 데이터 기준은 모두 `created_at`으로 확정했다. 신규 user-facing API와 DB schema 변경은 추가하지 않았다.
+  - TDD 실패 확인: 구현 전 `DataRetentionCleanupServiceTest`, scheduler cron 검증, FCM logout row-delete 테스트를 먼저 추가하고 `./gradlew test --tests com.faithlog.batch.application.DataRetentionCleanupServiceTest --tests com.faithlog.batch.scheduler.FaithLogSchedulerConfigTest --tests com.faithlog.notification.application.FcmTokenServiceTest`를 실행해 `DataRetentionCleanupService`/`DataRetentionCleanupResult` 부재로 `compileTestJava` 실패를 확인했다.
+  - 구현 범위: `notification_logs` 14일 초과, `polls.ends_at` 30일 초과 poll graph(`poll_response_options`, `poll_responses`, `poll_comments`, `poll_options`, `polls`), soft deleted `poll_comments.deleted_at` 30일 초과, `prayer_submissions.created_at` 1년 초과를 daily cleanup으로 정리한다. 매년 2월 1일에는 전년도 `devotion_daily_checks.record_date`, `weekly_devotion_records.week_start_date`, terminal `charge_items.created_at`만 삭제하며 `UNPAID`는 보존한다.
+  - 중복 실행 방지: 기존 Redis lock 추상화인 `NotificationLockService`를 재사용해 daily/annual retention lock을 획득하지 못하면 fail-closed로 0건 처리한다.
+  - 로그아웃 FCM token 정책: `clientInstanceId` 또는 `fcmToken`이 제공된 logout path에서 현재 기기 active `user_fcm_tokens` row를 inactive 처리하지 않고 실제 삭제하도록 변경했다. 입력이 없어도 logout 성공과 refresh/access token 무효화 정책은 유지한다.
+  - focused 검증: retention/scheduler/FCM/auth refresh/logout 회귀 묶음 `./gradlew test --tests com.faithlog.batch.application.DataRetentionCleanupServiceTest --tests com.faithlog.batch.scheduler.FaithLogSchedulerConfigTest --tests com.faithlog.notification.application.FcmTokenServiceTest --tests com.faithlog.user.presentation.AuthLogoutFcmPersistenceTest --tests com.faithlog.user.presentation.AuthLogoutControllerTest --tests com.faithlog.user.presentation.AuthRefreshControllerTest` 성공.
+  - 전체 검증: `./gradlew test` 성공(310 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. `./gradlew asciidoctor` 최초 실행은 sandbox의 Gradle wrapper lock 접근 제한으로 실패했고 승인 경로 재실행에서 성공했다.
+  - Docker QA: `docker compose up -d postgres redis app`로 app image build와 컨테이너 기동을 확인했다. 호스트 `localhost:8080` health curl은 sandbox/포트 접근 제약으로 연결 실패했지만, 컨테이너 내부 `docker exec faithlog-backend wget -qO- http://127.0.0.1:8080/api/v1/health`는 `status=UP`을 반환했다. QA 후 `docker compose down`으로 컨테이너와 네트워크를 정리했다. 운영 Supabase/Upstash 데이터는 건드리지 않았다.
 
 ### 2026-07-07
 

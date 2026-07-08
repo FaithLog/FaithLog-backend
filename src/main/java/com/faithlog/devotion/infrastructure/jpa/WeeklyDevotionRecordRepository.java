@@ -5,6 +5,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface WeeklyDevotionRecordRepository extends JpaRepository<WeeklyDevotionRecord, Long> {
 
@@ -17,5 +20,15 @@ public interface WeeklyDevotionRecordRepository extends JpaRepository<WeeklyDevo
 		Long userId,
 		LocalDate weekStartDate,
 		LocalDate weekEndDate
+	);
+
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		delete from WeeklyDevotionRecord weeklyRecord
+		where weeklyRecord.weekStartDate between :startDate and :endDate
+		""")
+	int deleteByWeekStartDateBetween(
+		@Param("startDate") LocalDate startDate,
+		@Param("endDate") LocalDate endDate
 	);
 }

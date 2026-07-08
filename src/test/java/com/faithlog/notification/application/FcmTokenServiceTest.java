@@ -178,7 +178,7 @@ class FcmTokenServiceTest {
 	}
 
 	@Test
-	void deactivateCurrentDevice_deactivates_by_token_or_client_instance() {
+	void deactivateCurrentDevice_deletes_active_rows_by_token_or_client_instance() {
 		User user = saveUser("fcm-logout@example.com");
 		FcmTokenResult token = fcmTokenService.registerToken(new RegisterFcmTokenCommand(
 			user.id(),
@@ -194,7 +194,7 @@ class FcmTokenServiceTest {
 			"logout-token"
 		));
 
-		assertThat(userFcmTokenRepository.findById(token.id())).get().extracting(UserFcmToken::isActive).isEqualTo(false);
+		assertThat(userFcmTokenRepository.findById(token.id())).isEmpty();
 
 		FcmTokenResult second = fcmTokenService.registerToken(new RegisterFcmTokenCommand(
 			user.id(),
@@ -209,7 +209,35 @@ class FcmTokenServiceTest {
 			null
 		));
 
-		assertThat(userFcmTokenRepository.findById(second.id())).get().extracting(UserFcmToken::isActive).isEqualTo(false);
+		assertThat(userFcmTokenRepository.findById(second.id())).isEmpty();
+	}
+
+	@Test
+	void deactivateCurrentDevice_does_not_delete_other_active_rows() {
+		User user = saveUser("fcm-logout-preserve@example.com");
+		FcmTokenResult current = fcmTokenService.registerToken(new RegisterFcmTokenCommand(
+			user.id(),
+			"logout-current-token",
+			"logout-current-client",
+			DeviceType.ANDROID,
+			"1.0.0"
+		));
+		FcmTokenResult other = fcmTokenService.registerToken(new RegisterFcmTokenCommand(
+			user.id(),
+			"logout-other-token",
+			"logout-other-client",
+			DeviceType.ANDROID,
+			"1.0.0"
+		));
+
+		fcmTokenService.deactivateCurrentDevice(new CurrentDeviceFcmTokenDeactivationCommand(
+			user.id(),
+			"logout-current-client",
+			"logout-current-token"
+		));
+
+		assertThat(userFcmTokenRepository.findById(current.id())).isEmpty();
+		assertThat(userFcmTokenRepository.findById(other.id())).isPresent();
 	}
 
 	@Test

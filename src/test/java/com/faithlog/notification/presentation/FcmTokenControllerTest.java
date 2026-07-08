@@ -101,7 +101,7 @@ class FcmTokenControllerTest {
 	}
 
 	@Test
-	void logout_deactivates_current_device_fcm_token_through_real_port() throws Exception {
+	void logout_deletes_current_device_fcm_token_through_real_port() throws Exception {
 		Tokens tokens = signupAndLoginTokens("fcm-http-logout@example.com", UserRole.USER);
 		JsonNode registered = registerFcmToken(tokens.accessToken(), "logout-http-token", "logout-http-client");
 		long tokenId = registered.path("tokenId").asLong();
@@ -118,7 +118,7 @@ class FcmTokenControllerTest {
 					""".formatted(tokens.refreshToken())))
 			.andExpect(status().isOk());
 
-		assertThat(userFcmTokenRepository.findById(tokenId)).get().extracting(token -> token.isActive()).isEqualTo(false);
+		assertThat(userFcmTokenRepository.findById(tokenId)).isEmpty();
 	}
 
 	private JsonNode registerFcmToken(String accessToken, String token, String clientInstanceId) throws Exception {
