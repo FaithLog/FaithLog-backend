@@ -32,6 +32,7 @@ faithlog:
     enabled: ${FAITHLOG_SCHEDULER_ENABLED:true}
     poll-auto-create-delay-ms: ${FAITHLOG_POLL_AUTO_CREATE_DELAY_MS:60000}
     coffee-poll-close-delay-ms: ${FAITHLOG_COFFEE_POLL_CLOSE_DELAY_MS:60000}
+    data-retention-cleanup-cron: ${FAITHLOG_DATA_RETENTION_CLEANUP_CRON:0 30 4 * * *}
     fcm-token-cleanup-cron: ${FAITHLOG_FCM_TOKEN_CLEANUP_CRON:0 20 3 * * *}
     devotion-missing-cron: ${FAITHLOG_DEVOTION_MISSING_CRON:0 0 11 * * *}
     poll-missing-delay-ms: ${FAITHLOG_POLL_MISSING_DELAY_MS:60000}

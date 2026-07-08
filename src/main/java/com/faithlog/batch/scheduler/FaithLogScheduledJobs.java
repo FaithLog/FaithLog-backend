@@ -1,6 +1,7 @@
 package com.faithlog.batch.scheduler;
 
 import com.faithlog.batch.application.AutomaticNotificationService;
+import com.faithlog.batch.application.DataRetentionCleanupService;
 import com.faithlog.batch.application.FcmTokenCleanupService;
 import com.faithlog.batch.application.PendingNotificationRecoveryService;
 import com.faithlog.batch.application.PollAutomationService;
@@ -19,17 +20,20 @@ public class FaithLogScheduledJobs {
 	private static final String SEOUL_ZONE = "Asia/Seoul";
 
 	private final PollAutomationService pollAutomationService;
+	private final DataRetentionCleanupService dataRetentionCleanupService;
 	private final FcmTokenCleanupService fcmTokenCleanupService;
 	private final AutomaticNotificationService automaticNotificationService;
 	private final PendingNotificationRecoveryService pendingNotificationRecoveryService;
 
 	public FaithLogScheduledJobs(
 		PollAutomationService pollAutomationService,
+		DataRetentionCleanupService dataRetentionCleanupService,
 		FcmTokenCleanupService fcmTokenCleanupService,
 		AutomaticNotificationService automaticNotificationService,
 		PendingNotificationRecoveryService pendingNotificationRecoveryService
 	) {
 		this.pollAutomationService = pollAutomationService;
+		this.dataRetentionCleanupService = dataRetentionCleanupService;
 		this.fcmTokenCleanupService = fcmTokenCleanupService;
 		this.automaticNotificationService = automaticNotificationService;
 		this.pendingNotificationRecoveryService = pendingNotificationRecoveryService;
@@ -43,6 +47,11 @@ public class FaithLogScheduledJobs {
 	@Scheduled(fixedDelayString = "${faithlog.scheduler.coffee-poll-close-delay-ms:60000}", zone = SEOUL_ZONE)
 	public void closeDueCoffeePolls() {
 		runJob("coffee-poll-close", () -> pollAutomationService.closeDueCoffeePolls(Instant.now()));
+	}
+
+	@Scheduled(cron = "${faithlog.scheduler.data-retention-cleanup-cron:0 30 4 * * *}", zone = SEOUL_ZONE)
+	public void cleanupDataRetention() {
+		runJob("data-retention-cleanup", () -> dataRetentionCleanupService.cleanupDueData(Instant.now()).totalDeleted());
 	}
 
 	@Scheduled(cron = "${faithlog.scheduler.fcm-token-cleanup-cron:0 20 3 * * *}", zone = SEOUL_ZONE)

@@ -3,12 +3,15 @@ package com.faithlog.batch.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.faithlog.batch.application.AutomaticNotificationService;
+import com.faithlog.batch.application.DataRetentionCleanupService;
 import com.faithlog.batch.application.FcmTokenCleanupService;
 import com.faithlog.batch.application.PendingNotificationRecoveryService;
 import com.faithlog.batch.application.PollAutomationService;
+import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -26,6 +29,9 @@ class FaithLogSchedulerConfigTest {
 	private FaithLogScheduledJobs scheduledJobs;
 
 	@MockitoBean
+	private DataRetentionCleanupService dataRetentionCleanupService;
+
+	@MockitoBean
 	private PollAutomationService pollAutomationService;
 
 	@MockitoBean
@@ -40,5 +46,15 @@ class FaithLogSchedulerConfigTest {
 	@Test
 	void scheduler_context_starts_with_task_scheduler_and_async_dispatch_executor() {
 		assertThat(scheduledJobs).isNotNull();
+	}
+
+	@Test
+	void dataRetentionCleanup_uses_seoul_four_thirty_cron() throws Exception {
+		Method method = FaithLogScheduledJobs.class.getDeclaredMethod("cleanupDataRetention");
+		Scheduled scheduled = method.getAnnotation(Scheduled.class);
+
+		assertThat(scheduled).isNotNull();
+		assertThat(scheduled.cron()).isEqualTo("${faithlog.scheduler.data-retention-cleanup-cron:0 30 4 * * *}");
+		assertThat(scheduled.zone()).isEqualTo("Asia/Seoul");
 	}
 }

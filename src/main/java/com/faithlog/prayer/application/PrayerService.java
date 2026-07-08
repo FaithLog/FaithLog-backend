@@ -310,13 +310,21 @@ public class PrayerService {
 		TargetMembers targetMembers = loadTargetMembers(campusId, season.id());
 		Map<Long, PrayerSubmission> submissionsByUserId = submissions.stream()
 			.collect(Collectors.toMap(PrayerSubmission::userId, Function.identity(), (left, right) -> left));
+		Map<Long, CampusUserLookupResult> usersById = campusUsersById(targetMembers.userIds());
 		Long myGroupId = targetMembers.groupIdByUserId().get(requester.userId());
 		boolean canEditAll = requester.isAdmin() || isCampusManager(campusId, requester.userId());
 		List<PrayerGroupBoardResult> groups = targetMembers.groups().stream()
 			.map(group -> {
 				List<PrayerMemberSubmissionResult> members = targetMembers.membersByGroupId().getOrDefault(group.id(), List.of())
 					.stream()
-					.map(member -> toMemberSubmission(member, submissionsByUserId.get(member.userId()), canEditAll, requester.userId(), myGroupId))
+					.map(member -> toMemberSubmission(
+						member,
+						usersById.get(member.userId()),
+						submissionsByUserId.get(member.userId()),
+						canEditAll,
+						requester.userId(),
+						myGroupId
+					))
 					.toList();
 				return new PrayerGroupBoardResult(group.id(), group.seasonId(), group.name(), group.sortOrder(), members);
 			})
@@ -343,12 +351,12 @@ public class PrayerService {
 
 	private PrayerMemberSubmissionResult toMemberSubmission(
 		PrayerGroupMember member,
+		CampusUserLookupResult user,
 		PrayerSubmission submission,
 		boolean canEditAll,
 		Long requesterId,
 		Long requesterGroupId
 	) {
-		CampusUserLookupResult user = getUserOrThrow(member.userId());
 		boolean editable = canEditAll || (member.userId().equals(requesterId) && member.groupId().equals(requesterGroupId));
 		if (submission == null) {
 			return new PrayerMemberSubmissionResult(user.userId(), user.name(), null, null, false, editable, 0, null);
@@ -556,6 +564,18 @@ public class PrayerService {
 	private CampusUserLookupResult getUserOrThrow(Long userId) {
 		return userLookupPort.findCampusUserById(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.PRAYER_MEMBER_NOT_FOUND));
+	}
+
+	private Map<Long, CampusUserLookupResult> campusUsersById(Collection<Long> userIds) {
+		Map<Long, CampusUserLookupResult> usersById = userLookupPort.findCampusUsersByIds(userIds)
+			.stream()
+			.collect(Collectors.toMap(CampusUserLookupResult::userId, Function.identity()));
+		for (Long userId : userIds) {
+			if (!usersById.containsKey(userId)) {
+				throw new BusinessException(ErrorCode.PRAYER_MEMBER_NOT_FOUND);
+			}
+		}
+		return usersById;
 	}
 
 	private record TargetMembers(

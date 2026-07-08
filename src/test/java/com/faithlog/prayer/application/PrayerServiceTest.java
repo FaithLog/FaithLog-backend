@@ -22,17 +22,24 @@ import com.faithlog.prayer.infrastructure.jpa.PrayerWeekRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@TestPropertySource(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @Transactional
 class PrayerServiceTest {
 
@@ -59,6 +66,12 @@ class PrayerServiceTest {
 
 	@Autowired
 	private PrayerSeasonRepository prayerSeasonRepository;
+
+	@Autowired
+	private EntityManager entityManager;
+
+	@Autowired
+	private EntityManagerFactory entityManagerFactory;
 
 	@Test
 	void active_campus_member_reads_all_groups_without_creating_week_or_submissions() {
@@ -95,6 +108,60 @@ class PrayerServiceTest {
 			});
 		assertThat(prayerWeekRepository.count()).isZero();
 		assertThat(prayerSubmissionRepository.count()).isZero();
+	}
+
+	@Test
+	void weekly_board_fetches_member_profiles_without_per_member_user_lookup() {
+		User manager = saveUser("prayer-board-query-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"기도 쿼리 캠퍼스",
+			"분당",
+			"기도 보드 조회 쿼리 evidence"
+		));
+		List<User> members = new ArrayList<>();
+		for (int index = 0; index < 25; index++) {
+			User member = saveUser("prayer-board-query-member-" + index + "@example.com", UserRole.USER);
+			campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+			members.add(member);
+		}
+		PrayerSeasonResult season = prayerService.createSeason(new CreatePrayerSeasonCommand(
+			campus.campusId(),
+			manager.id(),
+			"2026 대규모 시즌",
+			LocalDate.of(2026, 6, 1)
+		));
+		PrayerGroupResult group = prayerService.createGroup(new CreatePrayerGroupCommand(
+			season.seasonId(),
+			manager.id(),
+			"대규모 조",
+			1
+		));
+		prayerService.replaceGroupMembers(new ReplacePrayerGroupMembersCommand(
+			group.groupId(),
+			manager.id(),
+			members.stream().map(User::id).toList()
+		));
+		LocalDate weekStart = LocalDate.of(2026, 6, 22);
+		prayerService.saveSubmissions(new SavePrayerSubmissionsCommand(
+			campus.campusId(),
+			weekStart,
+			manager.id(),
+			members.stream()
+				.limit(10)
+				.map(member -> new PrayerSubmissionCommand(member.id(), "기도제목 " + member.id(), 0))
+				.toList()
+		));
+		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+		entityManager.flush();
+		entityManager.clear();
+		statistics.clear();
+
+		PrayerWeekBoardResult board = prayerService.getWeeklyBoard(campus.campusId(), weekStart, members.get(0).id());
+
+		assertThat(board.targetMemberCount()).isEqualTo(25);
+		assertThat(board.submittedCount()).isEqualTo(10);
+		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(12);
 	}
 
 	@Test

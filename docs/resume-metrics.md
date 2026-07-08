@@ -13,21 +13,47 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-06, `./gradlew test` BUILD SUCCESSFUL; 298 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-08, `./gradlew test` BUILD SUCCESSFUL; 310 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-06) | 성공 |
-| API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 64.66ms / p95 906.29ms / p99 1,371.26ms / avg 199.41ms, 95.53 req/s, failure 0.00% (2026-06-23 after `campuses_me` 개선) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-08) | 성공 |
+| API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-08
+
+- #136 운영 데이터 보관 기간과 정리 배치 구현:
+  - 작업 기준: Issue #136 `[Build] 운영 데이터 보관 기간과 정리 배치 구현`, 브랜치 `build/136-data-retention-cleanup`, worktree `/Users/josephuk77/.codex/worktrees/7d03/FaithLog`.
+  - 사용자 확정 정책: 모든 정리 배치는 `Asia/Seoul` 기준 04:30에 실행한다. `prayer_submissions` 1년 보관 기준과 `charge_items` 전년도 완료 데이터 기준은 모두 `created_at`으로 확정했다. 신규 user-facing API와 DB schema 변경은 추가하지 않았다.
+  - TDD 실패 확인: 구현 전 `DataRetentionCleanupServiceTest`, scheduler cron 검증, FCM logout row-delete 테스트를 먼저 추가하고 `./gradlew test --tests com.faithlog.batch.application.DataRetentionCleanupServiceTest --tests com.faithlog.batch.scheduler.FaithLogSchedulerConfigTest --tests com.faithlog.notification.application.FcmTokenServiceTest`를 실행해 `DataRetentionCleanupService`/`DataRetentionCleanupResult` 부재로 `compileTestJava` 실패를 확인했다.
+  - 구현 범위: `notification_logs` 14일 초과, `polls.ends_at` 30일 초과 poll graph(`poll_response_options`, `poll_responses`, `poll_comments`, `poll_options`, `polls`), soft deleted `poll_comments.deleted_at` 30일 초과, `prayer_submissions.created_at` 1년 초과를 daily cleanup으로 정리한다. 매년 2월 1일에는 전년도 `devotion_daily_checks.record_date`, `weekly_devotion_records.week_start_date`, terminal `charge_items.created_at`만 삭제하며 `UNPAID`는 보존한다.
+  - 중복 실행 방지: 기존 Redis lock 추상화인 `NotificationLockService`를 재사용해 daily/annual retention lock을 획득하지 못하면 fail-closed로 0건 처리한다.
+  - 로그아웃 FCM token 정책: `clientInstanceId` 또는 `fcmToken`이 제공된 logout path에서 현재 기기 active `user_fcm_tokens` row를 inactive 처리하지 않고 실제 삭제하도록 변경했다. 입력이 없어도 logout 성공과 refresh/access token 무효화 정책은 유지한다.
+  - focused 검증: retention/scheduler/FCM/auth refresh/logout 회귀 묶음 `./gradlew test --tests com.faithlog.batch.application.DataRetentionCleanupServiceTest --tests com.faithlog.batch.scheduler.FaithLogSchedulerConfigTest --tests com.faithlog.notification.application.FcmTokenServiceTest --tests com.faithlog.user.presentation.AuthLogoutFcmPersistenceTest --tests com.faithlog.user.presentation.AuthLogoutControllerTest --tests com.faithlog.user.presentation.AuthRefreshControllerTest` 성공.
+  - 전체 검증: `./gradlew test` 성공(310 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공. `./gradlew asciidoctor` 최초 실행은 sandbox의 Gradle wrapper lock 접근 제한으로 실패했고 승인 경로 재실행에서 성공했다.
+  - Docker QA: `docker compose up -d postgres redis app`로 app image build와 컨테이너 기동을 확인했다. 호스트 `localhost:8080` health curl은 sandbox/포트 접근 제약으로 연결 실패했지만, 컨테이너 내부 `docker exec faithlog-backend wget -qO- http://127.0.0.1:8080/api/v1/health`는 `status=UP`을 반환했다. QA 후 `docker compose down`으로 컨테이너와 네트워크를 정리했다. 운영 Supabase/Upstash 데이터는 건드리지 않았다.
+
+### 2026-07-07
+
+- #134 1000명 기준 기도제목·투표 결과 조회 성능 최적화:
+  - 작업 기준: Issue #134 `[Perf] 1000명 기준 기도제목·투표 결과 조회 성능 최적화`, Project `FaithLog Backend Kanban` Status `In Progress`, 브랜치 `perf/134-1000-user-read-optimization`, worktree `/Users/josephuk77/.codex/worktrees/134-1000-user-read-optimization/FaithLog`.
+  - 구현 전 evidence: Issue #134 baseline `PERF_1000_20260707_A`, local Docker steady-state read `VUS=30`, `DURATION=5m`, `THINK_TIME_SECONDS=1`, 활성 멤버 1001명, 경건 주간 1001건, 일별 체크 7007건, 청구 1001건, 투표 응답 1550건, 기도제목 1000건. 전체 63,877 requests, failure 0.00%, 211.88 req/s, avg 57.12ms, p95 192.65ms, p99 290.45ms. 병목은 `prayer_weekly_board` p95 316.82ms / p99 417.07ms, `poll_results` p95 244.84ms / p99 340.02ms, `admin_dashboard_summary` p95 138.50ms였다.
+  - TDD/회귀 evidence: `PrayerServiceTest.weekly_board_fetches_member_profiles_without_per_member_user_lookup`, `PollServiceTest.poll_results_fetch_respondents_without_per_response_user_lookup`를 추가해 25명 샘플에서 Hibernate `prepareStatementCount <= 12`를 검증했다. 기존 구현은 기도 보드 member/user 조회와 비익명 poll respondent 조회가 사용자 수에 비례해 user lookup을 반복하는 구조였다.
+  - 구현 범위: API path/request/response 계약 변경 없이 `CampusUserLookupPort.findCampusUsersByIds` batch lookup을 추가했다. 기도 주간 보드는 target member user profile을 한 번에 읽어 조립하고, 투표 결과는 비익명 응답자 user profile을 한 번에 읽는다. 투표 결과 `targetMemberCount`는 active member 엔티티 목록 materialization 대신 `countByCampusIdAndStatus` count query로 계산한다.
+  - DB/Flyway: 기존 V1은 수정하지 않았고 새 migration도 추가하지 않았다. 현재 조회 경로는 `prayer_weeks(campus_id, season_id, week_start_date)`, `prayer_submissions(prayer_week_id, user_id)`, `poll_responses(poll_id, user_id)`, `poll_response_options(response_id, option_id)` unique index/constraint 경로를 이미 활용할 수 있어, 이번 1차 개선은 코드-only batch query로 제한했다.
+  - k6 smoke: local Docker app rebuild 후 `VUS=1`, `DURATION=10s`, steady-state read, `CAMPUS_ID=60`, `POLL_ID=35`, `WEEK_START_DATE=2026-06-22`로 실행. 109 requests, failure 0.00%, p95 46.35ms, `prayer_weekly_board` p95 55.77ms, `poll_results` p95 38.19ms. 리포트: `build/reports/k6/issue-134-after-smoke.json`.
+  - k6 재측정: local Docker `PERF_1000_20260707_A`, `VUS=30`, `DURATION=5m`, `THINK_TIME_SECONDS=1`, `AUTH_PATTERN=steady-state`, `INCLUDE=campuses,admin-campuses,admin-dashboard,devotions,billing,polls,prayers`, `CAMPUS_ID=60`, `POLL_ID=35`. 전체 89,173 requests, failure 0.00%, 295.92 req/s, avg 16.93ms, p50 8.47ms, p95 44.60ms, p99 89.37ms, max 2.47s. 리포트: `build/reports/k6/issue-134-after-vus30-5m.json`.
+  - 개선 결과: 전체 avg 57.12ms -> 16.93ms(70.36% 감소), p95 192.65ms -> 44.60ms(76.85% 감소), p99 290.45ms -> 89.37ms(69.23% 감소), throughput 211.88 req/s -> 295.92 req/s(39.66% 증가). `prayer_weekly_board` p95 316.82ms -> 76.96ms(75.71% 감소), p99 417.07ms -> 165.64ms(60.28% 감소). `poll_results` p95 244.84ms -> 51.19ms(79.09% 감소), p99 340.02ms -> 108.48ms(68.10% 감소). `admin_dashboard_summary` p95 138.50ms -> 61.64ms(55.49% 감소).
+  - 이력서 문장 후보: `local Docker 1000명 데이터셋(PERF_1000_20260707_A)에서 기도제목 주간 보드와 투표 결과 조회의 per-user lookup을 batch query로 최적화해 k6 VUS 30/5분 steady-state read 기준 prayer board p95를 316.82ms에서 76.96ms로 75.71%, poll results p95를 244.84ms에서 51.19ms로 79.09% 단축하고 failure 0.00%를 유지했다.`
 
 ### 2026-07-06
 
