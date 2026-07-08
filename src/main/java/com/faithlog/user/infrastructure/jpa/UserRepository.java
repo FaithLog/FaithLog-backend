@@ -8,6 +8,7 @@ import com.faithlog.campus.application.port.CampusUserTokenVersionPort;
 import com.faithlog.user.domain.User;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -27,6 +28,19 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 				user.role().name(),
 				user.isActive()
 			));
+	}
+
+	@Override
+	default List<CampusUserLookupResult> findCampusUsersByIds(Collection<Long> userIds) {
+		return findAllById(userIds).stream()
+			.map(user -> new CampusUserLookupResult(
+				user.id(),
+				user.name(),
+				user.email(),
+				user.role().name(),
+				user.isActive()
+			))
+			.toList();
 	}
 
 	Optional<User> findByEmail(String email);

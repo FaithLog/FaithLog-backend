@@ -48,14 +48,20 @@ import com.faithlog.poll.infrastructure.jpa.PollTemplateRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
@@ -63,6 +69,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@TestPropertySource(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @Transactional
 class PollServiceTest {
 
@@ -122,6 +129,12 @@ class PollServiceTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private EntityManager entityManager;
+
+	@Autowired
+	private EntityManagerFactory entityManagerFactory;
 
 	@Test
 	void coffee_catalog_seed_contains_compose_brand_and_user_approved_2026_menu_prices() {
@@ -1533,6 +1546,35 @@ class PollServiceTest {
 				assertThat(option.responseCount()).isEqualTo(1);
 				assertThat(option.respondents()).isEmpty();
 			});
+	}
+
+	@Test
+	void poll_results_fetch_respondents_without_per_response_user_lookup() {
+		User manager = saveUser("poll-result-query-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "투표결과쿼리캠");
+		List<User> members = new ArrayList<>();
+		for (int index = 0; index < 25; index++) {
+			User member = saveUser("poll-result-query-member-" + index + "@example.com", UserRole.USER);
+			joinCampus(campus, member);
+			members.add(member);
+		}
+		PollResult poll = createOpenCustomPoll(campus.campusId(), manager.id(), "대규모 비익명", SelectionType.SINGLE, false, List.of("참석", "불참"));
+		Long selectedOptionId = poll.options().get(0).id();
+		for (User member : members) {
+			pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), member.id(), List.of(selectedOptionId), null));
+		}
+		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+		entityManager.flush();
+		entityManager.clear();
+		statistics.clear();
+
+		PollResultView result = pollService.getPollResults(campus.campusId(), poll.id(), manager.id());
+
+		assertThat(result.respondedCount()).isEqualTo(25);
+		assertThat(result.optionResults()).filteredOn(option -> option.optionId().equals(selectedOptionId))
+			.singleElement()
+			.satisfies(option -> assertThat(option.respondents()).hasSize(25));
+		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(12);
 	}
 
 	@Test
