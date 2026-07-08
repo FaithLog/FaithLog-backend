@@ -14,6 +14,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, JpaSpecificationExecutor<ChargeItem>, ChargeItemRepositoryPort {
 
@@ -82,5 +85,18 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		PaymentCategory paymentCategory,
 		ChargeSourceType sourceType,
 		Long sourceId
+	);
+
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		delete from ChargeItem charge
+		where charge.status in :statuses
+			and charge.createdAt >= :startInclusive
+			and charge.createdAt < :endExclusive
+		""")
+	int deleteByStatusInAndCreatedAtBetween(
+		@Param("statuses") List<ChargeStatus> statuses,
+		@Param("startInclusive") java.time.Instant startInclusive,
+		@Param("endExclusive") java.time.Instant endExclusive
 	);
 }

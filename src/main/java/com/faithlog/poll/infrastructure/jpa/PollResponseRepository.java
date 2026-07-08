@@ -5,6 +5,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface PollResponseRepository extends JpaRepository<PollResponse, Long> {
 
@@ -17,4 +20,8 @@ public interface PollResponseRepository extends JpaRepository<PollResponse, Long
 	long countByPollId(Long pollId);
 
 	long countByPollIdAndUserIdIn(Long pollId, Collection<Long> userIds);
+
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("delete from PollResponse response where response.pollId in :pollIds")
+	int deleteByPollIdIn(@Param("pollIds") Collection<Long> pollIds);
 }
