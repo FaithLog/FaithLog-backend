@@ -13,8 +13,8 @@ This file records user-approved project decisions so Codex does not rely on gues
 ### 2026-07-09 - Issue #139 Server Timezone Configuration Policy
 
 - Context: Cloud Run health response timestamps and database dashboard views appeared as UTC (`Z`) rather than Korea time. Docker `TZ` settings are not sufficient for repository-based Cloud Run deployment, and timestamp persistence affects API/database contracts.
-- Decision: Keep database persistence as `Instant` + PostgreSQL `TIMESTAMPTZ`/UTC. Configure the Spring application, Hibernate JDBC binding, and PostgreSQL session timezone with `Asia/Seoul` in application configuration. Do not change existing DB column types, existing data, or all API response timestamp contracts in Issue #139.
-- Impact: `spring.jackson.time-zone`, `spring.jpa.properties.hibernate.jdbc.time_zone`, and Hikari `connection-init-sql` now use `Asia/Seoul`. Supabase/PostgreSQL can still store instants in UTC internally, while server-side session/display calculations run with the Korea timezone.
+- Decision: Keep database persistence as `Instant` + PostgreSQL `TIMESTAMPTZ`/UTC. Configure the Spring application, JVM default timezone, Hibernate JDBC binding, and PostgreSQL session timezone with `Asia/Seoul` in application configuration. Do not change existing DB column types, existing data, or all API response timestamp contracts in Issue #139.
+- Impact: `app.time-zone`, `spring.jackson.time-zone`, `spring.jpa.properties.hibernate.jdbc.time_zone`, and Hikari `connection-init-sql` now use `Asia/Seoul`. Supabase/PostgreSQL can still store instants in UTC internally, while server-side session/display calculations run with the Korea timezone. The JVM default timezone is also fixed on startup so `LocalDate` persistence does not shift by one day in UTC Cloud Run/CI environments.
 
 ### 2026-07-08 - Issue #136 Data Retention Cleanup Timestamp Basis
 

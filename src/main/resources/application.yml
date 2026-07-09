@@ -1,3 +1,6 @@
+app:
+  time-zone: Asia/Seoul
+
 spring:
   application:
     name: faithlog-backend

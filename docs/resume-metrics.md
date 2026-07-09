@@ -36,10 +36,11 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 문제 확인: Cloud Run health 응답의 `timestamp`가 `Z` UTC 기준으로 내려왔고, Dockerfile `TZ` 설정만으로는 repository-based Cloud Run 서버리스 배포의 Spring/JDBC/DB session timezone을 보장하지 못한다.
   - 확정 정책: DB 저장은 `Instant` + PostgreSQL `TIMESTAMPTZ`/UTC 기준을 유지한다. Issue #139에서는 전체 API timestamp 응답 계약을 `+09:00`으로 일괄 변경하지 않고, Spring/Jackson/Hibernate/JDBC session 기준만 `Asia/Seoul`로 명시한다.
   - TDD 실패 확인: `TimeZoneConfigurationTest`를 먼저 추가하고 `./gradlew test --tests com.faithlog.deploy.TimeZoneConfigurationTest` 실행 시 `spring.jackson.time-zone` 미설정으로 실패를 확인했다.
-  - 구현 범위: `application.yml`에 `spring.jackson.time-zone=Asia/Seoul`, `spring.jpa.properties.hibernate.jdbc.time_zone=Asia/Seoul`, `spring.datasource.hikari.connection-init-sql=SET TIME ZONE 'Asia/Seoul'`을 추가했다. DB schema와 기존 데이터는 변경하지 않았다.
+  - 구현 범위: `application.yml`에 `app.time-zone=Asia/Seoul`, `spring.jackson.time-zone=Asia/Seoul`, `spring.jpa.properties.hibernate.jdbc.time_zone=Asia/Seoul`, `spring.datasource.hikari.connection-init-sql=SET TIME ZONE 'Asia/Seoul'`을 추가했다. 애플리케이션 시작 시 JVM default timezone도 `app.time-zone` 기준으로 고정한다. DB schema와 기존 데이터는 변경하지 않았다.
   - focused 검증: `./gradlew test --tests com.faithlog.deploy.TimeZoneConfigurationTest` 성공.
   - 전체 검증: `./gradlew test` 성공, `./gradlew build` 성공, `git diff --check` 성공. Docker isolated QA `scripts/qa_docker_compose_isolated.sh --suffix 139-timezone`에서 app image build, PostgreSQL/Redis health, backend health `UP`, compose down까지 성공했다.
   - 확인 사항: `/api/v1/health`의 envelope `timestamp`는 `ApiResponse.timestamp` 타입이 `Instant`라 여전히 `Z` UTC 문자열로 직렬화된다. Issue #139의 승인 범위는 전체 API timestamp 응답 계약 변경이 아니라 Spring/Jackson/Hibernate/JDBC session timezone 명시다.
+  - CI 재현/보강: PR #140 GitHub Actions가 UTC JVM 환경에서 경건생활 `LocalDate` 응답이 하루 전으로 밀리는 실패를 냈다. `TZ=UTC ./gradlew test --tests com.faithlog.devotion.presentation.DevotionControllerTest --tests com.faithlog.devotion.presentation.DevotionApiRestDocsTest`로 재현했고, JVM default timezone 고정 후 UTC 조건에서도 경건생활 테스트 묶음이 통과하도록 보강했다.
 
 ### 2026-07-08
 
