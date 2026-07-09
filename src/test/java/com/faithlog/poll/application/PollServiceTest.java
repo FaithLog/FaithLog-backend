@@ -1651,6 +1651,74 @@ class PollServiceTest {
 	}
 
 	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void current_scheduled_poll_opens_on_member_list_detail_and_response_with_campus_scope() {
+		User manager = saveUser("poll-142-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("poll-142-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "142상태동기화캠");
+		CampusCreateResult otherCampus = createCampus(manager, "142다른캠");
+		joinCampus(campus, member);
+		joinCampus(otherCampus, member);
+		PollResult currentScheduled = createOpenCustomPoll(campus.campusId(), manager.id(), "현재 기간 SCHEDULED", SelectionType.SINGLE, false, List.of("A", "B"));
+		PollResult futureScheduled = createScheduledCustomPoll(campus.campusId(), manager.id(), "시작 전 예약", SelectionType.SINGLE, false, List.of("A"));
+		PollResult recentlyEnded = createOpenCustomPoll(campus.campusId(), manager.id(), "마감 후 3일 이내", SelectionType.SINGLE, false, List.of("A"));
+		PollResult otherCampusCurrent = createOpenCustomPoll(otherCampus.campusId(), manager.id(), "다른 캠퍼스 현재 기간", SelectionType.SINGLE, false, List.of("A"));
+		setPollStatus(currentScheduled.id(), PollStatus.SCHEDULED);
+		setPollStatus(otherCampusCurrent.id(), PollStatus.SCHEDULED);
+		closePollAt(recentlyEnded.id(), Instant.now().minusSeconds(60));
+
+		List<PollListItemResult> results = pollService.listPolls(campus.campusId(), member.id());
+
+		assertThat(results)
+			.extracting(PollListItemResult::id, PollListItemResult::status)
+			.contains(
+				org.assertj.core.groups.Tuple.tuple(currentScheduled.id(), PollStatus.OPEN),
+				org.assertj.core.groups.Tuple.tuple(recentlyEnded.id(), PollStatus.CLOSED)
+			);
+		assertThat(results).extracting(PollListItemResult::id)
+			.doesNotContain(futureScheduled.id(), otherCampusCurrent.id());
+		assertThat(pollRepository.findById(currentScheduled.id())).get()
+			.extracting(saved -> saved.status())
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(otherCampusCurrent.id())).get()
+			.extracting(saved -> saved.status())
+			.isEqualTo(PollStatus.SCHEDULED);
+
+		setPollStatus(currentScheduled.id(), PollStatus.SCHEDULED);
+
+		assertThat(pollService.getPollDetail(campus.campusId(), currentScheduled.id(), member.id()).poll().status())
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(currentScheduled.id())).get()
+			.extracting(saved -> saved.status())
+			.isEqualTo(PollStatus.OPEN);
+
+		setPollStatus(currentScheduled.id(), PollStatus.SCHEDULED);
+
+		PollResponseResult response = pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			currentScheduled.id(),
+			member.id(),
+			List.of(currentScheduled.options().get(0).id()),
+			"현재 기간 예약 row 응답"
+		));
+		assertThat(response.optionIds()).containsExactly(currentScheduled.options().get(0).id());
+		assertThat(pollRepository.findById(currentScheduled.id())).get()
+			.extracting(saved -> saved.status())
+			.isEqualTo(PollStatus.OPEN);
+
+		assertThatThrownBy(() -> pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(),
+			recentlyEnded.id(),
+			member.id(),
+			List.of(recentlyEnded.options().get(0).id()),
+			"마감 후 응답"
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CLOSED)
+			);
+	}
+
+	@Test
 	void admin_can_query_missing_poll_members_from_active_members_only() {
 		User manager = saveUser("poll-missing-manager@example.com", UserRole.MANAGER);
 		User responded = saveUser("poll-missing-responded@example.com", UserRole.USER);
@@ -2095,6 +2163,12 @@ class PollServiceTest {
 	private void setPollAllowUserOptionAdd(Long pollId, boolean allowUserOptionAdd) {
 		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
 		ReflectionTestUtils.setField(poll, "allowUserOptionAdd", allowUserOptionAdd);
+		pollRepository.saveAndFlush(poll);
+	}
+
+	private void setPollStatus(Long pollId, PollStatus status) {
+		com.faithlog.poll.domain.Poll poll = pollRepository.findById(pollId).orElseThrow();
+		ReflectionTestUtils.setField(poll, "status", status);
 		pollRepository.saveAndFlush(poll);
 	}
 

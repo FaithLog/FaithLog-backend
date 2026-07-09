@@ -31,6 +31,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-07-09
 
+- #142 투표 조회 상태 시간 동기화:
+  - 작업 기준: Issue #142 `[Fix] 투표 조회 상태 시간 동기화`, 브랜치 `fix/142-poll-status-time-sync-dev`, worktree `/Users/josephuk77/.codex/worktrees/9dfb/FaithLog`.
+  - TDD 실패 확인: `PollServiceTest.current_scheduled_poll_opens_on_member_list_detail_and_response_with_campus_scope`를 먼저 추가하고 `./gradlew test --tests com.faithlog.poll.application.PollServiceTest`를 실행해 목록 결과에 현재 기간 `SCHEDULED` 투표가 `OPEN`으로 포함되지 않는 실패를 확인했다.
+  - 구현 범위: `PollService`에서 campus path scope로 조회한 poll에 대해서만 `SCHEDULED && startsAt <= now < endsAt`이면 `poll.open()`으로 동기화한다. 사용자 목록, 상세/결과/댓글 목록 조회와 응답/댓글/사용자 옵션 open 검증 전에 적용했다.
+  - 회귀 방지: DB `timestamptz`/UTC 저장은 변경하지 않았고 `Instant` 비교를 유지했다. `CLOSED` 자동 저장, 커피 정산, 알림 같은 close side effect는 조회 동기화에서 호출하지 않았다. 시작 전 예약 투표는 사용자 목록에서 숨기고, 종료 후 사용자 3일/관리자 7일 노출 정책과 마감 투표 응답 거부 계약을 유지했다.
+  - 검증: focused PollService 테스트 성공, `./gradlew test --tests com.faithlog.poll.presentation.PollApiRestDocsTest` 성공, `./gradlew test` 성공(313 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `git diff --check` 성공.
+  - Docker QA: `scripts/qa_docker_compose_isolated.sh --suffix 142-poll-status-sync`로 app image build, PostgreSQL/Redis health, backend health `UP`, compose down까지 성공했다. 스크립트 정책에 따라 Docker volume은 삭제하지 않았다.
+  - 정적 확인: Swagger 문서화 annotation 검색은 정책 문서의 금지 예시만 매칭됐고 `src` 신규 annotation 추가는 없었다. API request/response shape 변경과 Controller Entity 직접 반환 추가는 없다.
+
 - #139 서버 DB 세션 시간대 설정 정리:
   - 작업 기준: Issue #139 `[Fix] 서버 DB 세션 시간대 설정 정리`, 브랜치 `fix/139-timezone-config`, worktree `/private/tmp/FaithLog-139-timezone-config`.
   - 문제 확인: Cloud Run health 응답의 `timestamp`가 `Z` UTC 기준으로 내려왔고, Dockerfile `TZ` 설정만으로는 repository-based Cloud Run 서버리스 배포의 Spring/JDBC/DB session timezone을 보장하지 못한다.
