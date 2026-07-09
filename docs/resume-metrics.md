@@ -29,6 +29,18 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ## Daily Monitoring Notes
 
+### 2026-07-09
+
+- #139 서버 DB 세션 시간대 설정 정리:
+  - 작업 기준: Issue #139 `[Fix] 서버 DB 세션 시간대 설정 정리`, 브랜치 `fix/139-timezone-config`, worktree `/private/tmp/FaithLog-139-timezone-config`.
+  - 문제 확인: Cloud Run health 응답의 `timestamp`가 `Z` UTC 기준으로 내려왔고, Dockerfile `TZ` 설정만으로는 repository-based Cloud Run 서버리스 배포의 Spring/JDBC/DB session timezone을 보장하지 못한다.
+  - 확정 정책: DB 저장은 `Instant` + PostgreSQL `TIMESTAMPTZ`/UTC 기준을 유지한다. Issue #139에서는 전체 API timestamp 응답 계약을 `+09:00`으로 일괄 변경하지 않고, Spring/Jackson/Hibernate/JDBC session 기준만 `Asia/Seoul`로 명시한다.
+  - TDD 실패 확인: `TimeZoneConfigurationTest`를 먼저 추가하고 `./gradlew test --tests com.faithlog.deploy.TimeZoneConfigurationTest` 실행 시 `spring.jackson.time-zone` 미설정으로 실패를 확인했다.
+  - 구현 범위: `application.yml`에 `spring.jackson.time-zone=Asia/Seoul`, `spring.jpa.properties.hibernate.jdbc.time_zone=Asia/Seoul`, `spring.datasource.hikari.connection-init-sql=SET TIME ZONE 'Asia/Seoul'`을 추가했다. DB schema와 기존 데이터는 변경하지 않았다.
+  - focused 검증: `./gradlew test --tests com.faithlog.deploy.TimeZoneConfigurationTest` 성공.
+  - 전체 검증: `./gradlew test` 성공, `./gradlew build` 성공, `git diff --check` 성공. Docker isolated QA `scripts/qa_docker_compose_isolated.sh --suffix 139-timezone`에서 app image build, PostgreSQL/Redis health, backend health `UP`, compose down까지 성공했다.
+  - 확인 사항: `/api/v1/health`의 envelope `timestamp`는 `ApiResponse.timestamp` 타입이 `Instant`라 여전히 `Z` UTC 문자열로 직렬화된다. Issue #139의 승인 범위는 전체 API timestamp 응답 계약 변경이 아니라 Spring/Jackson/Hibernate/JDBC session timezone 명시다.
+
 ### 2026-07-08
 
 - #136 운영 데이터 보관 기간과 정리 배치 구현:
