@@ -101,11 +101,13 @@ public class PollService {
 		return createDirect(command);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public List<PollListItemResult> listPolls(Long campusId, Long requesterId) {
 		pollAccessService.requirePollReader(campusId, requesterId);
 		boolean adminWindow = pollAccessService.hasAdminVisibility(campusId, requesterId);
-		List<Poll> visiblePolls = pollRepository.findByCampusIdOrderByIdDesc(campusId)
+		List<Poll> campusPolls = pollRepository.findByCampusIdOrderByIdDesc(campusId);
+		campusPolls.forEach(this::openScheduledPollIfCurrent);
+		List<Poll> visiblePolls = campusPolls
 			.stream()
 			.filter(poll -> isVisibleInWindow(poll, adminWindow))
 			.toList();
@@ -124,13 +126,13 @@ public class PollService {
 			.toList();
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public PollResult getPoll(Long campusId, Long pollId, Long requesterId) {
 		Poll poll = getVisiblePoll(campusId, pollId, requesterId);
 		return toResult(poll);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public PollDetailResult getPollDetail(Long campusId, Long pollId, Long requesterId) {
 		Poll poll = getVisiblePoll(campusId, pollId, requesterId);
 		PollResponseResult myResponse = pollResponseRepository.findByPollIdAndUserId(poll.id(), requesterId)
@@ -212,7 +214,7 @@ public class PollService {
 		return PollResponseResult.of(response, command.optionIds());
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public PollResultView getPollResults(Long campusId, Long pollId, Long requesterId) {
 		Poll poll = getVisiblePoll(campusId, pollId, requesterId);
 		List<PollOption> options = pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id());
@@ -269,7 +271,7 @@ public class PollService {
 			.toList();
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public List<PollCommentResult> listComments(Long campusId, Long pollId, Long requesterId) {
 		getVisiblePoll(campusId, pollId, requesterId);
 		return pollCommentRepository.findByPollIdOrderByIdAsc(pollId)
@@ -412,6 +414,13 @@ public class PollService {
 		}
 	}
 
+	private void openScheduledPollIfCurrent(Poll poll) {
+		Instant now = Instant.now();
+		if (poll.status() == PollStatus.SCHEDULED && !now.isBefore(poll.startsAt()) && now.isBefore(poll.endsAt())) {
+			poll.open();
+		}
+	}
+
 	private void requireCoffeePrerequisitesIfNeeded(
 		PollType pollType,
 		ChargeGenerationType chargeGenerationType,
@@ -449,6 +458,7 @@ public class PollService {
 	private Poll getVisiblePoll(Long campusId, Long pollId, Long requesterId) {
 		pollAccessService.requirePollReader(campusId, requesterId);
 		Poll poll = getPollInCampus(campusId, pollId);
+		openScheduledPollIfCurrent(poll);
 		if (!isVisibleInWindow(poll, pollAccessService.hasAdminVisibility(campusId, requesterId))) {
 			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
 		}
@@ -466,7 +476,7 @@ public class PollService {
 
 	private boolean isVisibleInWindow(Poll poll, boolean adminWindow) {
 		Instant now = Instant.now();
-		if (poll.status() == PollStatus.OPEN && !now.isBefore(poll.startsAt()) && !now.isAfter(poll.endsAt())) {
+		if (poll.status() == PollStatus.OPEN && !now.isBefore(poll.startsAt()) && now.isBefore(poll.endsAt())) {
 			return true;
 		}
 		if (now.isBefore(poll.endsAt())) {
@@ -486,8 +496,9 @@ public class PollService {
 	}
 
 	private void requireOpenPoll(Poll poll) {
+		openScheduledPollIfCurrent(poll);
 		Instant now = Instant.now();
-		if (poll.status() != PollStatus.OPEN || now.isBefore(poll.startsAt()) || now.isAfter(poll.endsAt())) {
+		if (poll.status() != PollStatus.OPEN || now.isBefore(poll.startsAt()) || !now.isBefore(poll.endsAt())) {
 			throw new BusinessException(ErrorCode.POLL_CLOSED);
 		}
 	}
