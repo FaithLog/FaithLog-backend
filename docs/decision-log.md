@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-09 - Issue #142 Poll Status Time Synchronization
+
+- Context: Production poll list queries hid polls whose `starts_at <= now < ends_at` but `polls.status = SCHEDULED`, because visibility and response validation required `OPEN`.
+- Decision: Keep PostgreSQL `timestamptz` storage as UTC and compare poll windows with `Instant`/UTC. When a poll is `SCHEDULED` and currently in its active period, synchronize it to `OPEN` at campus-scoped read/detail/result/comment-list and open-write validation boundaries before applying visibility or response rules. Do not automatically persist `CLOSED` during read synchronization, and do not call coffee settlement, notification, or other close side effects from this synchronization.
+- Impact: User poll list/detail/result/comment reads and response/comment/user-option open checks can expose and use current scheduled rows after `OPEN` synchronization. Future scheduled polls remain hidden from member active lists. Ended polls keep existing user 3-day and admin 7-day visibility windows, and closed-poll response rejection remains unchanged.
+
 ### 2026-07-09 - Issue #139 Server Timezone Configuration Policy
 
 - Context: Cloud Run health response timestamps and database dashboard views appeared as UTC (`Z`) rather than Korea time. Docker `TZ` settings are not sufficient for repository-based Cloud Run deployment, and timestamp persistence affects API/database contracts.
