@@ -2,6 +2,7 @@ package com.faithlog.billing.service;
 
 import com.faithlog.billing.service.command.ChangeChargeStatusCommand;
 import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
+import com.faithlog.billing.service.command.CreateCoffeeChargeCommand;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
 import com.faithlog.billing.service.result.ChargeItemResult;
@@ -39,6 +40,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -139,6 +141,48 @@ class BillingServiceTest {
 			.filteredOn(PaymentAccount::isActive)
 			.extracting(PaymentAccount::id)
 			.containsExactly(second.id());
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void createPaymentAccount_rolls_back_previous_deactivation_when_replacement_insert_fails() {
+		User manager = saveUser("billing-account-rollback-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "계좌롤백캠");
+		PaymentAccountResult previous = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"기존 벌금 계좌",
+			"하나은행",
+			"148-ROLLBACK-OLD",
+			"기존회계",
+			null
+		));
+
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"실패할 벌금 계좌",
+			null,
+			"148-ROLLBACK-NEW",
+			"신규회계",
+			null
+		)))
+			.isInstanceOf(DataIntegrityViolationException.class);
+
+		PaymentAccount activeAccount = paymentAccountRepository
+			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(
+				campus.campusId(),
+				PaymentCategory.PENALTY
+			)
+			.orElseThrow();
+		assertThat(activeAccount.id()).isEqualTo(previous.id());
+		assertThat(activeAccount.isActive()).isTrue();
+		assertThat(paymentAccountRepository.findByCampusIdAndAccountTypeOrderByIdAsc(
+			campus.campusId(),
+			PaymentCategory.PENALTY
+		)).hasSize(1);
 	}
 
 	@Test
@@ -873,6 +917,79 @@ class BillingServiceTest {
 			assertThat(charge.amount()).isEqualTo(2500);
 			assertThat(charge.dueDate()).isEqualTo(LocalDate.of(2026, 6, 22));
 		});
+	}
+
+	@Test
+	void createOrUpdateCoffeeCharge_updates_unpaid_charge_and_preserves_terminal_charge() {
+		User manager = saveUser("billing-coffee-upsert-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-coffee-upsert-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "커피청구갱신캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.COFFEE,
+			"커피 계좌",
+			"신한은행",
+			"148-COFFEE-ACCOUNT",
+			"커피회계",
+			null
+		));
+		CreateCoffeeChargeCommand firstCommand = new CreateCoffeeChargeCommand(
+			campus.campusId(),
+			member.id(),
+			account.id(),
+			14801L,
+			"아이스 아메리카노",
+			"첫 정산",
+			2000,
+			null
+		);
+		ChargeItemResult first = billingService.createOrUpdateCoffeeCharge(firstCommand);
+
+		ChargeItemResult updated = billingService.createOrUpdateCoffeeCharge(new CreateCoffeeChargeCommand(
+			campus.campusId(),
+			member.id(),
+			account.id(),
+			14801L,
+			"카페 라떼",
+			"최종 응답 정산",
+			3500,
+			null
+		));
+
+		assertThat(updated.id()).isEqualTo(first.id());
+		assertThat(updated.title()).isEqualTo("카페 라떼");
+		assertThat(updated.reason()).isEqualTo("최종 응답 정산");
+		assertThat(updated.amount()).isEqualTo(3500);
+		assertThat(updated.paymentAccountId()).isEqualTo(account.id());
+		assertThat(updated.accountNumberSnapshot()).isEqualTo("148-COFFEE-ACCOUNT");
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
+
+		Instant paidAt = Instant.parse("2026-07-10T01:00:00Z");
+		ChargeItem terminal = chargeItemRepository.findById(updated.id()).orElseThrow();
+		terminal.markPaid(paidAt);
+		chargeItemRepository.saveAndFlush(terminal);
+
+		ChargeItemResult preserved = billingService.createOrUpdateCoffeeCharge(new CreateCoffeeChargeCommand(
+			campus.campusId(),
+			member.id(),
+			account.id(),
+			14801L,
+			"덮어쓰기 시도",
+			"종료 후 재정산",
+			5000,
+			null
+		));
+
+		assertThat(preserved.id()).isEqualTo(first.id());
+		assertThat(preserved.status()).isEqualTo(ChargeStatus.PAID);
+		assertThat(preserved.paidAt()).isEqualTo(paidAt);
+		assertThat(preserved.title()).isEqualTo("카페 라떼");
+		assertThat(preserved.reason()).isEqualTo("최종 응답 정산");
+		assertThat(preserved.amount()).isEqualTo(3500);
+		assertThat(preserved.accountNumberSnapshot()).isEqualTo("148-COFFEE-ACCOUNT");
+		assertThat(chargeItemRepository.count()).isEqualTo(1);
 	}
 
 	@Test
