@@ -1,7 +1,8 @@
 package com.faithlog.campus.controller;
 
 import com.faithlog.campus.service.result.AdminCampusMemberResult;
-import com.faithlog.campus.service.CampusService;
+import com.faithlog.campus.service.CampusDutyAssignmentService;
+import com.faithlog.campus.service.CampusMemberManagementService;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
 import com.faithlog.campus.controller.dto.request.AssignCoffeeDutyRequest;
 import com.faithlog.campus.controller.dto.response.CampusMemberAdminResponse;
@@ -26,10 +27,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/campuses")
 public class AdminCampusController {
 
-	private final CampusService campusService;
+	private final CampusMemberManagementService campusMemberManagementService;
+	private final CampusDutyAssignmentService campusDutyAssignmentService;
 
-	public AdminCampusController(CampusService campusService) {
-		this.campusService = campusService;
+	public AdminCampusController(
+		CampusMemberManagementService campusMemberManagementService,
+		CampusDutyAssignmentService campusDutyAssignmentService
+	) {
+		this.campusMemberManagementService = campusMemberManagementService;
+		this.campusDutyAssignmentService = campusDutyAssignmentService;
 	}
 
 	@GetMapping("/{campusId}/members")
@@ -37,7 +43,8 @@ public class AdminCampusController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		List<CampusMemberAdminResponse> responses = campusService.getCampusMembers(campusId, authenticatedUser.userId())
+		List<CampusMemberAdminResponse> responses = campusMemberManagementService
+			.getCampusMembers(campusId, authenticatedUser.userId())
 			.stream()
 			.map(CampusMemberAdminResponse::from)
 			.toList();
@@ -51,7 +58,7 @@ public class AdminCampusController {
 		@PathVariable Long campusMemberId,
 		@Valid @RequestBody ChangeCampusRoleRequest request
 	) {
-		AdminCampusMemberResult result = campusService.changeCampusRole(request.toCommand(
+		AdminCampusMemberResult result = campusMemberManagementService.changeCampusRole(request.toCommand(
 			campusId,
 			campusMemberId,
 			authenticatedUser
@@ -64,7 +71,8 @@ public class AdminCampusController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		List<DutyAssignmentResponse> responses = campusService.getDutyAssignments(campusId, authenticatedUser.userId())
+		List<DutyAssignmentResponse> responses = campusDutyAssignmentService
+			.getDutyAssignments(campusId, authenticatedUser.userId())
 			.stream()
 			.map(DutyAssignmentResponse::from)
 			.toList();
@@ -77,7 +85,9 @@ public class AdminCampusController {
 		@PathVariable Long campusId,
 		@Valid @RequestBody AssignCoffeeDutyRequest request
 	) {
-		DutyAssignmentResult result = campusService.assignCoffeeDuty(request.toCommand(campusId, authenticatedUser));
+		DutyAssignmentResult result = campusDutyAssignmentService.assignCoffeeDuty(
+			request.toCommand(campusId, authenticatedUser)
+		);
 		return ApiResponse.success(DutyAssignmentResponse.from(result));
 	}
 
@@ -87,7 +97,7 @@ public class AdminCampusController {
 		@PathVariable Long campusId,
 		@PathVariable Long assignmentId
 	) {
-		campusService.revokeCoffeeDuty(campusId, assignmentId, authenticatedUser.userId());
+		campusDutyAssignmentService.revokeCoffeeDuty(campusId, assignmentId, authenticatedUser.userId());
 		return ResponseEntity.noContent().build();
 	}
 }
