@@ -1,6 +1,6 @@
 package com.faithlog.user.support;
 
-import com.faithlog.user.application.port.AccessTokenBlacklistStore;
+import com.faithlog.user.service.port.AccessTokenBlacklistStore;
 import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;

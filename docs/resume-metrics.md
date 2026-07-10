@@ -13,21 +13,33 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-08, `./gradlew test` BUILD SUCCESSFUL; 310 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 315 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `find src/test -type f` | 56 test files (2026-06-22) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 61 test files (2026-07-10) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-08) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-10) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 421 Java sources (2026-06-22) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 499 Java sources including tests (2026-07-10) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-10
+
+- #145 DDD 도메인 내부 MVC 패키지 구조 정리:
+  - 작업 기준: Issue #145 `[Refactor] DDD 도메인 내부 MVC 패키지 구조 정리`, 브랜치 `chore/145-ddd-mvc-package-structure`, 최신 `origin/develop` 기준 전용 Codex worktree.
+  - TDD 실패 확인: 신규 의존성 없이 `DomainPackageStructureTest`를 먼저 추가했다. 기존 구조에서 운영/테스트 패키지 규칙 2건이 실패하는 RED를 확인한 뒤 도메인 단위로 이동했다.
+  - 이동 범위: Java 443개 파일을 새 책임 패키지로 이동했다. 도메인별 이동 수는 admin 29, batch 14, billing 58, campus 51, devotion 53, notification 56, poll 88, prayer 47, user 45, global 2다. tracked Java 경로와 package/import에서 legacy `application`, `presentation`, `infrastructure/jpa` 잔존은 0건이다.
+  - 구조 보존: 운영 Java는 package/import와 JPQL constructor의 FQCN 경로를 제외한 본문 multiset이 `origin/develop`과 일치했다. 테스트도 package/import와 순서 격리 annotation을 제외한 기존 본문이 일치했다. API path/JSON/HTTP/error 계약, 비즈니스 로직, 인증/인가, 스케줄, 트랜잭션, Flyway, Gradle 의존성은 변경하지 않았다.
+  - 트러블슈팅: 테스트 패키지 이름이 `application/presentation`에서 `service/controller`로 바뀌면서 클래스 실행 순서가 달라졌다. 비트랜잭션 controller 테스트 데이터가 전역 count를 검증하는 admin/billing service 테스트보다 먼저 실행돼 5건이 실패했다. 두 service 통합 테스트 class 시작 전에 Spring context를 재생성하도록 격리를 보강했고 생산 코드는 변경하지 않았다.
+  - 검증: `./gradlew test` 성공(315 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공. Swagger 문서 annotation 0건, Controller의 domain Entity import 0건, 새 구조 테스트 2건 GREEN을 확인했다.
+  - Docker QA: `faithlog-qa-145-20260710` 격리 compose project에서 app image build, PostgreSQL/Redis health, backend `/api/v1/health`의 `status=UP`, compose down까지 성공했다. Docker volume은 정책에 따라 삭제하지 않았다.
+  - 이력서 문장 후보: `9개 도메인과 global의 Java 443개 파일을 DDD 최상위 경계 + MVC 책임 패키지로 재배치하고, 의존성 추가 없는 구조 회귀 테스트와 315개 전체 테스트·Docker health 검증으로 API/DB/비즈니스 동작 무변경을 보장했다.`
 
 ### 2026-07-09
 

@@ -1,6 +1,6 @@
 package com.faithlog.user.infrastructure.redis;
 
-import com.faithlog.user.application.port.RefreshTokenStore;
+import com.faithlog.user.service.port.RefreshTokenStore;
 import java.time.Duration;
 import java.util.Set;
 import org.springframework.context.annotation.Profile;

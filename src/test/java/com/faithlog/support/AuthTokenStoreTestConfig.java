@@ -1,7 +1,7 @@
 package com.faithlog.support;
 
-import com.faithlog.user.application.port.AccessTokenBlacklistStore;
-import com.faithlog.user.application.port.RefreshTokenStore;
+import com.faithlog.user.service.port.AccessTokenBlacklistStore;
+import com.faithlog.user.service.port.RefreshTokenStore;
 import com.faithlog.user.support.InMemoryAccessTokenBlacklistStore;
 import com.faithlog.user.support.InMemoryRefreshTokenStore;
 import org.springframework.context.annotation.Bean;

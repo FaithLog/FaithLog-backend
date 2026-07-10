@@ -1,6 +1,6 @@
 package com.faithlog.user.infrastructure.fcm;
 
-import com.faithlog.user.application.port.CurrentDeviceFcmTokenDeactivationPort;
+import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationPort;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

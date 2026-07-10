@@ -1,9 +1,9 @@
 package com.faithlog.poll.infrastructure.seed;
 
-import com.faithlog.poll.domain.CoffeeBrand;
-import com.faithlog.poll.domain.CoffeeMenuCatalog;
-import com.faithlog.poll.infrastructure.jpa.CoffeeBrandRepository;
-import com.faithlog.poll.infrastructure.jpa.CoffeeMenuCatalogRepository;
+import com.faithlog.poll.domain.entity.CoffeeBrand;
+import com.faithlog.poll.domain.entity.CoffeeMenuCatalog;
+import com.faithlog.poll.infrastructure.repository.CoffeeBrandRepository;
+import com.faithlog.poll.infrastructure.repository.CoffeeMenuCatalogRepository;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;

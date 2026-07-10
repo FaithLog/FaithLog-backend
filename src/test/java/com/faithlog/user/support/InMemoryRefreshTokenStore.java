@@ -1,6 +1,6 @@
 package com.faithlog.user.support;
 
-import com.faithlog.user.application.port.RefreshTokenStore;
+import com.faithlog.user.service.port.RefreshTokenStore;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
