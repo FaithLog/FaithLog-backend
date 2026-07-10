@@ -1,6 +1,6 @@
 package com.faithlog.admin.service.result;
 
-import com.faithlog.user.domain.User;
+import com.faithlog.user.domain.entity.User;
 import java.util.List;
 
 public record AdminUserResult(

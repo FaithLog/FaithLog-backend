@@ -7,9 +7,9 @@ import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.user.domain.User;
-import com.faithlog.user.domain.UserRole;
-import com.faithlog.user.infrastructure.jpa.UserRepository;
+import com.faithlog.user.domain.entity.User;
+import com.faithlog.user.domain.type.UserRole;
+import com.faithlog.user.infrastructure.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;

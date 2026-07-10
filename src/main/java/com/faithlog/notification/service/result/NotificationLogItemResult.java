@@ -3,7 +3,7 @@ package com.faithlog.notification.service.result;
 import com.faithlog.notification.domain.entity.NotificationLog;
 import com.faithlog.notification.domain.type.NotificationType;
 import com.faithlog.notification.domain.type.SendStatus;
-import com.faithlog.user.domain.User;
+import com.faithlog.user.domain.entity.User;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;

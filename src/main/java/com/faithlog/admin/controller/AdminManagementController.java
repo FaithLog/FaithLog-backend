@@ -14,7 +14,7 @@ import com.faithlog.campus.controller.dto.response.CampusMemberAdminResponse;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.response.PageResponse;
 import com.faithlog.global.security.AuthenticatedUser;
-import com.faithlog.user.domain.UserRole;
+import com.faithlog.user.domain.type.UserRole;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

@@ -10,9 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.campus.domain.type.CampusRole;
-import com.faithlog.user.domain.User;
-import com.faithlog.user.domain.UserRole;
-import com.faithlog.user.infrastructure.jpa.UserRepository;
+import com.faithlog.user.domain.entity.User;
+import com.faithlog.user.domain.type.UserRole;
+import com.faithlog.user.infrastructure.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

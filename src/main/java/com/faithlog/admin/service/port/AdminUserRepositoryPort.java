@@ -1,8 +1,8 @@
 package com.faithlog.admin.service.port;
 
 import com.faithlog.admin.service.query.AdminUserSearchCriteria;
-import com.faithlog.user.domain.User;
-import com.faithlog.user.domain.UserRole;
+import com.faithlog.user.domain.entity.User;
+import com.faithlog.user.domain.type.UserRole;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
