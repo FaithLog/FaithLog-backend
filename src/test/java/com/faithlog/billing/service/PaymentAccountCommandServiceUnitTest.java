@@ -29,7 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
-class BillingServiceUnitTest {
+class PaymentAccountCommandServiceUnitTest {
 
 	@Mock
 	private PaymentAccountRepositoryPort paymentAccountRepository;
