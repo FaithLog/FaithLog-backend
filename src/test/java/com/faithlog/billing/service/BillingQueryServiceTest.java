@@ -116,6 +116,52 @@ class BillingQueryServiceTest {
 	}
 
 	@Test
+	void listMyCharges_preserves_category_status_page_size_and_sort_combination() {
+		User manager = saveUser("query-my-combination-manager@example.com", UserRole.MANAGER, "관리자");
+		User member = saveUser("query-my-combination-member@example.com", UserRole.USER, "멤버");
+		CampusCreateResult campus = createCampus(manager, "60조합캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult penaltyAccount = createAccount(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "111-COMBINATION-PENALTY"
+		);
+		PaymentAccountResult coffeeAccount = createAccount(
+			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "111-COMBINATION-COFFEE"
+		);
+		ChargeItem olderUnpaidPenalty = saveCharge(
+			campus.campusId(), member.id(), penaltyAccount, PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 9011L, "이전 벌금", 1000, ChargeStatus.UNPAID, null
+		);
+		markCreatedAt(olderUnpaidPenalty, "2026-06-01T00:00:00Z");
+		ChargeItem newerUnpaidPenalty = saveCharge(
+			campus.campusId(), member.id(), penaltyAccount, PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 9012L, "최근 벌금", 2000, ChargeStatus.UNPAID, null
+		);
+		markCreatedAt(newerUnpaidPenalty, "2026-06-02T00:00:00Z");
+		saveCharge(
+			campus.campusId(), member.id(), coffeeAccount, PaymentCategory.COFFEE,
+			ChargeSourceType.POLL_RESPONSE, 9013L, "제외 커피", 3000, ChargeStatus.UNPAID, null
+		);
+		saveCharge(
+			campus.campusId(), member.id(), penaltyAccount, PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 9014L, "제외 납부 벌금", 4000, ChargeStatus.PAID, null
+		);
+
+		MyChargesResult result = billingQueryService.listMyCharges(new MyChargeListQuery(
+			campus.campusId(),
+			member.id(),
+			PaymentCategory.PENALTY,
+			ChargeStatus.UNPAID,
+			PageRequest.of(1, 1, Sort.by(Sort.Direction.ASC, "createdAt"))
+		));
+
+		assertThat(result.summary().totalAmount()).isEqualTo(3000);
+		assertThat(result.summary().unpaidAmount()).isEqualTo(3000);
+		assertThat(result.items())
+			.singleElement()
+			.satisfies(item -> assertThat(item.id()).isEqualTo(newerUnpaidPenalty.id()));
+	}
+
+	@Test
 	void getMyChargeSummary_uses_paidAt_for_monthly_paid_and_createdAt_for_monthly_charge_totals() {
 		User manager = saveUser("query-summary-manager@example.com", UserRole.MANAGER, "관리자");
 		User member = saveUser("query-summary-member@example.com", UserRole.USER, "멤버");
