@@ -1,7 +1,7 @@
 package com.faithlog.devotion.controller;
 
 import com.faithlog.devotion.service.result.PenaltyRuleResult;
-import com.faithlog.devotion.service.PenaltyRuleService;
+import com.faithlog.devotion.service.PenaltyRuleCommandService;
 import com.faithlog.devotion.controller.dto.request.CreatePenaltyRuleRequest;
 import com.faithlog.devotion.controller.dto.response.PenaltyRuleResponse;
 import com.faithlog.devotion.controller.dto.request.UpdatePenaltyRuleRequest;
@@ -22,10 +22,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin")
 public class AdminPenaltyRuleController {
 
-	private final PenaltyRuleService penaltyRuleService;
+	private final PenaltyRuleCommandService penaltyRuleCommandService;
 
-	public AdminPenaltyRuleController(PenaltyRuleService penaltyRuleService) {
-		this.penaltyRuleService = penaltyRuleService;
+	public AdminPenaltyRuleController(PenaltyRuleCommandService penaltyRuleCommandService) {
+		this.penaltyRuleCommandService = penaltyRuleCommandService;
 	}
 
 	@PostMapping("/campuses/{campusId}/penalty-rules")
@@ -34,7 +34,7 @@ public class AdminPenaltyRuleController {
 		@PathVariable Long campusId,
 		@Valid @RequestBody CreatePenaltyRuleRequest request
 	) {
-		PenaltyRuleResult result = penaltyRuleService.createPenaltyRule(request.toCommand(campusId, authenticatedUser));
+		PenaltyRuleResult result = penaltyRuleCommandService.createPenaltyRule(request.toCommand(campusId, authenticatedUser));
 		return ResponseEntity
 			.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(PenaltyRuleResponse.from(result), "벌금 규칙이 등록되었습니다."));
@@ -46,7 +46,7 @@ public class AdminPenaltyRuleController {
 		@PathVariable Long ruleId,
 		@Valid @RequestBody UpdatePenaltyRuleRequest request
 	) {
-		PenaltyRuleResult result = penaltyRuleService.updatePenaltyRule(request.toCommand(ruleId, authenticatedUser));
+		PenaltyRuleResult result = penaltyRuleCommandService.updatePenaltyRule(request.toCommand(ruleId, authenticatedUser));
 		return ApiResponse.success(PenaltyRuleResponse.from(result), "벌금 규칙이 수정되었습니다.");
 	}
 }
