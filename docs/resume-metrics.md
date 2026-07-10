@@ -13,23 +13,35 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 343 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 350 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 68 test files (2026-07-10) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 69 test files (2026-07-10) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-10) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 540 Java sources including tests (2026-07-10) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 548 Java sources including tests (2026-07-10) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-07-10
+
+- #152 Poll 템플릿과 커피 정산 책임 분리:
+  - 작업 기준: Issue #152 `[Refactor] 06 Poll 템플릿과 커피 정산 책임 분리`, 브랜치 `chore/152-poll-template-coffee-settlement-separation`, 별도 Codex worktree, 최신 `origin/develop` `d7ae1d6` 기준.
+  - TDD 증거: 변경 전 Poll/template/catalog/settlement/REST Docs/Batch focused 테스트를 먼저 실행해 GREEN을 확인했다. template command/query의 직접 transaction, Controller 직접 연결, thin compatibility facade, option snapshot support, 자동 생성 factory 위임, settlement command/support, 순환 의존 금지를 요구하는 구조 테스트 6건을 production 수정 전에 추가했고 6 tests / 6 failures RED를 확인한 뒤 책임 이동으로 GREEN을 만들었다. 자동 생성 snapshot 전체 필드와 비활성 auto template 제외 characterization도 보강했다.
+  - 책임 분리: 템플릿 command 3개는 `PollTemplateCommandService`, query 2개는 `PollTemplateQueryService`가 기존 transaction을 직접 소유하고, `PollTemplateOptionSupport`가 메뉴 snapshot resolve와 option save/replace/ordered result를 응집한다. `AdminPollTemplateController`는 전용 서비스를 직접 호출하며 `PollTemplateService`는 repository/transaction/BusinessException/business-rule-free delegate다. 이미 응집된 `CoffeeCatalogService`는 변경하지 않았다.
+  - 자동 생성/정산 경계: `ScheduledPollFactory`가 동일 campus/template/week 중복 확인과 template option의 Poll/PollOption snapshot 복사를 소유하고, `PollAutomationService`는 due 탐색·Asia/Seoul window·Redis lock·`TransactionTemplate`·close/settlement orchestration을 유지한다. `CoffeePollSettlementSupport`는 CLOSED/COFFEE/OPTION_PRICE/COFFEE eligibility와 duty/response/option 조회를 기존 순서로 조립하고, `CoffeePollSettlementCommandService`가 all-or-nothing transaction과 Billing port 호출을 직접 소유한다. 기존 settlement service는 수동 close와 scheduler 호출을 유지하는 thin delegate다.
+  - 정량 변화: `PollTemplateService` 218→42줄(-176, -80.7%), `PollAutomationService` 207→121줄(-86, -41.5%), `CoffeePollSettlementService` 130→17줄(-113, -86.9%)로 orchestration/facade 책임을 축소했다. 템플릿 5개 public use case는 2개 전용 Service에 분리됐고, 신규 구조 테스트는 6개다. 전체 Java source/test 파일은 548개, test file은 69개다. 추출된 전용 class의 추가 줄 수를 제외한 facade/orchestrator 감소 수치이며 전체 코드 감소로 해석하지 않는다.
+  - 정책 보존: API mapping/query/DTO/HTTP/ErrorCode/message, campus scope 은닉, 관리자/커피 담당자와 본인 active COFFEE 계좌, template 설정·sortOrder·menu code/name/price snapshot, active/due/주차 중복, lock key/fail-closed, scheduler 설정, settlement eligibility/source/snapshot/dueDate, UNPAID 멱등성, terminal 보호, 한 poll rollback을 그대로 유지했다. Entity/DB/Flyway/repository/의존성 변경 0건, Swagger annotation 추가 0건, Controller Entity import 0건, 서비스 순환 의존 0건을 확인했다.
+  - 검증: Poll/template/catalog/settlement/REST Docs/Batch focused 62 tests / 0 failures, #165 원본 Billing/Devotion/Poll/Batch 4-domain 조합 204 tests / 0 failures / 0 errors / 0 skipped, 전체 `./gradlew test` 350 tests / 0 failures / 0 errors / 1 skipped(실행된 테스트 통과율 100%), `./gradlew build`와 `./gradlew asciidoctor` 성공, `git diff --check` 성공. GitHub CI는 PR/push 금지 지시로 실행하지 않았다.
+  - Docker QA: `faithlog-qa-152-poll` 격리 compose project에서 clean app image build, PostgreSQL/Redis `healthy`, backend `/api/v1/health`의 `data.status=UP`, 동일 project의 volume 삭제 없는 compose down을 확인했다. 마지막 Docker 명령으로 `docker builder prune -f`만 실행해 미사용 build cache 696.2MB를 정리했다.
+  - 도구 제약: Issue #152의 `projectItems`가 비어 있어 Project 카드 상태를 변경하지 못했다. 비활성 보관된 `pm-dev` 원문의 `dev_gate.py`는 `harness.yaml`, `.harness` 기획/정책, custom agent 설정 부재로 실패했고 PM 승인에 따라 저장소 규칙을 실제 gate로 사용했다. `score_code.py`는 critical/security finding 0건의 보고서를 생성했지만 specialist/overall score가 없어 `passed=false`; `review_gate.py`도 Harness quality/TDD 파일 부재로 실패했다. 생성된 `.harness/` 보고서는 untracked로 보존했고 커밋하거나 삭제하지 않았다.
+  - 이력서 문장 후보: `Poll template의 5개 command/query와 자동 생성·커피 정산 책임을 전용 Service/Support/Factory로 분리해 기존 통합 Service를 최대 86.9% 축소하고, 6개 구조 회귀 테스트·350개 전체 테스트·204개 4-domain 테스트·격리 Docker health 검증으로 API·DB·권한·스케줄·정산 동작 무변경을 보장했다.`
 
 - #151 Poll 핵심 유스케이스 책임 분리:
   - 작업 기준: Issue #151 `[Refactor] 05 Poll 핵심 유스케이스 책임 분리`, 브랜치 `chore/151-poll-core-usecase-separation`, 별도 Codex worktree, 최신 `origin/develop` `0d099ed` 기준.
