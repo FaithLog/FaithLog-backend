@@ -1,6 +1,6 @@
 package com.faithlog.devotion.controller;
 
-import com.faithlog.devotion.service.DevotionService;
+import com.faithlog.devotion.service.MissingDevotionMemberQueryService;
 import com.faithlog.devotion.service.query.GetMissingDevotionMembersQuery;
 import com.faithlog.devotion.controller.dto.response.MissingDevotionMemberResponse;
 import com.faithlog.global.response.ApiResponse;
@@ -18,10 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/campuses/{campusId}/devotions")
 public class AdminDevotionController {
 
-	private final DevotionService devotionService;
+	private final MissingDevotionMemberQueryService missingDevotionMemberQueryService;
 
-	public AdminDevotionController(DevotionService devotionService) {
-		this.devotionService = devotionService;
+	public AdminDevotionController(MissingDevotionMemberQueryService missingDevotionMemberQueryService) {
+		this.missingDevotionMemberQueryService = missingDevotionMemberQueryService;
 	}
 
 	@GetMapping("/missing")
@@ -30,7 +30,7 @@ public class AdminDevotionController {
 		@PathVariable Long campusId,
 		@RequestParam LocalDate weekStartDate
 	) {
-		List<MissingDevotionMemberResponse> responses = devotionService.getMissingMembers(new GetMissingDevotionMembersQuery(
+		List<MissingDevotionMemberResponse> responses = missingDevotionMemberQueryService.getMissingMembers(new GetMissingDevotionMembersQuery(
 				campusId,
 				authenticatedUser.userId(),
 				weekStartDate
