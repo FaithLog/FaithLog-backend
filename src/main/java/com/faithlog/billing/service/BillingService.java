@@ -13,12 +13,10 @@ import com.faithlog.billing.service.policy.BillingAccessPolicy;
 import com.faithlog.billing.service.policy.ChargeStatusPolicy;
 import com.faithlog.billing.domain.entity.ChargeItem;
 import com.faithlog.billing.domain.type.ChargeSourceType;
-import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
-import com.faithlog.campus.service.port.CampusRepositoryPort;
 import com.faithlog.campus.service.port.CampusUserLookupPort;
 import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.campus.domain.entity.CampusMember;
@@ -34,100 +32,43 @@ public class BillingService {
 
 	private static final String ACCOUNT_LIST_FORBIDDEN = "캠퍼스 납부 계좌 조회 권한이 없습니다.";
 
+	private final PaymentAccountCommandService paymentAccountCommandService;
 	private final PaymentAccountRepositoryPort paymentAccountRepository;
 	private final ChargeItemRepositoryPort chargeItemRepository;
-	private final CampusRepositoryPort campusRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 
 	public BillingService(
+		PaymentAccountCommandService paymentAccountCommandService,
 		PaymentAccountRepositoryPort paymentAccountRepository,
 		ChargeItemRepositoryPort chargeItemRepository,
-		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusUserLookupPort userLookupPort,
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
 	) {
+		this.paymentAccountCommandService = paymentAccountCommandService;
 		this.paymentAccountRepository = paymentAccountRepository;
 		this.chargeItemRepository = chargeItemRepository;
-		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
 	}
 
-	@Transactional
 	public PaymentAccountResult createPaymentAccount(CreatePaymentAccountCommand command) {
-		requirePaymentAccountManager(command.campusId(), command.requesterId(), command.accountType());
-		lockCampusOrThrow(command.campusId());
-		Long ownerUserId = resolveOwnerUserId(command);
-
-		if (deactivatePreviousActiveAccount(command.campusId(), command.accountType(), ownerUserId)) {
-			paymentAccountRepository.flush();
-		}
-
-		PaymentAccount account = paymentAccountRepository.save(PaymentAccount.create(
-			command.campusId(),
-			command.accountType(),
-			command.nickname(),
-			command.bankName(),
-			command.accountNumber(),
-			command.accountHolder(),
-			ownerUserId
-		));
-
-		if (account.accountType() == PaymentCategory.PENALTY) {
-			reconnectUnpaidCharges(account);
-		}
-		return PaymentAccountResult.from(account);
+		return paymentAccountCommandService.createPaymentAccount(command);
 	}
 
-	@Transactional
 	public PaymentAccountResult deactivatePaymentAccount(Long accountId, Long requesterId) {
-		PaymentAccount account = paymentAccountRepository.findById(accountId)
-			.filter(paymentAccount -> !paymentAccount.isDeleted())
-			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
-		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
-		requirePaymentAccountManager(account.campusId(), requesterId, account.accountType());
-
-		account.deactivate();
-		return PaymentAccountResult.from(account);
+		return paymentAccountCommandService.deactivatePaymentAccount(accountId, requesterId);
 	}
 
-	@Transactional
 	public PaymentAccountResult activatePenaltyPaymentAccount(Long campusId, Long paymentAccountId, Long requesterId) {
-		lockCampusOrThrow(campusId);
-		PaymentAccount account = findPaymentAccountInCampus(campusId, paymentAccountId);
-		if (account.accountType() != PaymentCategory.PENALTY) {
-			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_ACTIVATE_UNSUPPORTED);
-		}
-		requirePaymentAccountManager(campusId, requesterId, PaymentCategory.PENALTY);
-		if (account.isActive()) {
-			return PaymentAccountResult.from(account);
-		}
-
-		paymentAccountRepository
-			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(campusId, PaymentCategory.PENALTY)
-			.filter(activeAccount -> !activeAccount.id().equals(account.id()))
-			.ifPresent(activeAccount -> {
-				activeAccount.deactivate();
-				paymentAccountRepository.flush();
-			});
-		account.activate();
-		reconnectUnpaidCharges(account);
-		return PaymentAccountResult.from(account);
+		return paymentAccountCommandService.activatePenaltyPaymentAccount(campusId, paymentAccountId, requesterId);
 	}
 
-	@Transactional
 	public void deletePaymentAccount(Long campusId, Long paymentAccountId, Long requesterId) {
-		PaymentAccount account = findPaymentAccountInCampus(campusId, paymentAccountId);
-		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
-		requirePaymentAccountManager(campusId, requesterId, account.accountType());
-		if (account.isActive()) {
-			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_ACTIVE_DELETE_FORBIDDEN);
-		}
-		account.softDelete();
+		paymentAccountCommandService.deletePaymentAccount(campusId, paymentAccountId, requesterId);
 	}
 
 	@Transactional(readOnly = true)
@@ -298,57 +239,6 @@ public class BillingService {
 		return ChargeItemResult.from(chargeItem);
 	}
 
-	private void reconnectUnpaidCharges(PaymentAccount account) {
-		chargeItemRepository.findByCampusIdAndPaymentCategoryAndStatus(
-				account.campusId(),
-				account.accountType(),
-				ChargeStatus.UNPAID
-			)
-			.forEach(chargeItem -> chargeItem.reconnectPaymentAccount(account));
-	}
-
-	private Long resolveOwnerUserId(CreatePaymentAccountCommand command) {
-		if (command.accountType() == PaymentCategory.PENALTY) {
-			return command.ownerUserId() == null ? command.requesterId() : command.ownerUserId();
-		}
-		if (command.ownerUserId() != null && !command.ownerUserId().equals(command.requesterId())) {
-			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN);
-		}
-		return command.requesterId();
-	}
-
-	private boolean deactivatePreviousActiveAccount(Long campusId, PaymentCategory accountType, Long ownerUserId) {
-		if (accountType == PaymentCategory.COFFEE) {
-			return paymentAccountRepository
-				.findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNull(campusId, accountType, ownerUserId)
-				.map(activeAccount -> {
-					activeAccount.deactivate();
-					return true;
-				})
-				.orElse(false);
-		}
-		return paymentAccountRepository
-			.findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(campusId, accountType)
-			.map(activeAccount -> {
-				activeAccount.deactivate();
-				return true;
-			})
-			.orElse(false);
-	}
-
-	private void requireCoffeeAccountOwnerIfNeeded(PaymentAccount account, Long requesterId) {
-		if (account.accountType() != PaymentCategory.COFFEE) {
-			return;
-		}
-		CampusUserLookupResult requester = getActiveUser(requesterId);
-		if (requester.isAdmin()) {
-			return;
-		}
-		if (!requester.userId().equals(account.ownerUserId())) {
-			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN);
-		}
-	}
-
 	private PaymentAccount findValidCoffeeAccount(CreateCoffeeChargeCommand command) {
 		if (command.paymentAccountId() == null) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
@@ -380,27 +270,6 @@ public class BillingService {
 		return accounts.stream()
 			.map(PaymentAccountResult::from)
 			.toList();
-	}
-
-	private PaymentAccount findPaymentAccountInCampus(Long campusId, Long paymentAccountId) {
-		return paymentAccountRepository.findById(paymentAccountId)
-			.filter(account -> !account.isDeleted())
-			.filter(account -> account.campusId().equals(campusId))
-			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
-	}
-
-	private void requirePaymentAccountManager(Long campusId, Long requesterId, PaymentCategory accountType) {
-		CampusUserLookupResult requester = getActiveUser(requesterId);
-		if (requester.isAdmin()) {
-			return;
-		}
-		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
-			.filter(CampusMember::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN));
-		if (accountType == PaymentCategory.COFFEE && isActiveCoffeeDuty(campusId, requester.userId())) {
-			return;
-		}
-		BillingAccessPolicy.requirePaymentAccountManager(requesterMembership);
 	}
 
 	private boolean isCampusManager(Long campusId, Long requesterId) {
@@ -461,8 +330,4 @@ public class BillingService {
 		return user;
 	}
 
-	private void lockCampusOrThrow(Long campusId) {
-		campusRepository.findByIdForUpdate(campusId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
-	}
 }
