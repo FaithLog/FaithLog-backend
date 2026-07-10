@@ -3,6 +3,8 @@ package com.faithlog.prayer.controller;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.prayer.service.PrayerService;
+import com.faithlog.prayer.service.PrayerSeasonCommandService;
+import com.faithlog.prayer.service.PrayerSeasonQueryService;
 import com.faithlog.prayer.controller.dto.request.ClosePrayerSeasonRequest;
 import com.faithlog.prayer.controller.dto.request.CreatePrayerGroupRequest;
 import com.faithlog.prayer.controller.dto.request.CreatePrayerSeasonRequest;
@@ -29,9 +31,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin")
 public class AdminPrayerController {
 
+	private final PrayerSeasonCommandService seasonCommandService;
+	private final PrayerSeasonQueryService seasonQueryService;
 	private final PrayerService prayerService;
 
-	public AdminPrayerController(PrayerService prayerService) {
+	public AdminPrayerController(
+		PrayerSeasonCommandService seasonCommandService,
+		PrayerSeasonQueryService seasonQueryService,
+		PrayerService prayerService
+	) {
+		this.seasonCommandService = seasonCommandService;
+		this.seasonQueryService = seasonQueryService;
 		this.prayerService = prayerService;
 	}
 
@@ -41,7 +51,7 @@ public class AdminPrayerController {
 		@PathVariable Long campusId,
 		@Valid @RequestBody CreatePrayerSeasonRequest request
 	) {
-		PrayerSeasonResponse response = PrayerSeasonResponse.from(prayerService.createSeason(request.toCommand(campusId, authenticatedUser)));
+		PrayerSeasonResponse response = PrayerSeasonResponse.from(seasonCommandService.createSeason(request.toCommand(campusId, authenticatedUser)));
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 
@@ -50,7 +60,7 @@ public class AdminPrayerController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		var result = prayerService.getCurrentSeason(campusId, authenticatedUser.userId());
+		var result = seasonQueryService.getCurrentSeason(campusId, authenticatedUser.userId());
 		return ApiResponse.success(result == null ? null : PrayerSeasonResponse.from(result));
 	}
 
@@ -60,7 +70,7 @@ public class AdminPrayerController {
 		@PathVariable Long seasonId,
 		@Valid @RequestBody ClosePrayerSeasonRequest request
 	) {
-		return ApiResponse.success(PrayerSeasonResponse.from(prayerService.closeSeason(request.toCommand(seasonId, authenticatedUser))));
+		return ApiResponse.success(PrayerSeasonResponse.from(seasonCommandService.closeSeason(request.toCommand(seasonId, authenticatedUser))));
 	}
 
 	@PostMapping("/prayer-seasons/{seasonId}/groups")
