@@ -2,7 +2,9 @@ package com.faithlog.poll.controller;
 
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
-import com.faithlog.poll.service.PollService;
+import com.faithlog.poll.service.PollCreationCommandService;
+import com.faithlog.poll.service.PollResultQueryService;
+import com.faithlog.poll.service.PollStatusCommandService;
 import com.faithlog.poll.controller.dto.request.CreatePollRequest;
 import com.faithlog.poll.controller.dto.response.PollMissingMemberResponse;
 import com.faithlog.poll.controller.dto.response.PollResponse;
@@ -23,10 +25,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/campuses/{campusId}/polls")
 public class AdminPollController {
 
-	private final PollService pollService;
+	private final PollCreationCommandService pollCreationCommandService;
+	private final PollResultQueryService pollResultQueryService;
+	private final PollStatusCommandService pollStatusCommandService;
 
-	public AdminPollController(PollService pollService) {
-		this.pollService = pollService;
+	public AdminPollController(
+		PollCreationCommandService pollCreationCommandService,
+		PollResultQueryService pollResultQueryService,
+		PollStatusCommandService pollStatusCommandService
+	) {
+		this.pollCreationCommandService = pollCreationCommandService;
+		this.pollResultQueryService = pollResultQueryService;
+		this.pollStatusCommandService = pollStatusCommandService;
 	}
 
 	@PostMapping
@@ -35,7 +45,7 @@ public class AdminPollController {
 		@PathVariable Long campusId,
 		@Valid @RequestBody CreatePollRequest request
 	) {
-		PollResponse response = PollResponse.from(pollService.createPoll(request.toCommand(campusId, authenticatedUser)));
+		PollResponse response = PollResponse.from(pollCreationCommandService.createPoll(request.toCommand(campusId, authenticatedUser)));
 		return ResponseEntity.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(response, "투표가 생성되었습니다."));
 	}
@@ -46,7 +56,7 @@ public class AdminPollController {
 		@PathVariable Long campusId,
 		@PathVariable Long pollId
 	) {
-		return ApiResponse.success(pollService.getMissingMembers(campusId, pollId, authenticatedUser.userId())
+		return ApiResponse.success(pollResultQueryService.getMissingMembers(campusId, pollId, authenticatedUser.userId())
 			.stream()
 			.map(PollMissingMemberResponse::from)
 			.toList());
@@ -58,6 +68,6 @@ public class AdminPollController {
 		@PathVariable Long campusId,
 		@PathVariable Long pollId
 	) {
-		return ApiResponse.success(PollResponse.from(pollService.closePoll(campusId, pollId, authenticatedUser.userId())));
+		return ApiResponse.success(PollResponse.from(pollStatusCommandService.closePoll(campusId, pollId, authenticatedUser.userId())));
 	}
 }
