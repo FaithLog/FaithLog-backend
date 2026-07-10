@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-10 - Issue #148 Billing Command Use Case Service Separation
+
+- Context: After Issue #145 established the domain-first MVC package structure and Issue #147 separated Campus/Admin use cases, `BillingService` still owned payment account commands, charge creation, charge status changes, and legacy payment-account reads in one class. Issue #148 requires command responsibility separation without changing Billing policies, transaction results, API contracts, or persistence behavior.
+- Decision: Split the eight Billing command use cases into `PaymentAccountCommandService`, `ChargeCreationService`, and `ChargeStatusCommandService`. Each moved public method directly owns the same write `@Transactional` boundary. Controllers call the payment-account and charge-status services directly, while Devotion and Poll Billing adapters call `ChargeCreationService` directly.
+- Decision: Keep `BillingService` only as a repository-free, transaction-free compatibility facade for existing internal callers and test fixtures. To make that facade complete without implementing Issue #149 query redesign, move `listPaymentAccounts`, both `listAdminPaymentAccounts` overloads, and `requireActivePenaltyAccount` mechanically into the existing `BillingQueryService` with the same read-only transaction annotations, validation order, repository calls, ErrorCodes, and messages.
+- Impact: Campus lock, owner scope, active-account replacement, deactivate-then-flush-before-insert ordering, PENALTY unpaid-charge reconnection, account snapshots, soft delete, terminal-charge behavior, unique-conflict propagation, and Devotion/Poll outer transaction rollback remain unchanged. API paths, request/response JSON, HTTP/ErrorCode/message contracts, DB schema, Billing entities, Flyway migrations, authorization, pagination/query behavior, and dependencies do not change.
+
 ### 2026-07-10 - Issue #147 Campus And Admin Use Case Service Separation
 
 - Context: After Issue #145 established the domain-first MVC package structure, `CampusService` still owned creation, invite-code join, query, update, member management, role management, and duty assignment, while `AdminManagementService` mixed service-admin user and campus management. `AdminDashboardService` also kept its query result contract nested in the implementation class.
