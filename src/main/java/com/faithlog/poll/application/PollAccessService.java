@@ -1,12 +1,12 @@
 package com.faithlog.poll.application;
 
-import com.faithlog.campus.application.policy.CampusRolePolicy;
-import com.faithlog.campus.application.port.CampusDutyAssignmentRepositoryPort;
-import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
-import com.faithlog.campus.application.port.CampusUserLookupPort;
-import com.faithlog.campus.application.port.CampusUserLookupResult;
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.domain.DutyType;
+import com.faithlog.campus.service.policy.CampusRolePolicy;
+import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
+import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.service.port.CampusUserLookupPort;
+import com.faithlog.campus.service.port.CampusUserLookupResult;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.PollType;

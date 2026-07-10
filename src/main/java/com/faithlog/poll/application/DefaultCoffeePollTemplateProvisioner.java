@@ -1,6 +1,6 @@
 package com.faithlog.poll.application;
 
-import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.ChargeGenerationType;

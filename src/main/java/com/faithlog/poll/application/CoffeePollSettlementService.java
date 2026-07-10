@@ -1,8 +1,8 @@
 package com.faithlog.poll.application;
 
-import com.faithlog.billing.domain.PaymentCategory;
-import com.faithlog.campus.application.port.CampusDutyAssignmentRepositoryPort;
-import com.faithlog.campus.domain.DutyType;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
+import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.application.port.CoffeePollChargeCommand;

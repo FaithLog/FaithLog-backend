@@ -1,11 +1,11 @@
 package com.faithlog.devotion.application;
 
-import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
-import com.faithlog.campus.application.port.CampusRepositoryPort;
-import com.faithlog.campus.application.port.CampusUserLookupPort;
-import com.faithlog.campus.application.port.CampusUserLookupResult;
-import com.faithlog.campus.application.policy.CampusRolePolicy;
-import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.service.port.CampusRepositoryPort;
+import com.faithlog.campus.service.port.CampusUserLookupPort;
+import com.faithlog.campus.service.port.CampusUserLookupResult;
+import com.faithlog.campus.service.policy.CampusRolePolicy;
+import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.devotion.domain.PenaltyRule;
 import com.faithlog.devotion.domain.PenaltyRuleType;
 import com.faithlog.devotion.infrastructure.jpa.PenaltyRuleRepository;

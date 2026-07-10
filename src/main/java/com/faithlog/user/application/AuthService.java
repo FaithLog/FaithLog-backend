@@ -1,8 +1,8 @@
 package com.faithlog.user.application;
 
-import com.faithlog.campus.application.CampusMembershipRow;
-import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
-import com.faithlog.campus.domain.CampusMemberStatus;
+import com.faithlog.campus.service.result.CampusMembershipRow;
+import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.domain.type.CampusMemberStatus;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.global.security.JwtProvider;

@@ -1,6 +1,6 @@
 package com.faithlog.devotion.application;
 
-import com.faithlog.campus.domain.Campus;
+import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.devotion.domain.DevotionDailyCheck;
 import com.faithlog.devotion.domain.WeeklyDevotionRecord;
 import java.time.Instant;

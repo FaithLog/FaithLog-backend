@@ -1,7 +1,7 @@
 package com.faithlog.user.application;
 
-import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
-import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.notification.domain.UserFcmToken;

@@ -2,16 +2,16 @@ package com.faithlog.batch.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.billing.application.BillingService;
-import com.faithlog.billing.application.CreatePaymentAccountCommand;
-import com.faithlog.billing.domain.ChargeItem;
-import com.faithlog.billing.domain.PaymentCategory;
-import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
-import com.faithlog.campus.application.AssignCoffeeDutyCommand;
-import com.faithlog.campus.application.CampusCreateResult;
-import com.faithlog.campus.application.CampusService;
-import com.faithlog.campus.application.CreateCampusCommand;
-import com.faithlog.campus.application.JoinCampusCommand;
+import com.faithlog.billing.service.BillingService;
+import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.campus.service.CampusService;
+import com.faithlog.campus.service.command.CreateCampusCommand;
+import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.poll.application.CreatePollTemplateCommand;
 import com.faithlog.poll.application.CreatePollTemplateOptionCommand;
 import com.faithlog.poll.application.PollService;

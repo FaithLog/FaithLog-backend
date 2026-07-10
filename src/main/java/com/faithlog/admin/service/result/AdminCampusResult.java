@@ -1,8 +1,8 @@
 package com.faithlog.admin.service.result;
 
 import com.faithlog.admin.service.query.AdminCampusStatus;
-import com.faithlog.campus.domain.Campus;
-import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusMember;
 import java.util.List;
 
 public record AdminCampusResult(

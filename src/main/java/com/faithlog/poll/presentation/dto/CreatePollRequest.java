@@ -1,6 +1,6 @@
 package com.faithlog.poll.presentation.dto;
 
-import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.poll.application.CreatePollCommand;
 import com.faithlog.poll.domain.ChargeGenerationType;

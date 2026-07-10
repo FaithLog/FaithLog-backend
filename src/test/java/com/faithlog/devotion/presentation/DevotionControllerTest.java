@@ -9,13 +9,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.faithlog.billing.application.BillingService;
-import com.faithlog.billing.application.CreatePaymentAccountCommand;
-import com.faithlog.billing.domain.PaymentCategory;
-import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.domain.CampusRole;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
+import com.faithlog.billing.service.BillingService;
+import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.type.CampusRole;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.devotion.domain.PenaltyCalculationType;
 import com.faithlog.devotion.domain.PenaltyRule;
 import com.faithlog.devotion.domain.PenaltyRuleType;

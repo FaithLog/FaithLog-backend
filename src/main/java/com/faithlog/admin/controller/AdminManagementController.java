@@ -10,7 +10,7 @@ import com.faithlog.admin.controller.dto.response.AdminUserCampusResponse;
 import com.faithlog.admin.controller.dto.response.AdminUserDetailResponse;
 import com.faithlog.admin.controller.dto.response.AdminUserSummaryResponse;
 import com.faithlog.admin.controller.dto.request.ChangeUserRoleRequest;
-import com.faithlog.campus.presentation.dto.CampusMemberAdminResponse;
+import com.faithlog.campus.controller.dto.response.CampusMemberAdminResponse;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.response.PageResponse;
 import com.faithlog.global.security.AuthenticatedUser;

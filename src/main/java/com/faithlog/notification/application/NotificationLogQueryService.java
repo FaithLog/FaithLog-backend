@@ -1,8 +1,8 @@
 package com.faithlog.notification.application;
 
-import com.faithlog.campus.application.policy.CampusRolePolicy;
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
+import com.faithlog.campus.service.policy.CampusRolePolicy;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.notification.domain.NotificationLog;

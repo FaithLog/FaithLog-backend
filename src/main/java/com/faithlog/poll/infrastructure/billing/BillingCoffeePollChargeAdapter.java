@@ -1,7 +1,7 @@
 package com.faithlog.poll.infrastructure.billing;
 
-import com.faithlog.billing.application.BillingService;
-import com.faithlog.billing.application.CreateCoffeeChargeCommand;
+import com.faithlog.billing.service.BillingService;
+import com.faithlog.billing.service.command.CreateCoffeeChargeCommand;
 import com.faithlog.poll.application.port.CoffeePollChargeCommand;
 import com.faithlog.poll.application.port.CoffeePollChargePort;
 import org.springframework.stereotype.Component;

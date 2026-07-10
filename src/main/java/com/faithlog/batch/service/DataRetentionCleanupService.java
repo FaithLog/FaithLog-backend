@@ -1,8 +1,8 @@
 package com.faithlog.batch.service;
 
 import com.faithlog.batch.service.result.DataRetentionCleanupResult;
-import com.faithlog.billing.domain.ChargeStatus;
-import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
+import com.faithlog.billing.domain.type.ChargeStatus;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.devotion.infrastructure.jpa.DevotionDailyCheckRepository;
 import com.faithlog.devotion.infrastructure.jpa.WeeklyDevotionRecordRepository;
 import com.faithlog.notification.application.NotificationLockKey;

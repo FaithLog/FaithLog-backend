@@ -7,13 +7,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.faithlog.billing.domain.ChargeItem;
-import com.faithlog.billing.domain.ChargeSourceType;
-import com.faithlog.billing.domain.PaymentCategory;
-import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.domain.CampusRole;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.type.CampusRole;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.devotion.domain.WeeklyDevotionRecord;
 import com.faithlog.devotion.infrastructure.jpa.WeeklyDevotionRecordRepository;
 import com.faithlog.poll.domain.ChargeGenerationType;

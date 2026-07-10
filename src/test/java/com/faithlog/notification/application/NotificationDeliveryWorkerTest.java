@@ -2,10 +2,10 @@ package com.faithlog.notification.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.campus.domain.Campus;
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
-import com.faithlog.campus.infrastructure.jpa.CampusRepository;
+import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.notification.application.port.FcmSendCommand;
 import com.faithlog.notification.application.port.FcmSendFailureType;
 import com.faithlog.notification.application.port.FcmSendPort;

@@ -9,8 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.faithlog.campus.domain.CampusMemberStatus;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
+import com.faithlog.campus.domain.type.CampusMemberStatus;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.notification.infrastructure.jpa.UserFcmTokenRepository;
 import com.faithlog.user.application.port.AccessTokenBlacklistStore;
 import com.faithlog.user.application.port.RefreshTokenStore;

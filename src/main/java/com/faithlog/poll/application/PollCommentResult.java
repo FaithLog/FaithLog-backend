@@ -1,6 +1,6 @@
 package com.faithlog.poll.application;
 
-import com.faithlog.campus.application.port.CampusUserLookupResult;
+import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.poll.domain.PollComment;
 import java.time.Instant;
 

@@ -1,8 +1,8 @@
 package com.faithlog.devotion.application;
 
-import com.faithlog.campus.application.port.CampusUserLookupResult;
-import com.faithlog.campus.domain.Campus;
-import com.faithlog.campus.domain.CampusMember;
+import com.faithlog.campus.service.port.CampusUserLookupResult;
+import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusMember;
 
 public record MissingDevotionMemberResult(
 	Long userId,

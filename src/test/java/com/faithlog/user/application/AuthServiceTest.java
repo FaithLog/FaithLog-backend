@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.security.JwtProvider;
-import com.faithlog.campus.application.CampusCreateResult;
-import com.faithlog.campus.application.CampusService;
-import com.faithlog.campus.application.CreateCampusCommand;
-import com.faithlog.campus.application.JoinCampusCommand;
+import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.campus.service.CampusService;
+import com.faithlog.campus.service.command.CreateCampusCommand;
+import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;

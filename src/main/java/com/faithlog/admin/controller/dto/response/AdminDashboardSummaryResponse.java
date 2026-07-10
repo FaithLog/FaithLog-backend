@@ -7,7 +7,7 @@ import com.faithlog.admin.service.AdminDashboardService.ChargeSummary;
 import com.faithlog.admin.service.AdminDashboardService.DevotionSummary;
 import com.faithlog.admin.service.AdminDashboardService.MemberSummary;
 import com.faithlog.admin.service.AdminDashboardService.PollSummary;
-import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import java.time.LocalDate;
 import java.util.List;
 

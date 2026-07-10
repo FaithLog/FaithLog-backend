@@ -2,9 +2,9 @@ package com.faithlog.user.infrastructure.jpa;
 
 import com.faithlog.admin.service.query.AdminUserSearchCriteria;
 import com.faithlog.admin.service.port.AdminUserRepositoryPort;
-import com.faithlog.campus.application.port.CampusUserLookupPort;
-import com.faithlog.campus.application.port.CampusUserLookupResult;
-import com.faithlog.campus.application.port.CampusUserTokenVersionPort;
+import com.faithlog.campus.service.port.CampusUserLookupPort;
+import com.faithlog.campus.service.port.CampusUserLookupResult;
+import com.faithlog.campus.service.port.CampusUserTokenVersionPort;
 import com.faithlog.user.domain.User;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;

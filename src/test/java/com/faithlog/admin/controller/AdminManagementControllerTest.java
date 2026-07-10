@@ -10,10 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.domain.CampusMemberStatus;
-import com.faithlog.campus.domain.CampusRole;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.type.CampusMemberStatus;
+import com.faithlog.campus.domain.type.CampusRole;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.domain.UserRole;
 import com.faithlog.user.infrastructure.jpa.UserRepository;

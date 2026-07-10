@@ -20,9 +20,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.faithlog.billing.application.BillingService;
-import com.faithlog.billing.application.CreatePaymentAccountCommand;
-import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.billing.service.BillingService;
+import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.devotion.domain.PenaltyCalculationType;
 import com.faithlog.devotion.domain.PenaltyRule;
 import com.faithlog.devotion.domain.PenaltyRuleType;

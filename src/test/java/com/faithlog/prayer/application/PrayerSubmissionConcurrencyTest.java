@@ -2,10 +2,10 @@ package com.faithlog.prayer.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.campus.application.CampusCreateResult;
-import com.faithlog.campus.application.CampusService;
-import com.faithlog.campus.application.CreateCampusCommand;
-import com.faithlog.campus.application.JoinCampusCommand;
+import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.campus.service.CampusService;
+import com.faithlog.campus.service.command.CreateCampusCommand;
+import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.prayer.domain.PrayerSubmission;
 import com.faithlog.prayer.infrastructure.jpa.PrayerSubmissionRepository;

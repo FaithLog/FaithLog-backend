@@ -1,13 +1,13 @@
 package com.faithlog.devotion.application;
 
-import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
-import com.faithlog.campus.application.port.CampusRepositoryPort;
-import com.faithlog.campus.application.port.CampusUserLookupPort;
-import com.faithlog.campus.application.port.CampusUserLookupResult;
-import com.faithlog.campus.application.policy.CampusRolePolicy;
-import com.faithlog.campus.domain.Campus;
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.domain.CampusMemberStatus;
+import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.service.port.CampusRepositoryPort;
+import com.faithlog.campus.service.port.CampusUserLookupPort;
+import com.faithlog.campus.service.port.CampusUserLookupResult;
+import com.faithlog.campus.service.policy.CampusRolePolicy;
+import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.type.CampusMemberStatus;
 import com.faithlog.devotion.domain.DevotionDailyCheck;
 import com.faithlog.devotion.domain.DevotionFineCalculationInput;
 import com.faithlog.devotion.domain.DevotionFineCalculationResult;

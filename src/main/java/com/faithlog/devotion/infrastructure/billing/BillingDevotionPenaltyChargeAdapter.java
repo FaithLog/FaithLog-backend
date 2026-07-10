@@ -1,8 +1,8 @@
 package com.faithlog.devotion.infrastructure.billing;
 
-import com.faithlog.billing.application.BillingService;
-import com.faithlog.billing.application.CreatePenaltyChargeCommand;
-import com.faithlog.billing.domain.ChargeSourceType;
+import com.faithlog.billing.service.BillingService;
+import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
+import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.devotion.application.port.DevotionPenaltyChargeCommand;
 import com.faithlog.devotion.application.port.DevotionPenaltyChargePort;
 import org.springframework.stereotype.Component;

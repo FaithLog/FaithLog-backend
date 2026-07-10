@@ -1,8 +1,8 @@
 package com.faithlog.poll.application;
 
-import com.faithlog.billing.application.port.PaymentAccountRepositoryPort;
-import com.faithlog.billing.domain.PaymentAccount;
-import com.faithlog.billing.domain.PaymentCategory;
+import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
+import com.faithlog.billing.domain.entity.PaymentAccount;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.ChargeGenerationType;

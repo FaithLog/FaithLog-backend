@@ -1,13 +1,13 @@
 package com.faithlog.batch.service;
 
-import com.faithlog.billing.domain.ChargeItem;
-import com.faithlog.billing.domain.ChargeStatus;
-import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
-import com.faithlog.campus.domain.Campus;
-import com.faithlog.campus.domain.CampusMember;
-import com.faithlog.campus.domain.CampusMemberStatus;
-import com.faithlog.campus.infrastructure.jpa.CampusMemberRepository;
-import com.faithlog.campus.infrastructure.jpa.CampusRepository;
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.type.ChargeStatus;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.type.CampusMemberStatus;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.devotion.domain.WeeklyDevotionRecord;
 import com.faithlog.devotion.infrastructure.jpa.WeeklyDevotionRecordRepository;
 import com.faithlog.notification.application.NotificationDeduplicationCommand;

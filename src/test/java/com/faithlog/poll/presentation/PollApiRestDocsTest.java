@@ -22,12 +22,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.faithlog.billing.application.BillingService;
-import com.faithlog.billing.application.CreatePaymentAccountCommand;
-import com.faithlog.billing.domain.PaymentCategory;
-import com.faithlog.billing.infrastructure.jpa.ChargeItemRepository;
-import com.faithlog.campus.application.AssignCoffeeDutyCommand;
-import com.faithlog.campus.application.CampusService;
+import com.faithlog.billing.service.BillingService;
+import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.CampusService;
 import com.faithlog.poll.domain.PollStatus;
 import com.faithlog.poll.infrastructure.jpa.PollRepository;
 import com.faithlog.poll.infrastructure.jpa.CoffeeMenuCatalogRepository;

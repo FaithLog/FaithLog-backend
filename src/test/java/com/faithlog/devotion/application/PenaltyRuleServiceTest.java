@@ -3,10 +3,10 @@ package com.faithlog.devotion.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.faithlog.campus.application.CampusCreateResult;
-import com.faithlog.campus.application.CampusService;
-import com.faithlog.campus.application.CreateCampusCommand;
-import com.faithlog.campus.application.JoinCampusCommand;
+import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.campus.service.CampusService;
+import com.faithlog.campus.service.command.CreateCampusCommand;
+import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.devotion.domain.PenaltyCalculationType;
 import com.faithlog.devotion.domain.PenaltyRule;
 import com.faithlog.devotion.domain.PenaltyRuleType;
