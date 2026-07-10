@@ -1,6 +1,6 @@
 package com.faithlog.campus.infrastructure.jpa;
 
-import com.faithlog.admin.application.port.AdminCampusMemberRepositoryPort;
+import com.faithlog.admin.service.port.AdminCampusMemberRepositoryPort;
 import com.faithlog.campus.application.CampusMembershipRow;
 import com.faithlog.campus.application.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.domain.CampusMember;

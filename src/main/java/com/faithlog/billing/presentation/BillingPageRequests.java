@@ -1,8 +1,8 @@
 package com.faithlog.billing.presentation;
 
 import com.faithlog.global.exception.ErrorCode;
-import com.faithlog.global.presentation.PageSortRequestValidator;
-import com.faithlog.global.presentation.PageSortRequestValidator.SortValidationRule;
+import com.faithlog.global.controller.PageSortRequestValidator;
+import com.faithlog.global.controller.PageSortRequestValidator.SortValidationRule;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 

@@ -1,8 +1,8 @@
 package com.faithlog.campus.infrastructure.jpa;
 
-import com.faithlog.admin.application.AdminCampusSearchCriteria;
-import com.faithlog.admin.application.AdminCampusStatus;
-import com.faithlog.admin.application.port.AdminCampusRepositoryPort;
+import com.faithlog.admin.service.query.AdminCampusSearchCriteria;
+import com.faithlog.admin.service.query.AdminCampusStatus;
+import com.faithlog.admin.service.port.AdminCampusRepositoryPort;
 import com.faithlog.campus.application.port.CampusRepositoryPort;
 import com.faithlog.campus.domain.Campus;
 import jakarta.persistence.LockModeType;

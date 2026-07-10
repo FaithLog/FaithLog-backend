@@ -1,7 +1,7 @@
 package com.faithlog.user.infrastructure.jpa;
 
-import com.faithlog.admin.application.AdminUserSearchCriteria;
-import com.faithlog.admin.application.port.AdminUserRepositoryPort;
+import com.faithlog.admin.service.query.AdminUserSearchCriteria;
+import com.faithlog.admin.service.port.AdminUserRepositoryPort;
 import com.faithlog.campus.application.port.CampusUserLookupPort;
 import com.faithlog.campus.application.port.CampusUserLookupResult;
 import com.faithlog.campus.application.port.CampusUserTokenVersionPort;

@@ -92,7 +92,9 @@ class DomainPackageStructureTest {
                 && !relativePath.contains("/controller/dto/response/")) {
             violations.add(relativePath + " -> Response DTO는 controller/dto/response에 둔다");
         }
-        if (fileName.endsWith("Command.java") && !relativePath.contains("/service/command/")) {
+        if (fileName.endsWith("Command.java")
+                && !relativePath.contains("/service/command/")
+                && !relativePath.contains("/service/port/")) {
             violations.add(relativePath + " -> Command는 service/command에 둔다");
         }
         if ((fileName.endsWith("Query.java") || fileName.endsWith("Criteria.java"))
@@ -100,6 +102,7 @@ class DomainPackageStructureTest {
             violations.add(relativePath + " -> Query/Criteria는 service/query에 둔다");
         }
         if (fileName.endsWith("Result.java") && !relativePath.contains("/service/result/")
+                && !relativePath.contains("/service/port/")
                 && !relativePath.contains("/domain/type/")) {
             violations.add(relativePath + " -> application Result는 service/result에 둔다");
         }
