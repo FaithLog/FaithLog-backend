@@ -17,18 +17,18 @@ public class BillingService {
 	private final PaymentAccountCommandService paymentAccountCommandService;
 	private final ChargeCreationService chargeCreationService;
 	private final ChargeStatusCommandService chargeStatusCommandService;
-	private final BillingQueryService billingQueryService;
+	private final PaymentAccountQueryService paymentAccountQueryService;
 
 	public BillingService(
 		PaymentAccountCommandService paymentAccountCommandService,
 		ChargeCreationService chargeCreationService,
 		ChargeStatusCommandService chargeStatusCommandService,
-		BillingQueryService billingQueryService
+		PaymentAccountQueryService paymentAccountQueryService
 	) {
 		this.paymentAccountCommandService = paymentAccountCommandService;
 		this.chargeCreationService = chargeCreationService;
 		this.chargeStatusCommandService = chargeStatusCommandService;
-		this.billingQueryService = billingQueryService;
+		this.paymentAccountQueryService = paymentAccountQueryService;
 	}
 
 	public PaymentAccountResult createPaymentAccount(CreatePaymentAccountCommand command) {
@@ -48,11 +48,11 @@ public class BillingService {
 	}
 
 	public List<PaymentAccountResult> listPaymentAccounts(Long campusId, Long requesterId) {
-		return billingQueryService.listPaymentAccounts(campusId, requesterId);
+		return paymentAccountQueryService.listPaymentAccounts(campusId, requesterId);
 	}
 
 	public List<PaymentAccountResult> listAdminPaymentAccounts(Long campusId, Long requesterId) {
-		return billingQueryService.listAdminPaymentAccounts(campusId, requesterId);
+		return paymentAccountQueryService.listAdminPaymentAccounts(campusId, requesterId);
 	}
 
 	public List<PaymentAccountResult> listAdminPaymentAccounts(
@@ -61,11 +61,11 @@ public class BillingService {
 		PaymentCategory accountType,
 		boolean includeInactive
 	) {
-		return billingQueryService.listAdminPaymentAccounts(campusId, requesterId, accountType, includeInactive);
+		return paymentAccountQueryService.listAdminPaymentAccounts(campusId, requesterId, accountType, includeInactive);
 	}
 
 	public void requireActivePenaltyAccount(Long campusId) {
-		billingQueryService.requireActivePenaltyAccount(campusId);
+		paymentAccountQueryService.requireActivePenaltyAccount(campusId);
 	}
 
 	public ChargeItemResult createPenaltyCharge(CreatePenaltyChargeCommand command) {

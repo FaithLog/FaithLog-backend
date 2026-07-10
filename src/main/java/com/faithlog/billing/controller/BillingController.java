@@ -1,7 +1,8 @@
 package com.faithlog.billing.controller;
 
-import com.faithlog.billing.service.BillingQueryService;
 import com.faithlog.billing.service.ChargeStatusCommandService;
+import com.faithlog.billing.service.MyChargeQueryService;
+import com.faithlog.billing.service.PaymentAccountQueryService;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.billing.service.query.MyChargeListQuery;
 import com.faithlog.billing.service.query.MyChargeSummaryQuery;
@@ -28,14 +29,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/campuses")
 public class BillingController {
 
-	private final BillingQueryService billingQueryService;
+	private final MyChargeQueryService myChargeQueryService;
+	private final PaymentAccountQueryService paymentAccountQueryService;
 	private final ChargeStatusCommandService chargeStatusCommandService;
 
 	public BillingController(
-		BillingQueryService billingQueryService,
+		MyChargeQueryService myChargeQueryService,
+		PaymentAccountQueryService paymentAccountQueryService,
 		ChargeStatusCommandService chargeStatusCommandService
 	) {
-		this.billingQueryService = billingQueryService;
+		this.myChargeQueryService = myChargeQueryService;
+		this.paymentAccountQueryService = paymentAccountQueryService;
 		this.chargeStatusCommandService = chargeStatusCommandService;
 	}
 
@@ -44,8 +48,10 @@ public class BillingController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		List<PaymentAccountMemberResponse> responses = billingQueryService
-			.listPaymentAccounts(campusId, authenticatedUser.userId())
+		List<PaymentAccountMemberResponse> responses = paymentAccountQueryService.listPaymentAccounts(
+			campusId,
+			authenticatedUser.userId()
+		)
 			.stream()
 			.map(PaymentAccountMemberResponse::from)
 			.toList();
@@ -62,7 +68,7 @@ public class BillingController {
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
-		MyChargesResponse response = MyChargesResponse.from(billingQueryService.listMyCharges(new MyChargeListQuery(
+		MyChargesResponse response = MyChargesResponse.from(myChargeQueryService.listMyCharges(new MyChargeListQuery(
 			campusId,
 			authenticatedUser.userId(),
 			paymentCategory,
@@ -79,7 +85,7 @@ public class BillingController {
 		@org.springframework.web.bind.annotation.RequestParam int year,
 		@org.springframework.web.bind.annotation.RequestParam int month
 	) {
-		MyChargeSummaryResponse response = MyChargeSummaryResponse.from(billingQueryService.getMyChargeSummary(
+		MyChargeSummaryResponse response = MyChargeSummaryResponse.from(myChargeQueryService.getMyChargeSummary(
 			new MyChargeSummaryQuery(campusId, authenticatedUser.userId(), year, month)
 		));
 		return ApiResponse.success(response);

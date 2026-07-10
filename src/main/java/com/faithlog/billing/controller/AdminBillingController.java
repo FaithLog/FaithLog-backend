@@ -1,8 +1,9 @@
 package com.faithlog.billing.controller;
 
-import com.faithlog.billing.service.BillingQueryService;
+import com.faithlog.billing.service.AdminChargeQueryService;
 import com.faithlog.billing.service.ChargeStatusCommandService;
 import com.faithlog.billing.service.PaymentAccountCommandService;
+import com.faithlog.billing.service.PaymentAccountQueryService;
 import com.faithlog.billing.service.query.AdminCampusChargeListQuery;
 import com.faithlog.billing.service.query.AdminMemberChargeListQuery;
 import com.faithlog.billing.service.result.ChargeItemResult;
@@ -36,16 +37,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin")
 public class AdminBillingController {
 
-	private final BillingQueryService billingQueryService;
+	private final AdminChargeQueryService adminChargeQueryService;
+	private final PaymentAccountQueryService paymentAccountQueryService;
 	private final PaymentAccountCommandService paymentAccountCommandService;
 	private final ChargeStatusCommandService chargeStatusCommandService;
 
 	public AdminBillingController(
-		BillingQueryService billingQueryService,
+		AdminChargeQueryService adminChargeQueryService,
+		PaymentAccountQueryService paymentAccountQueryService,
 		PaymentAccountCommandService paymentAccountCommandService,
 		ChargeStatusCommandService chargeStatusCommandService
 	) {
-		this.billingQueryService = billingQueryService;
+		this.adminChargeQueryService = adminChargeQueryService;
+		this.paymentAccountQueryService = paymentAccountQueryService;
 		this.paymentAccountCommandService = paymentAccountCommandService;
 		this.chargeStatusCommandService = chargeStatusCommandService;
 	}
@@ -83,8 +87,12 @@ public class AdminBillingController {
 		@RequestParam(required = false) PaymentCategory accountType,
 		@RequestParam(defaultValue = "false") boolean includeInactive
 	) {
-		List<PaymentAccountAdminResponse> responses = billingQueryService
-			.listAdminPaymentAccounts(campusId, authenticatedUser.userId(), accountType, includeInactive)
+		List<PaymentAccountAdminResponse> responses = paymentAccountQueryService.listAdminPaymentAccounts(
+			campusId,
+			authenticatedUser.userId(),
+			accountType,
+			includeInactive
+		)
 			.stream()
 			.map(PaymentAccountAdminResponse::from)
 			.toList();
@@ -141,7 +149,7 @@ public class AdminBillingController {
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
 		AdminCampusChargesResponse response = AdminCampusChargesResponse.from(
-			billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
+			adminChargeQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
 				campusId,
 				authenticatedUser.userId(),
 				paymentCategory,
@@ -168,7 +176,7 @@ public class AdminBillingController {
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
 		AdminCampusChargesResponse response = AdminCampusChargesResponse.from(
-			billingQueryService.listAdminCampusChargesForMyAccounts(new AdminCampusChargeListQuery(
+			adminChargeQueryService.listAdminCampusChargesForMyAccounts(new AdminCampusChargeListQuery(
 				campusId,
 				authenticatedUser.userId(),
 				paymentCategory,
@@ -194,7 +202,7 @@ public class AdminBillingController {
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
 		AdminMemberChargesResponse response = AdminMemberChargesResponse.from(
-			billingQueryService.listAdminMemberCharges(new AdminMemberChargeListQuery(
+			adminChargeQueryService.listAdminMemberCharges(new AdminMemberChargeListQuery(
 				campusId,
 				userId,
 				authenticatedUser.userId(),
