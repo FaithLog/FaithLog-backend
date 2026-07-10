@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-10 - Issue #151 Poll Core Use Case Service Separation
+
+- Context: After Issue #145 established the domain-first MVC package structure and Issues #147-#150 separated Campus/Admin, Billing, and Devotion use cases, the 578-line `PollService` still combined poll creation, time-based status synchronization, administrator close and coffee settlement orchestration, response writes, member reads, result/missing-member reads, comment commands/queries, and user-option commands.
+- Decision: Split the Poll application boundary into `PollCreationCommandService`, `PollStatusCommandService`, `PollResponseCommandService`, `PollQueryService`, `PollResultQueryService`, `PollCommentCommandService`, `PollCommentQueryService`, and `PollUserOptionCommandService`. Keep time-window synchronization, campus-scoped lookup/visibility, and result assembly in package-private shared helpers because these unchanged rules are used by multiple separated use cases. Each moved public method directly owns its previous write or read-only transaction boundary.
+- Decision: Poll Controllers call the dedicated services directly. Keep `PollService` only as a repository-free, transaction-free, `BusinessException`-free compatibility delegate for existing internal tests and callers. Dedicated use case services do not depend on one another, and `PollTemplateService`, `CoffeePollSettlementService`, and Scheduler/Batch responsibilities remain unchanged.
+- Impact: API paths/query parameters/request-response JSON/status, ErrorCodes/messages, campus and administrator/coffee-duty authorization, current-window `SCHEDULED -> OPEN` synchronization, 3-day/7-day visibility, close-to-settlement transaction behavior, `optionIds` validation order and `poll_response_options`, anonymous result identity hiding, missing-member scope, comment ownership/window rules, user-option snapshots, repository bulk-query behavior, entities, DB/Flyway, Swagger annotations, and dependencies remain unchanged.
+
 ### 2026-07-10 - Issue #150 Devotion Use Case Service Separation
 
 - Context: After Issue #145 established the domain-first MVC package structure and Issues #147-#149 separated Campus/Admin and Billing use cases, `DevotionService` still combined daily writes, weekly draft/final submission, member weekly reads, administrator missing-member reads, fine calculation, and Billing port orchestration. `PenaltyRuleService` also combined member reads with administrator create/update commands.
