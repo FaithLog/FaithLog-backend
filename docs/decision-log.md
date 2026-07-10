@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-10 - Issue #145 Domain-First MVC Package Structure
+
+- Context: Domain packages already provided the DDD top-level boundaries, but services, commands, queries, results, policies, and ports were mixed directly under `application`, while controllers and DTOs were grouped under `presentation`. The mixed layout made responsibility discovery inconsistent across domains.
+- Decision: Keep `admin`, `batch`, `billing`, `campus`, `devotion`, `notification`, `poll`, `prayer`, and `user` as the top-level domain boundaries. Inside each domain, use only the needed `controller`, `service`, `domain`, and `infrastructure` responsibility packages. Split request/response DTOs under `controller/dto`, commands/queries/results/policies/ports under `service`, entities/types under `domain`, and repositories/external adapters under accurately named `infrastructure` packages. Keep `global` focused on shared configuration, security, exception, response, and controller concerns.
+- Impact: Issue #145 changes only Java source/test paths, package declarations, imports, package-info declarations, and architecture documentation. API paths, request/response JSON, HTTP/error contracts, DB schema/Flyway migrations, business logic, authentication/authorization, schedules, transactions, and dependencies remain unchanged. A source-tree structure test enforces the new layout without adding ArchUnit or another library.
+
 ### 2026-07-09 - Issue #142 Poll Status Time Synchronization
 
 - Context: Production poll list queries hid polls whose `starts_at <= now < ends_at` but `polls.status = SCHEDULED`, because visibility and response validation required `OPEN`.

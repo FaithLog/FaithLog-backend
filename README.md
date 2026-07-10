@@ -59,12 +59,33 @@ Flyway migration, Supabase PostgreSQL, Upstash Redis, and Google Cloud Run deplo
 
 FaithLog는 MSA가 아닌 하나의 Spring Boot 애플리케이션 안에서 도메인 경계를 나누는 모듈러 모놀리스 구조를 사용합니다.
 
-- 도메인별 패키지 분리
-- `domain`, `application`, `infrastructure`, `presentation` 계층 사용
-- Request DTO가 application service로 직접 들어가지 않도록 Command 사용
+- `admin`, `batch`, `billing`, `campus`, `devotion`, `notification`, `poll`, `prayer`, `user`를 최상위 도메인 경계로 분리
+- 각 도메인 내부는 사용하는 책임만 `controller`, `service`, `domain`, `infrastructure` 하위에 배치
+- Request/Response DTO는 `controller/dto/request`, `controller/dto/response`로 분리
+- Service 입력과 조회 조건, 반환 모델은 `service/command`, `service/query`, `service/result`로 분리
+- 정책과 의존 역전 경계는 `service/policy`, `service/port`에 배치
+- Entity와 enum/value type은 `domain/entity`, `domain/type`으로 분리
+- JPA Repository는 `infrastructure/repository`, 외부 연동 구현은 `infrastructure/adapter`, `redis`, `fcm` 등 실제 책임 이름으로 배치
+- 사용하지 않는 빈 하위 패키지는 만들지 않음
 - Controller에서 Entity 직접 반환 금지
 - PostgreSQL은 Spring Boot auto-configuration 사용
 - Redis 설정은 `global/config/RedisConfig.java`, 실제 Redis 구현체는 각 도메인의 `infrastructure/redis`에 배치
+
+```text
+com.faithlog.{domain}
+├── controller
+│   └── dto/{request,response}
+├── service
+│   ├── command
+│   ├── query
+│   ├── result
+│   ├── policy
+│   └── port
+├── domain/{entity,type}
+└── infrastructure/{repository,adapter,redis,fcm,seed}
+```
+
+`global`은 도메인 구조로 강제하지 않고 공통 설정, 보안, 예외, 응답, 공통 Controller 책임을 유지합니다.
 
 ## Codex 개발 규칙
 
