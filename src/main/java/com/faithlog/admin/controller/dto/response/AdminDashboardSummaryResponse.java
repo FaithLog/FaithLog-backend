@@ -1,12 +1,12 @@
 package com.faithlog.admin.controller.dto.response;
 
-import com.faithlog.admin.service.AdminDashboardService.AdminDashboardSummaryResult;
-import com.faithlog.admin.service.AdminDashboardService.CampusSummary;
-import com.faithlog.admin.service.AdminDashboardService.ChargeCategorySummary;
-import com.faithlog.admin.service.AdminDashboardService.ChargeSummary;
-import com.faithlog.admin.service.AdminDashboardService.DevotionSummary;
-import com.faithlog.admin.service.AdminDashboardService.MemberSummary;
-import com.faithlog.admin.service.AdminDashboardService.PollSummary;
+import com.faithlog.admin.service.result.AdminDashboardSummaryResult;
+import com.faithlog.admin.service.result.AdminDashboardSummaryResult.CampusSummary;
+import com.faithlog.admin.service.result.AdminDashboardSummaryResult.ChargeCategorySummary;
+import com.faithlog.admin.service.result.AdminDashboardSummaryResult.ChargeSummary;
+import com.faithlog.admin.service.result.AdminDashboardSummaryResult.DevotionSummary;
+import com.faithlog.admin.service.result.AdminDashboardSummaryResult.MemberSummary;
+import com.faithlog.admin.service.result.AdminDashboardSummaryResult.PollSummary;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import java.time.LocalDate;
 import java.util.List;

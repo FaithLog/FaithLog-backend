@@ -2,7 +2,8 @@ package com.faithlog.admin.controller;
 
 import com.faithlog.admin.service.query.AdminCampusSearchCriteria;
 import com.faithlog.admin.service.query.AdminCampusStatus;
-import com.faithlog.admin.service.AdminManagementService;
+import com.faithlog.admin.service.AdminCampusManagementService;
+import com.faithlog.admin.service.AdminUserManagementService;
 import com.faithlog.admin.service.query.AdminUserSearchCriteria;
 import com.faithlog.admin.controller.dto.request.AddCampusMemberRequest;
 import com.faithlog.admin.controller.dto.response.AdminCampusResponse;
@@ -32,10 +33,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin")
 public class AdminManagementController {
 
-	private final AdminManagementService adminManagementService;
+	private final AdminUserManagementService adminUserManagementService;
+	private final AdminCampusManagementService adminCampusManagementService;
 
-	public AdminManagementController(AdminManagementService adminManagementService) {
-		this.adminManagementService = adminManagementService;
+	public AdminManagementController(
+		AdminUserManagementService adminUserManagementService,
+		AdminCampusManagementService adminCampusManagementService
+	) {
+		this.adminUserManagementService = adminUserManagementService;
+		this.adminCampusManagementService = adminCampusManagementService;
 	}
 
 	@GetMapping("/users")
@@ -50,7 +56,7 @@ public class AdminManagementController {
 		@RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
 		return ApiResponse.success(PageResponse.from(
-			adminManagementService.searchUsers(
+			adminUserManagementService.searchUsers(
 				authenticatedUser.userId(),
 				new AdminUserSearchCriteria(name, email, userId, role),
 				AdminPageRequests.users(page, size, sort)
@@ -64,7 +70,7 @@ public class AdminManagementController {
 		@PathVariable Long userId
 	) {
 		return ApiResponse.success(AdminUserDetailResponse.from(
-			adminManagementService.getUser(authenticatedUser.userId(), userId)
+			adminUserManagementService.getUser(authenticatedUser.userId(), userId)
 		));
 	}
 
@@ -75,7 +81,7 @@ public class AdminManagementController {
 		@Valid @RequestBody ChangeUserRoleRequest request
 	) {
 		return ApiResponse.success(AdminUserDetailResponse.from(
-			adminManagementService.changeUserRole(request.toCommand(userId, authenticatedUser))
+			adminUserManagementService.changeUserRole(request.toCommand(userId, authenticatedUser))
 		), "사용자 역할이 변경되었습니다.");
 	}
 
@@ -90,7 +96,7 @@ public class AdminManagementController {
 		@RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
 		return ApiResponse.success(PageResponse.from(
-			adminManagementService.searchCampuses(
+			adminCampusManagementService.searchCampuses(
 				authenticatedUser.userId(),
 				new AdminCampusSearchCriteria(name, region, status),
 				AdminPageRequests.campuses(page, size, sort)
@@ -107,7 +113,7 @@ public class AdminManagementController {
 		return ResponseEntity
 			.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(CampusMemberAdminResponse.from(
-				adminManagementService.addCampusMember(request.toCommand(campusId, authenticatedUser))
+				adminCampusManagementService.addCampusMember(request.toCommand(campusId, authenticatedUser))
 			), "캠퍼스 멤버가 추가되었습니다."));
 	}
 }
