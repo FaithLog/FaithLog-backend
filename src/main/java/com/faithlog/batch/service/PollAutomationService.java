@@ -4,21 +4,13 @@ import com.faithlog.notification.service.NotificationLockKey;
 import com.faithlog.notification.service.NotificationLockService;
 import com.faithlog.poll.service.CoffeePollSettlementService;
 import com.faithlog.poll.domain.entity.Poll;
-import com.faithlog.poll.domain.entity.PollOption;
 import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.entity.PollTemplate;
-import com.faithlog.poll.domain.entity.PollTemplateOption;
 import com.faithlog.poll.domain.type.PollType;
-import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
-import com.faithlog.poll.infrastructure.repository.PollTemplateOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollTemplateRepository;
-import java.time.DayOfWeek;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -30,26 +22,23 @@ public class PollAutomationService {
 	public static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
 
 	private final PollTemplateRepository pollTemplateRepository;
-	private final PollTemplateOptionRepository pollTemplateOptionRepository;
 	private final PollRepository pollRepository;
-	private final PollOptionRepository pollOptionRepository;
+	private final ScheduledPollFactory scheduledPollFactory;
 	private final CoffeePollSettlementService coffeePollSettlementService;
 	private final NotificationLockService notificationLockService;
 	private final TransactionTemplate transactionTemplate;
 
 	public PollAutomationService(
 		PollTemplateRepository pollTemplateRepository,
-		PollTemplateOptionRepository pollTemplateOptionRepository,
 		PollRepository pollRepository,
-		PollOptionRepository pollOptionRepository,
+		ScheduledPollFactory scheduledPollFactory,
 		CoffeePollSettlementService coffeePollSettlementService,
 		NotificationLockService notificationLockService,
 		PlatformTransactionManager transactionManager
 	) {
 		this.pollTemplateRepository = pollTemplateRepository;
-		this.pollTemplateOptionRepository = pollTemplateOptionRepository;
 		this.pollRepository = pollRepository;
-		this.pollOptionRepository = pollOptionRepository;
+		this.scheduledPollFactory = scheduledPollFactory;
 		this.coffeePollSettlementService = coffeePollSettlementService;
 		this.notificationLockService = notificationLockService;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -93,57 +82,14 @@ public class PollAutomationService {
 		return notificationLockService.acquireScheduledLock(lockKey)
 			.map(lease -> {
 				try {
-					return Boolean.TRUE.equals(transactionTemplate.execute(status -> createIfAbsent(template.id(), window)));
+					return Boolean.TRUE.equals(transactionTemplate.execute(
+						status -> scheduledPollFactory.createIfAbsent(template.id(), window)
+					));
 				} finally {
 					notificationLockService.release(lease);
 				}
 			})
 			.orElse(false);
-	}
-
-	private boolean createIfAbsent(Long templateId, ScheduledPollWindow window) {
-		PollTemplate template = pollTemplateRepository.findById(templateId).orElseThrow();
-		boolean exists = pollRepository.existsByCampusIdAndTemplateIdAndStartsAtGreaterThanEqualAndStartsAtLessThan(
-			template.campusId(),
-			template.id(),
-			window.weekStartInstant(),
-			window.nextWeekStartInstant()
-		);
-		if (exists) {
-			return false;
-		}
-		List<PollTemplateOption> templateOptions = pollTemplateOptionRepository.findByTemplateIdOrderBySortOrderAsc(template.id());
-		if (templateOptions.isEmpty()) {
-			return false;
-		}
-
-		Poll poll = Poll.create(
-			template.campusId(),
-			template.id(),
-			template.title(),
-			template.pollType(),
-			template.selectionType(),
-			false,
-			template.allowUserOptionAdd(),
-			template.chargeGenerationType(),
-			template.paymentCategory(),
-			template.paymentAccountId(),
-			window.startsAt(),
-			window.endsAt(),
-			null
-		);
-		poll.open();
-		Poll savedPoll = pollRepository.save(poll);
-		pollOptionRepository.saveAll(templateOptions.stream()
-			.map(option -> PollOption.create(
-				savedPoll.id(),
-				option.content(),
-				option.composeMenuCode(),
-				option.priceAmount(),
-				option.sortOrder()
-			))
-			.toList());
-		return true;
 	}
 
 	private boolean closeCoffeePoll(Long pollId) {
@@ -172,36 +118,4 @@ public class PollAutomationService {
 			.orElse(false);
 	}
 
-	private record ScheduledPollWindow(
-		LocalDate weekStartDate,
-		Instant weekStartInstant,
-		Instant nextWeekStartInstant,
-		Instant startsAt,
-		Instant endsAt
-	) {
-
-		static ScheduledPollWindow from(PollTemplate template, Instant now) {
-			LocalDate currentDate = now.atZone(SEOUL_ZONE).toLocalDate();
-			LocalDate weekStartDate = currentDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-			Instant weekStartInstant = weekStartDate.atStartOfDay(SEOUL_ZONE).toInstant();
-			Instant nextWeekStartInstant = weekStartDate.plusWeeks(1).atStartOfDay(SEOUL_ZONE).toInstant();
-			Instant startsAt = scheduledInstant(weekStartDate, template.startDayOfWeek(), template.startTime());
-			Instant endsAt = scheduledInstant(weekStartDate, template.endDayOfWeek(), template.endTime());
-			if (!endsAt.isAfter(startsAt)) {
-				endsAt = LocalDateTime.ofInstant(endsAt, SEOUL_ZONE).plusWeeks(1).atZone(SEOUL_ZONE).toInstant();
-			}
-			return new ScheduledPollWindow(weekStartDate, weekStartInstant, nextWeekStartInstant, startsAt, endsAt);
-		}
-
-		private static Instant scheduledInstant(LocalDate weekStartDate, DayOfWeek dayOfWeek, java.time.LocalTime time) {
-			return weekStartDate.plusDays(dayOfWeek.getValue() - DayOfWeek.MONDAY.getValue())
-				.atTime(time)
-				.atZone(SEOUL_ZONE)
-				.toInstant();
-		}
-
-		private boolean isDue(Instant now) {
-			return !now.isBefore(startsAt) && now.isBefore(endsAt);
-		}
-	}
 }
