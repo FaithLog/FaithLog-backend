@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-10 - Issue #147 Campus And Admin Use Case Service Separation
+
+- Context: After Issue #145 established the domain-first MVC package structure, `CampusService` still owned creation, invite-code join, query, update, member management, role management, and duty assignment, while `AdminManagementService` mixed service-admin user and campus management. `AdminDashboardService` also kept its query result contract nested in the implementation class.
+- Decision: Split Campus application responsibilities into `CampusCreationService`, `CampusJoinService`, `CampusQueryService`, `CampusUpdateService`, `CampusMemberManagementService`, and `CampusDutyAssignmentService`. Split service-admin responsibilities into `AdminUserManagementService` and `AdminCampusManagementService`, and expose the dashboard aggregate read boundary as `AdminDashboardQueryService`. Keep `CampusService`, `AdminManagementService`, and `AdminDashboardService` only as repository-free compatibility facades for existing internal callers and test fixtures. Centralize the unchanged active-user/campus-manager lookup sequence in `CampusAccessPolicy`, retain `CampusRolePolicy` and `AdminAccessPolicy`, and keep dashboard result models under `admin/service/result`.
+- Impact: Controllers call the use-case-specific services directly. Existing 12 Campus, 5 Admin management, and 1 dashboard transaction annotations move one-for-one to the new services with the same read-only/write mode and validation order. API paths, request/response JSON, HTTP/ErrorCode/message contracts, DB/Flyway, authorization rules, repository query semantics, side effects, and transaction results do not change.
+
 ### 2026-07-10 - Issue #145 Domain-First MVC Package Structure
 
 - Context: Domain packages already provided the DDD top-level boundaries, but services, commands, queries, results, policies, and ports were mixed directly under `application`, while controllers and DTOs were grouped under `presentation`. The mixed layout made responsibility discovery inconsistent across domains.
