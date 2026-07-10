@@ -13,21 +13,34 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 350 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-11 #153, 355 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 69 test files (2026-07-10) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 70 test files (2026-07-11 #153) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-10) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-11 #153) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 548 Java sources including tests (2026-07-10) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 559 Java sources including tests (2026-07-11 #153) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-11
+
+- #153 Prayer 유스케이스 책임 분리:
+  - 작업 기준: Issue #153 `[Refactor] 07 Prayer 유스케이스 책임 분리`, 브랜치 `chore/153-prayer-usecase-separation`, 별도 Codex worktree, 최신 `origin/develop` `f6e3c2e` 기준.
+  - TDD 증거: 기존 Prayer service/동시성/REST Docs focused 테스트를 먼저 실행해 GREEN을 확인했다. season command/query, group command/query, board query, 관리자/본인 submission command의 직접 transaction, Controller 직접 연결, thin compatibility facade, 전용 서비스 간 의존 금지를 요구하는 구조 테스트 5건을 production 수정 전에 추가했고 5 tests / 5 failures RED를 확인한 뒤 책임 이동으로 GREEN을 만들었다.
+  - 책임 분리: 11개 public 유스케이스를 `PrayerSeasonCommandService`, `PrayerSeasonQueryService`, `PrayerGroupCommandService`, `PrayerGroupQueryService`, `PrayerWeekBoardQueryService`, `AdminPrayerSubmissionCommandService`, `MyPrayerSubmissionCommandService` 7개 전용 서비스로 분리했다. 공통 권한은 `PrayerAccessSupport`, 활성 조·조원 조회와 조 결과는 `PrayerTargetMemberSupport`, 보드 결과 조립은 `PrayerBoardAssembler`가 담당한다.
+  - 호환 경계와 정량 변화: 두 Prayer Controller는 전용 서비스를 직접 호출하고 `PrayerService`는 606→90줄(-516, -85.1%)의 repository/transaction/BusinessException/business-rule-free delegate로 축소했다. 이 수치는 추출 class를 포함한 전체 코드 감소가 아니라 compatibility facade 책임 축소 수치다. 신규 구조 테스트 5개를 추가해 test source는 70개, 전체 Java source/test는 559개가 됐다.
+  - 정책 보존: API mapping/request-response/HTTP/ErrorCode/message, 캠퍼스 관리자/일반 ACTIVE 멤버 권한, ACTIVE+null endDate 시즌, 과거 row 보존, 조원 전체 교체와 같은 시즌 중복 409, ACTIVE 멤버·정렬, 월요일/미래 주차, GET 무생성, nullable content, 사람별 row, optimistic version, 관리자 all-or-nothing rollback을 유지했다. Entity/DB/Flyway/repository/의존성 변경 0건, Swagger annotation 추가 0건, Controller Entity import 0건, 서비스 순환 의존 0건을 확인했다.
+  - 검증: Prayer focused service/동시성/REST Docs/구조 테스트 성공, Campus 연결을 포함한 Billing/Devotion/Poll/Prayer/Batch 조합 260 tests / 0 failures / 0 errors / 0 skipped, 전체 `./gradlew test` 355 tests / 0 failures / 0 errors / 1 skipped(실행된 테스트 통과율 100%), `./gradlew build`와 `./gradlew asciidoctor` 성공, `git diff --check` 성공. GitHub CI는 PR/push 금지 지시로 실행하지 않았다.
+  - Docker QA: `faithlog-qa-153-prayer` 격리 compose build 1차는 Docker BuildKit `metadata_v2.db`/`snapshots.db` I/O 오류, daemon 복구 후 2차는 호스트 가용 공간 116MiB·100% 사용 상태의 `no space left on device`로 중단됐다. 두 실행 모두 같은 project를 volume 삭제 없이 down 처리했다. Android Emulator는 범위 밖이라 종료하지 않았고 system/image/volume prune과 named volume 삭제도 실행하지 않았다. 마지막 Docker 명령은 지시된 `docker builder prune -f`였지만 가용 공간은 116MiB로 변하지 않아 image/health 검증은 외부 환경 제약으로 미완료다.
+  - 도구 제약: Issue #153의 `projectItems`가 비어 있어 Project 카드 상태를 변경하지 못했다. `pm-dev`는 비활성 보관 경로에만 있고 저장소에 `harness.yaml`, `.harness`, custom agents, 활성 `dev_gate.py`가 없어 누락 파일 생성이나 품질 완화 없이 FaithLog TDD/검증 기준으로 진행했다. `.harness` 보고서는 생성되지 않았다.
+  - 이력서 문장 후보: `Prayer의 11개 유스케이스를 7개 응집 Service와 3개 package-private support로 분리해 606줄 통합 Service를 90줄 호환 facade로 85.1% 축소하고, 5개 구조 회귀 테스트·355개 전체 테스트·260개 연관 도메인 테스트로 API·DB·권한·optimistic locking·all-or-nothing 동작 무변경을 보장했다.`
 
 ### 2026-07-10
 
