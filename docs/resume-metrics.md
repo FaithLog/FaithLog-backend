@@ -13,12 +13,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 333 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 338 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 66 test files (2026-07-10) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 67 test files (2026-07-10) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-10) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
@@ -30,6 +30,16 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## Daily Monitoring Notes
 
 ### 2026-07-10
+
+- #150 Devotion 유스케이스 책임 분리:
+  - 작업 기준: Issue #150 `[Refactor] 04 Devotion 유스케이스 책임 분리`, 브랜치 `chore/150-devotion-usecase-separation`, 별도 Codex worktree, `origin/develop` `f55f16c` 기준.
+  - TDD 증거: 기존 Devotion focused characterization을 먼저 실행해 GREEN을 확인했다. 전용 서비스별 public 유스케이스, 직접 write/read-only 트랜잭션, Controller 직접 연결, 호환 facade의 repository/transaction/business-rule 미소유, 전용 서비스 간 순환 의존 금지를 요구하는 구조 테스트 5건을 production 수정 전에 추가했고 5 tests / 5 failures RED를 확인한 뒤 책임 이동으로 GREEN을 만들었다.
+  - 책임 분리: 일별 저장은 `DailyDevotionCommandService`, 주간 draft/final submit과 벌금 계산·Billing port orchestration은 `WeeklyDevotionCommandService`, 본인 주간 조회는 `MyWeeklyDevotionQueryService`, 관리자 미제출 조회는 `MissingDevotionMemberQueryService`가 소유한다. 기존 월간 경계는 `DevotionMonthlySummaryQueryService`에 유지하고, 벌금 규칙 create/update는 `PenaltyRuleCommandService`, 목록은 `PenaltyRuleQueryService`로 분리했다. 8개 public 유스케이스가 7개 전용 서비스에서 기존 트랜잭션 경계를 직접 소유한다.
+  - 호환 경계: 네 Devotion/PenaltyRule Controller는 전용 서비스를 직접 호출한다. `DevotionService`는 325줄에서 48줄, `PenaltyRuleService`는 130줄에서 34줄의 repository/transaction/BusinessException/business-rule-free delegate로 축소했다. 공통 helper Service를 추가하지 않고 각 유스케이스 서비스가 기존 private helper와 검증·호출 순서를 소유해 서비스 간 의존을 만들지 않았다.
+  - 정책 보존: daily의 제출 완료 거부와 weekly row/daily upsert, weekly 검증 순서·7일 row·draft/final submit·재제출 거부, 0원 charge/account skip, 양수 벌금 source/snapshot/dueDate 계약과 all-or-nothing rollback, 빈/부분 주간 7일 합성, 관리자 미제출과 권한, 월 경계 집계, penalty rule 권한·campus pessimistic lock·active 교체 순서를 그대로 유지했다. API mapping/DTO/HTTP/ErrorCode/message, Entity, DB/Flyway, 의존성 변경 0건, Swagger 문서 annotation 0건, Controller Entity 직접 반환 0건, 서비스 순환 의존 0건을 확인했다.
+  - 검증: Devotion focused service/Controller/REST Docs와 구조 테스트 성공, #165 원래 Billing/Devotion/Poll/Batch 4-domain 조합 성공, 전체 `./gradlew test` 성공(338 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공. `faithlog-qa-150-devotion` 격리 compose project에서 clean image build, PostgreSQL/Redis `healthy`, backend `/api/v1/health`의 `data.status=UP`, volume 삭제 없는 compose down을 확인했고 마지막 Docker 명령으로 `docker builder prune -f`만 실행해 미사용 build cache 699.6MB를 정리했다.
+  - 도구 제약: GitHub Issue #150은 Project 연결이 비어 있었고 CLI token에 `read:project` scope가 없어 카드 조회/연결/`In Progress` 변경을 수행하지 못했다. 비활성 보관된 `pm-dev` 원문에 따라 `dev_gate.py`를 실행했지만 저장소에 `harness.yaml`, `.harness` 기획/정책 파일, custom agent 설정이 없어 실패했으며 #150 범위 밖 harness 파일은 생성하지 않았다. `score_code.py`는 critical/security finding 0건의 `.harness/reports/review-score.*`를 생성했지만 specialist와 overall score가 없어 `passed=false`였고, `review_gate.py`도 공통 quality/TDD harness 파일과 evidence 부재로 실패했다. 생성된 `.harness/` 보고서는 승인 없이 커밋하거나 삭제하지 않고 untracked로 보존했다.
+  - 이력서 문장 후보: `Devotion의 8개 유스케이스를 7개 응집 Service로 분리하고 repository-free 호환 facade와 5개 구조 회귀 테스트를 도입해, 338개 전체 테스트·4-domain 회귀·격리 Docker health 검증으로 API·DB·권한·벌금 동작 무변경을 보장했다.`
 
 - #165 Devotion 테스트 순서 오염과 Context 격리:
   - 수정 전 재현: 최신 `origin/develop` `0cf7c5f`에서 Billing/Devotion/Poll/Batch 4-domain 명령을 실행해 187 tests / 10 failures를 확인했다. 실패는 모두 `DevotionServiceTest`였고 대표 오염값은 charge count `expected 0, actual 7`, `expected 1, actual 8`, daily check count `expected 0, actual 66`이었다. 같은 `DevotionServiceTest` 단독 실행은 성공했다.
