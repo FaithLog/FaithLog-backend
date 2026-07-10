@@ -145,6 +145,7 @@ class BillingServiceTest {
 
 	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	@DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
 	void createPaymentAccount_rolls_back_previous_deactivation_when_replacement_insert_fails() {
 		User manager = saveUser("billing-account-rollback-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "계좌롤백캠");
