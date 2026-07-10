@@ -23,7 +23,7 @@ public class PollQueryService {
 	private final PollResponseOptionRepository pollResponseOptionRepository;
 	private final PollAccessService pollAccessService;
 	private final PollStatusSynchronizer pollStatusSynchronizer;
-	private final PollLookupPolicy pollLookupPolicy;
+	private final PollLookupSupport pollLookupSupport;
 	private final PollResultAssembler pollResultAssembler;
 
 	public PollQueryService(
@@ -32,7 +32,7 @@ public class PollQueryService {
 		PollResponseOptionRepository pollResponseOptionRepository,
 		PollAccessService pollAccessService,
 		PollStatusSynchronizer pollStatusSynchronizer,
-		PollLookupPolicy pollLookupPolicy,
+		PollLookupSupport pollLookupSupport,
 		PollResultAssembler pollResultAssembler
 	) {
 		this.pollRepository = pollRepository;
@@ -40,7 +40,7 @@ public class PollQueryService {
 		this.pollResponseOptionRepository = pollResponseOptionRepository;
 		this.pollAccessService = pollAccessService;
 		this.pollStatusSynchronizer = pollStatusSynchronizer;
-		this.pollLookupPolicy = pollLookupPolicy;
+		this.pollLookupSupport = pollLookupSupport;
 		this.pollResultAssembler = pollResultAssembler;
 	}
 
@@ -70,12 +70,12 @@ public class PollQueryService {
 
 	@Transactional
 	public PollResult getPoll(Long campusId, Long pollId, Long requesterId) {
-		return pollResultAssembler.toResult(pollLookupPolicy.getVisiblePoll(campusId, pollId, requesterId));
+		return pollResultAssembler.toResult(pollLookupSupport.getVisiblePoll(campusId, pollId, requesterId));
 	}
 
 	@Transactional
 	public PollDetailResult getPollDetail(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupPolicy.getVisiblePoll(campusId, pollId, requesterId);
+		Poll poll = pollLookupSupport.getVisiblePoll(campusId, pollId, requesterId);
 		PollResponseResult myResponse = pollResponseRepository.findByPollIdAndUserId(poll.id(), requesterId)
 			.map(response -> PollResponseResult.of(response, optionIdsForResponse(response.id())))
 			.orElse(null);

@@ -7,13 +7,13 @@ import com.faithlog.poll.infrastructure.repository.PollRepository;
 import org.springframework.stereotype.Component;
 
 @Component
-class PollLookupPolicy {
+class PollLookupSupport {
 
 	private final PollRepository pollRepository;
 	private final PollAccessService pollAccessService;
 	private final PollStatusSynchronizer pollStatusSynchronizer;
 
-	PollLookupPolicy(
+	PollLookupSupport(
 		PollRepository pollRepository,
 		PollAccessService pollAccessService,
 		PollStatusSynchronizer pollStatusSynchronizer

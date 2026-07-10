@@ -11,21 +11,21 @@ public class PollCommentQueryService {
 
 	private final PollCommentRepository pollCommentRepository;
 	private final PollAccessService pollAccessService;
-	private final PollLookupPolicy pollLookupPolicy;
+	private final PollLookupSupport pollLookupSupport;
 
 	public PollCommentQueryService(
 		PollCommentRepository pollCommentRepository,
 		PollAccessService pollAccessService,
-		PollLookupPolicy pollLookupPolicy
+		PollLookupSupport pollLookupSupport
 	) {
 		this.pollCommentRepository = pollCommentRepository;
 		this.pollAccessService = pollAccessService;
-		this.pollLookupPolicy = pollLookupPolicy;
+		this.pollLookupSupport = pollLookupSupport;
 	}
 
 	@Transactional
 	public List<PollCommentResult> listComments(Long campusId, Long pollId, Long requesterId) {
-		pollLookupPolicy.getVisiblePoll(campusId, pollId, requesterId);
+		pollLookupSupport.getVisiblePoll(campusId, pollId, requesterId);
 		return pollCommentRepository.findByPollIdOrderByIdAsc(pollId)
 			.stream()
 			.map(comment -> PollCommentResult.of(comment, pollAccessService.getUser(comment.userId())))

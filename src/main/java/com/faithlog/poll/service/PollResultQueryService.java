@@ -32,7 +32,7 @@ public class PollResultQueryService {
 	private final PollResponseOptionRepository pollResponseOptionRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final PollAccessService pollAccessService;
-	private final PollLookupPolicy pollLookupPolicy;
+	private final PollLookupSupport pollLookupSupport;
 
 	public PollResultQueryService(
 		PollOptionRepository pollOptionRepository,
@@ -40,19 +40,19 @@ public class PollResultQueryService {
 		PollResponseOptionRepository pollResponseOptionRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
 		PollAccessService pollAccessService,
-		PollLookupPolicy pollLookupPolicy
+		PollLookupSupport pollLookupSupport
 	) {
 		this.pollOptionRepository = pollOptionRepository;
 		this.pollResponseRepository = pollResponseRepository;
 		this.pollResponseOptionRepository = pollResponseOptionRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.pollAccessService = pollAccessService;
-		this.pollLookupPolicy = pollLookupPolicy;
+		this.pollLookupSupport = pollLookupSupport;
 	}
 
 	@Transactional
 	public PollResultView getPollResults(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupPolicy.getVisiblePoll(campusId, pollId, requesterId);
+		Poll poll = pollLookupSupport.getVisiblePoll(campusId, pollId, requesterId);
 		List<PollOption> options = pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id());
 		List<PollResponse> responses = pollResponseRepository.findByPollIdOrderByIdAsc(poll.id());
 		Map<Long, PollResponse> responsesById = responses.stream()
@@ -86,7 +86,7 @@ public class PollResultQueryService {
 
 	@Transactional(readOnly = true)
 	public List<PollMissingMemberResult> getMissingMembers(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupPolicy.getPollInCampus(campusId, pollId);
+		Poll poll = pollLookupSupport.getPollInCampus(campusId, pollId);
 		pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
 		Set<Long> respondedUserIds = pollResponseRepository.findByPollIdOrderByIdAsc(poll.id())
 			.stream()
