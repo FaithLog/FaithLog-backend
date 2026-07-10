@@ -2,7 +2,8 @@ package com.faithlog.poll.controller;
 
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
-import com.faithlog.poll.service.PollTemplateService;
+import com.faithlog.poll.service.PollTemplateCommandService;
+import com.faithlog.poll.service.PollTemplateQueryService;
 import com.faithlog.poll.controller.dto.request.CreatePollTemplateRequest;
 import com.faithlog.poll.controller.dto.response.PollTemplateResponse;
 import com.faithlog.poll.controller.dto.request.UpdatePollTemplateRequest;
@@ -24,10 +25,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/campuses/{campusId}/poll-templates")
 public class AdminPollTemplateController {
 
-	private final PollTemplateService pollTemplateService;
+	private final PollTemplateCommandService pollTemplateCommandService;
+	private final PollTemplateQueryService pollTemplateQueryService;
 
-	public AdminPollTemplateController(PollTemplateService pollTemplateService) {
-		this.pollTemplateService = pollTemplateService;
+	public AdminPollTemplateController(
+		PollTemplateCommandService pollTemplateCommandService,
+		PollTemplateQueryService pollTemplateQueryService
+	) {
+		this.pollTemplateCommandService = pollTemplateCommandService;
+		this.pollTemplateQueryService = pollTemplateQueryService;
 	}
 
 	@GetMapping
@@ -35,7 +41,7 @@ public class AdminPollTemplateController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		List<PollTemplateResponse> responses = pollTemplateService.listTemplates(campusId, authenticatedUser.userId())
+		List<PollTemplateResponse> responses = pollTemplateQueryService.listTemplates(campusId, authenticatedUser.userId())
 			.stream()
 			.map(PollTemplateResponse::from)
 			.toList();
@@ -48,7 +54,7 @@ public class AdminPollTemplateController {
 		@PathVariable Long campusId,
 		@PathVariable Long templateId
 	) {
-		return ApiResponse.success(PollTemplateResponse.from(pollTemplateService.getTemplate(campusId, templateId, authenticatedUser.userId())));
+		return ApiResponse.success(PollTemplateResponse.from(pollTemplateQueryService.getTemplate(campusId, templateId, authenticatedUser.userId())));
 	}
 
 	@PostMapping
@@ -57,7 +63,7 @@ public class AdminPollTemplateController {
 		@PathVariable Long campusId,
 		@Valid @RequestBody CreatePollTemplateRequest request
 	) {
-		PollTemplateResponse response = PollTemplateResponse.from(pollTemplateService.createTemplate(
+		PollTemplateResponse response = PollTemplateResponse.from(pollTemplateCommandService.createTemplate(
 			request.toCommand(campusId, authenticatedUser)
 		));
 		return ResponseEntity.status(HttpStatus.CREATED)
@@ -71,7 +77,7 @@ public class AdminPollTemplateController {
 		@PathVariable Long templateId,
 		@Valid @RequestBody UpdatePollTemplateRequest request
 	) {
-		return ApiResponse.success(PollTemplateResponse.from(pollTemplateService.updateTemplate(
+		return ApiResponse.success(PollTemplateResponse.from(pollTemplateCommandService.updateTemplate(
 			request.toCommand(campusId, templateId, authenticatedUser)
 		)), "투표 템플릿이 수정되었습니다.");
 	}
@@ -83,7 +89,7 @@ public class AdminPollTemplateController {
 		@PathVariable Long templateId
 	) {
 		return ApiResponse.success(
-			PollTemplateResponse.from(pollTemplateService.deactivateTemplate(campusId, templateId, authenticatedUser.userId())),
+			PollTemplateResponse.from(pollTemplateCommandService.deactivateTemplate(campusId, templateId, authenticatedUser.userId())),
 			"투표 템플릿이 비활성화되었습니다."
 		);
 	}
