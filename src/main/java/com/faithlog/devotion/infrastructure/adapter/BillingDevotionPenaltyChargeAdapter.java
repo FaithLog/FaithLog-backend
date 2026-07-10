@@ -1,6 +1,7 @@
 package com.faithlog.devotion.infrastructure.adapter;
 
-import com.faithlog.billing.service.BillingService;
+import com.faithlog.billing.service.BillingQueryService;
+import com.faithlog.billing.service.ChargeCreationService;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
 import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.devotion.service.port.DevotionPenaltyChargeCommand;
@@ -10,20 +11,25 @@ import org.springframework.stereotype.Component;
 @Component
 public class BillingDevotionPenaltyChargeAdapter implements DevotionPenaltyChargePort {
 
-	private final BillingService billingService;
+	private final BillingQueryService billingQueryService;
+	private final ChargeCreationService chargeCreationService;
 
-	public BillingDevotionPenaltyChargeAdapter(BillingService billingService) {
-		this.billingService = billingService;
+	public BillingDevotionPenaltyChargeAdapter(
+		BillingQueryService billingQueryService,
+		ChargeCreationService chargeCreationService
+	) {
+		this.billingQueryService = billingQueryService;
+		this.chargeCreationService = chargeCreationService;
 	}
 
 	@Override
 	public void requireActivePenaltyAccount(Long campusId) {
-		billingService.requireActivePenaltyAccount(campusId);
+		billingQueryService.requireActivePenaltyAccount(campusId);
 	}
 
 	@Override
 	public void createPenaltyCharge(DevotionPenaltyChargeCommand command) {
-		billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
+		chargeCreationService.createPenaltyCharge(new CreatePenaltyChargeCommand(
 			command.campusId(),
 			command.userId(),
 			ChargeSourceType.DEVOTION_RECORD,

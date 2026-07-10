@@ -1,7 +1,7 @@
 package com.faithlog.billing.controller;
 
-import com.faithlog.billing.service.BillingService;
 import com.faithlog.billing.service.BillingQueryService;
+import com.faithlog.billing.service.ChargeStatusCommandService;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.billing.service.query.MyChargeListQuery;
 import com.faithlog.billing.service.query.MyChargeSummaryQuery;
@@ -28,12 +28,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/campuses")
 public class BillingController {
 
-	private final BillingService billingService;
 	private final BillingQueryService billingQueryService;
+	private final ChargeStatusCommandService chargeStatusCommandService;
 
-	public BillingController(BillingService billingService, BillingQueryService billingQueryService) {
-		this.billingService = billingService;
+	public BillingController(
+		BillingQueryService billingQueryService,
+		ChargeStatusCommandService chargeStatusCommandService
+	) {
 		this.billingQueryService = billingQueryService;
+		this.chargeStatusCommandService = chargeStatusCommandService;
 	}
 
 	@GetMapping("/{campusId}/payment-accounts")
@@ -41,7 +44,7 @@ public class BillingController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		List<PaymentAccountMemberResponse> responses = billingService
+		List<PaymentAccountMemberResponse> responses = billingQueryService
 			.listPaymentAccounts(campusId, authenticatedUser.userId())
 			.stream()
 			.map(PaymentAccountMemberResponse::from)
@@ -92,7 +95,7 @@ public class BillingController {
 		@PathVariable Long chargeItemId,
 		@RequestBody(required = false) CompleteChargePaymentRequest request
 	) {
-		ChargeItemResult result = billingService.completeMyChargePayment(
+		ChargeItemResult result = chargeStatusCommandService.completeMyChargePayment(
 			CompleteChargePaymentRequest.toCommand(request, campusId, chargeItemId, authenticatedUser)
 		);
 		return ApiResponse.success(ChargeItemResponse.from(result), "청구가 납부 완료 처리되었습니다.");
