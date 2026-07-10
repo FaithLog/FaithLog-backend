@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-10 - Issue #149 Billing Query And Aggregation Use Case Service Separation
+
+- Context: Issue #148 separated Billing commands but left member charge reads, administrator charge aggregation, payment-account reads, and penalty-account validation in one 673-line `BillingQueryService`. Issue #149 requires separating those read responsibilities without changing API, repository query, authorization, transaction, aggregation, sorting, or exception behavior.
+- Decision: Split the nine public query surfaces into `MyChargeQueryService`, `AdminChargeQueryService`, and `PaymentAccountQueryService`. Each moved public method directly owns the same `@Transactional(readOnly = true)` boundary. Keep result assembly and access helpers private to the service that owns the corresponding use case instead of introducing a cross-service dependency or a new shared business-policy abstraction.
+- Decision: Controllers and the Devotion Billing adapter call the dedicated Query Service directly. Keep `BillingQueryService` as a repository-free, transaction-free, business-rule-free compatibility delegate, and connect the Issue #148 `BillingService` compatibility façade directly to `PaymentAccountQueryService` for its legacy account-query methods.
+- Impact: Member status/category/page/size/sort behavior, monthly summary bases, administrator summary/member aggregation, `paymentAccountId`, my-accounts PENALTY/COFFEE owner scope, account active/inactive/soft-delete filters, role and duty authorization, ErrorCodes/messages, repository call meaning, response ordering, API paths/JSON/status, DB/Flyway, and dependencies remain unchanged.
+
 ### 2026-07-10 - Issue #148 Billing Command Use Case Service Separation
 
 - Context: After Issue #145 established the domain-first MVC package structure and Issue #147 separated Campus/Admin use cases, `BillingService` still owned payment account commands, charge creation, charge status changes, and legacy payment-account reads in one class. Issue #148 requires command responsibility separation without changing Billing policies, transaction results, API contracts, or persistence behavior.
