@@ -13,23 +13,34 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 325 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 332 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 64 test files (2026-07-10) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 65 test files (2026-07-10) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-10) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 516 Java sources including tests (2026-07-10) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 520 Java sources including tests (2026-07-10) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-07-10
+
+- #149 Billing 조회와 집계 책임 분리:
+  - 작업 기준: Issue #149 `[Refactor] 03 Billing 조회와 집계 책임 분리`, 브랜치 `chore/149-billing-query-aggregation-separation`, 별도 Codex worktree, 최신 `origin/develop` `f2b6660` 기준.
+  - TDD 증거: 본인 청구 목록의 `paymentCategory + status + page + size + sort` 조합 characterization을 먼저 추가해 기존 구현에서 GREEN을 확인했다. 이어 세 전용 Query Service, 각 public read-only 트랜잭션, Controller/Devotion adapter 직접 연결, 두 호환 façade의 무규칙성, 서비스 순환 의존 금지를 요구하는 구조 테스트 5건을 실행해 5 failures RED를 확인한 뒤 최소 책임 이동으로 GREEN을 만들었다.
+  - 책임 분리: 본인 목록/요약 2개를 `MyChargeQueryService`, 관리자 캠퍼스/내 계좌 집계와 회원 상세 3개를 `AdminChargeQueryService`, 회원 계좌 목록·관리자 계좌 목록 두 overload·활성 PENALTY 계좌 검증 4개를 `PaymentAccountQueryService`로 분리했다. 9개 public 조회 surface가 각각 기존 `@Transactional(readOnly = true)` 경계를 직접 소유한다.
+  - 호환 경계: 두 Billing Controller와 Devotion Billing adapter는 전용 Query Service로 직접 연결했다. `BillingQueryService`는 3개 전용 서비스만 delegate하는 repository/transaction/BusinessException/business-rule-free façade로 축소했고, #148 `BillingService`도 legacy 계좌 조회를 `PaymentAccountQueryService`에 직접 delegate해 기존 무규칙 façade 조건을 유지했다. 공통 helper Service를 새로 만들지 않고 각 유스케이스 서비스가 기존 private helper와 호출 순서를 소유해 서비스 간 의존을 추가하지 않았다.
+  - 정책 보존: 본인 status/category/page/size/sort와 월별 paidAt/createdAt 기준, 관리자 summary/members/detail 조립과 정렬, `paymentAccountId`, my-accounts PENALTY 공유·COFFEE owner 범위, 일반 MEMBER/캠퍼스 관리자/전역 ADMIN/활성 COFFEE 담당자 권한, active/inactive/soft-delete 계좌 필터, ErrorCode와 사용자 메시지, repository query 의미를 그대로 유지했다. API mapping/query parameter/request-response DTO/HTTP status 변경 0건, Billing Entity·DB·Flyway·의존성 변경 0건, Swagger 문서 annotation 0건, Controller Entity 직접 반환 0건, 서비스 순환 의존 0건을 확인했다.
+  - 검증: Billing service/query/구조 focused 테스트, Billing Controller/REST Docs, Devotion/Poll/Batch 연결 테스트를 분리 실행해 성공했다. 최종 `./gradlew test` 성공(332 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공. Devotion/Poll/Batch 88-test 묶음에서 기존 `DevotionServiceTest` 10건 순서 오염이 재현됐고, 깨끗한 `origin/develop`도 동일 테스트·동일 실제값으로 실패했으며 `DevotionServiceTest` 단독은 성공했다. #149 신규 오염이 아니므로 테스트를 수정하거나 성과로 집계하지 않았다.
+  - Docker QA: `faithlog-qa-149-billing-query` 격리 compose project에서 clean app image build, PostgreSQL/Redis `healthy`, backend `/api/v1/health`의 `data.status=UP`, 동일 project compose down까지 성공했다. 기존 중지 컨테이너와 named volume은 건드리지 않았고 volume 삭제 없이 종료했다. 마지막 Docker 명령으로 `docker builder prune -f`만 실행해 미사용 build cache 695.8MB를 정리했으며 `docker system prune`, volume/image prune, named volume 삭제는 실행하지 않았다.
+  - 도구 제약: GitHub Issue #149의 `projectItems`는 비어 있었고 CLI token에 `read:project` scope가 없어 Project 카드 상태를 조회하거나 변경하지 못했다. `pm-dev` dev gate는 `harness.yaml`, `.harness` 정책/기획 파일, custom agent 설정 부재로 실패했다. `score_code.py`는 critical/security finding 0건의 보고서를 생성했지만 specialist와 overall score가 없어 `passed=false`였고, `review_gate.py`도 공통 harness/quality/TDD evidence 부재로 실패했다. 생성된 `.harness/` 보고서는 승인 없이 커밋하거나 삭제하지 않고 untracked로 보존했다.
+  - 이력서 문장 후보: `Billing의 9개 조회·집계 surface를 본인 청구·관리자 집계·계좌 조회 3개 응집 Query Service로 분리하고, 5개 구조 회귀 테스트와 332개 전체 테스트·격리 Docker health 검증으로 API·DB·권한·집계 동작 무변경을 보장했다.`
 
 - #148 Billing 계좌와 청구 명령 책임 분리:
   - 작업 기준: Issue #148 `[Refactor] 02 Billing 계좌와 청구 명령 책임 분리`, 브랜치 `chore/148-billing-command-usecase-separation`, 별도 Codex worktree, 최신 `origin/develop` `0c9fd62` 기준.
