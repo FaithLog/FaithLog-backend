@@ -2,7 +2,8 @@ package com.faithlog.prayer.controller;
 
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
-import com.faithlog.prayer.service.PrayerService;
+import com.faithlog.prayer.service.PrayerGroupCommandService;
+import com.faithlog.prayer.service.PrayerGroupQueryService;
 import com.faithlog.prayer.service.PrayerSeasonCommandService;
 import com.faithlog.prayer.service.PrayerSeasonQueryService;
 import com.faithlog.prayer.controller.dto.request.ClosePrayerSeasonRequest;
@@ -33,16 +34,19 @@ public class AdminPrayerController {
 
 	private final PrayerSeasonCommandService seasonCommandService;
 	private final PrayerSeasonQueryService seasonQueryService;
-	private final PrayerService prayerService;
+	private final PrayerGroupCommandService groupCommandService;
+	private final PrayerGroupQueryService groupQueryService;
 
 	public AdminPrayerController(
 		PrayerSeasonCommandService seasonCommandService,
 		PrayerSeasonQueryService seasonQueryService,
-		PrayerService prayerService
+		PrayerGroupCommandService groupCommandService,
+		PrayerGroupQueryService groupQueryService
 	) {
 		this.seasonCommandService = seasonCommandService;
 		this.seasonQueryService = seasonQueryService;
-		this.prayerService = prayerService;
+		this.groupCommandService = groupCommandService;
+		this.groupQueryService = groupQueryService;
 	}
 
 	@PostMapping("/campuses/{campusId}/prayer-seasons")
@@ -79,7 +83,7 @@ public class AdminPrayerController {
 		@PathVariable Long seasonId,
 		@Valid @RequestBody CreatePrayerGroupRequest request
 	) {
-		PrayerGroupResponse response = PrayerGroupResponse.from(prayerService.createGroup(request.toCommand(seasonId, authenticatedUser)));
+		PrayerGroupResponse response = PrayerGroupResponse.from(groupCommandService.createGroup(request.toCommand(seasonId, authenticatedUser)));
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
 	}
 
@@ -88,7 +92,7 @@ public class AdminPrayerController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long seasonId
 	) {
-		return ApiResponse.success(prayerService.getSeasonGroups(seasonId, authenticatedUser.userId())
+		return ApiResponse.success(groupQueryService.getSeasonGroups(seasonId, authenticatedUser.userId())
 			.stream()
 			.map(PrayerGroupResponse::from)
 			.toList());
@@ -99,7 +103,7 @@ public class AdminPrayerController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long seasonId
 	) {
-		return ApiResponse.success(prayerService.getAssignableMembers(seasonId, authenticatedUser.userId())
+		return ApiResponse.success(groupQueryService.getAssignableMembers(seasonId, authenticatedUser.userId())
 			.stream()
 			.map(PrayerAssignableMemberResponse::from)
 			.toList());
@@ -111,7 +115,7 @@ public class AdminPrayerController {
 		@PathVariable Long groupId,
 		@Valid @RequestBody UpdatePrayerGroupRequest request
 	) {
-		return ApiResponse.success(PrayerGroupResponse.from(prayerService.updateGroup(request.toCommand(groupId, authenticatedUser))));
+		return ApiResponse.success(PrayerGroupResponse.from(groupCommandService.updateGroup(request.toCommand(groupId, authenticatedUser))));
 	}
 
 	@PutMapping("/prayer-groups/{groupId}/members")
@@ -120,6 +124,6 @@ public class AdminPrayerController {
 		@PathVariable Long groupId,
 		@Valid @RequestBody ReplacePrayerGroupMembersRequest request
 	) {
-		return ApiResponse.success(PrayerGroupResponse.from(prayerService.replaceGroupMembers(request.toCommand(groupId, authenticatedUser))));
+		return ApiResponse.success(PrayerGroupResponse.from(groupCommandService.replaceGroupMembers(request.toCommand(groupId, authenticatedUser))));
 	}
 }
