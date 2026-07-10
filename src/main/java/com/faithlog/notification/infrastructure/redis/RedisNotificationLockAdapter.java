@@ -1,9 +1,9 @@
 package com.faithlog.notification.infrastructure.redis;
 
-import com.faithlog.notification.application.NotificationLockKey;
-import com.faithlog.notification.application.NotificationLockLease;
-import com.faithlog.notification.application.port.NotificationLockPort;
-import com.faithlog.notification.application.port.NotificationRedisOperationException;
+import com.faithlog.notification.service.NotificationLockKey;
+import com.faithlog.notification.service.NotificationLockLease;
+import com.faithlog.notification.service.port.NotificationLockPort;
+import com.faithlog.notification.service.port.NotificationRedisOperationException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;

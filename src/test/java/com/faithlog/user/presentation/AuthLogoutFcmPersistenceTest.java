@@ -6,11 +6,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.faithlog.notification.application.FcmTokenResult;
-import com.faithlog.notification.application.FcmTokenService;
-import com.faithlog.notification.application.RegisterFcmTokenCommand;
-import com.faithlog.notification.domain.DeviceType;
-import com.faithlog.notification.infrastructure.jpa.UserFcmTokenRepository;
+import com.faithlog.notification.service.result.FcmTokenResult;
+import com.faithlog.notification.service.FcmTokenService;
+import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
+import com.faithlog.notification.domain.type.DeviceType;
+import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import org.junit.jupiter.api.Test;

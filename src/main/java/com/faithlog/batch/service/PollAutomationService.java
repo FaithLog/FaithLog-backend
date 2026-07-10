@@ -1,7 +1,7 @@
 package com.faithlog.batch.service;
 
-import com.faithlog.notification.application.NotificationLockKey;
-import com.faithlog.notification.application.NotificationLockService;
+import com.faithlog.notification.service.NotificationLockKey;
+import com.faithlog.notification.service.NotificationLockService;
 import com.faithlog.poll.application.CoffeePollSettlementService;
 import com.faithlog.poll.domain.Poll;
 import com.faithlog.poll.domain.PollOption;

@@ -2,9 +2,9 @@ package com.faithlog.notification.infrastructure.fcm;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.faithlog.notification.application.FcmSendException;
-import com.faithlog.notification.application.port.FcmSendCommand;
-import com.faithlog.notification.application.port.FcmSendFailureType;
+import com.faithlog.notification.service.FcmSendException;
+import com.faithlog.notification.service.port.FcmSendCommand;
+import com.faithlog.notification.service.port.FcmSendFailureType;
 import com.google.firebase.ErrorCode;
 import com.google.firebase.messaging.MessagingErrorCode;
 import org.junit.jupiter.api.Test;

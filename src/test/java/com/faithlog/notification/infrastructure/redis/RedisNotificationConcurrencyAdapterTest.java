@@ -5,9 +5,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.faithlog.notification.application.NotificationDeduplicationKey;
-import com.faithlog.notification.application.NotificationLockKey;
-import com.faithlog.notification.application.NotificationLockLease;
+import com.faithlog.notification.service.NotificationDeduplicationKey;
+import com.faithlog.notification.service.NotificationLockKey;
+import com.faithlog.notification.service.NotificationLockLease;
 import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;

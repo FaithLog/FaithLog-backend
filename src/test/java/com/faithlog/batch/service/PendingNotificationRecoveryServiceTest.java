@@ -5,11 +5,11 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
-import com.faithlog.notification.application.NotificationDeliveryWorker;
-import com.faithlog.notification.domain.NotificationLog;
-import com.faithlog.notification.domain.NotificationType;
-import com.faithlog.notification.domain.SendStatus;
-import com.faithlog.notification.infrastructure.jpa.NotificationLogRepository;
+import com.faithlog.notification.service.NotificationDeliveryWorker;
+import com.faithlog.notification.domain.entity.NotificationLog;
+import com.faithlog.notification.domain.type.NotificationType;
+import com.faithlog.notification.domain.type.SendStatus;
+import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import java.time.Instant;
 import java.time.LocalDate;

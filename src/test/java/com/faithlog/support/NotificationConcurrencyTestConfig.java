@@ -1,10 +1,10 @@
 package com.faithlog.support;
 
-import com.faithlog.notification.application.NotificationDeduplicationKey;
-import com.faithlog.notification.application.NotificationLockKey;
-import com.faithlog.notification.application.NotificationLockLease;
-import com.faithlog.notification.application.port.NotificationDeduplicationPort;
-import com.faithlog.notification.application.port.NotificationLockPort;
+import com.faithlog.notification.service.NotificationDeduplicationKey;
+import com.faithlog.notification.service.NotificationLockKey;
+import com.faithlog.notification.service.NotificationLockLease;
+import com.faithlog.notification.service.port.NotificationDeduplicationPort;
+import com.faithlog.notification.service.port.NotificationLockPort;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Optional;
@@ -31,7 +31,7 @@ public class NotificationConcurrencyTestConfig {
 		@Override
 		public boolean reserve(NotificationDeduplicationKey key, Duration ttl) {
 			if (fail) {
-				throw new com.faithlog.notification.application.port.NotificationRedisOperationException("test failure");
+				throw new com.faithlog.notification.service.port.NotificationRedisOperationException("test failure");
 			}
 			return dedupKeys.add(key.value());
 		}
@@ -39,7 +39,7 @@ public class NotificationConcurrencyTestConfig {
 		@Override
 		public Optional<NotificationLockLease> acquire(NotificationLockKey key, Duration ttl) {
 			if (fail) {
-				throw new com.faithlog.notification.application.port.NotificationRedisOperationException("test failure");
+				throw new com.faithlog.notification.service.port.NotificationRedisOperationException("test failure");
 			}
 			if (!lockKeys.add(key.value())) {
 				return Optional.empty();

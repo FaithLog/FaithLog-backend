@@ -1,7 +1,7 @@
 package com.faithlog.batch.service;
 
-import com.faithlog.notification.domain.UserFcmToken;
-import com.faithlog.notification.infrastructure.jpa.UserFcmTokenRepository;
+import com.faithlog.notification.domain.entity.UserFcmToken;
+import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import java.time.Duration;
 import java.time.Instant;
 import org.springframework.stereotype.Service;

@@ -2,12 +2,12 @@ package com.faithlog.batch.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.notification.application.FcmTokenResult;
-import com.faithlog.notification.application.FcmTokenService;
-import com.faithlog.notification.application.RegisterFcmTokenCommand;
-import com.faithlog.notification.domain.DeviceType;
-import com.faithlog.notification.domain.UserFcmToken;
-import com.faithlog.notification.infrastructure.jpa.UserFcmTokenRepository;
+import com.faithlog.notification.service.result.FcmTokenResult;
+import com.faithlog.notification.service.FcmTokenService;
+import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
+import com.faithlog.notification.domain.type.DeviceType;
+import com.faithlog.notification.domain.entity.UserFcmToken;
+import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import com.faithlog.user.domain.User;
 import com.faithlog.user.infrastructure.jpa.UserRepository;
 import java.time.Instant;

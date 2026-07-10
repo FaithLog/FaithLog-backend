@@ -1,12 +1,12 @@
 package com.faithlog.batch.service;
 
-import com.faithlog.notification.application.NotificationDeliveryWorker;
-import com.faithlog.notification.application.NotificationLockKey;
-import com.faithlog.notification.application.NotificationLockLease;
-import com.faithlog.notification.application.NotificationLockService;
-import com.faithlog.notification.domain.NotificationLog;
-import com.faithlog.notification.domain.SendStatus;
-import com.faithlog.notification.infrastructure.jpa.NotificationLogRepository;
+import com.faithlog.notification.service.NotificationDeliveryWorker;
+import com.faithlog.notification.service.NotificationLockKey;
+import com.faithlog.notification.service.NotificationLockLease;
+import com.faithlog.notification.service.NotificationLockService;
+import com.faithlog.notification.domain.entity.NotificationLog;
+import com.faithlog.notification.domain.type.SendStatus;
+import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;

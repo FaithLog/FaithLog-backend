@@ -1,7 +1,7 @@
 package com.faithlog.notification.infrastructure.fcm;
 
-import com.faithlog.notification.application.NotificationDeliveryWorker;
-import com.faithlog.notification.application.port.NotificationDispatchPort;
+import com.faithlog.notification.service.NotificationDeliveryWorker;
+import com.faithlog.notification.service.port.NotificationDispatchPort;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;

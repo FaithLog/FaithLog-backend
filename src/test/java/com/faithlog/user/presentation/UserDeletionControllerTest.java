@@ -11,7 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.campus.domain.type.CampusMemberStatus;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
-import com.faithlog.notification.infrastructure.jpa.UserFcmTokenRepository;
+import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import com.faithlog.user.application.port.AccessTokenBlacklistStore;
 import com.faithlog.user.application.port.RefreshTokenStore;
 import com.faithlog.user.domain.User;

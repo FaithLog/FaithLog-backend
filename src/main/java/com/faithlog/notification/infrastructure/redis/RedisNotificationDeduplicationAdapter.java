@@ -1,8 +1,8 @@
 package com.faithlog.notification.infrastructure.redis;
 
-import com.faithlog.notification.application.NotificationDeduplicationKey;
-import com.faithlog.notification.application.port.NotificationDeduplicationPort;
-import com.faithlog.notification.application.port.NotificationRedisOperationException;
+import com.faithlog.notification.service.NotificationDeduplicationKey;
+import com.faithlog.notification.service.port.NotificationDeduplicationPort;
+import com.faithlog.notification.service.port.NotificationRedisOperationException;
 import java.time.Duration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.core.StringRedisTemplate;
