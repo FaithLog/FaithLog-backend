@@ -1,7 +1,7 @@
 package com.faithlog.billing.controller;
 
-import com.faithlog.billing.service.BillingService;
 import com.faithlog.billing.service.BillingQueryService;
+import com.faithlog.billing.service.ChargeStatusCommandService;
 import com.faithlog.billing.service.PaymentAccountCommandService;
 import com.faithlog.billing.service.query.AdminCampusChargeListQuery;
 import com.faithlog.billing.service.query.AdminMemberChargeListQuery;
@@ -36,18 +36,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin")
 public class AdminBillingController {
 
-	private final BillingService billingService;
 	private final BillingQueryService billingQueryService;
 	private final PaymentAccountCommandService paymentAccountCommandService;
+	private final ChargeStatusCommandService chargeStatusCommandService;
 
 	public AdminBillingController(
-		BillingService billingService,
 		BillingQueryService billingQueryService,
-		PaymentAccountCommandService paymentAccountCommandService
+		PaymentAccountCommandService paymentAccountCommandService,
+		ChargeStatusCommandService chargeStatusCommandService
 	) {
-		this.billingService = billingService;
 		this.billingQueryService = billingQueryService;
 		this.paymentAccountCommandService = paymentAccountCommandService;
+		this.chargeStatusCommandService = chargeStatusCommandService;
 	}
 
 	@PostMapping("/campuses/{campusId}/payment-accounts")
@@ -83,7 +83,7 @@ public class AdminBillingController {
 		@RequestParam(required = false) PaymentCategory accountType,
 		@RequestParam(defaultValue = "false") boolean includeInactive
 	) {
-		List<PaymentAccountAdminResponse> responses = billingService
+		List<PaymentAccountAdminResponse> responses = billingQueryService
 			.listAdminPaymentAccounts(campusId, authenticatedUser.userId(), accountType, includeInactive)
 			.stream()
 			.map(PaymentAccountAdminResponse::from)
@@ -121,7 +121,9 @@ public class AdminBillingController {
 		@PathVariable Long chargeItemId,
 		@Valid @RequestBody ChangeChargeStatusRequest request
 	) {
-		ChargeItemResult result = billingService.changeChargeStatus(request.toCommand(chargeItemId, authenticatedUser));
+		ChargeItemResult result = chargeStatusCommandService.changeChargeStatus(
+			request.toCommand(chargeItemId, authenticatedUser)
+		);
 		return ApiResponse.success(ChargeItemResponse.from(result), "청구 상태가 변경되었습니다.");
 	}
 
