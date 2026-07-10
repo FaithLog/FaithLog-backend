@@ -1,6 +1,6 @@
 package com.faithlog.admin.controller;
 
-import com.faithlog.admin.service.AdminDashboardService;
+import com.faithlog.admin.service.AdminDashboardQueryService;
 import com.faithlog.admin.controller.dto.response.AdminDashboardSummaryResponse;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
@@ -16,10 +16,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/campuses/{campusId}/dashboard")
 public class AdminDashboardController {
 
-	private final AdminDashboardService adminDashboardService;
+	private final AdminDashboardQueryService adminDashboardQueryService;
 
-	public AdminDashboardController(AdminDashboardService adminDashboardService) {
-		this.adminDashboardService = adminDashboardService;
+	public AdminDashboardController(AdminDashboardQueryService adminDashboardQueryService) {
+		this.adminDashboardQueryService = adminDashboardQueryService;
 	}
 
 	@GetMapping("/summary")
@@ -29,7 +29,7 @@ public class AdminDashboardController {
 		@RequestParam(required = false) LocalDate weekStartDate
 	) {
 		return ApiResponse.success(AdminDashboardSummaryResponse.from(
-			adminDashboardService.getSummary(campusId, authenticatedUser.userId(), weekStartDate)
+			adminDashboardQueryService.getSummary(campusId, authenticatedUser.userId(), weekStartDate)
 		));
 	}
 }
