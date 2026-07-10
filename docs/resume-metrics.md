@@ -13,23 +13,33 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 315 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 320 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 61 test files (2026-07-10) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 63 test files (2026-07-10) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-10) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 499 Java sources including tests (2026-07-10) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 512 Java sources including tests (2026-07-10) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-07-10
+
+- #147 Campus/Admin 유스케이스 책임 분리:
+  - 작업 기준: Issue #147 `[Refactor] 01 Campus와 Admin 유스케이스 책임 분리`, 브랜치 `chore/147-campus-admin-usecase-separation`, 최신 `origin/develop` `8314059` 기준 전용 Codex worktree.
+  - TDD 증거: 캠퍼스 수정 권한/필드/초대코드 보존 characterization test를 먼저 추가해 기존 구현에서 GREEN을 확인했다. 이어 책임 Service 부재와 기존 façade의 repository/transaction 소유를 검출하는 구조 테스트 4건을 추가해 4 failures RED를 확인한 뒤 최소 이동으로 GREEN을 만들었다.
+  - 책임 분리: Campus 6개(`CampusCreationService`, `CampusJoinService`, `CampusQueryService`, `CampusUpdateService`, `CampusMemberManagementService`, `CampusDutyAssignmentService`)와 Admin 3개(`AdminUserManagementService`, `AdminCampusManagementService`, `AdminDashboardQueryService`) 유스케이스 Service로 분리했다. 기존 `CampusService`, `AdminManagementService`, `AdminDashboardService`는 다른 내부 호출과 테스트 호환을 위한 repository-free façade로 제한했다.
+  - 트랜잭션/권한 보존: 기존 `CampusService` 12개, `AdminManagementService` 5개, `AdminDashboardService` 1개의 `@Transactional` 경계를 각각 새 책임 Service로 1:1 이동했다. Campus 공통 활성 사용자/관리자 검증은 `CampusAccessPolicy`에 모으고 `CampusRolePolicy`, `AdminAccessPolicy`, repository port 방향과 검증 순서를 유지했다.
+  - 검증: admin/campus focused 47 tests 성공, `./gradlew test` 성공(320 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공. Controller mapping annotation 변경 0건, request DTO/DB/Flyway/ErrorCode 변경 0건, Swagger 문서 annotation 0건, Controller domain Entity import 0건을 확인했다.
+  - Docker QA: `faithlog-qa-147-codex` 격리 compose project에서 app image build, PostgreSQL/Redis `healthy`, backend `/api/v1/health`의 `data.status=UP`, compose down까지 성공했다. Docker volume은 삭제하지 않았다.
+  - 도구 제약: `dev_gate.py`는 저장소 `harness.yaml`, `.harness/*`, `.codex/agents/*`, `docs/00-index.md` 부재로 실패했다. GitHub Issue #147의 연결 `projectItems`는 비어 있었고 로컬 `gh` token이 invalid라 Project 카드 상태 변경은 수행하지 못했다.
+  - 이력서 문장 후보: `Campus/Admin의 18개 트랜잭션 유스케이스를 9개 응집 Service로 분리하고 repository-free 호환 façade와 구조 회귀 테스트를 도입해, 320개 전체 테스트와 격리 Docker health 검증으로 API·DB·권한 동작 무변경을 보장했다.`
 
 - #145 DDD 도메인 내부 MVC 패키지 구조 정리:
   - 작업 기준: Issue #145 `[Refactor] DDD 도메인 내부 MVC 패키지 구조 정리`, 브랜치 `chore/145-ddd-mvc-package-structure`, 최신 `origin/develop` 기준 전용 Codex worktree.
