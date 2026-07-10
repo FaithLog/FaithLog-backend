@@ -99,7 +99,17 @@ class PollAutomationServiceTest {
 			.first()
 			.satisfies(poll -> {
 				assertThat(poll.templateId()).isEqualTo(enabled.id());
+				assertThat(poll.title()).isEqualTo("자동 투표");
+				assertThat(poll.pollType()).isEqualTo(PollType.CUSTOM);
+				assertThat(poll.selectionType()).isEqualTo(SelectionType.SINGLE);
 				assertThat(poll.status()).isEqualTo(PollStatus.OPEN);
+				assertThat(poll.isAnonymous()).isFalse();
+				assertThat(poll.allowUserOptionAdd()).isFalse();
+				assertThat(poll.chargeGenerationType()).isEqualTo(ChargeGenerationType.NONE);
+				assertThat(poll.paymentCategory()).isNull();
+				assertThat(poll.paymentAccountId()).isNull();
+				assertThat(poll.startsAt()).isEqualTo(mondayAt(11, 0).toInstant());
+				assertThat(poll.endsAt()).isEqualTo(mondayAt(12, 0).toInstant());
 				assertThat(poll.createdBy()).isNull();
 			});
 		Poll poll = pollRepository.findAll().stream()
@@ -107,8 +117,24 @@ class PollAutomationServiceTest {
 			.findFirst()
 			.orElseThrow();
 		assertThat(pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id()))
-			.extracting(PollOption::content)
-			.containsExactly("참석", "불참");
+			.extracting(PollOption::content, PollOption::composeMenuCode, PollOption::priceAmount, PollOption::sortOrder)
+			.containsExactly(
+				org.assertj.core.groups.Tuple.tuple("참석", null, 0, 1),
+				org.assertj.core.groups.Tuple.tuple("불참", null, 0, 2)
+			);
+	}
+
+	@Test
+	void createDuePolls_excludes_deactivated_auto_enabled_template() {
+		User manager = saveUser("batch-inactive-template-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "152비활성자동템플릿캠");
+		PollTemplateResult template = createTemplate(campus.campusId(), manager.id(), "비활성 자동 투표", true);
+		pollTemplateService.deactivateTemplate(campus.campusId(), template.id(), manager.id());
+
+		int created = pollAutomationService.createDuePolls(mondayAt(11, 0).toInstant());
+
+		assertThat(created).isZero();
+		assertThat(pollRepository.findAll()).noneMatch(poll -> template.id().equals(poll.templateId()));
 	}
 
 	@Test
