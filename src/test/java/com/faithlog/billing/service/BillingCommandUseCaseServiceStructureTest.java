@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.annotation.DirtiesContext;
 
 class BillingCommandUseCaseServiceStructureTest {
 
@@ -101,6 +102,19 @@ class BillingCommandUseCaseServiceStructureTest {
 			() -> assertTrue(content.contains("PaymentAccountCommandService")),
 			() -> assertTrue(content.contains("ChargeCreationService")),
 			() -> assertTrue(content.contains("ChargeStatusCommandService"))
+		);
+	}
+
+	@Test
+	void rollbackCharacterizationClosesItsCommittedTestContext() throws NoSuchMethodException {
+		DirtiesContext dirtiesContext = BillingServiceTest.class
+			.getDeclaredMethod("createPaymentAccount_rolls_back_previous_deactivation_when_replacement_insert_fails")
+			.getAnnotation(DirtiesContext.class);
+
+		assertTrue(dirtiesContext != null, "비트랜잭션 rollback 특성화 테스트는 커밋된 fixture context를 정리해야 합니다.");
+		assertTrue(
+			dirtiesContext.methodMode() == DirtiesContext.MethodMode.AFTER_METHOD,
+			"rollback 특성화 테스트 종료 후 Spring context를 정리해야 합니다."
 		);
 	}
 
