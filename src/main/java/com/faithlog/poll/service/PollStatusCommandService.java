@@ -13,18 +13,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PollStatusCommandService {
 
-	private final PollLookupPolicy pollLookupPolicy;
+	private final PollLookupSupport pollLookupSupport;
 	private final PollAccessService pollAccessService;
 	private final CoffeePollSettlementService coffeePollSettlementService;
 	private final PollResultAssembler pollResultAssembler;
 
 	public PollStatusCommandService(
-		PollLookupPolicy pollLookupPolicy,
+		PollLookupSupport pollLookupSupport,
 		PollAccessService pollAccessService,
 		CoffeePollSettlementService coffeePollSettlementService,
 		PollResultAssembler pollResultAssembler
 	) {
-		this.pollLookupPolicy = pollLookupPolicy;
+		this.pollLookupSupport = pollLookupSupport;
 		this.pollAccessService = pollAccessService;
 		this.coffeePollSettlementService = coffeePollSettlementService;
 		this.pollResultAssembler = pollResultAssembler;
@@ -32,7 +32,7 @@ public class PollStatusCommandService {
 
 	@Transactional
 	public PollResult closePoll(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupPolicy.getPollInCampus(campusId, pollId);
+		Poll poll = pollLookupSupport.getPollInCampus(campusId, pollId);
 		pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);

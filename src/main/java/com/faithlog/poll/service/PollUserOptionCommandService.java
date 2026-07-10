@@ -17,27 +17,27 @@ public class PollUserOptionCommandService {
 	private final PollOptionRepository pollOptionRepository;
 	private final PollOptionSnapshotResolver optionSnapshotResolver;
 	private final PollAccessService pollAccessService;
-	private final PollLookupPolicy pollLookupPolicy;
+	private final PollLookupSupport pollLookupSupport;
 	private final PollStatusSynchronizer pollStatusSynchronizer;
 
 	public PollUserOptionCommandService(
 		PollOptionRepository pollOptionRepository,
 		PollOptionSnapshotResolver optionSnapshotResolver,
 		PollAccessService pollAccessService,
-		PollLookupPolicy pollLookupPolicy,
+		PollLookupSupport pollLookupSupport,
 		PollStatusSynchronizer pollStatusSynchronizer
 	) {
 		this.pollOptionRepository = pollOptionRepository;
 		this.optionSnapshotResolver = optionSnapshotResolver;
 		this.pollAccessService = pollAccessService;
-		this.pollLookupPolicy = pollLookupPolicy;
+		this.pollLookupSupport = pollLookupSupport;
 		this.pollStatusSynchronizer = pollStatusSynchronizer;
 	}
 
 	@Transactional
 	public PollOptionResult addUserOption(AddPollOptionCommand command) {
 		pollAccessService.requireActiveCampusMember(command.campusId(), command.requesterId());
-		Poll poll = pollLookupPolicy.getPollInCampus(command.campusId(), command.pollId());
+		Poll poll = pollLookupSupport.getPollInCampus(command.campusId(), command.pollId());
 		pollStatusSynchronizer.requireOpenPoll(poll);
 		if (!poll.allowUserOptionAdd()) {
 			throw new BusinessException(ErrorCode.POLL_USER_OPTION_ADD_DISABLED);

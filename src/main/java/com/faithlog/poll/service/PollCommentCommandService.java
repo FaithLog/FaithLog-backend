@@ -17,25 +17,25 @@ public class PollCommentCommandService {
 
 	private final PollCommentRepository pollCommentRepository;
 	private final PollAccessService pollAccessService;
-	private final PollLookupPolicy pollLookupPolicy;
+	private final PollLookupSupport pollLookupSupport;
 	private final PollStatusSynchronizer pollStatusSynchronizer;
 
 	public PollCommentCommandService(
 		PollCommentRepository pollCommentRepository,
 		PollAccessService pollAccessService,
-		PollLookupPolicy pollLookupPolicy,
+		PollLookupSupport pollLookupSupport,
 		PollStatusSynchronizer pollStatusSynchronizer
 	) {
 		this.pollCommentRepository = pollCommentRepository;
 		this.pollAccessService = pollAccessService;
-		this.pollLookupPolicy = pollLookupPolicy;
+		this.pollLookupSupport = pollLookupSupport;
 		this.pollStatusSynchronizer = pollStatusSynchronizer;
 	}
 
 	@Transactional
 	public PollCommentResult createComment(CreatePollCommentCommand command) {
 		pollAccessService.requireActiveCampusMember(command.campusId(), command.requesterId());
-		Poll poll = pollLookupPolicy.getPollInCampus(command.campusId(), command.pollId());
+		Poll poll = pollLookupSupport.getPollInCampus(command.campusId(), command.pollId());
 		pollStatusSynchronizer.requireOpenPoll(poll);
 		PollComment comment = pollCommentRepository.save(
 			PollComment.create(poll.id(), command.requesterId(), command.content())
@@ -46,7 +46,7 @@ public class PollCommentCommandService {
 	@Transactional
 	public PollCommentResult updateComment(UpdatePollCommentCommand command) {
 		pollAccessService.requirePollReader(command.campusId(), command.requesterId());
-		Poll poll = pollLookupPolicy.getPollInCampus(command.campusId(), command.pollId());
+		Poll poll = pollLookupSupport.getPollInCampus(command.campusId(), command.pollId());
 		pollStatusSynchronizer.requireOpenPoll(poll);
 		PollComment comment = getCommentInPoll(command.pollId(), command.commentId());
 		requireCommentEditor(command.campusId(), command.requesterId(), comment);
@@ -57,7 +57,7 @@ public class PollCommentCommandService {
 	@Transactional
 	public void deleteComment(DeletePollCommentCommand command) {
 		pollAccessService.requirePollReader(command.campusId(), command.requesterId());
-		Poll poll = pollLookupPolicy.getPollInCampus(command.campusId(), command.pollId());
+		Poll poll = pollLookupSupport.getPollInCampus(command.campusId(), command.pollId());
 		pollStatusSynchronizer.requireOpenPoll(poll);
 		PollComment comment = getCommentInPoll(command.pollId(), command.commentId());
 		requireCommentEditor(command.campusId(), command.requesterId(), comment);

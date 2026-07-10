@@ -26,7 +26,7 @@ public class PollResponseCommandService {
 	private final PollResponseRepository pollResponseRepository;
 	private final PollResponseOptionRepository pollResponseOptionRepository;
 	private final PollAccessService pollAccessService;
-	private final PollLookupPolicy pollLookupPolicy;
+	private final PollLookupSupport pollLookupSupport;
 	private final PollStatusSynchronizer pollStatusSynchronizer;
 
 	public PollResponseCommandService(
@@ -34,21 +34,21 @@ public class PollResponseCommandService {
 		PollResponseRepository pollResponseRepository,
 		PollResponseOptionRepository pollResponseOptionRepository,
 		PollAccessService pollAccessService,
-		PollLookupPolicy pollLookupPolicy,
+		PollLookupSupport pollLookupSupport,
 		PollStatusSynchronizer pollStatusSynchronizer
 	) {
 		this.pollOptionRepository = pollOptionRepository;
 		this.pollResponseRepository = pollResponseRepository;
 		this.pollResponseOptionRepository = pollResponseOptionRepository;
 		this.pollAccessService = pollAccessService;
-		this.pollLookupPolicy = pollLookupPolicy;
+		this.pollLookupSupport = pollLookupSupport;
 		this.pollStatusSynchronizer = pollStatusSynchronizer;
 	}
 
 	@Transactional
 	public PollResponseResult respondToPoll(RespondToPollCommand command) {
 		pollAccessService.requireActiveCampusMember(command.campusId(), command.requesterId());
-		Poll poll = pollLookupPolicy.getPollInCampus(command.campusId(), command.pollId());
+		Poll poll = pollLookupSupport.getPollInCampus(command.campusId(), command.pollId());
 		pollStatusSynchronizer.requireOpenPoll(poll);
 		validateSelectionCount(poll.selectionType(), command.optionIds());
 		validateNoDuplicateOptions(command.optionIds());
