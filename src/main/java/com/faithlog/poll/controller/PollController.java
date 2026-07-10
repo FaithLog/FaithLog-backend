@@ -3,7 +3,12 @@ package com.faithlog.poll.controller;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.poll.service.command.DeletePollCommentCommand;
-import com.faithlog.poll.service.PollService;
+import com.faithlog.poll.service.PollCommentCommandService;
+import com.faithlog.poll.service.PollCommentQueryService;
+import com.faithlog.poll.service.PollQueryService;
+import com.faithlog.poll.service.PollResponseCommandService;
+import com.faithlog.poll.service.PollResultQueryService;
+import com.faithlog.poll.service.PollUserOptionCommandService;
 import com.faithlog.poll.controller.dto.request.AddPollOptionRequest;
 import com.faithlog.poll.controller.dto.request.PollCommentRequest;
 import com.faithlog.poll.controller.dto.response.PollCommentResponse;
@@ -32,10 +37,27 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/campuses/{campusId}/polls")
 public class PollController {
 
-	private final PollService pollService;
+	private final PollQueryService pollQueryService;
+	private final PollResponseCommandService pollResponseCommandService;
+	private final PollResultQueryService pollResultQueryService;
+	private final PollCommentCommandService pollCommentCommandService;
+	private final PollCommentQueryService pollCommentQueryService;
+	private final PollUserOptionCommandService pollUserOptionCommandService;
 
-	public PollController(PollService pollService) {
-		this.pollService = pollService;
+	public PollController(
+		PollQueryService pollQueryService,
+		PollResponseCommandService pollResponseCommandService,
+		PollResultQueryService pollResultQueryService,
+		PollCommentCommandService pollCommentCommandService,
+		PollCommentQueryService pollCommentQueryService,
+		PollUserOptionCommandService pollUserOptionCommandService
+	) {
+		this.pollQueryService = pollQueryService;
+		this.pollResponseCommandService = pollResponseCommandService;
+		this.pollResultQueryService = pollResultQueryService;
+		this.pollCommentCommandService = pollCommentCommandService;
+		this.pollCommentQueryService = pollCommentQueryService;
+		this.pollUserOptionCommandService = pollUserOptionCommandService;
 	}
 
 	@GetMapping
@@ -43,7 +65,7 @@ public class PollController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		return ApiResponse.success(pollService.listPolls(campusId, authenticatedUser.userId())
+		return ApiResponse.success(pollQueryService.listPolls(campusId, authenticatedUser.userId())
 			.stream()
 			.map(PollListResponse::from)
 			.toList());
@@ -55,7 +77,7 @@ public class PollController {
 		@PathVariable Long campusId,
 		@PathVariable Long pollId
 	) {
-		return ApiResponse.success(PollDetailResponse.from(pollService.getPollDetail(campusId, pollId, authenticatedUser.userId())));
+		return ApiResponse.success(PollDetailResponse.from(pollQueryService.getPollDetail(campusId, pollId, authenticatedUser.userId())));
 	}
 
 	@PutMapping("/{pollId}/responses/me")
@@ -65,7 +87,7 @@ public class PollController {
 		@PathVariable Long pollId,
 		@Valid @RequestBody RespondToPollRequest request
 	) {
-		return ApiResponse.success(PollMyResponseResponse.from(pollService.respondToPoll(request.toCommand(campusId, pollId, authenticatedUser))));
+		return ApiResponse.success(PollMyResponseResponse.from(pollResponseCommandService.respondToPoll(request.toCommand(campusId, pollId, authenticatedUser))));
 	}
 
 	@PostMapping("/{pollId}/options")
@@ -75,7 +97,7 @@ public class PollController {
 		@PathVariable Long pollId,
 		@Valid @RequestBody AddPollOptionRequest request
 	) {
-		PollOptionResponse response = PollOptionResponse.from(pollService.addUserOption(request.toCommand(campusId, pollId, authenticatedUser)));
+		PollOptionResponse response = PollOptionResponse.from(pollUserOptionCommandService.addUserOption(request.toCommand(campusId, pollId, authenticatedUser)));
 		return ResponseEntity.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(response));
 	}
@@ -86,7 +108,7 @@ public class PollController {
 		@PathVariable Long campusId,
 		@PathVariable Long pollId
 	) {
-		return ApiResponse.success(PollResultsResponse.from(pollService.getPollResults(campusId, pollId, authenticatedUser.userId())));
+		return ApiResponse.success(PollResultsResponse.from(pollResultQueryService.getPollResults(campusId, pollId, authenticatedUser.userId())));
 	}
 
 	@GetMapping("/{pollId}/comments")
@@ -95,7 +117,7 @@ public class PollController {
 		@PathVariable Long campusId,
 		@PathVariable Long pollId
 	) {
-		return ApiResponse.success(pollService.listComments(campusId, pollId, authenticatedUser.userId())
+		return ApiResponse.success(pollCommentQueryService.listComments(campusId, pollId, authenticatedUser.userId())
 			.stream()
 			.map(PollCommentResponse::from)
 			.toList());
@@ -108,7 +130,7 @@ public class PollController {
 		@PathVariable Long pollId,
 		@Valid @RequestBody PollCommentRequest request
 	) {
-		PollCommentResponse response = PollCommentResponse.from(pollService.createComment(request.toCreateCommand(campusId, pollId, authenticatedUser)));
+		PollCommentResponse response = PollCommentResponse.from(pollCommentCommandService.createComment(request.toCreateCommand(campusId, pollId, authenticatedUser)));
 		return ResponseEntity.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(response));
 	}
@@ -121,7 +143,7 @@ public class PollController {
 		@PathVariable Long commentId,
 		@Valid @RequestBody PollCommentRequest request
 	) {
-		return ApiResponse.success(PollCommentResponse.from(pollService.updateComment(request.toUpdateCommand(campusId, pollId, commentId, authenticatedUser))));
+		return ApiResponse.success(PollCommentResponse.from(pollCommentCommandService.updateComment(request.toUpdateCommand(campusId, pollId, commentId, authenticatedUser))));
 	}
 
 	@DeleteMapping("/{pollId}/comments/{commentId}")
@@ -131,7 +153,7 @@ public class PollController {
 		@PathVariable Long pollId,
 		@PathVariable Long commentId
 	) {
-		pollService.deleteComment(new DeletePollCommentCommand(campusId, pollId, commentId, authenticatedUser.userId()));
+		pollCommentCommandService.deleteComment(new DeletePollCommentCommand(campusId, pollId, commentId, authenticatedUser.userId()));
 		return ResponseEntity.noContent().build();
 	}
 }
