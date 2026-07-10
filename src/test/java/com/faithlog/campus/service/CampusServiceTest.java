@@ -4,7 +4,9 @@ import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
 import com.faithlog.campus.service.command.ChangeCampusRoleCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
+import com.faithlog.campus.service.command.UpdateCampusCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.campus.service.result.CampusDetailResult;
 import com.faithlog.campus.service.result.CampusMembershipResult;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
 import com.faithlog.campus.service.result.MyDutyAssignmentResult;
@@ -176,6 +178,43 @@ class CampusServiceTest {
 
 		assertThat(memberships).hasSize(3);
 		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
+	}
+
+	@Test
+	void updateCampus_preserves_invite_code_and_requires_campus_manager_or_service_admin() {
+		User manager = saveUser("campus-update-manager@example.com", UserRole.MANAGER);
+		User outsider = saveUser("campus-update-outsider@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"수정 전 캠퍼스",
+			"분당",
+			"수정 전 설명"
+		));
+
+		CampusDetailResult updated = campusService.updateCampus(new UpdateCampusCommand(
+			manager.id(),
+			campus.campusId(),
+			"수정 후 캠퍼스",
+			"서울",
+			"수정 후 설명",
+			false
+		));
+
+		assertThat(updated.name()).isEqualTo("수정 후 캠퍼스");
+		assertThat(updated.region()).isEqualTo("서울");
+		assertThat(updated.description()).isEqualTo("수정 후 설명");
+		assertThat(updated.isActive()).isFalse();
+		assertThat(updated.inviteCode()).isEqualTo(campus.inviteCode());
+		assertThatThrownBy(() -> campusService.updateCampus(new UpdateCampusCommand(
+			outsider.id(),
+			campus.campusId(),
+			"권한 없는 수정",
+			"서울",
+			"권한 없는 수정",
+			true
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("캠퍼스 멤버 관리 권한이 없습니다.");
 	}
 
 	@Test
