@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-10 - Issue #165 Spring Test Context H2 Isolation Policy
+
+- Context: Billing, Devotion, Poll, and Batch tests shared the fixed `jdbc:h2:mem:faithlog-test` database across different cached Spring Contexts. A non-transactional REST Docs context could commit Devotion fixtures after a service-test context had already initialized, and the reused service context then observed 7 unrelated charge rows and 66 unrelated daily-check rows. The exact four-domain command failed 10 `DevotionServiceTest` assertions while the same test class passed alone.
+- Decision: Keep the existing test-only H2 PostgreSQL compatibility options and `ddl-auto=create-drop`, but include `${random.uuid}` in the test datasource name so each distinct Spring Context owns a separate in-memory database. Add a source-structure regression test that rejects the fixed shared URL. Do not add unconditional class-wide `@DirtiesContext`, repository cleanup coupled to every REST Docs fixture, or Production changes.
+- Impact: Transactional rollback and intentionally committed test fixtures remain unchanged within one Spring Context, while different Context cache keys can no longer exchange database state. API, DTO, ErrorCode, authorization, transaction policy, Entity, DB schema, Flyway, and all `src/main` files remain unchanged.
+
 ### 2026-07-10 - Issue #149 Billing Query And Aggregation Use Case Service Separation
 
 - Context: Issue #148 separated Billing commands but left member charge reads, administrator charge aggregation, payment-account reads, and penalty-account validation in one 673-line `BillingQueryService`. Issue #149 requires separating those read responsibilities without changing API, repository query, authorization, transaction, aggregation, sorting, or exception behavior.

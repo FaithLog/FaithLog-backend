@@ -13,23 +13,30 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 332 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% (2026-07-10, `./gradlew test` BUILD SUCCESSFUL; 333 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 65 test files (2026-07-10) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 66 test files (2026-07-10) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-10) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 520 Java sources including tests (2026-07-10) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 521 Java sources including tests (2026-07-10) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-07-10
+
+- #165 Devotion 테스트 순서 오염과 Context 격리:
+  - 수정 전 재현: 최신 `origin/develop` `0cf7c5f`에서 Billing/Devotion/Poll/Batch 4-domain 명령을 실행해 187 tests / 10 failures를 확인했다. 실패는 모두 `DevotionServiceTest`였고 대표 오염값은 charge count `expected 0, actual 7`, `expected 1, actual 8`, daily check count `expected 0, actual 66`이었다. 같은 `DevotionServiceTest` 단독 실행은 성공했다.
+  - 최소 원인: `BillingQueryServiceTest`가 일반 service Context를 먼저 캐시하고, 별도 REST Docs Context의 `DevotionApiRestDocsTest`가 고정 이름 H2에 29 daily rows와 3 charge rows를 커밋한 뒤, `DevotionServiceTest`가 첫 Context를 재사용하는 41-test 조합에서 동일 10 failures를 재현했다. 서로 다른 Spring Context가 `jdbc:h2:mem:faithlog-test` 하나를 공유한 것이 원인이었다.
+  - TDD/수정: 고정 H2 URL을 거부하고 `${random.uuid}` 기반 이름을 요구하는 `TestDatabaseIsolationConfigTest`를 먼저 추가해 1 test / 1 failure RED를 확인했다. `application-test.yml`의 H2 이름만 Context별 고유값으로 바꾸고 PostgreSQL compatibility option과 `create-drop` 정책은 유지했다. class-wide `@DirtiesContext`, repository cleanup, assertion 완화, 테스트 삭제/비활성화는 사용하지 않았다.
+  - 검증: 최소 3클래스 조합 41 tests / 0 failures, 원래 4-domain 명령 187 tests / 0 failures, `--rerun-tasks` 강제 반복 187 tests / 0 failures, 단독 `DevotionServiceTest` 성공, 전체 `./gradlew test` 333 tests / 0 failures / 0 errors / 1 skipped, `./gradlew build` 성공. Production 파일, API/DTO/ErrorCode/Entity/DB/Flyway 변경은 0건이다.
+  - 이력서 문장 후보: `고정 이름 H2를 공유하던 Spring Test Context 간 fixture 누수를 최소 41-test 순서 조합으로 재현하고 Context별 DB 격리와 구조 회귀 테스트를 도입해, 187개 연관 테스트의 10건 순서 의존 실패를 0건으로 제거하고 333개 전체 테스트를 안정화했다.`
 
 - #149 Billing 조회와 집계 책임 분리:
   - 작업 기준: Issue #149 `[Refactor] 03 Billing 조회와 집계 책임 분리`, 브랜치 `chore/149-billing-query-aggregation-separation`, 별도 Codex worktree, 최신 `origin/develop` `f2b6660` 기준.
