@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-10 - Issue #150 Devotion Use Case Service Separation
+
+- Context: After Issue #145 established the domain-first MVC package structure and Issues #147-#149 separated Campus/Admin and Billing use cases, `DevotionService` still combined daily writes, weekly draft/final submission, member weekly reads, administrator missing-member reads, fine calculation, and Billing port orchestration. `PenaltyRuleService` also combined member reads with administrator create/update commands.
+- Decision: Split the Devotion application boundary into `DailyDevotionCommandService`, `WeeklyDevotionCommandService`, `MyWeeklyDevotionQueryService`, and `MissingDevotionMemberQueryService`. Keep the existing `DevotionMonthlySummaryQueryService` boundary unchanged. Split penalty-rule responsibilities into `PenaltyRuleCommandService` and `PenaltyRuleQueryService`. Weekly final submission keeps fine calculation and `DevotionPenaltyChargePort` orchestration together in `WeeklyDevotionCommandService` so submission and charge creation remain one transaction.
+- Decision: Controllers call the dedicated services directly. Keep `DevotionService` and `PenaltyRuleService` only as repository-free, transaction-free, business-rule-free compatibility delegates. Each moved public use case directly owns its previous write or read-only transaction boundary, and dedicated services do not depend on one another or on compatibility facades.
+- Impact: Validation and repository-call order, Monday/date/member/administrator checks, seven daily rows, one-time submission, zero-amount charge skip, positive penalty charge contract and rollback, monthly boundary aggregation, penalty-rule campus lock and active replacement, API paths/JSON/status, ErrorCodes/messages, authorization, entities, DB/Flyway, Swagger annotations, and dependencies remain unchanged.
+
 ### 2026-07-10 - Issue #165 Spring Test Context H2 Isolation Policy
 
 - Context: Billing, Devotion, Poll, and Batch tests shared the fixed `jdbc:h2:mem:faithlog-test` database across different cached Spring Contexts. A non-transactional REST Docs context could commit Devotion fixtures after a service-test context had already initialized, and the reused service context then observed 7 unrelated charge rows and 66 unrelated daily-check rows. The exact four-domain command failed 10 `DevotionServiceTest` assertions while the same test class passed alone.
