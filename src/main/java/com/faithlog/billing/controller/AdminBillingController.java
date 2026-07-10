@@ -2,6 +2,7 @@ package com.faithlog.billing.controller;
 
 import com.faithlog.billing.service.BillingService;
 import com.faithlog.billing.service.BillingQueryService;
+import com.faithlog.billing.service.PaymentAccountCommandService;
 import com.faithlog.billing.service.query.AdminCampusChargeListQuery;
 import com.faithlog.billing.service.query.AdminMemberChargeListQuery;
 import com.faithlog.billing.service.result.ChargeItemResult;
@@ -37,10 +38,16 @@ public class AdminBillingController {
 
 	private final BillingService billingService;
 	private final BillingQueryService billingQueryService;
+	private final PaymentAccountCommandService paymentAccountCommandService;
 
-	public AdminBillingController(BillingService billingService, BillingQueryService billingQueryService) {
+	public AdminBillingController(
+		BillingService billingService,
+		BillingQueryService billingQueryService,
+		PaymentAccountCommandService paymentAccountCommandService
+	) {
 		this.billingService = billingService;
 		this.billingQueryService = billingQueryService;
+		this.paymentAccountCommandService = paymentAccountCommandService;
 	}
 
 	@PostMapping("/campuses/{campusId}/payment-accounts")
@@ -49,7 +56,9 @@ public class AdminBillingController {
 		@PathVariable Long campusId,
 		@Valid @RequestBody CreatePaymentAccountRequest request
 	) {
-		PaymentAccountResult result = billingService.createPaymentAccount(request.toCommand(campusId, authenticatedUser));
+		PaymentAccountResult result = paymentAccountCommandService.createPaymentAccount(
+			request.toCommand(campusId, authenticatedUser)
+		);
 		return ResponseEntity
 			.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(PaymentAccountAdminResponse.from(result), "납부 계좌가 등록되었습니다."));
@@ -60,7 +69,10 @@ public class AdminBillingController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long accountId
 	) {
-		PaymentAccountResult result = billingService.deactivatePaymentAccount(accountId, authenticatedUser.userId());
+		PaymentAccountResult result = paymentAccountCommandService.deactivatePaymentAccount(
+			accountId,
+			authenticatedUser.userId()
+		);
 		return ApiResponse.success(PaymentAccountAdminResponse.from(result), "납부 계좌가 비활성화되었습니다.");
 	}
 
@@ -85,7 +97,7 @@ public class AdminBillingController {
 		@PathVariable Long campusId,
 		@PathVariable Long paymentAccountId
 	) {
-		PaymentAccountResult result = billingService.activatePenaltyPaymentAccount(
+		PaymentAccountResult result = paymentAccountCommandService.activatePenaltyPaymentAccount(
 			campusId,
 			paymentAccountId,
 			authenticatedUser.userId()
@@ -99,7 +111,7 @@ public class AdminBillingController {
 		@PathVariable Long campusId,
 		@PathVariable Long paymentAccountId
 	) {
-		billingService.deletePaymentAccount(campusId, paymentAccountId, authenticatedUser.userId());
+		paymentAccountCommandService.deletePaymentAccount(campusId, paymentAccountId, authenticatedUser.userId());
 		return ResponseEntity.noContent().build();
 	}
 

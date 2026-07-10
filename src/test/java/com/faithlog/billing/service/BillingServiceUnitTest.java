@@ -50,7 +50,7 @@ class BillingServiceUnitTest {
 	private CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 
 	@InjectMocks
-	private BillingService billingService;
+	private PaymentAccountCommandService paymentAccountCommandService;
 
 	@Test
 	void createPenaltyPaymentAccount_flushes_deactivation_before_saving_replacement() {
@@ -81,7 +81,7 @@ class BillingServiceUnitTest {
 			ChargeStatus.UNPAID
 		)).thenReturn(List.of());
 
-		PaymentAccountResult result = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+		PaymentAccountResult result = paymentAccountCommandService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
 			requesterId,
 			PaymentCategory.PENALTY,
@@ -142,7 +142,11 @@ class BillingServiceUnitTest {
 			ChargeStatus.UNPAID
 		)).thenReturn(List.of());
 
-		PaymentAccountResult result = billingService.activatePenaltyPaymentAccount(campusId, targetPenalty.id(), requesterId);
+		PaymentAccountResult result = paymentAccountCommandService.activatePenaltyPaymentAccount(
+			campusId,
+			targetPenalty.id(),
+			requesterId
+		);
 
 		InOrder orderedRepositoryCalls = inOrder(paymentAccountRepository);
 		orderedRepositoryCalls.verify(paymentAccountRepository)
