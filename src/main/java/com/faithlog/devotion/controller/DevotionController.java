@@ -1,7 +1,9 @@
 package com.faithlog.devotion.controller;
 
-import com.faithlog.devotion.service.DevotionService;
+import com.faithlog.devotion.service.DailyDevotionCommandService;
 import com.faithlog.devotion.service.DevotionMonthlySummaryQueryService;
+import com.faithlog.devotion.service.MyWeeklyDevotionQueryService;
+import com.faithlog.devotion.service.WeeklyDevotionCommandService;
 import com.faithlog.devotion.service.query.GetMyMonthlyDevotionSummaryQuery;
 import com.faithlog.devotion.service.query.GetMyWeeklyDevotionQuery;
 import com.faithlog.devotion.controller.dto.response.DailyDevotionResponse;
@@ -26,14 +28,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/campuses/{campusId}/devotions/me")
 public class DevotionController {
 
-	private final DevotionService devotionService;
+	private final DailyDevotionCommandService dailyDevotionCommandService;
+	private final WeeklyDevotionCommandService weeklyDevotionCommandService;
+	private final MyWeeklyDevotionQueryService myWeeklyDevotionQueryService;
 	private final DevotionMonthlySummaryQueryService monthlySummaryQueryService;
 
 	public DevotionController(
-		DevotionService devotionService,
+		DailyDevotionCommandService dailyDevotionCommandService,
+		WeeklyDevotionCommandService weeklyDevotionCommandService,
+		MyWeeklyDevotionQueryService myWeeklyDevotionQueryService,
 		DevotionMonthlySummaryQueryService monthlySummaryQueryService
 	) {
-		this.devotionService = devotionService;
+		this.dailyDevotionCommandService = dailyDevotionCommandService;
+		this.weeklyDevotionCommandService = weeklyDevotionCommandService;
+		this.myWeeklyDevotionQueryService = myWeeklyDevotionQueryService;
 		this.monthlySummaryQueryService = monthlySummaryQueryService;
 	}
 
@@ -45,7 +53,7 @@ public class DevotionController {
 		@Valid @RequestBody UpdateDailyDevotionRequest request
 	) {
 		return ApiResponse.success(DailyDevotionResponse.from(
-			devotionService.updateDailyCheck(request.toCommand(campusId, authenticatedUser, recordDate))
+			dailyDevotionCommandService.updateDailyCheck(request.toCommand(campusId, authenticatedUser, recordDate))
 		));
 	}
 
@@ -57,7 +65,7 @@ public class DevotionController {
 		@Valid @RequestBody UpdateWeeklyDevotionRequest request
 	) {
 		return ApiResponse.success(WeeklyDevotionResponse.from(
-			devotionService.updateWeeklyCheck(request.toCommand(campusId, authenticatedUser, weekStartDate))
+			weeklyDevotionCommandService.updateWeeklyCheck(request.toCommand(campusId, authenticatedUser, weekStartDate))
 		));
 	}
 
@@ -68,7 +76,7 @@ public class DevotionController {
 		@PathVariable LocalDate weekStartDate
 	) {
 		return ApiResponse.success(WeeklyDevotionResponse.from(
-			devotionService.getMyWeeklyCheck(new GetMyWeeklyDevotionQuery(
+			myWeeklyDevotionQueryService.getMyWeeklyCheck(new GetMyWeeklyDevotionQuery(
 				campusId,
 				authenticatedUser.userId(),
 				weekStartDate
