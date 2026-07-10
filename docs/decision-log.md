@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-11 - Issue #153 Prayer Use Case Service Separation
+
+- Context: After Issue #145 established the domain-first MVC package structure and Issues #147-#152 separated Campus/Admin, Billing, Devotion, and Poll use cases, the 606-line `PrayerService` still combined season commands/queries, group commands/queries, weekly board reads, administrator multi-member submission writes, current-user submission writes, access checks, target-member loading, and result assembly.
+- Decision: Split the Prayer application boundary into `PrayerSeasonCommandService`, `PrayerSeasonQueryService`, `PrayerGroupCommandService`, `PrayerGroupQueryService`, `PrayerWeekBoardQueryService`, `AdminPrayerSubmissionCommandService`, and `MyPrayerSubmissionCommandService`. Keep unchanged common campus/user authorization in package-private `PrayerAccessSupport`, active group/member loading and group result assembly in `PrayerTargetMemberSupport`, and weekly board result assembly in `PrayerBoardAssembler`. Each moved public use case directly owns its previous write or read-only transaction boundary.
+- Decision: Prayer Controllers call the dedicated services directly. Keep `PrayerService` only as a repository-free, transaction-free, `BusinessException`-free compatibility delegate. Dedicated services do not depend on one another or on the compatibility facade.
+- Impact: API paths/request-response/status, ErrorCodes/messages, campus role authorization, `ACTIVE + endDate null` current-season policy, group replacement and same-season assignment conflict order, ACTIVE member scope and sorting, Monday/future-week behavior, GET no-write behavior, nullable content, person-level rows, optimistic version checks, administrator all-or-nothing rollback, entities, DB/Flyway, repository query meaning/order, Swagger annotations, and dependencies remain unchanged.
+
 ### 2026-07-10 - Issue #152 Poll Template And Coffee Settlement Responsibility Separation
 
 - Context: After Issue #151 separated the Poll core use cases, `PollTemplateService` still combined three template commands, two template queries, authorization/account validation, option snapshot persistence, and result assembly. `PollAutomationService` also owned scheduled template-to-Poll/PollOption copying, while `CoffeePollSettlementService` combined eligibility validation, response/option loading, and Billing port orchestration.
