@@ -38,7 +38,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 트랜잭션/권한 보존: 기존 `CampusService` 12개, `AdminManagementService` 5개, `AdminDashboardService` 1개의 `@Transactional` 경계를 각각 새 책임 Service로 1:1 이동했다. Campus 공통 활성 사용자/관리자 검증은 `CampusAccessPolicy`에 모으고 `CampusRolePolicy`, `AdminAccessPolicy`, repository port 방향과 검증 순서를 유지했다.
   - 검증: admin/campus focused 47 tests 성공, `./gradlew test` 성공(320 tests / 0 failures / 0 errors / 1 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공. Controller mapping annotation 변경 0건, request DTO/DB/Flyway/ErrorCode 변경 0건, Swagger 문서 annotation 0건, Controller domain Entity import 0건을 확인했다.
   - Docker QA: `faithlog-qa-147-codex` 격리 compose project에서 app image build, PostgreSQL/Redis `healthy`, backend `/api/v1/health`의 `data.status=UP`, compose down까지 성공했다. Docker volume은 삭제하지 않았다.
-  - 도구 제약: `dev_gate.py`는 저장소 `harness.yaml`, `.harness/*`, `.codex/agents/*`, `docs/00-index.md` 부재로 실패했다. GitHub Issue #147의 연결 `projectItems`는 비어 있었고 로컬 `gh` token이 invalid라 Project 카드 상태 변경은 수행하지 못했다.
+  - 도구 제약: `dev_gate.py`는 저장소 `harness.yaml`, `.harness/*`, `.codex/agents/*`, `docs/00-index.md` 부재로 실패했다. `score_code.py`는 실행됐지만 `harness.yaml` specialist/overall score가 없어 `passed=false` 보고서를 생성했고, `review_gate.py`도 quality/TDD harness 파일 부재로 실패했다. GitHub Issue #147의 연결 `projectItems`는 비어 있었고 로컬 `gh` token이 invalid라 Project 카드 상태 변경은 수행하지 못했다.
   - 이력서 문장 후보: `Campus/Admin의 18개 트랜잭션 유스케이스를 9개 응집 Service로 분리하고 repository-free 호환 façade와 구조 회귀 테스트를 도입해, 320개 전체 테스트와 격리 Docker health 검증으로 API·DB·권한 동작 무변경을 보장했다.`
 
 - #145 DDD 도메인 내부 MVC 패키지 구조 정리:
