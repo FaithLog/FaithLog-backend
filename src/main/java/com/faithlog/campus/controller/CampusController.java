@@ -3,7 +3,12 @@ package com.faithlog.campus.controller;
 import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.result.CampusDetailResult;
 import com.faithlog.campus.service.result.CampusMembershipResult;
-import com.faithlog.campus.service.CampusService;
+import com.faithlog.campus.service.CampusCreationService;
+import com.faithlog.campus.service.CampusDutyAssignmentService;
+import com.faithlog.campus.service.CampusJoinService;
+import com.faithlog.campus.service.CampusMemberManagementService;
+import com.faithlog.campus.service.CampusQueryService;
+import com.faithlog.campus.service.CampusUpdateService;
 import com.faithlog.campus.service.result.MyDutyAssignmentResult;
 import com.faithlog.campus.controller.dto.response.CampusCreateResponse;
 import com.faithlog.campus.controller.dto.response.CampusDetailResponse;
@@ -32,10 +37,27 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/campuses")
 public class CampusController {
 
-	private final CampusService campusService;
+	private final CampusCreationService campusCreationService;
+	private final CampusJoinService campusJoinService;
+	private final CampusQueryService campusQueryService;
+	private final CampusUpdateService campusUpdateService;
+	private final CampusMemberManagementService campusMemberManagementService;
+	private final CampusDutyAssignmentService campusDutyAssignmentService;
 
-	public CampusController(CampusService campusService) {
-		this.campusService = campusService;
+	public CampusController(
+		CampusCreationService campusCreationService,
+		CampusJoinService campusJoinService,
+		CampusQueryService campusQueryService,
+		CampusUpdateService campusUpdateService,
+		CampusMemberManagementService campusMemberManagementService,
+		CampusDutyAssignmentService campusDutyAssignmentService
+	) {
+		this.campusCreationService = campusCreationService;
+		this.campusJoinService = campusJoinService;
+		this.campusQueryService = campusQueryService;
+		this.campusUpdateService = campusUpdateService;
+		this.campusMemberManagementService = campusMemberManagementService;
+		this.campusDutyAssignmentService = campusDutyAssignmentService;
 	}
 
 	@PostMapping
@@ -43,7 +65,7 @@ public class CampusController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@Valid @RequestBody CreateCampusRequest request
 	) {
-		CampusCreateResult result = campusService.createCampus(request.toCommand(authenticatedUser));
+		CampusCreateResult result = campusCreationService.createCampus(request.toCommand(authenticatedUser));
 		return ResponseEntity
 			.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(CampusCreateResponse.from(result), "캠퍼스가 생성되었습니다."));
@@ -54,7 +76,7 @@ public class CampusController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@Valid @RequestBody JoinCampusRequest request
 	) {
-		CampusMembershipResult result = campusService.joinCampus(request.toCommand(authenticatedUser));
+		CampusMembershipResult result = campusJoinService.joinCampus(request.toCommand(authenticatedUser));
 		return ResponseEntity
 			.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(CampusMembershipResponse.from(result), "캠퍼스 가입이 완료되었습니다."));
@@ -64,7 +86,7 @@ public class CampusController {
 	public ApiResponse<List<CampusMembershipResponse>> getMyCampuses(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser
 	) {
-		List<CampusMembershipResponse> responses = campusService.getMyCampuses(authenticatedUser.userId())
+		List<CampusMembershipResponse> responses = campusQueryService.getMyCampuses(authenticatedUser.userId())
 			.stream()
 			.map(CampusMembershipResponse::from)
 			.toList();
@@ -76,7 +98,7 @@ public class CampusController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		CampusDetailResult result = campusService.getCampus(campusId, authenticatedUser.userId());
+		CampusDetailResult result = campusQueryService.getCampus(campusId, authenticatedUser.userId());
 		return ApiResponse.success(CampusDetailResponse.from(result));
 	}
 
@@ -85,7 +107,10 @@ public class CampusController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId
 	) {
-		MyDutyAssignmentResult result = campusService.getMyCoffeeDutyAssignment(campusId, authenticatedUser.userId());
+		MyDutyAssignmentResult result = campusDutyAssignmentService.getMyCoffeeDutyAssignment(
+			campusId,
+			authenticatedUser.userId()
+		);
 		return ApiResponse.success(MyDutyAssignmentResponse.from(result));
 	}
 
@@ -95,7 +120,7 @@ public class CampusController {
 		@PathVariable Long campusId,
 		@Valid @RequestBody UpdateCampusRequest request
 	) {
-		CampusDetailResult result = campusService.updateCampus(request.toCommand(campusId, authenticatedUser));
+		CampusDetailResult result = campusUpdateService.updateCampus(request.toCommand(campusId, authenticatedUser));
 		return ApiResponse.success(CampusDetailResponse.from(result), "캠퍼스가 수정되었습니다.");
 	}
 
@@ -105,7 +130,7 @@ public class CampusController {
 		@PathVariable Long campusId,
 		@PathVariable Long membershipId
 	) {
-		campusService.deleteCampusMember(campusId, membershipId, authenticatedUser.userId());
+		campusMemberManagementService.deleteCampusMember(campusId, membershipId, authenticatedUser.userId());
 		return ResponseEntity.noContent().build();
 	}
 }
