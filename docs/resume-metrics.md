@@ -13,23 +13,33 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-11 #154, 362 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-11 #155, 368 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 71 test files (2026-07-11 #154) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 73 test files (2026-07-11 #155) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-11 #154) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-11 #155) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 563 Java sources including tests (2026-07-11 #154) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 571 Java sources including tests (2026-07-11 #155) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-07-11
+
+- #155 Batch와 Scheduler 책임 분리:
+  - 작업 기준: Issue #155 `[Refactor] 09 Batch와 Scheduler 책임 분리`, 브랜치 `chore/155-batch-scheduler-usecase-separation`, 별도 Codex worktree, 최신 `origin/develop` `66e8d7c` 기준.
+  - TDD 증거: production 수정 전 scheduler trigger, Poll create/close/settlement, 세 자동 알림, FCM cleanup, retention, PENDING recovery의 전용 경계와 transaction/SDK 누출/순환 의존을 검사하는 구조 테스트 5건을 추가해 `5 tests / 5 failures` RED를 확인했다. 구현 후 신규 구조 테스트와 #152/#154 구조 회귀가 GREEN이 됐고, scheduler disabled Context 및 커피 due close 재실행 시 정산 row 정확히 1건 characterization을 추가했다.
+  - 책임 분리: `ScheduledPollCreationService`가 active+auto template 탐색, `ScheduledPollWindow`, Redis lock, `TransactionTemplate`, `ScheduledPollFactory` 호출을 소유한다. `DueCoffeePollClosureService`가 due OPEN COFFEE 조회, poll lock, CLOSED 전환 후 `CoffeePollSettlementCommandService` 호출을 같은 transaction에서 소유한다. `DevotionMissingNotificationService`, `PollMissingNotificationService`, `PaymentUnpaidNotificationService`는 각 대상·scope·lock orchestration을 소유하고 `NotificationRequestCommandService`의 PENDING/SKIPPED·dedup·dispatch 경계에 연결된다. `FcmTokenCleanupService`는 90일 stale cutoff와 write transaction을 직접 소유한다.
+  - Scheduler/facade 정량 변화: `FaithLogScheduledJobs`는 기존 8개 cron/fixedDelay trigger에서 전용 job service만 호출한다. `PollAutomationService`는 121→29줄(-92, -76.0%), `AutomaticNotificationService`는 296→34줄(-262, -88.5%)의 repository/transaction/lock/business-rule-free compatibility delegate로 축소했다. 신규 전용 Poll/notification job service는 5개, 신규 test source는 2개이며 전체 test source는 73개, 전체 Java source/test는 571개다. 이 수치는 추출 class를 포함한 전체 코드 감소가 아니라 facade 책임 축소 수치다.
+  - 정책 보존: Asia/Seoul, 8개 scheduler property/cron/fixedDelay와 enable flag, due/template/week 중복 방지, template/option snapshot, 자동 생성 OPEN, due coffee CLOSED→정산 순서와 멱등성, 월요일부터 11시 경건 미제출, 5/3/2/1시간 투표 미응답과 CUSTOM, 12시 미납, Redis lock/dedup/fail-closed/manual 분리, 90일 stale FCM, 10분 PENDING 1회 recovery 후 FAILED, 04:30 retention과 14일/30일/1년/2월 1일 정책 및 삭제 순서를 유지했다. API/DTO/HTTP/ErrorCode/auth, Entity/DB/Flyway/repository query, config, TTL/retry/retention, dependency 변경 0건이다.
+  - 검증: Batch focused 성공, Batch/Notification/Poll/Billing/Devotion/User 연결 조합 `283 tests / 0 failures / 0 errors / 0 skipped`, 전체 `./gradlew test` `368 tests / 0 failures / 0 errors / 1 skipped`, `./gradlew build`와 `./gradlew asciidoctor` 성공, `git diff --check` 성공. Swagger annotation 추가, Controller Entity 반환, batch/scheduler RedisTemplate/Firebase SDK 직접 의존, 서비스 순환 의존은 모두 0건이다.
+  - 환경/도구 제약: GitHub token에 `read:project` scope가 없어 Issue #155 Project 카드 존재 여부와 `In Progress` 이동을 확인하지 못했다. 현재 파일시스템에 `pm-dev/SKILL.md`, 저장소 `.harness`, `harness.yaml`이 없어 임의 생성 없이 FaithLog TDD gate를 적용했다. 호스트 Data 볼륨이 100%이고 가용 공간이 1.8GiB이며 sandbox의 Docker socket 접근도 거부돼, 삭제/prune 우회 없이 Docker QA를 생략하고 원격 Docker CI가 필요하다고 판단했다. push/PR도 금지 지시에 따라 수행하지 않았다.
+  - 이력서 문장 후보: `Batch/Scheduler의 Poll·자동 알림·FCM cleanup 책임을 6개 전용 use case로 분리하고 121줄/296줄 통합 Service를 29줄/34줄 호환 facade로 76.0%/88.5% 축소했으며, 5개 구조 게이트·368개 전체 테스트로 스케줄·정산·Redis fail-closed·retention 정책 무변경을 보장했다.`
 
 - #154 Notification 발송과 FCM 책임 분리:
   - 작업 기준: Issue #154 `[Refactor] 08 Notification 발송과 FCM 책임 분리`, 브랜치 `chore/154-notification-fcm-usecase-separation`, 별도 Codex worktree, 최신 `origin/develop` `467bf1c` 기준.

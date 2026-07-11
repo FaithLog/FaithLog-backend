@@ -12,3 +12,9 @@
 - [ready] Added refresh rotation, reused-token rejection, logout invalidation, and optional current-device FCM deactivation coverage while keeping notification persistence behind an application port. Evidence: `2026-06-17 Auth Refresh Logout Redis`.
 - [needs metric] API contract documentation generation is stable through `./gradlew asciidoctor`; add one approved runtime health metric to strengthen the resume story. Evidence: `2026-06-17 Daily Resume Monitor`.
 <!-- daily-resume-monitor:end:resume-bullet-bank:2026-06-17 -->
+
+<!-- issue-work:start:resume-bullet-bank:2026-07-11-155 -->
+## 2026-07-11 Issue #155
+
+- [ready] Batch/Scheduler의 Poll·자동 알림·FCM cleanup 책임을 6개 전용 use case로 분리하고 121줄/296줄 통합 Service를 29줄/34줄 호환 facade로 76.0%/88.5% 축소했으며, 5개 구조 게이트와 368개 전체 테스트로 스케줄·정산·Redis fail-closed·retention 정책 무변경을 검증했다. Evidence: `docs/resume-metrics.md` #155, `docs/wiki/engineering/2026-07-11-batch-scheduler-usecase-separation.md`.
+<!-- issue-work:end:resume-bullet-bank:2026-07-11-155 -->
