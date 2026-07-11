@@ -2,11 +2,14 @@ package com.faithlog.batch.infrastructure.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.batch.service.AutomaticNotificationService;
 import com.faithlog.batch.service.DataRetentionCleanupService;
+import com.faithlog.batch.service.DevotionMissingNotificationService;
+import com.faithlog.batch.service.DueCoffeePollClosureService;
 import com.faithlog.batch.service.FcmTokenCleanupService;
 import com.faithlog.batch.service.PendingNotificationRecoveryService;
-import com.faithlog.batch.service.PollAutomationService;
+import com.faithlog.batch.service.PaymentUnpaidNotificationService;
+import com.faithlog.batch.service.PollMissingNotificationService;
+import com.faithlog.batch.service.ScheduledPollCreationService;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,13 +35,22 @@ class FaithLogSchedulerConfigTest {
 	private DataRetentionCleanupService dataRetentionCleanupService;
 
 	@MockitoBean
-	private PollAutomationService pollAutomationService;
+	private ScheduledPollCreationService scheduledPollCreationService;
+
+	@MockitoBean
+	private DueCoffeePollClosureService dueCoffeePollClosureService;
 
 	@MockitoBean
 	private FcmTokenCleanupService fcmTokenCleanupService;
 
 	@MockitoBean
-	private AutomaticNotificationService automaticNotificationService;
+	private DevotionMissingNotificationService devotionMissingNotificationService;
+
+	@MockitoBean
+	private PollMissingNotificationService pollMissingNotificationService;
+
+	@MockitoBean
+	private PaymentUnpaidNotificationService paymentUnpaidNotificationService;
 
 	@MockitoBean
 	private PendingNotificationRecoveryService pendingNotificationRecoveryService;

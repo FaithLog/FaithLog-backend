@@ -27,7 +27,6 @@ class NotificationUseCaseServiceStructureTest {
 			() -> assertTransactional(tokenCommandService, "registerToken"),
 			() -> assertTransactional(tokenCommandService, "deactivateToken"),
 			() -> assertTransactional(tokenCommandService, "deactivateCurrentDevice"),
-			() -> assertTransactional(tokenCommandService, "deactivateStaleTokens"),
 			() -> assertTransactional(requestCommandService, "requestNotification"),
 			() -> assertTransactional(requestCommandService, "requestAutomaticNotification"),
 			() -> assertReadOnlyTransactional(logQueryService, "searchLogs")
@@ -38,7 +37,9 @@ class NotificationUseCaseServiceStructureTest {
 	void controllersAndBatchCallDedicatedUseCaseServicesDirectly() {
 		String fcmController = read(MAIN_ROOT.resolve("notification/controller/FcmTokenController.java"));
 		String adminController = read(MAIN_ROOT.resolve("notification/controller/AdminNotificationController.java"));
-		String automaticNotificationService = read(MAIN_ROOT.resolve("batch/service/AutomaticNotificationService.java"));
+		String devotionJob = read(MAIN_ROOT.resolve("batch/service/DevotionMissingNotificationService.java"));
+		String pollJob = read(MAIN_ROOT.resolve("batch/service/PollMissingNotificationService.java"));
+		String paymentJob = read(MAIN_ROOT.resolve("batch/service/PaymentUnpaidNotificationService.java"));
 		String cleanupService = read(MAIN_ROOT.resolve("batch/service/FcmTokenCleanupService.java"));
 		String recoveryService = read(MAIN_ROOT.resolve("batch/service/PendingNotificationRecoveryService.java"));
 		String dispatchAdapter = read(MAIN_ROOT.resolve("notification/infrastructure/fcm/AsyncNotificationDispatchAdapter.java"));
@@ -49,12 +50,13 @@ class NotificationUseCaseServiceStructureTest {
 			() -> assertTrue(adminController.contains("NotificationRequestCommandService")),
 			() -> assertFalse(adminController.contains("NotificationService")),
 			() -> assertTrue(adminController.contains("NotificationLogQueryService")),
-			() -> assertTrue(automaticNotificationService.contains("NotificationRequestCommandService")),
-			() -> assertFalse(automaticNotificationService.contains("NotificationLogRepository")),
-			() -> assertFalse(automaticNotificationService.contains("UserFcmTokenRepository")),
-			() -> assertFalse(automaticNotificationService.contains("NotificationDispatchPort")),
-			() -> assertTrue(cleanupService.contains("FcmTokenCommandService")),
-			() -> assertFalse(cleanupService.contains("UserFcmTokenRepository")),
+			() -> assertTrue(devotionJob.contains("NotificationRequestCommandService")),
+			() -> assertTrue(pollJob.contains("NotificationRequestCommandService")),
+			() -> assertTrue(paymentJob.contains("NotificationRequestCommandService")),
+			() -> assertFalse(devotionJob.contains("NotificationLogRepository")),
+			() -> assertFalse(pollJob.contains("NotificationDispatchPort")),
+			() -> assertTrue(cleanupService.contains("UserFcmTokenRepository")),
+			() -> assertFalse(cleanupService.contains("FcmTokenCommandService")),
 			() -> assertTrue(recoveryService.contains("NotificationDeliveryWorker")),
 			() -> assertTrue(dispatchAdapter.contains("NotificationDeliveryWorker"))
 		);

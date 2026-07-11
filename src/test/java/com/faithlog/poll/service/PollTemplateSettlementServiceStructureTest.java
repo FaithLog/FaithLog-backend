@@ -80,19 +80,24 @@ class PollTemplateSettlementServiceStructureTest {
 	}
 
 	@Test
-	void pollAutomationDelegatesTemplateCopyAndKeepsOrchestrationOnly() {
+	void scheduledPollCreationOwnsTemplateCopyOrchestrationAndFacadeIsThin() {
 		String automation = read(BATCH_SERVICE_ROOT.resolve("PollAutomationService.java"));
+		String creation = read(BATCH_SERVICE_ROOT.resolve("ScheduledPollCreationService.java"));
 		Path factorySource = BATCH_SERVICE_ROOT.resolve("ScheduledPollFactory.java");
 
 		assertAll(
 			() -> assertTrue(Files.exists(factorySource), "ScheduledPollFactory.java가 필요합니다."),
-			() -> assertTrue(automation.contains("ScheduledPollFactory")),
-			() -> assertTrue(automation.contains("TransactionTemplate")),
-			() -> assertTrue(automation.contains("NotificationLockService")),
-			() -> assertFalse(automation.contains("PollTemplateOptionRepository")),
-			() -> assertFalse(automation.contains("PollOptionRepository")),
-			() -> assertFalse(automation.contains("Poll.create(")),
-			() -> assertFalse(automation.contains("PollOption.create("))
+			() -> assertTrue(creation.contains("ScheduledPollFactory")),
+			() -> assertTrue(creation.contains("TransactionTemplate")),
+			() -> assertTrue(creation.contains("NotificationLockService")),
+			() -> assertFalse(creation.contains("PollTemplateOptionRepository")),
+			() -> assertFalse(creation.contains("PollOptionRepository")),
+			() -> assertFalse(creation.contains("Poll.create(")),
+			() -> assertFalse(creation.contains("PollOption.create(")),
+			() -> assertTrue(automation.contains("ScheduledPollCreationService")),
+			() -> assertFalse(automation.contains("Repository")),
+			() -> assertFalse(automation.contains("TransactionTemplate")),
+			() -> assertFalse(automation.contains("NotificationLockService"))
 		);
 	}
 

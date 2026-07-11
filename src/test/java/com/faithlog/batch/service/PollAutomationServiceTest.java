@@ -189,10 +189,13 @@ class PollAutomationServiceTest {
 		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), member.id(), List.of(optionId), null));
 
 		int closed = pollAutomationService.closeDueCoffeePolls(Instant.now().plusSeconds(7200));
+		int closedAgain = pollAutomationService.closeDueCoffeePolls(Instant.now().plusSeconds(7200));
 
 		assertThat(closed).isEqualTo(1);
+		assertThat(closedAgain).isZero();
 		assertThat(pollRepository.findById(poll.id())).get().extracting(Poll::status).isEqualTo(PollStatus.CLOSED);
 		assertThat(chargeItemRepository.findAll())
+			.hasSize(1)
 			.extracting(ChargeItem::userId, ChargeItem::paymentCategory, ChargeItem::amount)
 			.containsExactly(org.assertj.core.groups.Tuple.tuple(member.id(), PaymentCategory.COFFEE, 1800));
 	}
