@@ -1,10 +1,13 @@
 package com.faithlog.batch.infrastructure.scheduler;
 
-import com.faithlog.batch.service.AutomaticNotificationService;
 import com.faithlog.batch.service.DataRetentionCleanupService;
+import com.faithlog.batch.service.DevotionMissingNotificationService;
+import com.faithlog.batch.service.DueCoffeePollClosureService;
 import com.faithlog.batch.service.FcmTokenCleanupService;
 import com.faithlog.batch.service.PendingNotificationRecoveryService;
-import com.faithlog.batch.service.PollAutomationService;
+import com.faithlog.batch.service.PaymentUnpaidNotificationService;
+import com.faithlog.batch.service.PollMissingNotificationService;
+import com.faithlog.batch.service.ScheduledPollCreationService;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,34 +22,43 @@ public class FaithLogScheduledJobs {
 	private static final Logger log = LoggerFactory.getLogger(FaithLogScheduledJobs.class);
 	private static final String SEOUL_ZONE = "Asia/Seoul";
 
-	private final PollAutomationService pollAutomationService;
+	private final ScheduledPollCreationService scheduledPollCreationService;
+	private final DueCoffeePollClosureService dueCoffeePollClosureService;
 	private final DataRetentionCleanupService dataRetentionCleanupService;
 	private final FcmTokenCleanupService fcmTokenCleanupService;
-	private final AutomaticNotificationService automaticNotificationService;
+	private final DevotionMissingNotificationService devotionMissingNotificationService;
+	private final PollMissingNotificationService pollMissingNotificationService;
+	private final PaymentUnpaidNotificationService paymentUnpaidNotificationService;
 	private final PendingNotificationRecoveryService pendingNotificationRecoveryService;
 
 	public FaithLogScheduledJobs(
-		PollAutomationService pollAutomationService,
+		ScheduledPollCreationService scheduledPollCreationService,
+		DueCoffeePollClosureService dueCoffeePollClosureService,
 		DataRetentionCleanupService dataRetentionCleanupService,
 		FcmTokenCleanupService fcmTokenCleanupService,
-		AutomaticNotificationService automaticNotificationService,
+		DevotionMissingNotificationService devotionMissingNotificationService,
+		PollMissingNotificationService pollMissingNotificationService,
+		PaymentUnpaidNotificationService paymentUnpaidNotificationService,
 		PendingNotificationRecoveryService pendingNotificationRecoveryService
 	) {
-		this.pollAutomationService = pollAutomationService;
+		this.scheduledPollCreationService = scheduledPollCreationService;
+		this.dueCoffeePollClosureService = dueCoffeePollClosureService;
 		this.dataRetentionCleanupService = dataRetentionCleanupService;
 		this.fcmTokenCleanupService = fcmTokenCleanupService;
-		this.automaticNotificationService = automaticNotificationService;
+		this.devotionMissingNotificationService = devotionMissingNotificationService;
+		this.pollMissingNotificationService = pollMissingNotificationService;
+		this.paymentUnpaidNotificationService = paymentUnpaidNotificationService;
 		this.pendingNotificationRecoveryService = pendingNotificationRecoveryService;
 	}
 
 	@Scheduled(fixedDelayString = "${faithlog.scheduler.poll-auto-create-delay-ms:60000}", zone = SEOUL_ZONE)
 	public void createDuePolls() {
-		runJob("poll-auto-create", () -> pollAutomationService.createDuePolls(Instant.now()));
+		runJob("poll-auto-create", () -> scheduledPollCreationService.createDuePolls(Instant.now()));
 	}
 
 	@Scheduled(fixedDelayString = "${faithlog.scheduler.coffee-poll-close-delay-ms:60000}", zone = SEOUL_ZONE)
 	public void closeDueCoffeePolls() {
-		runJob("coffee-poll-close", () -> pollAutomationService.closeDueCoffeePolls(Instant.now()));
+		runJob("coffee-poll-close", () -> dueCoffeePollClosureService.closeDueCoffeePolls(Instant.now()));
 	}
 
 	@Scheduled(cron = "${faithlog.scheduler.data-retention-cleanup-cron:0 30 4 * * *}", zone = SEOUL_ZONE)
@@ -61,17 +73,17 @@ public class FaithLogScheduledJobs {
 
 	@Scheduled(cron = "${faithlog.scheduler.devotion-missing-cron:0 0 11 * * *}", zone = SEOUL_ZONE)
 	public void sendDevotionMissingReminders() {
-		runJob("devotion-missing", () -> automaticNotificationService.sendDevotionMissingReminders(Instant.now()));
+		runJob("devotion-missing", () -> devotionMissingNotificationService.sendDevotionMissingReminders(Instant.now()));
 	}
 
 	@Scheduled(fixedDelayString = "${faithlog.scheduler.poll-missing-delay-ms:60000}", zone = SEOUL_ZONE)
 	public void sendPollMissingReminders() {
-		runJob("poll-missing", () -> automaticNotificationService.sendPollMissingReminders(Instant.now()));
+		runJob("poll-missing", () -> pollMissingNotificationService.sendPollMissingReminders(Instant.now()));
 	}
 
 	@Scheduled(cron = "${faithlog.scheduler.payment-unpaid-cron:0 0 12 * * *}", zone = SEOUL_ZONE)
 	public void sendPaymentUnpaidReminders() {
-		runJob("payment-unpaid", () -> automaticNotificationService.sendPaymentUnpaidReminders(Instant.now()));
+		runJob("payment-unpaid", () -> paymentUnpaidNotificationService.sendPaymentUnpaidReminders(Instant.now()));
 	}
 
 	@Scheduled(fixedDelayString = "${faithlog.scheduler.pending-notification-recovery-delay-ms:60000}", zone = SEOUL_ZONE)
