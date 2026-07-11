@@ -16,16 +16,16 @@ record ScheduledPollWindow(
 ) {
 
 	static ScheduledPollWindow from(PollTemplate template, Instant now) {
-		LocalDate currentDate = now.atZone(PollAutomationService.SEOUL_ZONE).toLocalDate();
+		LocalDate currentDate = now.atZone(BatchTimeZone.SEOUL_ZONE).toLocalDate();
 		LocalDate weekStartDate = currentDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-		Instant weekStartInstant = weekStartDate.atStartOfDay(PollAutomationService.SEOUL_ZONE).toInstant();
-		Instant nextWeekStartInstant = weekStartDate.plusWeeks(1).atStartOfDay(PollAutomationService.SEOUL_ZONE).toInstant();
+		Instant weekStartInstant = weekStartDate.atStartOfDay(BatchTimeZone.SEOUL_ZONE).toInstant();
+		Instant nextWeekStartInstant = weekStartDate.plusWeeks(1).atStartOfDay(BatchTimeZone.SEOUL_ZONE).toInstant();
 		Instant startsAt = scheduledInstant(weekStartDate, template.startDayOfWeek(), template.startTime());
 		Instant endsAt = scheduledInstant(weekStartDate, template.endDayOfWeek(), template.endTime());
 		if (!endsAt.isAfter(startsAt)) {
-			endsAt = LocalDateTime.ofInstant(endsAt, PollAutomationService.SEOUL_ZONE)
+			endsAt = LocalDateTime.ofInstant(endsAt, BatchTimeZone.SEOUL_ZONE)
 				.plusWeeks(1)
-				.atZone(PollAutomationService.SEOUL_ZONE)
+				.atZone(BatchTimeZone.SEOUL_ZONE)
 				.toInstant();
 		}
 		return new ScheduledPollWindow(weekStartDate, weekStartInstant, nextWeekStartInstant, startsAt, endsAt);
@@ -34,7 +34,7 @@ record ScheduledPollWindow(
 	private static Instant scheduledInstant(LocalDate weekStartDate, DayOfWeek dayOfWeek, java.time.LocalTime time) {
 		return weekStartDate.plusDays(dayOfWeek.getValue() - DayOfWeek.MONDAY.getValue())
 			.atTime(time)
-			.atZone(PollAutomationService.SEOUL_ZONE)
+			.atZone(BatchTimeZone.SEOUL_ZONE)
 			.toInstant();
 	}
 
