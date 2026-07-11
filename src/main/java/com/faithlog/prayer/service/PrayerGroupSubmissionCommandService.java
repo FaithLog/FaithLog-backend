@@ -28,7 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class AdminPrayerSubmissionCommandService {
+public class PrayerGroupSubmissionCommandService {
 
 	private final PrayerSeasonRepository seasonRepository;
 	private final PrayerWeekRepository weekRepository;
@@ -38,7 +38,7 @@ public class AdminPrayerSubmissionCommandService {
 	private final PrayerTargetMemberSupport targetMemberSupport;
 	private final PrayerBoardAssembler boardAssembler;
 
-	public AdminPrayerSubmissionCommandService(
+	public PrayerGroupSubmissionCommandService(
 		PrayerSeasonRepository seasonRepository,
 		PrayerWeekRepository weekRepository,
 		PrayerSubmissionRepository submissionRepository,

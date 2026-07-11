@@ -23,7 +23,7 @@ public class PrayerService {
 	private final PrayerGroupCommandService groupCommandService;
 	private final PrayerGroupQueryService groupQueryService;
 	private final PrayerWeekBoardQueryService weekBoardQueryService;
-	private final AdminPrayerSubmissionCommandService adminSubmissionCommandService;
+	private final PrayerGroupSubmissionCommandService groupSubmissionCommandService;
 	private final MyPrayerSubmissionCommandService mySubmissionCommandService;
 
 	public PrayerService(
@@ -32,7 +32,7 @@ public class PrayerService {
 		PrayerGroupCommandService groupCommandService,
 		PrayerGroupQueryService groupQueryService,
 		PrayerWeekBoardQueryService weekBoardQueryService,
-		AdminPrayerSubmissionCommandService adminSubmissionCommandService,
+		PrayerGroupSubmissionCommandService groupSubmissionCommandService,
 		MyPrayerSubmissionCommandService mySubmissionCommandService
 	) {
 		this.seasonCommandService = seasonCommandService;
@@ -40,7 +40,7 @@ public class PrayerService {
 		this.groupCommandService = groupCommandService;
 		this.groupQueryService = groupQueryService;
 		this.weekBoardQueryService = weekBoardQueryService;
-		this.adminSubmissionCommandService = adminSubmissionCommandService;
+		this.groupSubmissionCommandService = groupSubmissionCommandService;
 		this.mySubmissionCommandService = mySubmissionCommandService;
 	}
 
@@ -81,7 +81,7 @@ public class PrayerService {
 	}
 
 	public PrayerWeekBoardResult saveSubmissions(SavePrayerSubmissionsCommand command) {
-		return adminSubmissionCommandService.saveSubmissions(command);
+		return groupSubmissionCommandService.saveSubmissions(command);
 	}
 
 	public PrayerWeekBoardResult saveMySubmission(SaveMyPrayerSubmissionCommand command) {

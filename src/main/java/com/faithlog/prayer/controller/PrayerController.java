@@ -2,8 +2,8 @@ package com.faithlog.prayer.controller;
 
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
-import com.faithlog.prayer.service.AdminPrayerSubmissionCommandService;
 import com.faithlog.prayer.service.MyPrayerSubmissionCommandService;
+import com.faithlog.prayer.service.PrayerGroupSubmissionCommandService;
 import com.faithlog.prayer.service.PrayerWeekBoardQueryService;
 import com.faithlog.prayer.controller.dto.response.PrayerWeekBoardResponse;
 import com.faithlog.prayer.controller.dto.request.SaveMyPrayerSubmissionRequest;
@@ -23,16 +23,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class PrayerController {
 
 	private final PrayerWeekBoardQueryService weekBoardQueryService;
-	private final AdminPrayerSubmissionCommandService adminSubmissionCommandService;
+	private final PrayerGroupSubmissionCommandService groupSubmissionCommandService;
 	private final MyPrayerSubmissionCommandService mySubmissionCommandService;
 
 	public PrayerController(
 		PrayerWeekBoardQueryService weekBoardQueryService,
-		AdminPrayerSubmissionCommandService adminSubmissionCommandService,
+		PrayerGroupSubmissionCommandService groupSubmissionCommandService,
 		MyPrayerSubmissionCommandService mySubmissionCommandService
 	) {
 		this.weekBoardQueryService = weekBoardQueryService;
-		this.adminSubmissionCommandService = adminSubmissionCommandService;
+		this.groupSubmissionCommandService = groupSubmissionCommandService;
 		this.mySubmissionCommandService = mySubmissionCommandService;
 	}
 
@@ -52,7 +52,7 @@ public class PrayerController {
 		@PathVariable LocalDate weekStartDate,
 		@Valid @RequestBody SavePrayerSubmissionsRequest request
 	) {
-		return ApiResponse.success(PrayerWeekBoardResponse.from(adminSubmissionCommandService.saveSubmissions(request.toCommand(campusId, weekStartDate, authenticatedUser))));
+		return ApiResponse.success(PrayerWeekBoardResponse.from(groupSubmissionCommandService.saveSubmissions(request.toCommand(campusId, weekStartDate, authenticatedUser))));
 	}
 
 	@PutMapping("/weeks/{weekStartDate}/me")
