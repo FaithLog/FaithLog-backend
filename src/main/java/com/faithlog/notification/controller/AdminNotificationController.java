@@ -3,8 +3,8 @@ package com.faithlog.notification.controller;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.notification.service.NotificationLogQueryService;
+import com.faithlog.notification.service.NotificationRequestCommandService;
 import com.faithlog.notification.service.query.NotificationLogSearchCriteria;
-import com.faithlog.notification.service.NotificationService;
 import com.faithlog.notification.domain.type.NotificationType;
 import com.faithlog.notification.domain.type.SendStatus;
 import com.faithlog.notification.controller.dto.response.NotificationLogListResponse;
@@ -28,14 +28,14 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 @RequestMapping("/api/v1/admin/campuses/{campusId}")
 public class AdminNotificationController {
 
-	private final NotificationService notificationService;
+	private final NotificationRequestCommandService notificationRequestCommandService;
 	private final NotificationLogQueryService notificationLogQueryService;
 
 	public AdminNotificationController(
-		NotificationService notificationService,
+		NotificationRequestCommandService notificationRequestCommandService,
 		NotificationLogQueryService notificationLogQueryService
 	) {
-		this.notificationService = notificationService;
+		this.notificationRequestCommandService = notificationRequestCommandService;
 		this.notificationLogQueryService = notificationLogQueryService;
 	}
 
@@ -47,7 +47,7 @@ public class AdminNotificationController {
 		@Valid @RequestBody SendNotificationRequest request
 	) {
 		return ApiResponse.success(SendNotificationResponse.from(
-			notificationService.requestNotification(request.toCommand(campusId, authenticatedUser.userId()))
+			notificationRequestCommandService.requestNotification(request.toCommand(campusId, authenticatedUser.userId()))
 		));
 	}
 
