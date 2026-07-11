@@ -2,7 +2,7 @@ package com.faithlog.notification.controller;
 
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
-import com.faithlog.notification.service.FcmTokenService;
+import com.faithlog.notification.service.FcmTokenCommandService;
 import com.faithlog.notification.controller.dto.response.FcmTokenResponse;
 import com.faithlog.notification.controller.dto.request.RegisterFcmTokenRequest;
 import jakarta.validation.Valid;
@@ -19,10 +19,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/users/me/fcm-tokens")
 public class FcmTokenController {
 
-	private final FcmTokenService fcmTokenService;
+	private final FcmTokenCommandService fcmTokenCommandService;
 
-	public FcmTokenController(FcmTokenService fcmTokenService) {
-		this.fcmTokenService = fcmTokenService;
+	public FcmTokenController(FcmTokenCommandService fcmTokenCommandService) {
+		this.fcmTokenCommandService = fcmTokenCommandService;
 	}
 
 	@PostMapping
@@ -30,7 +30,7 @@ public class FcmTokenController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@Valid @RequestBody RegisterFcmTokenRequest request
 	) {
-		return ApiResponse.success(FcmTokenResponse.from(fcmTokenService.registerToken(request.toCommand(authenticatedUser.userId()))));
+		return ApiResponse.success(FcmTokenResponse.from(fcmTokenCommandService.registerToken(request.toCommand(authenticatedUser.userId()))));
 	}
 
 	@DeleteMapping("/{tokenId}")
@@ -38,7 +38,7 @@ public class FcmTokenController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long tokenId
 	) {
-		fcmTokenService.deactivateToken(authenticatedUser.userId(), tokenId);
+		fcmTokenCommandService.deactivateToken(authenticatedUser.userId(), tokenId);
 		return ResponseEntity.noContent().build();
 	}
 }
