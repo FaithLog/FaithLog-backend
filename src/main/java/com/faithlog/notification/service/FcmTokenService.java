@@ -3,7 +3,6 @@ package com.faithlog.notification.service;
 import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
 import com.faithlog.notification.service.result.FcmTokenResult;
 import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationCommand;
-import java.time.Instant;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -27,7 +26,4 @@ public class FcmTokenService {
 		commandService.deactivateCurrentDevice(command);
 	}
 
-	public int deactivateStaleTokens(Instant now) {
-		return commandService.deactivateStaleTokens(now);
-	}
 }

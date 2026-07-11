@@ -10,8 +10,6 @@ import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationCommand;
 import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationPort;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class FcmTokenCommandService implements CurrentDeviceFcmTokenDeactivationPort {
-
-	private static final Duration STALE_TOKEN_AGE = Duration.ofDays(90);
 
 	private final UserFcmTokenRepository userFcmTokenRepository;
 	private final UserRepository userRepository;
@@ -85,14 +81,6 @@ public class FcmTokenCommandService implements CurrentDeviceFcmTokenDeactivation
 				.forEach(token -> deletionTargets.put(token.id(), token));
 		}
 		userFcmTokenRepository.deleteAll(deletionTargets.values());
-	}
-
-	@Transactional
-	public int deactivateStaleTokens(Instant now) {
-		Instant staleThreshold = now.minus(STALE_TOKEN_AGE);
-		List<UserFcmToken> staleTokens = userFcmTokenRepository.findActiveStaleTokens(staleThreshold);
-		staleTokens.forEach(UserFcmToken::deactivate);
-		return staleTokens.size();
 	}
 
 	private boolean deactivateOtherActiveTokensForClient(Long userId, String clientInstanceId, String currentToken) {
