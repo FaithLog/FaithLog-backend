@@ -32,7 +32,7 @@ class PrayerUseCaseServiceStructureTest {
 				readOnly("getAssignableMembers")
 			),
 			"PrayerWeekBoardQueryService.java", List.of(readOnly("getWeeklyBoard")),
-			"AdminPrayerSubmissionCommandService.java", List.of(write("saveSubmissions")),
+			"PrayerGroupSubmissionCommandService.java", List.of(write("saveSubmissions")),
 			"MyPrayerSubmissionCommandService.java", List.of(write("saveMySubmission"))
 		);
 
@@ -55,7 +55,7 @@ class PrayerUseCaseServiceStructureTest {
 			"PrayerGroupCommandService.java", List.of("createGroup", "updateGroup", "replaceGroupMembers"),
 			"PrayerGroupQueryService.java", List.of("getSeasonGroups", "getAssignableMembers"),
 			"PrayerWeekBoardQueryService.java", List.of("getWeeklyBoard"),
-			"AdminPrayerSubmissionCommandService.java", List.of("saveSubmissions"),
+			"PrayerGroupSubmissionCommandService.java", List.of("saveSubmissions"),
 			"MyPrayerSubmissionCommandService.java", List.of("saveMySubmission")
 		);
 
@@ -83,7 +83,7 @@ class PrayerUseCaseServiceStructureTest {
 			() -> assertTrue(adminController.contains("PrayerGroupQueryService")),
 			() -> assertFalse(adminController.contains("PrayerService")),
 			() -> assertTrue(prayerController.contains("PrayerWeekBoardQueryService")),
-			() -> assertTrue(prayerController.contains("AdminPrayerSubmissionCommandService")),
+			() -> assertTrue(prayerController.contains("PrayerGroupSubmissionCommandService")),
 			() -> assertTrue(prayerController.contains("MyPrayerSubmissionCommandService")),
 			() -> assertFalse(prayerController.contains("PrayerService"))
 		);
@@ -107,7 +107,7 @@ class PrayerUseCaseServiceStructureTest {
 			() -> assertTrue(facade.contains("PrayerGroupCommandService")),
 			() -> assertTrue(facade.contains("PrayerGroupQueryService")),
 			() -> assertTrue(facade.contains("PrayerWeekBoardQueryService")),
-			() -> assertTrue(facade.contains("AdminPrayerSubmissionCommandService")),
+			() -> assertTrue(facade.contains("PrayerGroupSubmissionCommandService")),
 			() -> assertTrue(facade.contains("MyPrayerSubmissionCommandService"))
 		);
 	}
@@ -120,7 +120,7 @@ class PrayerUseCaseServiceStructureTest {
 			"PrayerGroupCommandService",
 			"PrayerGroupQueryService",
 			"PrayerWeekBoardQueryService",
-			"AdminPrayerSubmissionCommandService",
+			"PrayerGroupSubmissionCommandService",
 			"MyPrayerSubmissionCommandService"
 		);
 
