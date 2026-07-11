@@ -10,16 +10,12 @@ import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.devotion.domain.entity.WeeklyDevotionRecord;
 import com.faithlog.devotion.infrastructure.repository.WeeklyDevotionRecordRepository;
-import com.faithlog.notification.service.command.NotificationDeduplicationCommand;
-import com.faithlog.notification.service.NotificationDeduplicationService;
 import com.faithlog.notification.service.NotificationLockKey;
 import com.faithlog.notification.service.NotificationLockLease;
 import com.faithlog.notification.service.NotificationLockService;
-import com.faithlog.notification.service.port.NotificationDispatchPort;
-import com.faithlog.notification.domain.entity.NotificationLog;
+import com.faithlog.notification.service.NotificationRequestCommandService;
+import com.faithlog.notification.service.command.AutomaticNotificationRequestCommand;
 import com.faithlog.notification.domain.type.NotificationType;
-import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
-import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.entity.PollResponse;
 import com.faithlog.poll.domain.type.PollStatus;
@@ -36,12 +32,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class AutomaticNotificationService {
@@ -61,12 +54,8 @@ public class AutomaticNotificationService {
 	private final PollRepository pollRepository;
 	private final PollResponseRepository pollResponseRepository;
 	private final ChargeItemRepository chargeItemRepository;
-	private final UserFcmTokenRepository userFcmTokenRepository;
-	private final NotificationLogRepository notificationLogRepository;
-	private final NotificationDispatchPort notificationDispatchPort;
-	private final NotificationDeduplicationService notificationDeduplicationService;
+	private final NotificationRequestCommandService notificationRequestCommandService;
 	private final NotificationLockService notificationLockService;
-	private final TransactionTemplate transactionTemplate;
 
 	public AutomaticNotificationService(
 		CampusRepository campusRepository,
@@ -75,12 +64,8 @@ public class AutomaticNotificationService {
 		PollRepository pollRepository,
 		PollResponseRepository pollResponseRepository,
 		ChargeItemRepository chargeItemRepository,
-		UserFcmTokenRepository userFcmTokenRepository,
-		NotificationLogRepository notificationLogRepository,
-		NotificationDispatchPort notificationDispatchPort,
-		NotificationDeduplicationService notificationDeduplicationService,
-		NotificationLockService notificationLockService,
-		PlatformTransactionManager transactionManager
+		NotificationRequestCommandService notificationRequestCommandService,
+		NotificationLockService notificationLockService
 	) {
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
@@ -88,12 +73,8 @@ public class AutomaticNotificationService {
 		this.pollRepository = pollRepository;
 		this.pollResponseRepository = pollResponseRepository;
 		this.chargeItemRepository = chargeItemRepository;
-		this.userFcmTokenRepository = userFcmTokenRepository;
-		this.notificationLogRepository = notificationLogRepository;
-		this.notificationDispatchPort = notificationDispatchPort;
-		this.notificationDeduplicationService = notificationDeduplicationService;
+		this.notificationRequestCommandService = notificationRequestCommandService;
 		this.notificationLockService = notificationLockService;
-		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
 	public int sendDevotionMissingReminders(Instant now) {
@@ -228,60 +209,19 @@ public class AutomaticNotificationService {
 		String title,
 		String body
 	) {
-		NotificationBatchResult result = transactionTemplate.execute(status -> {
-			UUID requestId = UUID.randomUUID();
-			int queuedCount = 0;
-			int createdCount = 0;
-			for (Long targetUserId : targetUserIds) {
-				boolean reserved = notificationDeduplicationService.reserveDailyAutomaticNotification(
-					new NotificationDeduplicationCommand(
-						notificationType,
-						campusId,
-						scopeId,
-						targetUserId,
-						businessDate
-					)
-				);
-				if (!reserved) {
-					continue;
-				}
-				if (userFcmTokenRepository.findActiveSendableTokens(targetUserId).isEmpty()) {
-					notificationLogRepository.save(NotificationLog.skipped(
-						requestId,
-						targetUserId,
-						campusId,
-						notificationType,
-						targetWeekStartDate,
-						targetId,
-						title,
-						body,
-						"NO_ACTIVE_FCM_TOKEN"
-					));
-					createdCount++;
-					continue;
-				}
-				notificationLogRepository.save(NotificationLog.pending(
-					requestId,
-					targetUserId,
-					campusId,
-					notificationType,
-					targetWeekStartDate,
-					targetId,
-					title,
-					body
-				));
-				queuedCount++;
-				createdCount++;
-			}
-			return new NotificationBatchResult(requestId, queuedCount, createdCount);
-		});
-		if (result == null || result.createdCount() == 0) {
-			return 0;
-		}
-		if (result.queuedCount() > 0) {
-			notificationDispatchPort.dispatch(result.requestId());
-		}
-		return result.createdCount();
+		return notificationRequestCommandService.requestAutomaticNotification(
+			new AutomaticNotificationRequestCommand(
+				campusId,
+				notificationType,
+				targetWeekStartDate,
+				targetId,
+				targetUserIds,
+				businessDate,
+				scopeId,
+				title,
+				body
+			)
+		);
 	}
 
 	private List<Long> devotionMissingTargets(Long campusId, LocalDate targetWeekStartDate) {
@@ -353,6 +293,4 @@ public class AutomaticNotificationService {
 		int run();
 	}
 
-	private record NotificationBatchResult(UUID requestId, int queuedCount, int createdCount) {
-	}
 }
