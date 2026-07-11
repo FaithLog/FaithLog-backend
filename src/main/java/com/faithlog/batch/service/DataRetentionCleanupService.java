@@ -27,7 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class DataRetentionCleanupService {
 
-	static final ZoneId SEOUL_ZONE = PollAutomationService.SEOUL_ZONE;
+	static final ZoneId SEOUL_ZONE = BatchTimeZone.SEOUL_ZONE;
 
 	private static final Duration RETENTION_LOCK_TTL = Duration.ofMinutes(30);
 	private static final Duration NOTIFICATION_LOG_RETENTION = Duration.ofDays(14);
