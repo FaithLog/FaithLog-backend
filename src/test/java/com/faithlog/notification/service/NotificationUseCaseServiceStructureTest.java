@@ -61,6 +61,27 @@ class NotificationUseCaseServiceStructureTest {
 	}
 
 	@Test
+	void deliveryWorkerOwnsRetryStateTransitionAndInvalidTokenHandlingWhileDispatchStaysAfterCommitAsync() {
+		String deliveryWorker = read(SERVICE_ROOT.resolve("NotificationDeliveryWorker.java"));
+		String dispatchAdapter = read(MAIN_ROOT.resolve("notification/infrastructure/fcm/AsyncNotificationDispatchAdapter.java"));
+
+		assertAll(
+			() -> assertTrue(deliveryWorker.contains("MAX_TRANSIENT_RETRIES = 3")),
+			() -> assertTrue(deliveryWorker.contains("NotificationRetryBackoff")),
+			() -> assertTrue(deliveryWorker.contains("FcmSendPort")),
+			() -> assertTrue(deliveryWorker.contains("markLogSent")),
+			() -> assertTrue(deliveryWorker.contains("markLogFailed")),
+			() -> assertTrue(deliveryWorker.contains("markLogSkipped")),
+			() -> assertTrue(deliveryWorker.contains("recordTokenFailure")),
+			() -> assertTrue(deliveryWorker.contains("token.deactivate()")),
+			() -> assertTrue(deliveryWorker.contains("TransactionTemplate")),
+			() -> assertTrue(dispatchAdapter.contains("TransactionSynchronizationManager")),
+			() -> assertTrue(dispatchAdapter.contains("afterCommit")),
+			() -> assertTrue(dispatchAdapter.contains("taskExecutor.execute"))
+		);
+	}
+
+	@Test
 	void compatibilityFacadesAreThinDelegatesWithoutRulesOrTransactions() {
 		String fcmFacade = read(SERVICE_ROOT.resolve("FcmTokenService.java"));
 		String notificationFacade = read(SERVICE_ROOT.resolve("NotificationService.java"));
