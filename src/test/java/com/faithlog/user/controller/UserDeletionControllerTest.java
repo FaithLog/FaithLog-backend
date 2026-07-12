@@ -255,7 +255,7 @@ class UserDeletionControllerTest {
 
 		@Bean
 		@Primary
-		RefreshTokenStore refreshTokenStore() {
+		InMemoryRefreshTokenStore userDeletionRefreshTokenStore() {
 			return new InMemoryRefreshTokenStore();
 		}
 

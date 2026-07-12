@@ -477,7 +477,7 @@ class AuthApiRestDocsTest {
 
 		@Bean
 		@Primary
-		RefreshTokenStore refreshTokenStore() {
+		InMemoryRefreshTokenStore restDocsRefreshTokenStore() {
 			return new InMemoryRefreshTokenStore();
 		}
 

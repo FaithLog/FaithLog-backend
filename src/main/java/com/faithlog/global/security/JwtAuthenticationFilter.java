@@ -22,15 +22,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private final JwtProvider jwtProvider;
 	private final AccessTokenBlacklistChecker accessTokenBlacklistChecker;
 	private final AccessTokenVersionChecker accessTokenVersionChecker;
+	private final SessionRevocationChecker sessionRevocationChecker;
 
 	public JwtAuthenticationFilter(
 		JwtProvider jwtProvider,
 		AccessTokenBlacklistChecker accessTokenBlacklistChecker,
-		AccessTokenVersionChecker accessTokenVersionChecker
+		AccessTokenVersionChecker accessTokenVersionChecker,
+		SessionRevocationChecker sessionRevocationChecker
 	) {
 		this.jwtProvider = jwtProvider;
 		this.accessTokenBlacklistChecker = accessTokenBlacklistChecker;
 		this.accessTokenVersionChecker = accessTokenVersionChecker;
+		this.sessionRevocationChecker = sessionRevocationChecker;
 	}
 
 	@Override
@@ -68,6 +71,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			String sessionId = claims.get("sessionId", String.class);
 			Number tokenVersion = claims.get("tokenVersion", Number.class);
 			if (userId == null || role == null || sessionId == null || tokenVersion == null) {
+				return;
+			}
+			if (sessionRevocationChecker.isRevoked(userId, sessionId)) {
 				return;
 			}
 			if (!accessTokenVersionChecker.matchesCurrentVersion(userId, tokenVersion.longValue())) {

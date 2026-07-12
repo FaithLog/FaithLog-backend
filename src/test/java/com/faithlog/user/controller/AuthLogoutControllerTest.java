@@ -170,14 +170,9 @@ class AuthLogoutControllerTest {
 	static class TestAuthLogoutPortConfig {
 
 		@Bean
+		@Primary
 		InMemoryRefreshTokenStore refreshTokenStore() {
 			return new InMemoryRefreshTokenStore();
-		}
-
-		@Bean
-		@Primary
-		RefreshTokenStore refreshTokenStorePort(InMemoryRefreshTokenStore refreshTokenStore) {
-			return refreshTokenStore;
 		}
 
 		@Bean

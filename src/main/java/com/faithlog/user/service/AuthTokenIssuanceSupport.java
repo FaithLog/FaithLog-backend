@@ -22,8 +22,8 @@ class AuthTokenIssuanceSupport {
 		return save(jwtProvider.issueTokens(user));
 	}
 
-	IssuedTokens issue(User user, String sessionId) {
-		return save(jwtProvider.issueTokens(user, sessionId));
+	IssuedTokens createRotationCandidate(User user, String sessionId) {
+		return jwtProvider.issueTokens(user, sessionId);
 	}
 
 	private IssuedTokens save(IssuedTokens tokens) {
