@@ -11,9 +11,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.global.security.JwtProvider;
 import com.faithlog.user.service.port.AccessTokenBlacklistStore;
+import com.faithlog.user.service.port.RefreshTokenRotationResult;
 import com.faithlog.user.support.InMemoryAccessTokenBlacklistStore;
 import com.faithlog.user.support.InMemoryRefreshTokenStore;
-import com.faithlog.user.service.port.RefreshTokenRotationResult;
 import io.jsonwebtoken.Claims;
 import java.time.Duration;
 import java.util.List;
@@ -55,6 +55,7 @@ class AuthRefreshControllerTest {
 	@BeforeEach
 	void resetStoreFailures() {
 		refreshTokenStore.failRotation = false;
+		refreshTokenStore.failRevocation = false;
 		refreshTokenStore.failSessionCheck = false;
 	}
 
@@ -175,6 +176,12 @@ class AuthRefreshControllerTest {
 
 		refresh(otherSession.refreshToken(), status().isOk());
 		refresh(otherUserSession.refreshToken(), status().isOk());
+
+		TokenPair newLoginSession = login("refresh-session-scope@example.com");
+		mockMvc.perform(get("/api/v1/users/me")
+				.header("Authorization", "Bearer " + newLoginSession.accessToken()))
+			.andExpect(status().isOk());
+		refresh(newLoginSession.refreshToken(), status().isOk());
 	}
 
 	@Test
@@ -199,6 +206,23 @@ class AuthRefreshControllerTest {
 					""".formatted(tokens.refreshToken()))))
 			.hasRootCauseInstanceOf(IllegalStateException.class)
 			.hasRootCauseMessage("test-only Redis rotation failure");
+	}
+
+	@Test
+	void refresh_fails_closed_when_reuse_session_revocation_store_is_unavailable() throws Exception {
+		TokenPair tokens = signupAndLogin("refresh-revoke-redis-failure@example.com");
+		refresh(tokens.refreshToken(), status().isOk());
+		refreshTokenStore.failRevocation = true;
+
+		assertThatThrownBy(() -> mockMvc.perform(post("/api/v1/auth/refresh")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "refreshToken": "%s"
+					}
+					""".formatted(tokens.refreshToken()))))
+			.hasRootCauseInstanceOf(IllegalStateException.class)
+			.hasRootCauseMessage("test-only Redis session revocation failure");
 	}
 
 	@Test
@@ -296,6 +320,7 @@ class AuthRefreshControllerTest {
 	static class FaultInjectingInMemoryRefreshTokenStore extends InMemoryRefreshTokenStore {
 
 		private volatile boolean failRotation;
+		private volatile boolean failRevocation;
 		private volatile boolean failSessionCheck;
 
 		@Override
@@ -310,6 +335,14 @@ class AuthRefreshControllerTest {
 				throw new IllegalStateException("test-only Redis rotation failure");
 			}
 			return super.rotate(userId, sessionId, expectedRefreshJti, newRefreshJti, ttl);
+		}
+
+		@Override
+		public void revoke(Long userId, String sessionId, Duration ttl) {
+			if (failRevocation) {
+				throw new IllegalStateException("test-only Redis session revocation failure");
+			}
+			super.revoke(userId, sessionId, ttl);
 		}
 
 		@Override
