@@ -87,8 +87,6 @@ class RedisRefreshTokenStoreIntegrationTest {
 				);
 		}
 
-		sessionRevocationStore.revoke(userId, sessionId, REVOCATION_TTL);
-
 		assertThat(redisTemplate.hasKey(refreshKey())).isFalse();
 		assertThat(sessionRevocationStore.isRevoked(userId, sessionId)).isTrue();
 		assertThat(redisTemplate.getExpire(revokedKey(), TimeUnit.SECONDS)).isBetween(1_209_650L, 1_209_660L);
