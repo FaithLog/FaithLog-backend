@@ -360,6 +360,114 @@ class PollApiRestDocsTest {
 	}
 
 	@Test
+	void coffee_duty_template_update_uses_persisted_poll_type_and_preserves_error_contract() throws Exception {
+		String managerToken = signupAndLogin("docs-poll179-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-poll179-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "179문서캠");
+		JsonNode otherCampus = createCampus(managerToken, "179문서다른캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("docs-poll179-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("docs-poll179-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), duty.id()));
+		long dutyAccountId = createCoffeeAccount(campusId, duty.id(), duty.id());
+		String createBody = """
+			{
+			  "title": "관리자 원본 커스텀 템플릿",
+			  "pollType": "CUSTOM",
+			  "selectionType": "SINGLE",
+			  "chargeGenerationType": "NONE",
+			  "paymentCategory": null,
+			  "paymentAccountId": null,
+			  "allowUserOptionAdd": false,
+			  "autoCreateEnabled": false,
+			  "startDayOfWeek": 1,
+			  "startTime": "09:00:00",
+			  "endDayOfWeek": 3,
+			  "endTime": "18:00:00",
+			  "options": [
+			    {"content": "원본 참석", "menuId": null, "priceAmount": 0, "sortOrder": 1},
+			    {"content": "원본 불참", "menuId": null, "priceAmount": 0, "sortOrder": 2}
+			  ]
+			}
+			""";
+		String createdBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/poll-templates", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(createBody))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long templateId = objectMapper.readTree(createdBody).path("data").path("id").asLong();
+		String attackBody = """
+			{
+			  "title": "권한 없는 변조",
+			  "selectionType": "MULTIPLE",
+			  "chargeGenerationType": "OPTION_PRICE",
+			  "paymentCategory": "COFFEE",
+			  "paymentAccountId": %d,
+			  "allowUserOptionAdd": true,
+			  "autoCreateEnabled": true,
+			  "startDayOfWeek": 2,
+			  "startTime": "10:30:00",
+			  "endDayOfWeek": 4,
+			  "endTime": "17:30:00",
+			  "options": [
+			    {"content": "변조 선택지", "menuId": null, "priceAmount": 9999, "sortOrder": 1}
+			  ]
+			}
+			""".formatted(dutyAccountId);
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(attackBody))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("POLL_TEMPLATE_MANAGE_FORBIDDEN"))
+			.andExpect(jsonPath("$.message").value("투표 템플릿 관리 권한이 없습니다."))
+			.andDo(document("poll-template-update-persisted-type-forbidden",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("templateId").description("저장된 비-COFFEE 투표 템플릿 ID")
+				),
+				requestFields(updateTemplateRequestFields()),
+				responseFields(errorResponseFields())
+			));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}",
+				otherCampus.path("campusId").asLong(), templateId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(attackBody))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POLL_TEMPLATE_NOT_FOUND"))
+			.andExpect(jsonPath("$.message").value("투표 템플릿을 찾을 수 없습니다."));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.title").value("관리자 원본 커스텀 템플릿"))
+			.andExpect(jsonPath("$.data.pollType").value("CUSTOM"))
+			.andExpect(jsonPath("$.data.selectionType").value("SINGLE"))
+			.andExpect(jsonPath("$.data.chargeGenerationType").value("NONE"))
+			.andExpect(jsonPath("$.data.paymentCategory").isEmpty())
+			.andExpect(jsonPath("$.data.paymentAccountId").isEmpty())
+			.andExpect(jsonPath("$.data.allowUserOptionAdd").value(false))
+			.andExpect(jsonPath("$.data.autoCreateEnabled").value(false))
+			.andExpect(jsonPath("$.data.startDayOfWeek").value(1))
+			.andExpect(jsonPath("$.data.startTime").value("09:00:00"))
+			.andExpect(jsonPath("$.data.endDayOfWeek").value(3))
+			.andExpect(jsonPath("$.data.endTime").value("18:00:00"))
+			.andExpect(jsonPath("$.data.options.length()").value(2))
+			.andExpect(jsonPath("$.data.options[0].content").value("원본 참석"))
+			.andExpect(jsonPath("$.data.options[1].content").value("원본 불참"));
+	}
+
+	@Test
 	void documents_poll_response_result_missing_members_and_comment_contracts() throws Exception {
 		String managerToken = signupAndLogin("docs-poll38-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("docs-poll38-manager@example.com").orElseThrow();
