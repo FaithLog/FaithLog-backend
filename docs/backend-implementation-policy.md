@@ -14,8 +14,12 @@ This document records the current backend implementation source of truth.
 - Token version mismatch uses the existing authentication failure policy (`AUTH_UNAUTHORIZED`); Issue #76 does not add a separate ErrorCode.
 - Refresh Token reissue must create a new Access Token using the latest persisted user role and token version.
 - Refresh Token Rotation is required.
-- Refresh success must issue a new Refresh Token and immediately revoke the previous one.
-- Reuse of an old Refresh Token must fail and revoke at least the current session.
+- Refresh success must issue a new Refresh Token and atomically replace the previous refresh JTI with the new JTI and TTL through Redis Lua or an equivalent CAS operation.
+- Parallel requests using the same old Refresh Token allow exactly one rotation winner. A CAS loser or sequential reuse returns `401 AUTH_UNAUTHORIZED` and revokes that `userId + sessionId` session.
+- Refresh reuse session revocation deletes `auth:refresh:{userId}:{sessionId}` and stores the fixed marker key `auth:session:revoked:{userId}:{sessionId}`. The authentication filter rejects Access Tokens whose session marker exists.
+- Session revocation is scoped to one `userId + sessionId`; another session belonging to the same user and sessions belonging to other users remain valid.
+- The session revocation marker TTL is the configured Refresh Token lifetime plus 60 seconds. Redis failures during refresh CAS, session revoke, or authentication marker lookup fail closed.
+- Normal logout keeps its existing current-access blacklist plus current-refresh deletion meaning and does not create a session revocation marker solely because of Issue #176.
 - Redis must not store raw tokens. Store a hash or token identifier.
 - Access Token must include `jti`, `userId`, `role`, `sessionId`, and `tokenVersion`.
 - Refresh Token must include `userId`, `sessionId`, and `refreshJti`.
@@ -50,6 +54,7 @@ Recommended Redis keys:
 
 - `auth:refresh:{userId}:{sessionId}`
 - `auth:access:blacklist:{jti}`
+- `auth:session:revoked:{userId}:{sessionId}`
 - Optional reuse detection: `auth:refresh:used:{refreshJti}` or current `refreshJti` comparison within the session.
 
 Redis TTL policy:
@@ -58,6 +63,7 @@ Redis TTL policy:
 - Refresh token lifetime: 14 days.
 - `auth:access:blacklist:{jti}` TTL is the access token remaining lifetime plus 60 seconds.
 - `auth:refresh:{userId}:{sessionId}` TTL is the refresh token expiration.
+- `auth:session:revoked:{userId}:{sessionId}` TTL is the configured refresh token lifetime plus 60 seconds.
 - Reuse-detection keys, when used, live until the refresh token expiration.
 
 ## Pagination And Sorting

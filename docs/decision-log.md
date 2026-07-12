@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-12 - Issue #176 Atomic Refresh Rotation And Reuse Session Revocation
+
+- Context: Issue #158 confirmed that refresh current-JTI validation and replacement were separate Redis GET and SET operations, so two parallel requests using the same old refresh token could both issue token pairs. Issue #176 fixes this race without changing the public auth API, token response, token lifetime, logout meaning, role invalidation, withdrawal, or FCM behavior.
+- Decision: Compare `expectedRefreshJti` and replace it with `newRefreshJti + TTL` in one Redis Lua/CAS operation. Exactly one request using the same old refresh token may win. A CAS loser or sequential reuse returns `401 AUTH_UNAUTHORIZED`, deletes the affected `userId + sessionId` refresh key, and stores `auth:session:revoked:{userId}:{sessionId}` with a fixed marker so access tokens for that session are also rejected. Other sessions belonging to the same user and sessions belonging to other users remain valid. Redis failures fail closed.
+- Decision: Keep the session revocation marker for the configured refresh-token validity plus a 60-second safety margin. With the current approved configuration this is `1,209,600 + 60` seconds. Login creates a new UUID session ID and is not blocked by an older session marker. Do not expand normal logout into session-marker revocation; Issue #176 session revocation is limited to refresh reuse/CAS-loser detection.
+- Impact: `RefreshTokenStore` exposes an atomic rotation result contract, the production adapter uses Redis Lua, and the test adapter reproduces the same synchronized state transition. `JwtAuthenticationFilter` checks access blacklist, session revocation, and tokenVersion before creating a principal. API paths, request/response DTOs, `AUTH_UNAUTHORIZED`, access 1,800 seconds, refresh 1,209,600 seconds, raw-token non-storage, Entity/DB/Flyway, role invalidation, withdrawal, logout, and FCM contracts remain unchanged.
+
 ### 2026-07-12 - Issue #156 User And Auth Use Case Separation
 
 - Context: After Issue #145 established the domain-first MVC package structure and Issues #147-#155 separated the other application use cases, `AuthService` still combined signup, login, JWT/Refresh allowlist issuance, refresh rotation, logout revocation, and current-user membership queries. `UserAccountService` still combined withdrawal validation, campus/FCM deactivation, session revocation, and account soft deletion.
