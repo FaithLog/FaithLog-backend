@@ -3,6 +3,8 @@ package com.faithlog.user.controller;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.user.service.AuthService;
+import com.faithlog.user.service.LoginCommandService;
+import com.faithlog.user.service.SignupCommandService;
 import com.faithlog.user.service.result.LoginResult;
 import com.faithlog.user.service.result.TokenResult;
 import com.faithlog.user.service.result.SignupResult;
@@ -26,15 +28,23 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
+	private final SignupCommandService signupCommandService;
+	private final LoginCommandService loginCommandService;
 	private final AuthService authService;
 
-	public AuthController(AuthService authService) {
+	public AuthController(
+		SignupCommandService signupCommandService,
+		LoginCommandService loginCommandService,
+		AuthService authService
+	) {
+		this.signupCommandService = signupCommandService;
+		this.loginCommandService = loginCommandService;
 		this.authService = authService;
 	}
 
 	@PostMapping("/signup")
 	public ResponseEntity<ApiResponse<SignupResponse>> signup(@Valid @RequestBody SignupRequest request) {
-		SignupResult result = authService.signup(request.toCommand());
+		SignupResult result = signupCommandService.signup(request.toCommand());
 		return ResponseEntity
 			.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(SignupResponse.from(result), "회원가입이 완료되었습니다."));
@@ -42,7 +52,7 @@ public class AuthController {
 
 	@PostMapping("/login")
 	public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-		LoginResult result = authService.login(request.toCommand());
+		LoginResult result = loginCommandService.login(request.toCommand());
 		return ApiResponse.success(LoginResponse.from(result), "로그인되었습니다.");
 	}
 
