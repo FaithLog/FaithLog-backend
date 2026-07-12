@@ -21,14 +21,77 @@ OWASP ASVS 5.0.0과 OWASP API Security Top 10 2023이다.
 
 | 범주 | 파일 수 | 주요 대상 |
 | --- | ---: | --- |
-| JWT/Spring Security/Redis 인증 adapter | 11 | `SecurityConfig`, `JwtAuthenticationFilter`, `JwtProvider`, 인증 entry point/principal/checker, access blacklist와 refresh allowlist adapter |
-| Auth/User 수명주기 | 18 | Auth/User Controller와 request DTO, login/refresh/logout/withdrawal service/support/port, `User`, `UserRepository` |
+| JWT/Spring Security/Redis 인증 adapter·port | 12 | `SecurityConfig`, `JwtAuthenticationFilter`, `JwtProvider`, 인증 entry point/principal/checker, access blacklist와 refresh allowlist adapter·port |
+| Auth/User 수명주기 | 15 | Auth/User Controller와 request DTO, login/refresh/logout/withdrawal service/support, `User`, `UserRepository` |
 | service/campus role 무효화 | 2 | `AdminUserManagementService`, `CampusMemberManagementService` |
-| FCM ownership와 cleanup | 5 | `FcmTokenController`, request, `FcmTokenCommandService`, Entity, Repository |
+| FCM ownership와 cleanup | 7 | `FcmTokenController`, `FcmTokenCommandService`, Entity, Repository, logout/withdrawal port |
 | 공통 오류 | 2 | `GlobalExceptionHandler`, `ErrorCode` |
 | 설정과 schema | 9 | application profile 6개, Flyway V1/V5/V6 |
 | production/config/schema 합계 | **47** | 위 범주 합계 |
 | focused test | **8** | refresh/logout/withdrawal/role/FCM/Auth/REST Docs |
+
+#### 2.1.1 production/config/schema counted manifest (47)
+
+아래 목록만 47개 수치에 포함한다. 보조 문서와 추가 참조 파일은 counted manifest에서 제외했다.
+
+1. `src/main/java/com/faithlog/global/security/AccessTokenBlacklistChecker.java`
+2. `src/main/java/com/faithlog/global/security/AccessTokenVersionChecker.java`
+3. `src/main/java/com/faithlog/global/security/AuthenticatedUser.java`
+4. `src/main/java/com/faithlog/global/security/JwtAuthenticationFilter.java`
+5. `src/main/java/com/faithlog/global/security/JwtProvider.java`
+6. `src/main/java/com/faithlog/global/security/RestAuthenticationEntryPoint.java`
+7. `src/main/java/com/faithlog/global/security/SecurityConfig.java`
+8. `src/main/java/com/faithlog/user/infrastructure/adapter/UserAccessTokenVersionChecker.java`
+9. `src/main/java/com/faithlog/user/infrastructure/redis/RedisAccessTokenBlacklistStore.java`
+10. `src/main/java/com/faithlog/user/infrastructure/redis/RedisRefreshTokenStore.java`
+11. `src/main/java/com/faithlog/user/service/port/AccessTokenBlacklistStore.java`
+12. `src/main/java/com/faithlog/user/service/port/RefreshTokenStore.java`
+13. `src/main/java/com/faithlog/user/controller/AuthController.java`
+14. `src/main/java/com/faithlog/user/controller/UserMeController.java`
+15. `src/main/java/com/faithlog/user/controller/dto/request/LoginRequest.java`
+16. `src/main/java/com/faithlog/user/controller/dto/request/RefreshRequest.java`
+17. `src/main/java/com/faithlog/user/controller/dto/request/LogoutRequest.java`
+18. `src/main/java/com/faithlog/user/controller/dto/request/DeleteMyAccountRequest.java`
+19. `src/main/java/com/faithlog/user/service/LoginCommandService.java`
+20. `src/main/java/com/faithlog/user/service/RefreshTokenRotationService.java`
+21. `src/main/java/com/faithlog/user/service/LogoutCommandService.java`
+22. `src/main/java/com/faithlog/user/service/AccountWithdrawalCommandService.java`
+23. `src/main/java/com/faithlog/user/service/AuthTokenIssuanceSupport.java`
+24. `src/main/java/com/faithlog/user/service/UserSessionRevocationSupport.java`
+25. `src/main/java/com/faithlog/user/service/AccountSoftDeletionSupport.java`
+26. `src/main/java/com/faithlog/user/domain/entity/User.java`
+27. `src/main/java/com/faithlog/user/infrastructure/repository/UserRepository.java`
+28. `src/main/java/com/faithlog/admin/service/AdminUserManagementService.java`
+29. `src/main/java/com/faithlog/campus/service/CampusMemberManagementService.java`
+30. `src/main/java/com/faithlog/notification/controller/FcmTokenController.java`
+31. `src/main/java/com/faithlog/notification/service/FcmTokenCommandService.java`
+32. `src/main/java/com/faithlog/notification/domain/entity/UserFcmToken.java`
+33. `src/main/java/com/faithlog/notification/infrastructure/repository/UserFcmTokenRepository.java`
+34. `src/main/java/com/faithlog/user/service/port/CurrentDeviceFcmTokenDeactivationCommand.java`
+35. `src/main/java/com/faithlog/user/service/port/CurrentDeviceFcmTokenDeactivationPort.java`
+36. `src/main/java/com/faithlog/user/service/port/UserFcmTokenDeactivationPort.java`
+37. `src/main/java/com/faithlog/global/exception/GlobalExceptionHandler.java`
+38. `src/main/java/com/faithlog/global/exception/ErrorCode.java`
+39. `src/main/resources/application.yml`
+40. `src/main/resources/application-dev.yml`
+41. `src/main/resources/application-docker.yml`
+42. `src/main/resources/application-local.yml`
+43. `src/main/resources/application-prod.example.yml`
+44. `src/test/resources/application-test.yml`
+45. `src/main/resources/db/migration/V1__initial_schema.sql`
+46. `src/main/resources/db/migration/V5__fix_fcm_token_active_uniqueness.sql`
+47. `src/main/resources/db/migration/V6__add_user_deleted_at.sql`
+
+#### 2.1.2 focused test counted manifest (8)
+
+1. `src/test/java/com/faithlog/user/controller/AuthRefreshControllerTest.java`
+2. `src/test/java/com/faithlog/user/controller/AuthLogoutControllerTest.java`
+3. `src/test/java/com/faithlog/user/controller/AuthLogoutFcmPersistenceTest.java`
+4. `src/test/java/com/faithlog/user/controller/UserDeletionControllerTest.java`
+5. `src/test/java/com/faithlog/global/security/RoleTokenInvalidationIntegrationTest.java`
+6. `src/test/java/com/faithlog/notification/service/FcmTokenServiceTest.java`
+7. `src/test/java/com/faithlog/user/service/AuthServiceTest.java`
+8. `src/test/java/com/faithlog/user/controller/AuthApiRestDocsTest.java`
 
 선행 문서는 Issue #158과 #157의 threat model, authorization matrix, audit findings를 포함해
 7개 저장소 규칙·정책·감사 문서를 대조했다.
@@ -114,6 +177,12 @@ stateDiagram-v2
 | service role 변경 | 기존 access는 DB version mismatch로 401 | refresh session 유지 | 변경 없음 | refresh 시 최신 role/version 발급 |
 | campus role 변경 | 기존 access는 DB version mismatch로 401 | refresh session 유지 | 변경 없음 | refresh 시 최신 version 발급 |
 | 회원탈퇴 | 현재 JTI blacklist + active=false/version 증가로 모든 access 거절 | user의 refresh key 전체 삭제 | 모든 active FCM·campus membership 비활성화 | F-157-01의 마지막 ADMIN 공백은 중복하지 않음 |
+
+동시 refresh에서 두 요청이 모두 old JTI 검사를 통과한 뒤 공격자 요청의 SET이 마지막이면, 공격자가
+받은 refresh token이 Redis current JTI가 된다. 이 credential은 정상 client의 다음 loser refresh가
+mismatch로 session key를 삭제하기 전까지, 최장 refresh TTL 1,209,600초(14일) 동안 다시 회전할 수
+있다. 따라서 F-158-01의 영향은 복수 access token의 1,800초 유효성뿐 아니라 client 후속 동작에
+좌우되는 조건부 session 지속을 포함한다.
 
 ## 6. API별 401/403와 invalidation 행렬
 
