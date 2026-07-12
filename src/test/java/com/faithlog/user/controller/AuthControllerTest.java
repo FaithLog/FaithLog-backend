@@ -10,6 +10,8 @@ import com.faithlog.global.security.AccessTokenBlacklistChecker;
 import com.faithlog.global.security.AccessTokenVersionChecker;
 import com.faithlog.global.security.JwtProvider;
 import com.faithlog.user.service.AuthService;
+import com.faithlog.user.service.LoginCommandService;
+import com.faithlog.user.service.SignupCommandService;
 import com.faithlog.user.service.result.LoginResult;
 import com.faithlog.user.service.result.SignupResult;
 import com.faithlog.user.service.result.UserMeResult;
@@ -30,6 +32,12 @@ class AuthControllerTest {
 	private MockMvc mockMvc;
 
 	@MockitoBean
+	private SignupCommandService signupCommandService;
+
+	@MockitoBean
+	private LoginCommandService loginCommandService;
+
+	@MockitoBean
 	private AuthService authService;
 
 	@MockitoBean
@@ -43,7 +51,7 @@ class AuthControllerTest {
 
 	@Test
 	void signup_creates_user_and_returns_api_response() throws Exception {
-		when(authService.signup(any())).thenReturn(new SignupResult(
+		when(signupCommandService.signup(any())).thenReturn(new SignupResult(
 			1L,
 			"이승욱",
 			"user@example.com",
@@ -83,7 +91,7 @@ class AuthControllerTest {
 			null,
 			List.of()
 		);
-		when(authService.login(any())).thenReturn(new LoginResult(
+		when(loginCommandService.login(any())).thenReturn(new LoginResult(
 			user,
 			"access-token",
 			"refresh-token",
