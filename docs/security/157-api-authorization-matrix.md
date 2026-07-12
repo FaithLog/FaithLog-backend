@@ -210,4 +210,3 @@ Controller/use-case 추가 시 service guard 누락을 탐지하는 endpoint-to-
 - service ADMIN 기능: `AdminAccessPolicy` 또는 동등한 active ADMIN guard를 사용함.
 - 예외: 본인 탈퇴는 합법적 SELF 동작이지만 마지막 active service ADMIN 불변조건을 검사하지 않아
   `docs/security/157-audit-findings.md`의 F-157-01로 확정했다.
-

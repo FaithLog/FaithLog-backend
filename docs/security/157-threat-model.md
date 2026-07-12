@@ -172,4 +172,3 @@ owner를 다시 결합하는지를 판정 기준으로 사용했다.
 
 이 결과는 저장소 증거에 한정된다. 이미 배포된 이미지, 삭제된 remote branch, Cloud/Firebase/
 Supabase/Upstash 콘솔 값과 조직 권한은 별도 운영 체크가 필요하다.
-
