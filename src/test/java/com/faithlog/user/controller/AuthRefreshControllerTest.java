@@ -55,7 +55,6 @@ class AuthRefreshControllerTest {
 	@BeforeEach
 	void resetStoreFailures() {
 		refreshTokenStore.failRotation = false;
-		refreshTokenStore.failRevocation = false;
 		refreshTokenStore.failSessionCheck = false;
 	}
 
@@ -209,23 +208,6 @@ class AuthRefreshControllerTest {
 	}
 
 	@Test
-	void refresh_fails_closed_when_reuse_session_revocation_store_is_unavailable() throws Exception {
-		TokenPair tokens = signupAndLogin("refresh-revoke-redis-failure@example.com");
-		refresh(tokens.refreshToken(), status().isOk());
-		refreshTokenStore.failRevocation = true;
-
-		assertThatThrownBy(() -> mockMvc.perform(post("/api/v1/auth/refresh")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "refreshToken": "%s"
-					}
-					""".formatted(tokens.refreshToken()))))
-			.hasRootCauseInstanceOf(IllegalStateException.class)
-			.hasRootCauseMessage("test-only Redis session revocation failure");
-	}
-
-	@Test
 	void access_authentication_fails_closed_when_session_revocation_lookup_is_unavailable() throws Exception {
 		TokenPair tokens = signupAndLogin("session-check-redis-failure@example.com");
 		refreshTokenStore.failSessionCheck = true;
@@ -320,7 +302,6 @@ class AuthRefreshControllerTest {
 	static class FaultInjectingInMemoryRefreshTokenStore extends InMemoryRefreshTokenStore {
 
 		private volatile boolean failRotation;
-		private volatile boolean failRevocation;
 		private volatile boolean failSessionCheck;
 
 		@Override
@@ -329,20 +310,20 @@ class AuthRefreshControllerTest {
 			String sessionId,
 			String expectedRefreshJti,
 			String newRefreshJti,
-			Duration ttl
+			Duration rotationTtl,
+			Duration revocationTtl
 		) {
 			if (failRotation) {
 				throw new IllegalStateException("test-only Redis rotation failure");
 			}
-			return super.rotate(userId, sessionId, expectedRefreshJti, newRefreshJti, ttl);
-		}
-
-		@Override
-		public void revoke(Long userId, String sessionId, Duration ttl) {
-			if (failRevocation) {
-				throw new IllegalStateException("test-only Redis session revocation failure");
-			}
-			super.revoke(userId, sessionId, ttl);
+			return super.rotate(
+				userId,
+				sessionId,
+				expectedRefreshJti,
+				newRefreshJti,
+				rotationTtl,
+				revocationTtl
+			);
 		}
 
 		@Override

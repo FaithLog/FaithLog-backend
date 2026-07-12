@@ -13,30 +13,35 @@ import com.faithlog.user.service.result.TokenResult;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RefreshTokenRotationService {
+	private static final long SESSION_REVOCATION_SAFETY_MARGIN_SECONDS = 60;
 
 	private final UserRepository userRepository;
 	private final JwtProvider jwtProvider;
 	private final RefreshTokenStore refreshTokenStore;
 	private final AuthTokenIssuanceSupport tokenIssuanceSupport;
-	private final RefreshReuseSessionRevocationSupport reuseSessionRevocationSupport;
+	private final Duration sessionRevocationTtl;
 
 	public RefreshTokenRotationService(
 		UserRepository userRepository,
 		JwtProvider jwtProvider,
 		RefreshTokenStore refreshTokenStore,
 		AuthTokenIssuanceSupport tokenIssuanceSupport,
-		RefreshReuseSessionRevocationSupport reuseSessionRevocationSupport
+		@Value("${faithlog.jwt.refresh-token-validity-seconds}") long refreshTokenValiditySeconds
 	) {
 		this.userRepository = userRepository;
 		this.jwtProvider = jwtProvider;
 		this.refreshTokenStore = refreshTokenStore;
 		this.tokenIssuanceSupport = tokenIssuanceSupport;
-		this.reuseSessionRevocationSupport = reuseSessionRevocationSupport;
+		this.sessionRevocationTtl = Duration.ofSeconds(Math.addExact(
+			refreshTokenValiditySeconds,
+			SESSION_REVOCATION_SAFETY_MARGIN_SECONDS
+		));
 	}
 
 	@Transactional
@@ -62,10 +67,10 @@ public class RefreshTokenRotationService {
 			sessionId,
 			refreshJti,
 			tokens.refreshJti(),
-			Duration.ofSeconds(tokens.refreshTokenExpiresIn())
+			Duration.ofSeconds(tokens.refreshTokenExpiresIn()),
+			sessionRevocationTtl
 		);
 		if (rotationResult != RefreshTokenRotationResult.ROTATED) {
-			reuseSessionRevocationSupport.revoke(userId, sessionId);
 			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 		return TokenResult.from(tokens);

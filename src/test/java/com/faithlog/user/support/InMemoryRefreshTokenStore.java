@@ -1,13 +1,13 @@
 package com.faithlog.user.support;
 
+import com.faithlog.global.security.SessionRevocationChecker;
 import com.faithlog.user.service.port.RefreshTokenRotationResult;
 import com.faithlog.user.service.port.RefreshTokenStore;
-import com.faithlog.user.service.port.SessionRevocationStore;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class InMemoryRefreshTokenStore implements RefreshTokenStore, SessionRevocationStore {
+public class InMemoryRefreshTokenStore implements RefreshTokenStore, SessionRevocationChecker {
 
 	private final Map<String, String> currentRefreshJtiBySession = new ConcurrentHashMap<>();
 	private final Map<String, Boolean> revokedSessions = new ConcurrentHashMap<>();
@@ -23,10 +23,16 @@ public class InMemoryRefreshTokenStore implements RefreshTokenStore, SessionRevo
 		String sessionId,
 		String expectedRefreshJti,
 		String newRefreshJti,
-		Duration ttl
+		Duration rotationTtl,
+		Duration revocationTtl
 	) {
 		String key = key(userId, sessionId);
-		if (isRevoked(userId, sessionId) || !expectedRefreshJti.equals(currentRefreshJtiBySession.get(key))) {
+		if (isRevoked(userId, sessionId)) {
+			return RefreshTokenRotationResult.REJECTED;
+		}
+		if (!expectedRefreshJti.equals(currentRefreshJtiBySession.get(key))) {
+			currentRefreshJtiBySession.remove(key);
+			revokedSessions.put(key, Boolean.TRUE);
 			return RefreshTokenRotationResult.REJECTED;
 		}
 		currentRefreshJtiBySession.put(key, newRefreshJti);
@@ -41,13 +47,6 @@ public class InMemoryRefreshTokenStore implements RefreshTokenStore, SessionRevo
 	@Override
 	public synchronized void deleteAllSessions(Long userId) {
 		currentRefreshJtiBySession.keySet().removeIf(key -> key.startsWith(userId + ":"));
-	}
-
-	@Override
-	public synchronized void revoke(Long userId, String sessionId, Duration ttl) {
-		String key = key(userId, sessionId);
-		currentRefreshJtiBySession.remove(key);
-		revokedSessions.put(key, Boolean.TRUE);
 	}
 
 	@Override

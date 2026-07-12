@@ -19,6 +19,8 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
 		  return 0
 		end
 		if redis.call('get', KEYS[1]) ~= ARGV[1] then
+		  redis.call('del', KEYS[1])
+		  redis.call('psetex', KEYS[2], ARGV[4], ARGV[5])
 		  return 0
 		end
 		redis.call('psetex', KEYS[1], ARGV[3], ARGV[2])
@@ -42,14 +44,17 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
 		String sessionId,
 		String expectedRefreshJti,
 		String newRefreshJti,
-		Duration ttl
+		Duration rotationTtl,
+		Duration revocationTtl
 	) {
 		Long result = redisTemplate.execute(
 			ROTATE_SCRIPT,
 			List.of(AuthRedisKeys.refresh(userId, sessionId), AuthRedisKeys.revokedSession(userId, sessionId)),
 			expectedRefreshJti,
 			newRefreshJti,
-			String.valueOf(ttl.toMillis())
+			String.valueOf(rotationTtl.toMillis()),
+			String.valueOf(revocationTtl.toMillis()),
+			"revoked"
 		);
 		return Long.valueOf(1L).equals(result)
 			? RefreshTokenRotationResult.ROTATED
