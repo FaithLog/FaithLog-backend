@@ -4,185 +4,52 @@ import com.faithlog.user.service.command.LoginCommand;
 import com.faithlog.user.service.command.LogoutCommand;
 import com.faithlog.user.service.command.RefreshCommand;
 import com.faithlog.user.service.command.SignupCommand;
-import com.faithlog.user.service.result.CampusMembershipResult;
 import com.faithlog.user.service.result.LoginResult;
 import com.faithlog.user.service.result.SignupResult;
 import com.faithlog.user.service.result.TokenResult;
 import com.faithlog.user.service.result.UserMeResult;
-import com.faithlog.campus.service.result.CampusMembershipRow;
-import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
-import com.faithlog.campus.domain.type.CampusMemberStatus;
-import com.faithlog.global.exception.BusinessException;
-import com.faithlog.global.exception.ErrorCode;
-import com.faithlog.global.security.JwtProvider;
-import com.faithlog.global.security.JwtProvider.IssuedTokens;
-import com.faithlog.user.service.port.AccessTokenBlacklistStore;
-import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationCommand;
-import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationPort;
-import com.faithlog.user.service.port.RefreshTokenStore;
-import com.faithlog.user.domain.entity.User;
-import com.faithlog.user.infrastructure.repository.UserRepository;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.JwtException;
-import java.time.Duration;
-import java.time.Instant;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
 
-	private final UserRepository userRepository;
-	private final PasswordEncoder passwordEncoder;
-	private final JwtProvider jwtProvider;
-	private final RefreshTokenStore refreshTokenStore;
-	private final AccessTokenBlacklistStore accessTokenBlacklistStore;
-	private final CurrentDeviceFcmTokenDeactivationPort fcmTokenDeactivationPort;
-	private final CampusMemberRepositoryPort campusMemberRepository;
+	private final SignupCommandService signupCommandService;
+	private final LoginCommandService loginCommandService;
+	private final RefreshTokenRotationService refreshTokenRotationService;
+	private final LogoutCommandService logoutCommandService;
+	private final UserMeQueryService userMeQueryService;
 
 	public AuthService(
-		UserRepository userRepository,
-		PasswordEncoder passwordEncoder,
-		JwtProvider jwtProvider,
-		RefreshTokenStore refreshTokenStore,
-		AccessTokenBlacklistStore accessTokenBlacklistStore,
-		CurrentDeviceFcmTokenDeactivationPort fcmTokenDeactivationPort,
-		CampusMemberRepositoryPort campusMemberRepository
+		SignupCommandService signupCommandService,
+		LoginCommandService loginCommandService,
+		RefreshTokenRotationService refreshTokenRotationService,
+		LogoutCommandService logoutCommandService,
+		UserMeQueryService userMeQueryService
 	) {
-		this.userRepository = userRepository;
-		this.passwordEncoder = passwordEncoder;
-		this.jwtProvider = jwtProvider;
-		this.refreshTokenStore = refreshTokenStore;
-		this.accessTokenBlacklistStore = accessTokenBlacklistStore;
-		this.fcmTokenDeactivationPort = fcmTokenDeactivationPort;
-		this.campusMemberRepository = campusMemberRepository;
+		this.signupCommandService = signupCommandService;
+		this.loginCommandService = loginCommandService;
+		this.refreshTokenRotationService = refreshTokenRotationService;
+		this.logoutCommandService = logoutCommandService;
+		this.userMeQueryService = userMeQueryService;
 	}
 
-	@Transactional
 	public SignupResult signup(SignupCommand command) {
-		if (userRepository.existsByEmail(command.email())) {
-			throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
-		}
-
-		User user = User.create(command.name(), command.email(), passwordEncoder.encode(command.password()));
-		User savedUser = userRepository.save(user);
-		return SignupResult.from(savedUser);
+		return signupCommandService.signup(command);
 	}
 
-	@Transactional
 	public LoginResult login(LoginCommand command) {
-		User user = userRepository.findByEmail(command.email())
-			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS));
-
-		if (!user.isActive() || !passwordEncoder.matches(command.password(), user.passwordHash())) {
-			throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS);
-		}
-
-		Instant loginAt = Instant.now();
-		user.updateLastLoginAt(loginAt);
-		IssuedTokens tokens = jwtProvider.issueTokens(user);
-		saveRefreshToken(tokens);
-		return LoginResult.of(toUserMeResult(user), tokens);
+		return loginCommandService.login(command);
 	}
 
-	@Transactional
 	public TokenResult refresh(RefreshCommand command) {
-		Claims refreshClaims = parseRefreshToken(command.refreshToken());
-		Long userId = refreshClaims.get("userId", Long.class);
-		String sessionId = refreshClaims.get("sessionId", String.class);
-		String refreshJti = refreshClaims.get("refreshJti", String.class);
-		if (userId == null || sessionId == null || refreshJti == null) {
-			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
-		}
-
-		if (!refreshTokenStore.matchesCurrent(userId, sessionId, refreshJti)) {
-			refreshTokenStore.deleteSession(userId, sessionId);
-			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
-		}
-
-		User user = userRepository.findById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
-		if (!user.isActive()) {
-			refreshTokenStore.deleteSession(userId, sessionId);
-			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
-		}
-
-		IssuedTokens tokens = jwtProvider.issueTokens(user, sessionId);
-		saveRefreshToken(tokens);
-		return TokenResult.from(tokens);
+		return refreshTokenRotationService.refresh(command);
 	}
 
-	@Transactional
 	public void logout(LogoutCommand command) {
-		if (command.accessJti() == null || command.sessionId() == null || command.userId() == null) {
-			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
-		}
-
-		accessTokenBlacklistStore.blacklist(command.accessJti(), remainingAccessTokenTtl(command.accessTokenExpiresAt()));
-		refreshTokenStore.deleteSession(command.userId(), command.sessionId());
-		deactivateFcmTokenIfRequested(command);
+		logoutCommandService.logout(command);
 	}
 
-	@Transactional(readOnly = true)
 	public UserMeResult getCurrentUser(Long userId) {
-		User user = userRepository.findById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
-		if (!user.isActive()) {
-			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
-		}
-		return toUserMeResult(user);
-	}
-
-	private UserMeResult toUserMeResult(User user) {
-		return UserMeResult.from(user, campusMemberRepository
-			.findMembershipRowsByUserIdAndStatusOrderByIdDesc(user.id(), CampusMemberStatus.ACTIVE)
-			.stream()
-			.map(this::toUserCampusMembershipResult)
-			.toList());
-	}
-
-	private CampusMembershipResult toUserCampusMembershipResult(CampusMembershipRow row) {
-		return new CampusMembershipResult(
-			row.membershipId(),
-			row.campusId(),
-			row.campusName(),
-			row.region(),
-			row.campusRole().name(),
-			row.status().name()
-		);
-	}
-
-	private Claims parseRefreshToken(String refreshToken) {
-		try {
-			return jwtProvider.parseRefreshToken(refreshToken);
-		} catch (JwtException | IllegalArgumentException exception) {
-			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
-		}
-	}
-
-	private void saveRefreshToken(IssuedTokens tokens) {
-		refreshTokenStore.saveCurrent(
-			tokens.userId(),
-			tokens.sessionId(),
-			tokens.refreshJti(),
-			Duration.ofSeconds(tokens.refreshTokenExpiresIn())
-		);
-	}
-
-	private Duration remainingAccessTokenTtl(Instant accessTokenExpiresAt) {
-		long remainingSeconds = Duration.between(Instant.now(), accessTokenExpiresAt).getSeconds();
-		return Duration.ofSeconds(Math.max(0, remainingSeconds) + 60);
-	}
-
-	private void deactivateFcmTokenIfRequested(LogoutCommand command) {
-		if (command.clientInstanceId() == null && command.fcmToken() == null) {
-			return;
-		}
-		fcmTokenDeactivationPort.deactivateCurrentDevice(new CurrentDeviceFcmTokenDeactivationCommand(
-			command.userId(),
-			command.clientInstanceId(),
-			command.fcmToken()
-		));
+		return userMeQueryService.getCurrentUser(userId);
 	}
 }
