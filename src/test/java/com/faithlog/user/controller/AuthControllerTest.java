@@ -9,8 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.faithlog.global.security.AccessTokenBlacklistChecker;
 import com.faithlog.global.security.AccessTokenVersionChecker;
 import com.faithlog.global.security.JwtProvider;
-import com.faithlog.user.service.AuthService;
 import com.faithlog.user.service.LoginCommandService;
+import com.faithlog.user.service.LogoutCommandService;
+import com.faithlog.user.service.RefreshTokenRotationService;
 import com.faithlog.user.service.SignupCommandService;
 import com.faithlog.user.service.result.LoginResult;
 import com.faithlog.user.service.result.SignupResult;
@@ -38,7 +39,10 @@ class AuthControllerTest {
 	private LoginCommandService loginCommandService;
 
 	@MockitoBean
-	private AuthService authService;
+	private RefreshTokenRotationService refreshTokenRotationService;
+
+	@MockitoBean
+	private LogoutCommandService logoutCommandService;
 
 	@MockitoBean
 	private JwtProvider jwtProvider;
