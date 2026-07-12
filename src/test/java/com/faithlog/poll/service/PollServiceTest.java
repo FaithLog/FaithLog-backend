@@ -373,6 +373,63 @@ class PollServiceTest {
 	}
 
 	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void persisted_coffee_template_update_requires_requester_owned_active_same_campus_coffee_account() {
+		User manager = saveUser("poll-179-account-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-179-account-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "179계좌검증캠");
+		CampusCreateResult otherCampus = createCampus(manager, "179타캠퍼스계좌캠");
+		joinCampus(campus, duty);
+		joinCampus(otherCampus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(otherCampus.campusId(), manager.id(), duty.id()));
+		Long originalDutyAccountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		PollTemplateResult template = createCoffeeTemplate(campus.campusId(), duty.id(), originalDutyAccountId);
+		Long otherUserAccountId = createCoffeeAccount(campus.campusId(), manager.id(), manager.id());
+		Long activeDutyAccountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Long otherCampusAccountId = createCoffeeAccount(otherCampus.campusId(), duty.id(), duty.id());
+		Long penaltyAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(),
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"179 벌금 계좌",
+			"테스트은행",
+			"test-only-179-penalty",
+			"테스트회계",
+			manager.id()
+		)).id();
+
+		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), null);
+		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), otherUserAccountId);
+		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), originalDutyAccountId);
+		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), otherCampusAccountId);
+		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), penaltyAccountId);
+
+		PollTemplateResult updated = updateCoffeeTemplate(campus.campusId(), template.id(), duty.id(), activeDutyAccountId);
+		assertThat(updated.paymentAccountId()).isEqualTo(activeDutyAccountId);
+		assertThat(updated.title()).isEqualTo("179 계좌 회귀 수정");
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void campus_manager_and_service_admin_can_update_persisted_non_coffee_template() {
+		User manager = saveUser("poll-179-manager-success@example.com", UserRole.MANAGER);
+		User admin = saveUser("poll-179-admin-success@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "179관리자성공캠");
+		PollTemplateResult template = createNonCoffeeTemplate(campus.campusId(), manager.id(), PollType.CUSTOM, "관리자 수정 전");
+
+		PollTemplateResult managerUpdated = updateNonCoffeeTemplate(
+			campus.campusId(), template.id(), manager.id(), "캠퍼스 관리자 수정"
+		);
+		PollTemplateResult adminUpdated = updateNonCoffeeTemplate(
+			campus.campusId(), template.id(), admin.id(), "서비스 관리자 수정"
+		);
+
+		assertThat(managerUpdated.title()).isEqualTo("캠퍼스 관리자 수정");
+		assertThat(adminUpdated.title()).isEqualTo("서비스 관리자 수정");
+	}
+
+	@Test
 	void create_poll_without_template_uses_direct_options_and_template_poll_copies_snapshots() {
 		User manager = saveUser("poll-create-manager@example.com", UserRole.MANAGER);
 		User coffeeDuty = saveUser("poll-create-duty@example.com", UserRole.USER);
@@ -2147,6 +2204,83 @@ class PollServiceTest {
 
 		PollTemplateResult after = pollTemplateService.getTemplate(campus.campusId(), before.id(), manager.id());
 		assertThat(after).isEqualTo(before);
+	}
+
+	private PollTemplateResult createNonCoffeeTemplate(Long campusId, Long requesterId, PollType pollType, String title) {
+		return pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+			campusId,
+			requesterId,
+			title,
+			pollType,
+			SelectionType.SINGLE,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			false,
+			false,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.WEDNESDAY,
+			LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand("원본 선택지", null, 0, 1))
+		));
+	}
+
+	private PollTemplateResult updateNonCoffeeTemplate(Long campusId, Long templateId, Long requesterId, String title) {
+		return pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+			campusId,
+			templateId,
+			requesterId,
+			title,
+			SelectionType.MULTIPLE,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			true,
+			true,
+			DayOfWeek.TUESDAY,
+			LocalTime.of(10, 0),
+			DayOfWeek.THURSDAY,
+			LocalTime.of(17, 0),
+			List.of(new CreatePollTemplateOptionCommand("관리자 수정 선택지", null, 0, 1))
+		));
+	}
+
+	private void assertCoffeeTemplateAccountUpdateRejected(
+		Long campusId,
+		Long templateId,
+		Long requesterId,
+		Long paymentAccountId
+	) {
+		assertThatThrownBy(() -> updateCoffeeTemplate(campusId, templateId, requesterId, paymentAccountId))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+			);
+	}
+
+	private PollTemplateResult updateCoffeeTemplate(
+		Long campusId,
+		Long templateId,
+		Long requesterId,
+		Long paymentAccountId
+	) {
+		return pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+			campusId,
+			templateId,
+			requesterId,
+			"179 계좌 회귀 수정",
+			SelectionType.MULTIPLE,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			paymentAccountId,
+			true,
+			true,
+			DayOfWeek.TUESDAY,
+			LocalTime.of(10, 0),
+			DayOfWeek.THURSDAY,
+			LocalTime.of(17, 0),
+			List.of(new CreatePollTemplateOptionCommand("계좌 회귀 선택지", null, 1000, 1))
+		));
 	}
 
 	private User saveUser(String email, UserRole role) {
