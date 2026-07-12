@@ -355,6 +355,24 @@ class PollServiceTest {
 	}
 
 	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void coffee_duty_cannot_update_persisted_custom_template_with_coffee_request_body() {
+		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.CUSTOM);
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void coffee_duty_cannot_update_persisted_wed_service_template_with_coffee_request_body() {
+		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.WED_SERVICE);
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void coffee_duty_cannot_update_persisted_saturday_leader_template_with_coffee_request_body() {
+		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.SATURDAY_LEADER);
+	}
+
+	@Test
 	void create_poll_without_template_uses_direct_options_and_template_poll_copies_snapshots() {
 		User manager = saveUser("poll-create-manager@example.com", UserRole.MANAGER);
 		User coffeeDuty = saveUser("poll-create-duty@example.com", UserRole.USER);
@@ -2075,6 +2093,60 @@ class PollServiceTest {
 				new CreatePollTemplateOptionCommand("라떼", null, 2900, 5)
 			)
 		));
+	}
+
+	private void assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType persistedPollType) {
+		String testId = persistedPollType.name().toLowerCase();
+		User manager = saveUser("poll-179-" + testId + "-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-179-" + testId + "-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "179" + persistedPollType + "캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long dutyAccountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		PollTemplateResult before = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+			campus.campusId(),
+			manager.id(),
+			"관리자 원본 " + persistedPollType,
+			persistedPollType,
+			SelectionType.SINGLE,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			false,
+			false,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.WEDNESDAY,
+			LocalTime.of(18, 0),
+			List.of(
+				new CreatePollTemplateOptionCommand("원본 참석", null, 0, 1),
+				new CreatePollTemplateOptionCommand("원본 불참", null, 0, 2)
+			)
+		));
+
+		assertThatThrownBy(() -> pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+			campus.campusId(),
+			before.id(),
+			duty.id(),
+			"권한 없는 수정 " + persistedPollType,
+			SelectionType.MULTIPLE,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			dutyAccountId,
+			true,
+			true,
+			DayOfWeek.TUESDAY,
+			LocalTime.of(10, 30),
+			DayOfWeek.THURSDAY,
+			LocalTime.of(17, 30),
+			List.of(new CreatePollTemplateOptionCommand("변조 선택지", null, 9999, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN)
+			);
+
+		PollTemplateResult after = pollTemplateService.getTemplate(campus.campusId(), before.id(), manager.id());
+		assertThat(after).isEqualTo(before);
 	}
 
 	private User saveUser(String email, UserRole role) {
