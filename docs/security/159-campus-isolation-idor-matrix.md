@@ -3,7 +3,7 @@
 ## 1. Audit baseline
 
 - Audit date: 2026-07-12
-- Baseline commit: `5cad9f76df0a0e1bd0a086ab4059f6ccb5e51af2` (`origin/develop`)
+- Baseline commit: `5b078b5f3294468378971658dc473292ab2cbeb9` (`origin/develop`)
 - Branch: `audit/159-campus-isolation-idor`
 - Scope: read-only static tracing from Controller identifiers through command/query authorization guards and repository predicates
 - Excluded: production traffic, credentials, Docker, code/test/config/database/Flyway changes
@@ -13,6 +13,12 @@ The 80 endpoint rows in `docs/security/157-api-authorization-matrix.md` were use
 manifest. Every current Controller mapping was enumerated again at the baseline commit. No endpoint
 was added, removed, or remapped after #157. This document adds the object-parent-tenant-owner and
 repository-predicate trace required by #159.
+
+After #176 was merged, the manifest was mechanically recounted on `5b078b5f`. #176 changed the JWT
+filter and Refresh Token Redis rotation/revocation boundary, but no Controller mapping, #159 object
+identifier category, counted campus authorization service/policy/support, or concrete JPA repository.
+The 21/80/17/56/25 counts therefore remain unchanged. The #176 Refresh finding and fix are predecessor
+authentication work and are not counted as a #159 finding.
 
 ## 2. Counted HTTP manifest
 
@@ -160,7 +166,7 @@ No test was added. The following 13 existing test classes were rerun as one focu
 | 13 | `src/test/java/com/faithlog/prayer/service/PrayerSubmissionConcurrencyTest.java` |
 | **Total** | **13 test classes** |
 
-Result: **172 tests / 0 failures / 0 errors / 0 skipped**, `BUILD SUCCESSFUL`.
+Result on `5b078b5f`: **172 tests / 0 failures / 0 errors / 0 skipped**, `BUILD SUCCESSFUL`.
 
 The existing suite covers campus parent mismatch, role hierarchy, billing owner and campus scope,
 Poll/template/comment scope, anonymous results, prayer group/season scope, FCM ownership, and
