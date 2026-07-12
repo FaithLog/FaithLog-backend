@@ -15,10 +15,11 @@ was added, removed, or remapped after #157. This document adds the object-parent
 repository-predicate trace required by #159.
 
 After #176 was merged, the manifest was mechanically recounted on `5b078b5f`. #176 changed the JWT
-filter and Refresh Token Redis rotation/revocation boundary, but no Controller mapping, #159 object
-identifier category, counted campus authorization service/policy/support, or concrete JPA repository.
-The 21/80/17/56/25 counts therefore remain unchanged. The #176 Refresh finding and fix are predecessor
-authentication work and are not counted as a #159 finding.
+filter and Refresh Token Redis rotation/revocation boundary, but introduced no Controller mapping,
+external identifier surface, counted campus authorization service/policy/support, or concrete JPA repository.
+The post-review manifest correction adds four identifier categories that already existed at the baseline,
+so the corrected totals are 21/80/21/56/25. The #176 Refresh finding and fix are predecessor authentication
+work and are not counted as a #159 finding.
 
 ## 2. Counted HTTP manifest
 
@@ -82,7 +83,11 @@ the authorization failure. Inconsistent 403/404 behavior is recorded separately 
 | 15 | `weekStartDate` and prayer/devotion target user | Monday; campus + principal for devotion, current season/group scope for prayer | devotion self guards; `PrayerGroupSubmissionCommandService`; `MyPrayerSubmissionCommandService` | campus+user+week queries; prayer week uses campus+season+week | 400 invalid date; 403 scope |
 | 16 | FCM `tokenId` | token owner is authenticated principal | `FcmTokenCommandService.deactivateToken` | `findByIdAndUserId(tokenId, principalUserId)` | 404 hide |
 | 17 | notification `requestId` / `targetId` | log predicate always includes path campus; poll target must be same campus | `NotificationRequestCommandService`, `NotificationLogQueryService` | log specification starts with `campusId`; poll uses `findByIdAndCampusId`; explicit users intersect ACTIVE campus users | empty result / 404 target / 403 viewer |
-| **Total** | **17 identifier categories** |  |  |  |  |
+| 18 | penalty `ruleId` | rule's persisted `campusId` determines the tenant; requester must be active service ADMIN or an ACTIVE campus manager | `PenaltyRuleCommandService.updatePenaltyRule` loads the rule, then calls `requireCampusManager(rule.campusId(), requesterId)` | `PenaltyRuleRepository.findById(ruleId)` followed by `rule.campusId()` authorization; active-rule replacement uses `findByCampusIdAndRuleTypeAndIsActiveTrue` | 404 absent; 403 unauthorized campus/role |
+| 19 | coffee catalog `brandId` / `menuId` | global catalog, not campus-owned; brand and menu must exist and be active, and listed menus must belong to the requested brand | `CoffeeCatalogService.listActiveMenus`; Poll/template/user-option paths resolve `menuId` through `PollOptionSnapshotResolver` | brand `findById(brandId).filter(isActive)` then `findByBrandIdAndIsActiveTrueOrderBySortOrderAscIdAsc`; menu `findById(menuId)` then `menu.isActive()` post-load validation | 404 missing/inactive brand or missing menu; 400 inactive menu |
+| 20 | `inviteCode` | lookup key selects exactly one campus; membership owner is the authenticated principal and is created/reactivated only in the resolved campus | `CampusJoinService.joinCampus` fixes requester from principal via `CampusAccessPolicy.getActiveUser` | `CampusRepository.findByInviteCode(inviteCode)` then `CampusMemberRepositoryPort.findByCampusIdAndUserId(resolvedCampusId, principalUserId)` | 404 invalid code; 400 already ACTIVE member |
+| 21 | devotion `recordDate` | daily row belongs to the principal's weekly record in path `campusId`; week parent is derived from `recordDate`'s Monday | `DailyDevotionCommandService.updateDailyCheck` requires active user and ACTIVE membership for path campus before resolving the week | weekly parent `findByCampusIdAndUserIdAndWeekStartDate(campusId, principalUserId, derivedMonday)`; daily row `findByWeeklyRecordIdAndRecordDate(weeklyRecordId, recordDate)` | 403 campus membership mismatch; 409 submitted week; otherwise scoped upsert |
+| **Total** | **21 identifier categories** |  |  |  |  |
 
 ## 4. Role and function authorization matrix
 
@@ -167,6 +172,7 @@ No test was added. The following 13 existing test classes were rerun as one focu
 | **Total** | **13 test classes** |
 
 Result on `5b078b5f`: **172 tests / 0 failures / 0 errors / 0 skipped**, `BUILD SUCCESSFUL`.
+The same 13 classes were rerun after the PM manifest correction on 2026-07-13 with the same result.
 
 The existing suite covers campus parent mismatch, role hierarchy, billing owner and campus scope,
 Poll/template/comment scope, anonymous results, prayer group/season scope, FCM ownership, and

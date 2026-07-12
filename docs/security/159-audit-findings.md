@@ -3,7 +3,7 @@
 ## 1. Conclusion
 
 At baseline `5b078b5f3294468378971658dc473292ab2cbeb9`, the audit revalidated 80 endpoints
-in 21 Controllers, 17 object-identifier categories, 56 authorization implementation files,
+in 21 Controllers, 21 object-identifier categories, 56 authorization implementation files,
 25 repository files, and 13 focused test classes.
 
 | Classification | Critical | High | Medium | Low | Total |
@@ -22,10 +22,12 @@ F-157-01 and F-158-01 are not duplicated. F-158-01 was fixed by #176 before this
 its Redis Lua rotation/revocation implementation is predecessor authentication work, not a #159
 finding. Neither predecessor finding contributes to the #159 totals.
 
-The post-#176 recount found no change to the #159 manifest: 21 Controllers, 80 endpoints, 17 object
-identifier categories, 56 authorization implementation files, 25 repositories, and 13 focused test
-classes. F-159-01 remains reproducible through the same persisted-template/request-body authorization
-path at `PollTemplateCommandService.java:79-176`.
+The post-#176 recount found no code-surface change to the #159 manifest. PM review then identified four
+baseline identifier categories omitted from the written count: penalty `ruleId`, global coffee catalog
+`brandId`/`menuId`, campus `inviteCode`, and devotion `recordDate`. The corrected manifest is 21
+Controllers, 80 endpoints, 21 object identifier categories, 56 authorization implementation files,
+25 repositories, and 13 focused test classes. F-159-01 remains reproducible through the same
+persisted-template/request-body authorization path at `PollTemplateCommandService.java:79-176`.
 
 ## 2. Confirmed finding
 
@@ -152,12 +154,12 @@ No Issue is created before PM approval.
 
 | Standard | Audit result |
 | --- | --- |
-| API1:2023 BOLA | 17 identifier categories traced through parent/tenant/owner; no confirmed cross-campus record read; F-159-01 includes target-object authorization weakness |
+| API1:2023 BOLA | 21 identifier categories traced through parent/tenant/owner; no confirmed cross-campus record read; F-159-01 includes target-object authorization weakness |
 | API3:2023 BOPLA | anonymous respondent identity and account member/admin DTO separation verified |
 | API5:2023 BFLA | F-159-01 confirmed; service/campus role and duty matrix otherwise matched approved policy |
 | API6:2023 Sensitive Business Flows | billing payment, template schedule, prayer writes, notification targets, and self APIs traced; predecessor auth findings not duplicated |
 | API8:2023 Security Misconfiguration | database-side tenant enforcement remains U-159-02, not a repository finding |
-| API9:2023 Inventory Management | 21 Controllers / 80 endpoints and 17 identifier categories counted |
+| API9:2023 Inventory Management | 21 Controllers / 80 endpoints and 21 identifier categories counted |
 | ASVS V2 | request body must not redefine the privilege class of an existing object; F-159-01 |
 | ASVS V8 | campus, parent, owner, role hierarchy, and function-level authorization traced |
 | ASVS V14 | account, prayer, notification, and anonymous Poll data exposure boundaries reviewed |
@@ -168,6 +170,7 @@ Focused command reran 13 existing classes across admin, campus, billing, devotio
 notification, and FCM.
 
 Result on `5b078b5f`: **172 tests / 0 failures / 0 errors / 0 skipped**, `BUILD SUCCESSFUL`.
+The same 13 classes were rerun after the PM manifest correction on 2026-07-13 with the same result.
 
 - Docker: not used
 - Production/test/config/database/Flyway changes: 0
