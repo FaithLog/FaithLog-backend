@@ -2,8 +2,9 @@ package com.faithlog.user.controller;
 
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
-import com.faithlog.user.service.AuthService;
 import com.faithlog.user.service.LoginCommandService;
+import com.faithlog.user.service.LogoutCommandService;
+import com.faithlog.user.service.RefreshTokenRotationService;
 import com.faithlog.user.service.SignupCommandService;
 import com.faithlog.user.service.result.LoginResult;
 import com.faithlog.user.service.result.TokenResult;
@@ -30,16 +31,19 @@ public class AuthController {
 
 	private final SignupCommandService signupCommandService;
 	private final LoginCommandService loginCommandService;
-	private final AuthService authService;
+	private final RefreshTokenRotationService refreshTokenRotationService;
+	private final LogoutCommandService logoutCommandService;
 
 	public AuthController(
 		SignupCommandService signupCommandService,
 		LoginCommandService loginCommandService,
-		AuthService authService
+		RefreshTokenRotationService refreshTokenRotationService,
+		LogoutCommandService logoutCommandService
 	) {
 		this.signupCommandService = signupCommandService;
 		this.loginCommandService = loginCommandService;
-		this.authService = authService;
+		this.refreshTokenRotationService = refreshTokenRotationService;
+		this.logoutCommandService = logoutCommandService;
 	}
 
 	@PostMapping("/signup")
@@ -58,7 +62,7 @@ public class AuthController {
 
 	@PostMapping("/refresh")
 	public ApiResponse<TokenResponse> refresh(@Valid @RequestBody RefreshRequest request) {
-		TokenResult result = authService.refresh(request.toCommand());
+		TokenResult result = refreshTokenRotationService.refresh(request.toCommand());
 		return ApiResponse.success(TokenResponse.from(result), "토큰이 재발급되었습니다.");
 	}
 
@@ -67,7 +71,7 @@ public class AuthController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@RequestBody(required = false) LogoutRequest request
 	) {
-		authService.logout(LogoutRequest.toCommand(request, authenticatedUser));
+		logoutCommandService.logout(LogoutRequest.toCommand(request, authenticatedUser));
 		return ApiResponse.success(null, "로그아웃되었습니다.");
 	}
 }
