@@ -14,9 +14,9 @@ This document records the current backend implementation source of truth.
 - Token version mismatch uses the existing authentication failure policy (`AUTH_UNAUTHORIZED`); Issue #76 does not add a separate ErrorCode.
 - Refresh Token reissue must create a new Access Token using the latest persisted user role and token version.
 - Refresh Token Rotation is required.
-- Refresh success must issue a new Refresh Token and atomically replace the previous refresh JTI with the new JTI and TTL through Redis Lua or an equivalent CAS operation.
-- Parallel requests using the same old Refresh Token allow exactly one rotation winner. A CAS loser or sequential reuse returns `401 AUTH_UNAUTHORIZED` and revokes that `userId + sessionId` session.
-- Refresh reuse session revocation deletes `auth:refresh:{userId}:{sessionId}` and stores the fixed marker key `auth:session:revoked:{userId}:{sessionId}`. The authentication filter rejects Access Tokens whose session marker exists.
+- One Redis Lua or equivalent CAS execution must own the complete rotate-or-revoke state transition. A matching expected JTI is replaced with the new JTI and rotation TTL; a mismatch deletes `auth:refresh:{userId}:{sessionId}` and stores the fixed marker key `auth:session:revoked:{userId}:{sessionId}` with the revocation TTL in that same atomic execution.
+- Parallel requests using the same old Refresh Token allow exactly one rotation winner. A CAS loser or sequential reuse returns `401 AUTH_UNAUTHORIZED` after the atomic script has revoked that `userId + sessionId` session.
+- If the revoked marker already exists, rotation is rejected without extending the marker TTL. The authentication filter rejects Access Tokens whose session marker exists.
 - Session revocation is scoped to one `userId + sessionId`; another session belonging to the same user and sessions belonging to other users remain valid.
 - The session revocation marker TTL is the configured Refresh Token lifetime plus 60 seconds. Redis failures during refresh CAS, session revoke, or authentication marker lookup fail closed.
 - Normal logout keeps its existing current-access blacklist plus current-refresh deletion meaning and does not create a session revocation marker solely because of Issue #176.
