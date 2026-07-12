@@ -10,6 +10,7 @@ import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationCommand;
 import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationPort;
+import com.faithlog.user.service.port.UserFcmTokenDeactivationPort;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class FcmTokenCommandService implements CurrentDeviceFcmTokenDeactivationPort {
+public class FcmTokenCommandService implements CurrentDeviceFcmTokenDeactivationPort, UserFcmTokenDeactivationPort {
 
 	private final UserFcmTokenRepository userFcmTokenRepository;
 	private final UserRepository userRepository;
@@ -81,6 +82,14 @@ public class FcmTokenCommandService implements CurrentDeviceFcmTokenDeactivation
 				.forEach(token -> deletionTargets.put(token.id(), token));
 		}
 		userFcmTokenRepository.deleteAll(deletionTargets.values());
+	}
+
+	@Override
+	@Transactional
+	public void deactivateAllForUser(Long userId) {
+		for (UserFcmToken token : userFcmTokenRepository.findByUserIdAndIsActiveTrue(userId)) {
+			token.deactivate();
+		}
 	}
 
 	private boolean deactivateOtherActiveTokensForClient(Long userId, String clientInstanceId, String currentToken) {
