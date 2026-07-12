@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-12 #176, 380 tests / 0 failures / 0 errors / 2 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #179, 386 tests / 0 failures / 0 errors / 2 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 75 test files (2026-07-12 #176) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-12 #176) | 성공 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 123 snippet groups (2026-07-13 #179) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #179) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -28,6 +28,18 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-13
+
+- #179 COFFEE duty 투표 템플릿 수정 권한 대상 고정:
+  - TDD RED: production 수정 전에 persisted `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 템플릿 각각에 active COFFEE duty가 owned active COFFEE 계좌를 포함한 COFFEE request body를 보내는 회귀 테스트 3건을 추가했다. 최초 실행은 `3 tests / 3 failures`로, 세 유형 모두 403 없이 수정 경로를 통과하는 F-159-01을 재현했다. 각 테스트는 거부 후 title, selection, charge generation, payment category/account, user-option 설정, 자동 생성 스케줄/시간, option rows 전체가 원본과 동일한지 record equality로 검증한다.
+  - 권한 경계 수정: `PollTemplateCommandService.updateTemplate`는 same-campus 404 확인 후 요청 body와 무관하게 persisted `template.pollType()`만으로 먼저 권한을 판단한다. persisted `COFFEE`만 `requireCoffeeTemplateManager`를 사용하고, persisted `CUSTOM/WED_SERVICE/SATURDAY_LEADER`는 `requireTemplateManager`를 사용한다. 권한 확인 뒤 기존 요청 billing/account 검증을 별도로 실행해 active same-campus COFFEE account와 requester owner 조건을 유지했다.
+  - 회귀 범위: 비-COFFEE 3종 duty 403 및 완전 불변, persisted COFFEE duty 성공, null/다른 사용자/비활성/타 campus/PENALTY 계좌 거부, campus manager와 service ADMIN 성공, cross-campus `POLL_TEMPLATE_NOT_FOUND` 404, HTTP `POLL_TEMPLATE_MANAGE_FORBIDDEN` 403과 기존 message를 검증했다. Poll focused 4 classes는 61 tests / 0 failures / 0 errors / 0 skipped다.
+  - 전체 검증: `./gradlew test` 386 tests / 0 failures / 0 errors / 2 skipped, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`가 성공했다. test source 75개와 전체 Java source/test 588개는 유지됐고 REST Docs snippet group은 123개다.
+  - Docker HTTP QA: 격리 project `faithlog-qa-179-20260713`의 새 image에서 PostgreSQL/Redis healthy와 app health 200을 확인했다. campus manager 비-COFFEE update 200, duty의 persisted 비-COFFEE+COFFEE-body update 403/`POLL_TEMPLATE_MANAGE_FORBIDDEN`, cross-campus update 404/`POLL_TEMPLATE_NOT_FOUND`, duty의 persisted COFFEE create 201/update 200, 거부 후 template 필드와 option rows 불변을 실제 HTTP로 검증했다. 응답 token 값은 출력하거나 기록하지 않았다.
+  - Docker 정리: 같은 project를 `docker compose down`으로 volume 삭제 없이 종료했다. `down -v`, named volume 삭제, system/image/volume prune은 실행하지 않았고 마지막 Docker 명령 `docker builder prune -f`에서 dangling build cache 696.6MB를 회수했다.
+  - 영향: production 변경은 Poll template command service 1개에 한정된다. API mapping/path/request/response DTO, HTTP status/code/message, Controller/Entity, DB/Flyway, Poll 생성/응답/결과/댓글/정산, Swagger annotation, dependency 변경은 0건이다. 새 제품 결정을 만들지 않아 `docs/decision-log.md`는 변경하지 않았다.
+  - 이력서 문장 후보: `요청 body가 기존 객체의 권한 등급을 재분류하던 COFFEE duty BFLA를 persisted pollType 기반 선행 인가로 차단하고, 비-COFFEE 3종 무단 수정·완전 불변·계좌 owner/campus/type 회귀를 61개 Poll focused 및 386개 전체 테스트와 격리 Docker HTTP QA로 검증했다.`
 
 ### 2026-07-12
 
