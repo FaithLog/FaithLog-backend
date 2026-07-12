@@ -13,6 +13,13 @@ import com.faithlog.user.service.port.RefreshTokenStore;
 import com.faithlog.user.support.InMemoryAccessTokenBlacklistStore;
 import com.faithlog.user.support.InMemoryRefreshTokenStore;
 import io.jsonwebtoken.Claims;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -39,7 +46,7 @@ class AuthRefreshControllerTest {
 	private JwtProvider jwtProvider;
 
 	@Autowired
-	private InMemoryRefreshTokenStore refreshTokenStore;
+	private CoordinatedInMemoryRefreshTokenStore refreshTokenStore;
 
 	@Test
 	void refresh_rotates_refresh_token_and_keeps_session_id() throws Exception {
@@ -80,6 +87,41 @@ class AuthRefreshControllerTest {
 		refreshAction(rotatedRefreshToken, status().isUnauthorized())
 			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+	}
+
+	@Test
+	void concurrent_refresh_with_same_old_token_allows_exactly_one_rotation() throws Exception {
+		TokenPair tokens = signupAndLogin("refresh-concurrent@example.com");
+		refreshTokenStore.coordinateNextMatches(2);
+
+		try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+			CountDownLatch ready = new CountDownLatch(2);
+			CountDownLatch start = new CountDownLatch(1);
+			Callable<Integer> refreshRequest = () -> {
+				ready.countDown();
+				if (!start.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("동시 refresh 시작 대기 시간이 초과되었습니다.");
+				}
+				return mockMvc.perform(post("/api/v1/auth/refresh")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+							{
+							  "refreshToken": "%s"
+							}
+							""".formatted(tokens.refreshToken())))
+					.andReturn()
+					.getResponse()
+					.getStatus();
+			};
+
+			Future<Integer> first = executor.submit(refreshRequest);
+			Future<Integer> second = executor.submit(refreshRequest);
+			assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+			start.countDown();
+
+			assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+				.containsExactlyInAnyOrder(200, 401);
+		}
 	}
 
 	private TokenPair signupAndLogin(String email) throws Exception {
@@ -144,13 +186,13 @@ class AuthRefreshControllerTest {
 	static class TestAuthTokenStoreConfig {
 
 		@Bean
-		InMemoryRefreshTokenStore refreshTokenStore() {
-			return new InMemoryRefreshTokenStore();
+		CoordinatedInMemoryRefreshTokenStore refreshTokenStore() {
+			return new CoordinatedInMemoryRefreshTokenStore();
 		}
 
 		@Bean
 		@Primary
-		RefreshTokenStore refreshTokenStorePort(InMemoryRefreshTokenStore refreshTokenStore) {
+		RefreshTokenStore refreshTokenStorePort(CoordinatedInMemoryRefreshTokenStore refreshTokenStore) {
 			return refreshTokenStore;
 		}
 
@@ -158,6 +200,35 @@ class AuthRefreshControllerTest {
 		@Primary
 		AccessTokenBlacklistStore accessTokenBlacklistStore() {
 			return new InMemoryAccessTokenBlacklistStore();
+		}
+	}
+
+	static class CoordinatedInMemoryRefreshTokenStore extends InMemoryRefreshTokenStore {
+
+		private volatile CountDownLatch matchesBarrier;
+
+		void coordinateNextMatches(int participants) {
+			matchesBarrier = new CountDownLatch(participants);
+		}
+
+		@Override
+		public boolean matchesCurrent(Long userId, String sessionId, String refreshJti) {
+			boolean matches = super.matchesCurrent(userId, sessionId, refreshJti);
+			CountDownLatch barrier = matchesBarrier;
+			if (barrier != null) {
+				barrier.countDown();
+				try {
+					if (!barrier.await(5, TimeUnit.SECONDS)) {
+						throw new IllegalStateException("refresh JTI 비교 barrier 대기 시간이 초과되었습니다.");
+					}
+				} catch (InterruptedException exception) {
+					Thread.currentThread().interrupt();
+					throw new IllegalStateException("refresh JTI 비교 barrier 대기가 중단되었습니다.", exception);
+				} finally {
+					matchesBarrier = null;
+				}
+			}
+			return matches;
 		}
 	}
 }
