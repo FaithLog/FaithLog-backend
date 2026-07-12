@@ -18,8 +18,8 @@
 - Docker 사용: 없음
 
 F-158-01은 같은 old refresh의 병렬 replay로 복수 access token이 최대 1,800초 유효해지는 것에
-더해, 공격자 SET이 마지막이면 공격자 refresh가 current JTI로 남아 정상 client의 다음 mismatch
-삭제 전까지 최장 1,209,600초(14일) 동안 조건부로 회전 가능한 session 지속 영향을 포함한다.
+더해, 공격자 SET이 마지막이면 공격자 refresh가 current JTI와 14일 TTL로 남고 차단 전 성공적인
+후속 회전마다 TTL이 다시 14일로 설정되는 조건부 sliding session persistence 영향을 포함한다.
 
 ## 2. Confirmed finding
 
@@ -56,9 +56,9 @@ F-158-01은 같은 old refresh의 병렬 replay로 복수 access token이 최대
 4. A와 B 모두 200 응답으로 서로 다른 access/refresh token pair를 받는다.
 5. 마지막 SET의 refresh token 하나만 allowlist에 남지만, 두 access token은 각각 서명/만료/version
    검증을 통과해 기본 최대 1,800초 동안 API에 사용할 수 있다.
-6. 공격자 요청의 SET이 마지막이면 공격자 refresh가 current JTI가 된다. 정상 client가 loser refresh를
-   다시 제출해 mismatch 처리로 session key를 삭제하기 전까지 공격자는 이 refresh를 최장
-   1,209,600초(14일) 동안 다시 회전할 수 있다.
+6. 공격자 요청의 SET이 마지막이면 공격자 refresh가 current JTI와 1,209,600초(14일) TTL로 남는다.
+   공격자가 차단 전에 다시 성공적으로 회전하면 새 current JTI 저장과 함께 TTL도 다시 14일로
+   설정돼 원래 refresh 만료를 넘어 sliding 방식으로 session persistence를 연장할 수 있다.
 
 이는 단순 가용성 race가 아니라 single-use refresh rotation의 replay 방어를 우회해 하나의 refresh
 credential에서 복수 access bearer를 발급하는 경로다.
@@ -69,8 +69,11 @@ credential에서 복수 access bearer를 발급하는 경로다.
 - Redis에 마지막으로 기록되지 않은 loser refresh는 재사용할 수 없지만 이미 발급된 access는
   blacklist나 `tokenVersion` 변경이 없으면 만료까지 살아 있다.
 - 공격자 refresh가 마지막 SET의 승자라면 공격자는 access 만료 뒤에도 current refresh를 다시 회전할
-  수 있다. 최장 경계는 refresh TTL 14일이지만 정상 client의 다음 loser refresh 제출은 mismatch로
-  session key를 삭제하므로 실제 지속 시간은 client 후속 동작과 요청 순서에 좌우된다.
+  수 있다. 각 current refresh의 TTL은 14일이며 성공적인 후속 회전마다 TTL이 다시 설정되므로 원래
+  refresh 만료를 넘어 sliding 연장할 수 있다.
+- 최소 확정 영향은 복수 access token의 최대 1,800초 유효성이다. 조건부 sliding session은 정상
+  client의 stale refresh 재사용에 따른 mismatch 삭제, 해당 session logout, 회원탈퇴 같은 session
+  삭제 전이로 끝난다. `tokenVersion` 변경은 기존 access를 무효화하지만 refresh key는 유지한다.
 - attacker와 정상 client의 행위를 server가 access JTI만으로 구분할 수 없다.
 
 #### 현재 방어
