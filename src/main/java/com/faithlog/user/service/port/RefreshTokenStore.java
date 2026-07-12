@@ -6,7 +6,13 @@ public interface RefreshTokenStore {
 
 	void saveCurrent(Long userId, String sessionId, String refreshJti, Duration ttl);
 
-	boolean matchesCurrent(Long userId, String sessionId, String refreshJti);
+	RefreshTokenRotationResult rotate(
+		Long userId,
+		String sessionId,
+		String expectedRefreshJti,
+		String newRefreshJti,
+		Duration ttl
+	);
 
 	void deleteSession(Long userId, String sessionId);
 
