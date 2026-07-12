@@ -180,9 +180,12 @@ stateDiagram-v2
 
 동시 refresh에서 두 요청이 모두 old JTI 검사를 통과한 뒤 공격자 요청의 SET이 마지막이면, 공격자가
 받은 refresh token이 Redis current JTI가 된다. 이 credential은 정상 client의 다음 loser refresh가
-mismatch로 session key를 삭제하기 전까지, 최장 refresh TTL 1,209,600초(14일) 동안 다시 회전할 수
-있다. 따라서 F-158-01의 영향은 복수 access token의 1,800초 유효성뿐 아니라 client 후속 동작에
-좌우되는 조건부 session 지속을 포함한다.
+mismatch로 session key를 삭제하기 전까지 1,209,600초(14일) TTL로 남는다. 공격자가 차단 전에
+주기적으로 성공적으로 회전하면 새 JTI와 14일 TTL이 매번 설정돼 원래 refresh 만료를 넘어 sliding
+방식으로 session persistence를 연장할 수 있다. 최소 확정 영향은 복수 access token의 최대 1,800초
+유효성이다. 조건부 session 지속은 정상 client의 stale refresh 재사용, 해당 session logout, 회원탈퇴
+등의 session 삭제 전이에 의해 끝난다. `tokenVersion` 변경은 기존 access를 무효화하지만 refresh
+session 자체를 삭제하지는 않는다.
 
 ## 6. API별 401/403와 invalidation 행렬
 
