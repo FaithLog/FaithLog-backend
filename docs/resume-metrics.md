@@ -13,21 +13,36 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-11 #155, 368 tests / 0 failures / 0 errors / 1 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-12 #156, 374 tests / 0 failures / 0 errors / 1 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 73 test files (2026-07-11 #155) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 74 test files (2026-07-12 #156) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 122 snippet groups (2026-07-06) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-11 #155) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-12 #156) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 571 Java sources including tests (2026-07-11 #155) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 583 Java sources including tests (2026-07-12 #156) | 추적 |
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-12
+
+- #156 User와 Auth 유스케이스 책임 분리:
+  - 작업 기준: Issue #156 `[Refactor] 10 User와 Auth 유스케이스 책임 분리`, 브랜치 `chore/156-user-auth-usecase-separation`, 별도 Codex worktree, 최신 `origin/develop` `c5286cd` 기준.
+  - TDD 증거: production 수정 전 signup/login/refresh/logout/users-me/withdrawal의 전용 transaction, Controller 직접 연결, thin facade, token/campus/session/soft-delete support와 FCM port, 순환 의존 및 Redis/JWT library/BCrypt 구현 누출 금지를 검사하는 구조 테스트 6건을 추가했다. 최초 실행은 전용 경계 부재로 `6 tests / 5 failures` RED였고 책임 이동 후 모두 GREEN이 됐다. 변경 전 auth/user·role invalidation·FCM focused baseline도 성공했다.
+  - 책임 분리: 6개 public use case를 `SignupCommandService`, `LoginCommandService`, `RefreshTokenRotationService`, `LogoutCommandService`, `UserMeQueryService`, `AccountWithdrawalCommandService`로 분리했다. `AuthTokenIssuanceSupport`가 JWT provider 발급과 hashed identifier allowlist 저장, `CampusMembershipQuerySupport`가 ACTIVE membership 결과 조립, `UserSessionRevocationSupport`가 logout/withdrawal의 기존 blacklist·allowlist 순서와 TTL, `AccountSoftDeletionSupport`가 membership 비활성화와 익명화 soft-delete를 담당한다. Withdrawal 전체 FCM 비활성화는 신규 application port를 통해 기존 `FcmTokenCommandService`에 연결했다.
+  - facade 정량 변화: `AuthService`는 188→55줄(-133, -70.7%), `UserAccountService`는 103→19줄(-84, -81.6%)의 repository/transaction/BusinessException/business-rule-free compatibility delegate로 축소했다. 신규 public use case service 6개, package-private support 4개, FCM application port 1개, 구조 테스트 source 1개를 추가했다. 전체 test source는 74개, 전체 Java source/test는 583개다. 이 수치는 추출 class를 포함한 전체 코드 감소가 아니라 facade 책임 축소 수치다.
+  - 정책 보존: signup 중복/BCrypt/USER·active 기본값, login 자격·inactive/deleted 차단, access 30분/refresh 14일과 정확한 claims, raw refresh 미저장, rotation sessionId/재사용 거절/최신 role·tokenVersion, logout access blacklist/refresh 제거/optional FCM, users/me ACTIVE 다중 campus, withdrawal 검증·순서·익명화·tokenVersion/session/FCM, 삭제 사용자 접근 차단을 유지했다. API/DTO/HTTP/ErrorCode/message, Entity/DB/Flyway, JWT provider/filter/security config, Redis adapter/key/TTL/hash/allowlist/blacklist, repository query, dependency 변경은 0건이다.
+  - 검증: auth/user·role token invalidation·notification FCM focused 성공, 전체 `./gradlew test` `374 tests / 0 failures / 0 errors / 1 skipped`, `./gradlew build`와 `./gradlew asciidoctor` 성공, `git diff --check` 성공. Swagger annotation 추가, Controller Entity 반환, application service RedisTemplate/JWT builder/BCrypt 구현 직접 의존, service cycle은 모두 0건이다.
+  - 격리 Docker QA: `faithlog-qa-156-user-auth-20260712` project에서 PostgreSQL/Redis `healthy`, app `/api/v1/health` `200 + data.status=UP`을 확인했다. `signup 201 -> login 200 -> users/me 200 -> refresh rotation 200 -> 기존 refresh 재사용 401 -> logout 200 -> logout access 401 -> rotated refresh 401`과 별도 계정의 `signup 201 -> login 200 -> 회원 탈퇴 200 -> 기존 access 401 -> 재로그인 401(AUTH_INVALID_CREDENTIALS)` 흐름이 모두 통과했다. 같은 project를 volume 삭제 없이 `docker compose down`해 컨테이너와 network만 제거했다.
+  - Docker build/cache: daemon 미실행으로 첫 QA 진입이 실패해 Docker Desktop을 시작했다. 이후 첫 image build는 stale Alpine cache의 `xargs: echo: Exec format error`로 실패했고 허용된 `docker builder prune -f`로 1.877MB를 회수한 뒤 한 번 재시도해 성공했다. 시작 시 Build Cache는 1.617GB(회수 가능 367B), 최종 정리에서 696.5MB 회수 후 Build Cache는 1.748GB/회수 가능 0B였으며, 모든 Docker 작업의 마지막 명령 `docker builder prune -f`는 추가 회수 0B로 끝났다. system/image/volume prune, `down -v`, named volume 삭제는 실행하지 않았다.
+  - 보안 후속 감사: 기존 회원 탈퇴에는 마지막 active service ADMIN 보호가 없다. 위치는 withdrawal application flow이며 영향은 마지막 ADMIN 탈퇴 시 서비스 관리자 기능의 운영 잠금 가능성이다. 리팩터링의 동작 변경 금지에 따라 수정하지 않았고 후속 보안 감사 항목(MEDIUM)으로만 기록했다.
+  - 환경/도구 제약: Issue #156의 `projectItems`가 비어 Project 상태를 변경할 수 없었다. `pm-dev`는 비활성 보관 경로에만 있고 저장소 `.harness`, 활성 `pm-harness` canonical script가 없어 임의 생성 없이 FaithLog TDD gate를 적용했다. push/PR은 금지 지시에 따라 수행하지 않았다.
+  - 이력서 문장 후보: `Auth/User의 6개 공개 유스케이스를 전용 Service와 4개 응집 support로 분리해 188줄/103줄 통합 Service를 55줄/19줄 호환 facade로 70.7%/81.6% 축소하고, 6개 구조 게이트·374개 전체 테스트·격리 Docker API QA로 JWT·Redis rotation·FCM·soft-delete 계약 무변경을 검증했다.`
 
 ### 2026-07-11
 
