@@ -28,7 +28,7 @@ class RedisRefreshTokenStoreIntegrationTest {
 	private LettuceConnectionFactory connectionFactory;
 	private StringRedisTemplate redisTemplate;
 	private RedisRefreshTokenStore refreshTokenStore;
-	private RedisSessionRevocationStore sessionRevocationStore;
+	private RedisSessionRevocationChecker sessionRevocationChecker;
 	private Long userId;
 	private String sessionId;
 
@@ -42,7 +42,7 @@ class RedisRefreshTokenStoreIntegrationTest {
 		redisTemplate = new StringRedisTemplate(connectionFactory);
 		redisTemplate.afterPropertiesSet();
 		refreshTokenStore = new RedisRefreshTokenStore(redisTemplate);
-		sessionRevocationStore = new RedisSessionRevocationStore(redisTemplate);
+		sessionRevocationChecker = new RedisSessionRevocationChecker(redisTemplate);
 		userId = Math.abs(UUID.randomUUID().getMostSignificantBits());
 		sessionId = UUID.randomUUID().toString();
 	}
@@ -88,14 +88,15 @@ class RedisRefreshTokenStoreIntegrationTest {
 		}
 
 		assertThat(redisTemplate.hasKey(refreshKey())).isFalse();
-		assertThat(sessionRevocationStore.isRevoked(userId, sessionId)).isTrue();
+		assertThat(sessionRevocationChecker.isRevoked(userId, sessionId)).isTrue();
 		assertThat(redisTemplate.getExpire(revokedKey(), TimeUnit.SECONDS)).isBetween(1_209_650L, 1_209_660L);
 		assertThat(refreshTokenStore.rotate(
 			userId,
 			sessionId,
 			oldJti,
 			UUID.randomUUID().toString(),
-			REFRESH_TTL
+			REFRESH_TTL,
+			REVOCATION_TTL
 		)).isEqualTo(RefreshTokenRotationResult.REJECTED);
 	}
 
@@ -109,7 +110,14 @@ class RedisRefreshTokenStoreIntegrationTest {
 		if (!start.await(5, TimeUnit.SECONDS)) {
 			throw new IllegalStateException("Redis CAS 동시 시작 대기 시간이 초과되었습니다.");
 		}
-		return refreshTokenStore.rotate(userId, sessionId, expectedJti, newJti, REFRESH_TTL);
+		return refreshTokenStore.rotate(
+			userId,
+			sessionId,
+			expectedJti,
+			newJti,
+			REFRESH_TTL,
+			REVOCATION_TTL
+		);
 	}
 
 	private String refreshKey() {

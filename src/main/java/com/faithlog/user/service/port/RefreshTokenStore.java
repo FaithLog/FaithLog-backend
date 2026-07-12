@@ -11,7 +11,8 @@ public interface RefreshTokenStore {
 		String sessionId,
 		String expectedRefreshJti,
 		String newRefreshJti,
-		Duration ttl
+		Duration rotationTtl,
+		Duration revocationTtl
 	);
 
 	void deleteSession(Long userId, String sessionId);
