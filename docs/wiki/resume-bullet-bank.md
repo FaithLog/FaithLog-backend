@@ -18,3 +18,9 @@
 
 - [ready] Batch/Scheduler의 Poll·자동 알림·FCM cleanup 책임을 6개 전용 use case로 분리하고 121줄/296줄 통합 Service를 29줄/34줄 호환 facade로 76.0%/88.5% 축소했으며, 5개 구조 게이트와 368개 전체 테스트로 스케줄·정산·Redis fail-closed·retention 정책 무변경을 검증했다. Evidence: `docs/resume-metrics.md` #155, `docs/wiki/engineering/2026-07-11-batch-scheduler-usecase-separation.md`.
 <!-- issue-work:end:resume-bullet-bank:2026-07-11-155 -->
+
+<!-- issue-work:start:resume-bullet-bank:2026-07-12-157 -->
+## 2026-07-12 Issue #157
+
+- [ready] Spring Boot API 80개와 service authorization guard를 전수 대조하고, 7개 신뢰 경계·11개 보호 자산·18개 객체 식별자 공격 표면의 위협 모델을 구축해 마지막 active ADMIN 탈퇴 우회 1건(Medium, confidence 10/10)을 코드 수정 없이 확정했다. Evidence: `docs/security/157-threat-model.md`, `docs/security/157-api-authorization-matrix.md`, `docs/security/157-audit-findings.md`.
+<!-- issue-work:end:resume-bullet-bank:2026-07-12-157 -->
