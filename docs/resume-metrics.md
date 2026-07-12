@@ -31,6 +31,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-07-12
 
+- #157 위협 모델과 권한 행렬 읽기 전용 보안 감사:
+  - 최신 `origin/develop` `d9d9f250` 기준으로 21개 Controller의 80개 endpoint를 전수 인벤토리화했고, `SecurityConfig`의 application `permitAll` 4개와 authenticated endpoint 76개를 service role, campus role, COFFEE duty, tenant/owner guard에 대조했다.
+  - 모바일 앱→Cloud Run→Supabase PostgreSQL/Upstash Redis/Firebase FCM과 내부 Scheduler를 7개 신뢰 경계로 모델링하고, 개인정보·password hash·JWT/refresh identifier·계좌·경건·기도·익명 투표·FCM을 11개 보호 자산 범주, path/body/token 식별자를 18개 공격 표면 범주로 분류했다.
+  - confirmed finding은 Critical 0 / High 0 / Medium 1 / Low 0이다. 마지막 active service ADMIN 역할 강등은 차단하지만 본인 탈퇴에는 동일 guard가 없어 관리자 control plane이 잠길 수 있는 경로를 코드와 독립 검증으로 확정했다(신뢰도 10/10). 코드 수정과 후속 Issue 생성은 하지 않았다.
+  - 실제 key 형식의 현재 tree/좁은 history 후보 0건, user-controlled outbound URL/webhook/file upload/WebSocket/LLM surface 0건을 확인했다. Docker non-root, GitHub Actions SHA pin, repository secret scanner는 LOW hardening 후보로 분리했으며 운영 콘솔 12개 항목은 미확인 체크리스트로 남겼다.
+  - focused 검증은 탈퇴·마지막 ADMIN 강등·role token invalidation·refresh 재사용·FCM owner 테스트 5개 class, 19 tests / 0 failures / 0 errors / 0 skipped로 성공했다.
+  - 문서-only 감사로 Docker QA는 실행하지 않았다. secret 값, 개인정보, 계좌번호, token을 출력하거나 문서화하지 않았고 production/test/config/DB/Flyway/운영 인프라는 변경하지 않았다.
+
 - #156 User와 Auth 유스케이스 책임 분리:
   - 작업 기준: Issue #156 `[Refactor] 10 User와 Auth 유스케이스 책임 분리`, 브랜치 `chore/156-user-auth-usecase-separation`, 별도 Codex worktree, 최신 `origin/develop` `c5286cd` 기준.
   - TDD 증거: production 수정 전 signup/login/refresh/logout/users-me/withdrawal의 전용 transaction, Controller 직접 연결, thin facade, token/campus/session/soft-delete support와 FCM port, 순환 의존 및 Redis/JWT library/BCrypt 구현 누출 금지를 검사하는 구조 테스트 6건을 추가했다. 최초 실행은 전용 경계 부재로 `6 tests / 5 failures` RED였고 책임 이동 후 모두 GREEN이 됐다. 변경 전 auth/user·role invalidation·FCM focused baseline도 성공했다.
