@@ -2,7 +2,7 @@
 
 ## 1. Conclusion
 
-At baseline `5cad9f76df0a0e1bd0a086ab4059f6ccb5e51af2`, the audit revalidated 80 endpoints
+At baseline `5b078b5f3294468378971658dc473292ab2cbeb9`, the audit revalidated 80 endpoints
 in 21 Controllers, 17 object-identifier categories, 56 authorization implementation files,
 25 repository files, and 13 focused test classes.
 
@@ -18,8 +18,14 @@ in 21 Controllers, 17 object-identifier categories, 56 authorization implementat
 - Docker runs: 0
 - Fix Issues, push, and PR: 0
 
-F-157-01 and F-158-01 are not duplicated. They remain separate predecessor findings and do not
-contribute to the #159 totals.
+F-157-01 and F-158-01 are not duplicated. F-158-01 was fixed by #176 before this revalidation;
+its Redis Lua rotation/revocation implementation is predecessor authentication work, not a #159
+finding. Neither predecessor finding contributes to the #159 totals.
+
+The post-#176 recount found no change to the #159 manifest: 21 Controllers, 80 endpoints, 17 object
+identifier categories, 56 authorization implementation files, 25 repositories, and 13 focused test
+classes. F-159-01 remains reproducible through the same persisted-template/request-body authorization
+path at `PollTemplateCommandService.java:79-176`.
 
 ## 2. Confirmed finding
 
@@ -161,7 +167,7 @@ No Issue is created before PM approval.
 Focused command reran 13 existing classes across admin, campus, billing, devotion, Poll, prayer,
 notification, and FCM.
 
-Result: **172 tests / 0 failures / 0 errors / 0 skipped**, `BUILD SUCCESSFUL`.
+Result on `5b078b5f`: **172 tests / 0 failures / 0 errors / 0 skipped**, `BUILD SUCCESSFUL`.
 
 - Docker: not used
 - Production/test/config/database/Flyway changes: 0

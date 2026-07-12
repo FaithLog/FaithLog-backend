@@ -45,10 +45,10 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 이력서 문장 후보: `단일 Redis Lua rotate-or-revoke CAS로 Refresh Token Rotation을 원자화해 동일 credential 병렬 요청을 2개 성공에서 정확히 1개 성공/1개 401로 차단하고, mismatch 감지와 session-scoped access·refresh 폐기 사이 경합 창을 제거해 380개 테스트와 실제 Redis/Docker HTTP QA로 검증했다.`
 
 - #159 캠퍼스 격리와 IDOR/BOLA 읽기 전용 보안 감사:
-  - 최신 `origin/develop` `5cad9f76` 기준으로 21개 Controller의 80개 endpoint, 17개 객체 식별자 범주, 56개 authorization service/policy/support 파일, 25개 repository 파일을 Controller → parent/tenant/owner guard → repository predicate 순서로 다시 대조했다. pageable/filter/sort/keyword 경로의 campus predicate, service/campus role, COFFEE duty, 본인 principal 고정, 익명 Poll identity 숨김, Prayer read/write 분리, Billing account-owner, FCM owner, Notification campus scope를 포함했다.
+  - 최신 `origin/develop` `5b078b5f` 기준으로 21개 Controller의 80개 endpoint, 17개 객체 식별자 범주, 56개 authorization service/policy/support 파일, 25개 repository 파일을 Controller → parent/tenant/owner guard → repository predicate 순서로 다시 대조했다. pageable/filter/sort/keyword 경로의 campus predicate, service/campus role, COFFEE duty, 본인 principal 고정, 익명 Poll identity 숨김, Prayer read/write 분리, Billing account-owner, FCM owner, Notification campus scope를 포함했다. #176은 JWT/Refresh Redis 경계만 변경해 이 counted manifest 수치는 모두 유지됐다.
   - confirmed finding은 Critical 0 / High 0 / Medium 1 / Low 0이다. active COFFEE duty 사용자가 persisted non-COFFEE template을 대상으로 request body의 `paymentCategory=COFFEE`를 권한 분기에 주입하면 update guard를 통과해 제목·선택 방식·옵션·자동 생성 스케줄을 변경할 수 있는 BFLA를 정적 코드 추적 2회로 검증해 신뢰도 10/10으로 확정했다. 최소 확정 영향은 같은 캠퍼스 비-COFFEE template 무단 변경이며, 자동 생성 활성 시 후속 Poll 전파가 조건부 최대 영향이다. `pollType=COFFEE`가 필요한 정산 때문에 청구 생성 영향은 확정 범위에서 제외했다.
-  - false positive/의도 정책 8개와 운영·정책 미확인 4개를 중복 없이 분리했다. #157 F-157-01과 #158 F-158-01은 중복 finding으로 집계하지 않았고, 후속 수정 Issue도 생성하지 않았다.
-  - 기존 focused test 13 classes를 재실행해 172 tests / 0 failures / 0 errors / 0 skipped, `BUILD SUCCESSFUL`을 확인했다. 실제 secret/token/개인정보/계좌번호/기도제목 값 출력·기록, production/test/config/DB/Flyway 수정, Docker, push, PR은 모두 0건이다.
+  - false positive/의도 정책 8개와 운영·정책 미확인 4개를 중복 없이 분리했다. #157 F-157-01과 #158 F-158-01/#176 수정은 중복 finding으로 집계하지 않았고, 후속 수정 Issue도 생성하지 않았다.
+  - 최신 develop에서 기존 focused test 13 classes를 재실행해 172 tests / 0 failures / 0 errors / 0 skipped, `BUILD SUCCESSFUL`을 확인했다. 실제 secret/token/개인정보/계좌번호/기도제목 값 출력·기록, production/test/config/DB/Flyway 수정, Docker, push, PR은 모두 0건이다.
   - 이력서 문장 후보: `21개 Controller·80개 endpoint의 17개 객체 식별자를 56개 권한 경계와 25개 repository predicate까지 추적하고 172개 focused test로 검증해, COFFEE duty가 request body로 비-COFFEE template 권한을 재분류하는 BFLA 1건을 신뢰도 10/10으로 식별했다.`
 
 - #158 JWT와 세션 수명주기 읽기 전용 보안 감사:
