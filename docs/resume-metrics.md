@@ -13,7 +13,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-12 #176, 380 tests / 0 failures / 0 errors / 2 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-12 #176, 381 tests / 0 failures / 0 errors / 2 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
@@ -37,11 +37,11 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 재사용 대응: loser/순차 reuse는 두 번째 Lua에서 해당 refresh key 삭제와 `auth:session:revoked:{userId}:{sessionId}` marker 저장을 원자 처리하고 `401 AUTH_UNAUTHORIZED`를 반환한다. marker TTL은 refresh 1,209,600초 + 승인 안전 여유 60초다. `JwtAuthenticationFilter`는 access blacklist와 tokenVersion 사이에 session marker를 확인하고 Redis 예외 시 principal을 만들지 않는다. 일반 logout 의미는 확대하지 않았다.
   - 범위 테스트: 같은 old refresh 동시 요청은 성공 1/401 1, loser code `AUTH_UNAUTHORIZED`, winner access/refresh 후속 401, 동일 user의 다른 session access/refresh 200, 다른 user session access/refresh 200, 새 session 재로그인 200을 검증했다. 정상 단일 rotation, 순차 reuse, access/refresh type mismatch, Redis rotation/filter fail-closed, logout/withdrawal/service role/campus role/FCM/REST Docs 회귀도 통과했다.
   - 실제 Redis: 격리 Redis 7에서 Lua adapter 통합 테스트를 실행해 두 thread CAS 결과 `ROTATED 1 / REJECTED 1`, revoke 뒤 refresh key 삭제, marker 존재, TTL 1,209,600+60초 범위, 후속 rotation 거절을 확인했다.
-  - 전체 검증: `./gradlew test`는 380 tests / 0 failures / 0 errors / 2 skipped, `./gradlew build`와 `./gradlew asciidoctor` 성공, REST Docs의 기존 refresh success/reused-token 401 계약을 재생성했다. test source 75개, 전체 Java source/test 590개다.
+  - 전체 검증: `./gradlew test`는 381 tests / 0 failures / 0 errors / 2 skipped, `./gradlew build`와 `./gradlew asciidoctor` 성공, REST Docs의 기존 refresh success/reused-token 401 계약을 재생성했다. test source 75개, 전체 Java source/test 590개다.
   - Docker HTTP QA: 격리 project `faithlog-qa-176`에서 PostgreSQL/Redis healthy와 backend health `UP`을 확인했다. 동일 refresh 병렬 요청 성공 1/401 1, winner access/refresh 401, 같은 user 다른 session 200, 다른 user session 200, 재로그인 새 session 200을 실제 production Redis adapter로 검증했다. token 값은 출력하지 않았다. 같은 project를 `docker compose down`으로 volume 삭제 없이 종료했다.
   - Docker build/cache: Docker Hub credential helper가 base-image metadata 조회에서 정체돼 새 image build는 완료되지 않았다. 이미 검증된 로컬 FaithLog runtime image에 현재 `./gradlew build` 산출 bootJar를 read-only mount하는 임시 compose override로 동일 docker profile QA를 수행했다. 모든 Docker 작업의 마지막 명령은 `docker builder prune -f`였고 build cache 367B를 회수했다. volume/image/system prune과 `down -v`는 실행하지 않았다.
   - 영향: API 경로/요청·응답 DTO/ErrorCode/status, access 1,800초, refresh 1,209,600초, logout/withdrawal/role/FCM 의미, Controller/Entity, DB/Flyway, dependency 변경은 0건이다. raw access/refresh token Redis 저장과 문서/로그 출력도 0건이다.
-  - 이력서 문장 후보: `Redis Lua CAS로 Refresh Token Rotation을 원자화해 동일 credential 병렬 요청을 2개 성공에서 정확히 1개 성공/1개 401로 차단하고, 재사용 감지 시 session-scoped access·refresh를 함께 폐기하면서 다른 session 격리를 380개 테스트와 실제 Redis/Docker HTTP QA로 검증했다.`
+  - 이력서 문장 후보: `Redis Lua CAS로 Refresh Token Rotation을 원자화해 동일 credential 병렬 요청을 2개 성공에서 정확히 1개 성공/1개 401로 차단하고, 재사용 감지 시 session-scoped access·refresh를 함께 폐기하면서 다른 session 격리를 381개 테스트와 실제 Redis/Docker HTTP QA로 검증했다.`
 
 - #158 JWT와 세션 수명주기 읽기 전용 보안 감사:
   - 최신 `origin/develop` `634d19c7` 기준 production/config/schema 47개 파일, focused test 8개 파일, 인증·role·FCM API 10개, Redis 인증 흐름 5개를 JWT signature/type/expiration/JTI, refresh allowlist/rotation, access blacklist, `tokenVersion`, logout/탈퇴/FCM cleanup 기준으로 대조했다.
