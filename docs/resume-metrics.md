@@ -223,6 +223,16 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-07-13
 
+- #161 배포 인프라와 공급망 보안 읽기 전용 감사:
+  - 최신 `origin/develop` `f3e81fb9` 기준으로 GitHub Actions workflow 2개와 action 호출 8개(고유 좌표 6개), Docker/build-context 3개, Gradle 공급망 파일 6개와 직접 dependency 20개, env template 4개, Spring profile 6개, 배포 계약 1개, 보안 header/CORS/actuator surface 4개, Firebase infrastructure/trace 8개/14개, Redis infrastructure/trace 7개/9개, Flyway V1-V7 7개를 counted manifest로 고정했다.
+  - runtime graph는 first-level 15개, 고유 resolved module 208개, unresolved 0개였고 direct dependency/plugin의 dynamic·SNAPSHOT·range는 0개였다. Gradle wrapper JAR checksum은 공식 8.14.5 값과 일치했으며 distribution SHA, dependency locking/verification metadata, Docker base digest 부재는 confirmed vulnerability가 아닌 Low hardening 후보 2건으로 분리했다.
+  - confirmed finding은 High 1 / Medium 1이다. Spring Security 6.5.0과 기본 lazy header mode가 vendor Critical CVE-2026-22732 영향 범위에 있어 FaithLog 최소 영향을 High·신뢰도 9/10으로 좁혔고, GitHub API에서 `main`/`develop` classic protection 0개와 repository ruleset 0개를 확인해 write credential이 PR/review/required-check gate 없이 branch를 변경할 수 있는 source-integrity gap을 Medium·신뢰도 10/10으로 확정했다. 후속 수정 Issue는 생성하지 않았다.
+  - false positive/의도 정책 12개, GitHub/GCP/Supabase/Upstash/Firebase/Artifact Registry console 미확인 14개를 분리했다. #157-#160과 #176/#179/#182/#183의 7개 finding/hardening/unverified 묶음은 중복 집계하지 않았다.
+  - secret census는 current/history high-signal candidate 0개, non-example sensitive-path file/commit 0개, untracked/ignored sensitive file 0개였다. 값은 출력·기록하지 않았고 0 open Dependabot alert는 SBOM endpoint 404와 scanner 부재 때문에 0 vulnerable component로 해석하지 않았다.
+  - focused 7개 기존 test class 실행은 Gradle Plugin Portal에서 기존 Spring Boot 3.5.0 plugin을 resolve하지 못해 test 0개 실행으로 종료됐다. stale XML을 집계하지 않았고, 동일 baseline의 PR #185 repository checks와 기존 전체 `399 tests / 0 failures / 0 errors / 3 skipped` 기록을 별도 baseline evidence로만 유지했다.
+  - production/test/config/DB/Flyway/운영 인프라 변경, Docker, 운영 smoke/부하/credential 사용, push/PR은 모두 0건이다.
+  - 이력서 문장 후보: `배포·공급망 신뢰 경계의 2개 workflow/8개 action 호출·208개 runtime module·Docker/Cloud Run/Supabase/Upstash/Firebase 경계를 counted manifest로 감사해, vendor Critical 영향 Spring Security 구성 1건(High, 9/10)과 보호되지 않은 main/develop source-integrity gap 1건(Medium, 10/10)을 식별하고 12개 false positive와 14개 console 미확인을 분리했다.`
+
 - #188 관리자 주차별 사용자 경건·벌금 조회 및 Excel 다운로드:
   - 제품 기준: 현재 ACTIVE 캠퍼스 멤버를 제출/미제출로 분리한다. 실제 저장 `PENALTY` 청구 id/amount/status를 표시하고 과거 금액을 현재 규칙으로 재계산하지 않는다. 사용자 확정에 따라 `totalPenaltyAmount`는 `PAID + UNPAID`이고, `WAIVED/CANCELED`는 행에는 표시하되 합계에서 제외한다.
   - API/권한: JSON 조회와 XLSX export 2개 endpoint를 추가했다. service `ADMIN` 또는 해당 캠퍼스 ACTIVE `MINISTER/ELDER/CAMPUS_LEADER`만 허용하며 MEMBER와 다른 캠퍼스 관리자는 403, non-Monday는 400이다. read-only transaction 안에서 ACTIVE members/users/weekly records/daily checks/charges를 bulk 조회하고 repository-call characterization으로 멤버 수 비례 조회를 차단했다.
