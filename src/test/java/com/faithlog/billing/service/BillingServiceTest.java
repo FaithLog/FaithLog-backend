@@ -1142,7 +1142,7 @@ class BillingServiceTest {
 	}
 
 	@Test
-	void changeChargeStatus_allows_service_admin_without_campus_membership() {
+	void changeChargeStatus_allows_service_admin_to_mark_paid_without_campus_membership() {
 		User manager = saveUser("billing-status-service-admin-manager@example.com", UserRole.MANAGER);
 		User serviceAdmin = saveUser("billing-status-service-admin@example.com", UserRole.ADMIN);
 		User member = saveUser("billing-status-service-admin-member@example.com", UserRole.USER);
@@ -1154,14 +1154,15 @@ class BillingServiceTest {
 		ChargeItemResult result = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
 			charge.id(),
 			serviceAdmin.id(),
-			ChargeStatus.WAIVED
+			ChargeStatus.PAID
 		));
 
-		assertThat(result.status()).isEqualTo(ChargeStatus.WAIVED);
+		assertThat(result.status()).isEqualTo(ChargeStatus.PAID);
+		assertThat(result.paidAt()).isNotNull();
 	}
 
 	@Test
-	void changeChargeStatus_allows_elder_and_campus_leader() {
+	void changeChargeStatus_allows_elder_and_campus_leader_to_mark_paid() {
 		User manager = saveUser("billing-status-campus-admin-manager@example.com", UserRole.MANAGER);
 		User elder = saveUser("billing-status-elder@example.com", UserRole.USER);
 		User campusLeader = saveUser("billing-status-campus-leader@example.com", UserRole.USER);
@@ -1179,24 +1180,26 @@ class BillingServiceTest {
 		campusMemberRepository.saveAndFlush(elderMembership);
 		campusMemberRepository.saveAndFlush(leaderMembership);
 		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-015");
-		ChargeItem waiveTarget = saveCharge(campus.campusId(), member.id(), account, 5013L);
-		ChargeItem cancelTarget = saveCharge(
+		ChargeItem elderPaidTarget = saveCharge(campus.campusId(), member.id(), account, 5013L);
+		ChargeItem leaderPaidTarget = saveCharge(
 			campus.campusId(), member.id(), account, ChargeSourceType.POLL_RESPONSE, 5014L
 		);
 
-		ChargeItemResult waived = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
-			waiveTarget.id(),
+		ChargeItemResult elderPaid = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			elderPaidTarget.id(),
 			elder.id(),
-			ChargeStatus.WAIVED
+			ChargeStatus.PAID
 		));
-		ChargeItemResult canceled = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
-			cancelTarget.id(),
+		ChargeItemResult leaderPaid = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			leaderPaidTarget.id(),
 			campusLeader.id(),
-			ChargeStatus.CANCELED
+			ChargeStatus.PAID
 		));
 
-		assertThat(waived.status()).isEqualTo(ChargeStatus.WAIVED);
-		assertThat(canceled.status()).isEqualTo(ChargeStatus.CANCELED);
+		assertThat(elderPaid.status()).isEqualTo(ChargeStatus.PAID);
+		assertThat(elderPaid.paidAt()).isNotNull();
+		assertThat(leaderPaid.status()).isEqualTo(ChargeStatus.PAID);
+		assertThat(leaderPaid.paidAt()).isNotNull();
 	}
 
 	@Test

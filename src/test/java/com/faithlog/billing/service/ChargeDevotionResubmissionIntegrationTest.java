@@ -2,6 +2,8 @@ package com.faithlog.billing.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 import com.faithlog.billing.domain.entity.ChargeItem;
 import com.faithlog.billing.domain.type.ChargeSourceType;
@@ -9,6 +11,7 @@ import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.service.command.ChangeChargeStatusCommand;
+import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.command.CreateCoffeeChargeCommand;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
@@ -26,6 +29,7 @@ import com.faithlog.devotion.domain.type.PenaltyRuleType;
 import com.faithlog.devotion.infrastructure.repository.DevotionDailyCheckRepository;
 import com.faithlog.devotion.infrastructure.repository.PenaltyRuleRepository;
 import com.faithlog.devotion.infrastructure.repository.WeeklyDevotionRecordRepository;
+import com.faithlog.devotion.infrastructure.adapter.BillingDevotionChargeReopenAdapter;
 import com.faithlog.devotion.service.DevotionService;
 import com.faithlog.devotion.service.command.DevotionDailyCheckCommand;
 import com.faithlog.devotion.service.command.UpdateDailyDevotionCommand;
@@ -39,11 +43,19 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -79,6 +91,9 @@ class ChargeDevotionResubmissionIntegrationTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@MockitoSpyBean
+	private BillingDevotionChargeReopenAdapter devotionChargeReopenAdapter;
 
 	@Test
 	void admin_marks_any_unpaid_charge_paid_with_server_time_and_rejects_terminal_targets() {
@@ -339,6 +354,81 @@ class ChargeDevotionResubmissionIntegrationTest {
 			.isEqualTo(ChargeStatus.CANCELED);
 	}
 
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	@DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+	void concurrent_admin_cancel_and_user_payment_allow_exactly_one_terminal_transition() throws Exception {
+		SubmittedDevotion fixture = submitPenaltyDevotion("190-concurrent-status");
+		CountDownLatch reopenEntered = new CountDownLatch(1);
+		CountDownLatch allowReopen = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			reopenEntered.countDown();
+			if (!allowReopen.await(5, TimeUnit.SECONDS)) {
+				throw new IllegalStateException("Timed out while coordinating concurrent charge status changes.");
+			}
+			return invocation.callRealMethod();
+		}).when(devotionChargeReopenAdapter).reopenWeeklyDevotion(any(), any(), any());
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<ConcurrentStatusResult> cancelFuture = executor.submit(() -> captureStatusResult(() ->
+				billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+					fixture.charge().id(), fixture.manager().id(), ChargeStatus.CANCELED
+				))
+			));
+			assertThat(reopenEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+			Future<ConcurrentStatusResult> paymentFuture = executor.submit(() -> captureStatusResult(() ->
+				billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+					fixture.campus().campusId(),
+					fixture.charge().id(),
+					fixture.member().id(),
+					Instant.now()
+				))
+			));
+
+			ConcurrentStatusResult earlyPayment = null;
+			try {
+				earlyPayment = paymentFuture.get(500, TimeUnit.MILLISECONDS);
+			} catch (TimeoutException ignored) {
+				// A locked second transition must wait for the cancel transaction to finish.
+			}
+			allowReopen.countDown();
+
+			ConcurrentStatusResult cancelResult = cancelFuture.get(5, TimeUnit.SECONDS);
+			ConcurrentStatusResult paymentResult = earlyPayment != null
+				? earlyPayment
+				: paymentFuture.get(5, TimeUnit.SECONDS);
+			List<ConcurrentStatusResult> results = List.of(cancelResult, paymentResult);
+
+			assertThat(results).filteredOn(ConcurrentStatusResult::succeeded).hasSize(1);
+			assertThat(results)
+				.filteredOn(result -> !result.succeeded())
+				.extracting(ConcurrentStatusResult::errorCode)
+				.containsExactly(ErrorCode.BILLING_MY_CHARGE_PAYMENT_CONFLICT);
+			assertThat(chargeItemRepository.findById(fixture.charge().id()))
+				.get()
+				.extracting(ChargeItem::status)
+				.isEqualTo(ChargeStatus.CANCELED);
+			assertThat(weeklyRecordRepository.findById(fixture.weeklyRecord().id()))
+				.get()
+				.extracting(WeeklyDevotionRecord::submittedAt)
+				.isNull();
+		} finally {
+			allowReopen.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	private ConcurrentStatusResult captureStatusResult(Supplier<ChargeItemResult> operation) {
+		try {
+			operation.get();
+			return new ConcurrentStatusResult(true, null);
+		} catch (BusinessException exception) {
+			return new ConcurrentStatusResult(false, exception.errorCode());
+		}
+	}
+
 	private SubmittedDevotion submitPenaltyDevotion(String prefix) {
 		User manager = saveUser(prefix + "-manager@example.com", UserRole.MANAGER);
 		User member = saveUser(prefix + "-member@example.com", UserRole.USER);
@@ -434,5 +524,8 @@ class ChargeDevotionResubmissionIntegrationTest {
 		WeeklyDevotionRecord weeklyRecord,
 		ChargeItem charge
 	) {
+	}
+
+	private record ConcurrentStatusResult(boolean succeeded, ErrorCode errorCode) {
 	}
 }

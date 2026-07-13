@@ -416,6 +416,29 @@ class BillingApiRestDocsTest {
 				),
 				responseFields(apiResponseFields(chargeFields("data.")))
 			));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", adminPaidTarget.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_TRANSITION_CONFLICT"))
+			.andExpect(jsonPath("$.message").value("허용되지 않는 청구 상태 전이입니다."))
+			.andDo(document("charge-admin-status-change-conflict",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description("이미 terminal 상태인 청구 항목 ID")),
+				requestFields(
+					fieldWithPath("status").description("`PAID`. 기존 상태가 PAID, WAIVED, CANCELED이면 409")
+				),
+				responseFields(errorResponseFields())
+			));
 	}
 
 	@Test
