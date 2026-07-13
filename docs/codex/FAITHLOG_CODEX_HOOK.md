@@ -1002,6 +1002,28 @@ tags:
 11. 변경 파일 목록을 정리한다.
 12. 실행한 테스트와 결과를 보고한다.
 
+### 10.1 PM 코드리뷰 완료 게이트
+
+1. 개발 세션은 구현, 테스트, 격리 Docker 실제 QA, 저장소 문서, Obsidian 기록, 작업 단위 커밋까지 완료한다.
+2. 개발 세션은 push, PR 생성, merge를 수행하지 않는다.
+3. 커밋 완료 즉시 원본 PM 세션에 `origin/develop...HEAD` 전체 diff 기준 상세 코드리뷰 보고서를 보낸다.
+4. 상세 보고서에는 다음을 모두 포함한다.
+   - issue, branch, worktree, base, HEAD, clean 상태
+   - `origin/develop` 대비 전체 커밋과 diff 범위
+   - 구현 API, 권한, 트랜잭션, DB, Flyway, 의존성
+   - TDD RED 명령과 실패 원인, GREEN 결과
+   - focused/full test, build, asciidoctor, `git diff --check`
+   - Docker 실제 API QA와 마지막 `docker builder prune -f` 결과
+   - API/DTO/ErrorCode/기존 기능 회귀와 변경하지 않은 범위
+   - REST Docs와 `index.adoc`
+   - 저장소 문서와 Obsidian 기록
+   - 발견한 리스크, pending decision, 미검증 항목
+5. PM 세션은 `origin/develop...HEAD` 전체 diff를 독립 코드리뷰한다.
+6. PM finding이 있으면 개발 세션은 finding별 실패 재현 또는 근거를 확인하고 최소 수정한다. 필수 전체 검증과 작업 단위 커밋을 다시 완료한 뒤 새 상세 코드리뷰 보고서를 보낸다.
+7. finding이 0건이고 필수 검증이 모두 통과한 경우에만 PM 세션이 develop 대상 PR을 생성하고 CI를 확인해 머지한다.
+8. CI 실패나 PR 충돌이 있으면 완료 처리하지 않고 원인을 수정, 재검증, 재리뷰한다.
+9. develop 머지 성공과 Issue 종료 또는 완료 상태가 실제 확인되어야 이슈를 최종 완료한다.
+
 ## 11. 보고 형식
 
 작업이 끝나면 아래 형식으로 보고한다.

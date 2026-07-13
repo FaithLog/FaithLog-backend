@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-13 - Development Completion Requires Independent PM Review And Develop Merge
+
+- Context: The user established one completion and review workflow beginning with Issue #188 and applying to every later development issue.
+- Decision: A development session completes implementation, tests, isolated Docker QA, repository documentation, Obsidian records, and small work-unit commits, but does not push, create a PR, or merge. It then sends the source PM session a detailed review report covering the entire `origin/develop...HEAD` range. The PM session independently reviews the full diff. Each PM finding must be reproduced or evidence-checked, minimally fixed, fully reverified, committed, and reported again. Only the PM session may create the develop-targeting PR after zero findings and all required verification passes.
+- Decision: CI failures or PR conflicts keep the issue open and require correction, re-verification, and re-review. An issue is complete only after the develop merge actually succeeds and the Issue is closed or its completed state is confirmed.
+- Impact: Development-session completion reports must include repository identity and cleanliness, all commits/diff ranges, API/authorization/transaction/DB/Flyway/dependency changes, RED/GREEN evidence, focused/full/build/asciidoctor/diff-check results, real Docker API/Excel QA and the final `docker builder prune -f` result, regression and unchanged scope, REST Docs/index, repository/Obsidian records, and all risks, pending decisions, and unverified items. PM approval is a mandatory release gate and does not authorize the development session to push or open a PR.
+
 ### 2026-07-13 - Issue #183 COFFEE Option Catalog Authority
 
 - Context: Issue #160 F-160-02 confirmed that direct COFFEE Poll and COFFEE PollTemplate create/update accepted an option with `menuId = null`, allowing client `content` and `priceAmount` to become the persisted snapshot and later CLOSED settlement charge source.
