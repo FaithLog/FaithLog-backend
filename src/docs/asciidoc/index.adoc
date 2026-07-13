@@ -1746,7 +1746,7 @@ include::{snippets}/coffee-brand-menus-list-success/response-fields.adoc[]
 
 `POST /api/v1/admin/campuses/{campusId}/poll-templates`
 
-커피 메뉴를 선택지로 사용할 때는 생성 당시의 메뉴 코드, 이름, 가격을 템플릿 선택지 snapshot으로 저장한다.
+`COFFEE` 템플릿의 모든 선택지는 active backend catalog `menuId`가 필수다. 요청의 `content`와 `priceAmount`는 호환을 위해 받을 수 있지만, 저장 snapshot은 항상 catalog의 메뉴명, 메뉴 코드, 가격을 사용한다. persisted `COFFEE` 템플릿 수정에도 동일한 정책을 적용한다.
 
 ==== Request
 
@@ -1884,7 +1884,7 @@ include::{snippets}/poll-template-deactivate-success/http-response.adoc[]
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
 
-`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. 캠퍼스 관리자와 활성 `COFFEE` 담당자는 `pollType=COFFEE` 투표를 생성할 수 있다. 단, `COFFEE` 투표는 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`가 필수다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한을 유지한다.
+`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. 캠퍼스 관리자와 활성 `COFFEE` 담당자는 `pollType=COFFEE` 투표를 생성할 수 있다. 단, `COFFEE` 투표는 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`와 각 선택지의 active backend catalog `menuId`가 필수다. 요청의 `content`/`priceAmount`와 무관하게 catalog 메뉴명/코드/가격만 snapshot한다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한과 custom content/0원 계약을 유지한다.
 
 ==== Request
 
@@ -1909,6 +1909,24 @@ include::{snippets}/poll-create-direct-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/poll-create-direct-success/response-fields.adoc[]
+
+=== Reject Coffee Poll Option Without Menu ID
+
+`POST /api/v1/admin/campuses/{campusId}/polls`
+
+직접 `COFFEE` Poll 또는 `COFFEE` PollTemplate 생성/수정에서 선택지 `menuId`가 없으면 `400 POLL_COFFEE_OPTION_MENU_REQUIRED`와 `커피 투표 선택지는 menuId가 필요합니다.`를 반환하며 Poll/template/option/charge row를 생성하거나 변경하지 않는다.
+
+==== Request
+
+include::{snippets}/poll-create-coffee-menu-required-error/http-request.adoc[]
+
+==== Response
+
+include::{snippets}/poll-create-coffee-menu-required-error/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-create-coffee-menu-required-error/response-fields.adoc[]
 
 === Create Coffee Poll As Coffee Duty
 

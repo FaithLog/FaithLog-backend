@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-13 - Issue #183 COFFEE Option Catalog Authority
+
+- Context: Issue #160 F-160-02 confirmed that direct COFFEE Poll and COFFEE PollTemplate create/update accepted an option with `menuId = null`, allowing client `content` and `priceAmount` to become the persisted snapshot and later CLOSED settlement charge source.
+- Decision: Every option in a `COFFEE` Poll or persisted `COFFEE` PollTemplate create/update requires an active backend `CoffeeMenuCatalog` `menuId`. Missing IDs fail with `400 POLL_COFFEE_OPTION_MENU_REQUIRED` and message `커피 투표 선택지는 menuId가 필요합니다.`. Missing and inactive catalog rows continue to use `POLL_MENU_NOT_FOUND` and `POLL_MENU_INACTIVE`.
+- Decision: For COFFEE options, the server always snapshots `content = catalog.name`, `composeMenuCode = catalog.menuCode`, and `priceAmount = catalog.priceAmount`. Existing request DTO fields remain for frontend compatibility, but supplied COFFEE `content` and `priceAmount` are ignored rather than treated as authority. Non-COFFEE custom content/zero-price behavior and the existing user COFFEE option-add `menuId`-only contract remain unchanged.
+- Impact: Direct Poll, template create, and persisted-template update share the catalog resolver while preserving #179 persisted-target authorization order. Template-to-Poll automatic creation and CLOSED settlement continue copying/using saved snapshots. API paths, normal response DTOs, `optionIds`, `poll_response_options`, authorization, DB/Flyway, Billing positive-amount invariants, and dependencies remain unchanged.
+
 ### 2026-07-13 - Issue #182 Devotion Fine Range And Positive Charge Integrity
 
 - Context: Issue #160 F-160-01 confirmed that unbounded `saturdayLateMinutes`, unchecked `int` arithmetic, and the absence of Billing/database positive-amount invariants could persist a negative `UNPAID` PENALTY charge and distort dashboard totals.
