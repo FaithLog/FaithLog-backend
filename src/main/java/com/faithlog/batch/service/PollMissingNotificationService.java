@@ -135,6 +135,7 @@ public class PollMissingNotificationService {
 			case WED_SERVICE -> Optional.of(NotificationType.WED_POLL_MISSING);
 			case SATURDAY_LEADER -> Optional.of(NotificationType.SATURDAY_POLL_MISSING);
 			case COFFEE -> Optional.of(NotificationType.COFFEE_POLL_MISSING);
+			case MEAL -> Optional.empty();
 			case CUSTOM -> Optional.of(NotificationType.CUSTOM);
 		};
 	}
