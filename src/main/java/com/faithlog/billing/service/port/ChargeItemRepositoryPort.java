@@ -18,6 +18,8 @@ public interface ChargeItemRepositoryPort {
 
 	Optional<ChargeItem> findChargeItemById(Long chargeItemId);
 
+	Optional<ChargeItem> findChargeItemByIdForUpdate(Long chargeItemId);
+
 	Page<ChargeItem> searchCharges(ChargeSearchCriteria criteria, Pageable pageable);
 
 	List<ChargeItem> searchCharges(ChargeSearchCriteria criteria);
@@ -29,6 +31,14 @@ public interface ChargeItemRepositoryPort {
 	);
 
 	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+		Long campusId,
+		Long userId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		Long sourceId
+	);
+
+	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceIdForUpdate(
 		Long campusId,
 		Long userId,
 		PaymentCategory paymentCategory,

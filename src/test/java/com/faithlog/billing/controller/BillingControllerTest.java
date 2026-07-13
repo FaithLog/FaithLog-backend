@@ -29,8 +29,15 @@ import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -480,6 +487,11 @@ class BillingControllerTest {
 		String memberToken = signupAndLogin("billing-http-status-auth-member@example.com", UserRole.USER);
 		User member = userRepository.findByEmail("billing-http-status-auth-member@example.com").orElseThrow();
 		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String otherCampusManagerToken = signupAndLogin(
+			"billing-http-status-other-campus-manager@example.com",
+			UserRole.MANAGER
+		);
+		createCampus(otherCampusManagerToken, "56다른캠");
 		createPenaltyAccount(campusId, manager.id(), "123-456789-012");
 		ChargeItemResult paidTarget = createPenaltyCharge(campusId, member.id(), 6003L);
 		ChargeItemResult terminalTarget = createPenaltyCharge(campusId, member.id(), 6004L);
@@ -502,6 +514,18 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data.status").value("UNPAID"))
 			.andExpect(jsonPath("$.data.paidAt").doesNotExist());
 
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", paidTarget.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("PAID"))
+			.andExpect(jsonPath("$.data.paidAt").isNotEmpty());
+
 		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -510,19 +534,52 @@ class BillingControllerTest {
 					  "status": "PAID"
 					}
 					"""))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.message").value("관리자는 청구를 PAID로 변경할 수 없습니다."));
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_TRANSITION_CONFLICT"))
+			.andExpect(jsonPath("$.message").value("허용되지 않는 청구 상태 전이입니다."));
 
 		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
 				.header("Authorization", "Bearer " + memberToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "status": "CANCELED"
+					  "status": "PAID"
 					}
 					"""))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.message").value("청구 상태 변경 권한이 없습니다."));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
+				.header("Authorization", "Bearer " + otherCampusManagerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN"));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
+				.header("Authorization", "Bearer " + expiredAccessToken(manager))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 
 		mockMvc.perform(patch("/api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid", campusId, terminalTarget.id())
 				.header("Authorization", "Bearer " + memberToken)
@@ -1085,6 +1142,24 @@ class BillingControllerTest {
 			.getResponse()
 			.getContentAsString();
 		return objectMapper.readTree(loginBody).path("data").path("accessToken").asText();
+	}
+
+	private String expiredAccessToken(User user) throws Exception {
+		Instant expiredAt = Instant.now().minusSeconds(60);
+		byte[] signingKey = MessageDigest.getInstance("SHA-256")
+			.digest("test-only-jwt-secret-for-faithlog-auth-tests".getBytes(StandardCharsets.UTF_8));
+		return Jwts.builder()
+			.subject(String.valueOf(user.id()))
+			.id(UUID.randomUUID().toString())
+			.claim("userId", user.id())
+			.claim("role", user.role().name())
+			.claim("sessionId", UUID.randomUUID().toString())
+			.claim("tokenVersion", user.tokenVersion())
+			.claim("tokenType", "ACCESS")
+			.issuedAt(Date.from(expiredAt.minusSeconds(60)))
+			.expiration(Date.from(expiredAt))
+			.signWith(Keys.hmacShaKeyFor(signingKey))
+			.compact();
 	}
 
 	private void createPenaltyAccount(Long campusId, Long managerId, String accountNumber) {

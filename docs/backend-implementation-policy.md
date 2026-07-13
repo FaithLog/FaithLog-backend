@@ -423,17 +423,23 @@ Issue #34 is P0.
 - Payment accounts can be deactivated even if unpaid charge items are linked to them.
 - When a new active `PENALTY` account replaces the previous active account, existing `UNPAID` PENALTY charge items for that campus must be re-linked to the new active account and their account snapshots updated. Already terminal `PAID`, `WAIVED`, and `CANCELED` charge items keep their historical snapshots.
 - Creating a new active `COFFEE` account must not re-link existing `UNPAID` COFFEE charge items. COFFEE charges remain linked to the `polls.payment_account_id` selected when the poll was created.
-- `PaymentCategory` values are `PENALTY` and `COFFEE`.
+- `PaymentCategory` values are `PENALTY`, `COFFEE`, and `MEAL`.
 - `ChargeSourceType` values are `DEVOTION_RECORD` and `POLL_RESPONSE`.
 - `ChargeStatus` values are `UNPAID`, `PAID`, `WAIVED`, and `CANCELED`.
-- User payment completion is the only path from `UNPAID` to `PAID`.
-- Administrators must not mark a charge as `PAID`.
+- User payment completion marks the authenticated member's own `UNPAID` charge as `PAID` immediately and remains unchanged.
+- Administrators with the existing charge-management permission may mark any manageable category's `UNPAID` charge as `PAID`; `paidAt` uses server current time.
+- Administrator attempts to move `PAID`, `WAIVED`, or `CANCELED` terminal charges to `PAID` fail with HTTP 409.
 - Administrators may change a charge to `WAIVED` or `CANCELED`.
 - Administrators may revert an incorrectly handled `PAID`, `WAIVED`, or `CANCELED` charge back to `UNPAID`.
 - When an administrator reverts `PAID` to `UNPAID`, clear `paidAt`.
+- Canceling an `UNPAID` `PENALTY + DEVOTION_RECORD` charge must set the matching same-campus/same-user weekly devotion record's `submittedAt` to null in the same transaction. Preserve all daily checks.
+- `WAIVED`, `COFFEE`, and `POLL_RESPONSE` status changes must not reopen weekly devotion records. Source mismatch or reopen failure must roll back the charge cancellation.
+- A positive devotion resubmission reuses the existing CANCELED unique-source charge row as `UNPAID`, refreshing amount, title/reason, due date, payment account, account snapshots, and clearing `paidAt`. A zero-amount resubmission leaves the existing row CANCELED and creates no row.
+- Billing entities must not reference Devotion entities directly; cancellation/reopen uses an application port and adapter under the Billing-owned transaction boundary.
+- User and administrator charge-status writes, and existing-source charge update/reactivation, must acquire the same charge-row write lock before validating and applying a transition. Concurrent attempts against one charge must serialize so the later request observes the committed state and applies the existing transition rules instead of overwriting it; this can produce either the existing conflict response or a valid follow-up transition. This source-key locking applies to both `PENALTY` and `COFFEE` upserts.
 - Do not store administrator status-change reasons in Issue #35.
 - Charge creation must save `payment_account_id`, `bank_name_snapshot`, `account_number_snapshot`, and `account_holder_snapshot`.
-- Billing domain creation and unpaid-charge updates require `amount > 0`. Zero and negative charge rows are invalid for both `PENALTY` and `COFFEE`.
+- Billing domain creation and unpaid-charge updates require `amount > 0`. Zero and negative charge rows are invalid for `PENALTY`, `COFFEE`, and `MEAL`.
 - Flyway V7 adds `ck_charge_items_amount_positive` and validates it during migration. If any legacy `amount <= 0` row exists, the migration must fail closed and roll back; migration must not edit or delete historical rows automatically.
 - Do not create incomplete `charge_items` rows when a required account is missing.
 - If the active `PENALTY` account is missing during positive-amount penalty charge creation, fail with the user-facing message `관리자에게 문의하세요`.

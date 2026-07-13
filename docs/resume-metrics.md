@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-14 #189, 429 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-14 #190, 425 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 80 test files (2026-07-13 #189) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 147 snippet groups (2026-07-14 #189) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #189) | 성공 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 80 test files (2026-07-13 #190) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 126 snippet groups (2026-07-13 #190) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #190) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -52,6 +52,17 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - Docker 결정: 이 feature에서는 Docker build/up/API QA를 실행하지 않았다. 사용자 최신 결정에 따라 실제 PostgreSQL Flyway clean/upgrade와 #188/#189/#190 연결 HTTP QA는 세 feature PM 승인 후 `integration/188-190-devotion-meal-billing`에서 한 번 수행한다.
   - 제약/영향: GitHub token에 `read:project` scope가 없어 Issue #189 Project 카드 존재/상태 확인과 In Progress 이동은 수행하지 못했다. V1-V7, 기존 COFFEE/PENALTY 의미, dependency, Swagger annotation, Controller Entity 반환은 변경하지 않았고 push/PR/merge도 수행하지 않았다.
   - 이력서 문장 후보: `다수 MEAL 담당자·본인 계좌·즉시 OPEN 투표와 option group별 후청구를 정규화하고 exact ceiling 산술·pessimistic lock·DB unique·단일 transaction으로 1회성 정산을 보장했으며, 429개 전체 테스트와 147개 REST Docs 계약으로 권한·격리·rollback을 검증했다.`
+- #190 벌금 취소 후 경건 재제출과 관리자 납부 완료:
+  - TDD RED: production 수정 전에 관리자 `UNPAID -> PAID`, 서버 `paidAt`, terminal conflict, PENALTY cancel/reopen, daily 보존, 양수 동일 row 재사용, 0원 CANCELED 유지, category/source/campus/권한/rollback, 사용자 납부 회귀, REST Docs 계약을 추가했다. 신규 통합 테스트 최초 실행은 `7 tests / 6 failures / 0 errors / 0 skipped`였고 영향 제외 경로 1건만 기존 동작으로 통과했다.
+  - 관리자 상태 전이: 기존 `PATCH /api/v1/admin/charges/{chargeItemId}/status`에서 관리 가능한 category의 `UNPAID -> PAID`를 허용하고 `paidAt`을 서버 현재 시각으로 기록한다. `PAID/WAIVED/CANCELED -> PAID`는 기존 `409 BILLING_CHARGE_STATUS_TRANSITION_CONFLICT`를 사용하며 관리자 권한과 401/403, 사용자 본인 `납부했어요` 흐름을 유지했다.
+  - 취소/재오픈 경계: `UNPAID PENALTY + DEVOTION_RECORD` 취소 시 Billing transaction owner가 application port를 호출하고 Devotion adapter가 same-campus/same-user/source weekly record를 검증해 `submittedAt`만 null로 만든다. daily checks는 보존하며 mismatch나 adapter 실패 시 charge 취소까지 rollback된다. `WAIVED`, `COFFEE`, `POLL_RESPONSE`는 재오픈하지 않는다.
+  - 재제출: 현재 활성 벌금 규칙을 다시 계산한다. 양수이면 기존 CANCELED unique-source charge row를 같은 ID로 `UNPAID` 재활성화하면서 amount, 계좌 FK/snapshot, title/reason/dueDate를 갱신한다. 0원이면 CANCELED row를 유지하고 신규 row를 만들지 않는다. #182의 양수 domain/DB 불변식은 유지했다.
+  - PM 리뷰 RED/GREEN: 같은 청구에 대한 관리자 취소와 사용자 납부가 동시에 모두 성공하는 lost update를 deterministic latch 통합 테스트로 재현했다. 두 요청이 실제로 모두 성공해 RED였고, 사용자·관리자 상태 쓰기가 동일 charge row의 `PESSIMISTIC_WRITE` 잠금을 거치도록 고쳐 후행 요청이 커밋된 상태를 다시 읽고 기존 상태별 전이 규칙을 적용하게 했다. 관리자 `ADMIN`·`ELDER`·`CAMPUS_LEADER` PAID, 만료 토큰 401, 다른 캠퍼스 관리자 403, terminal-to-PAID 409 REST Docs와 문서 index 회귀도 보강했다.
+  - PM 재검토 RED/GREEN: 양수 재제출이 source key로 읽은 CANCELED row를 잠그지 않아 동시 사용자 납부의 PAID를 stale UNPAID로 덮어쓸 수 있음을 repository 진입 latch 테스트로 재현했다. PENALTY와 COFFEE의 기존 source charge 조회·갱신도 `PESSIMISTIC_WRITE`로 직렬화하고, 두 동시성 테스트 모두 실제 잠금 조회 호출 전·완료 후 latch를 분리해 선행 transaction 해제 전에는 조회가 완료되지 않음을 검증하도록 보강했다.
+  - 검증: Billing·Devotion·관리자 Controller·REST Docs focused `148 tests / 0 failures / 0 errors / 0 skipped`, 전체 `425 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew --no-daemon --max-workers=1 build`, `./gradlew --no-daemon --max-workers=1 asciidoctor`, `git diff --check`가 성공했다. test source는 80개, REST Docs snippet group은 126개다.
+  - Docker: 사용자 최신 결정으로 feature 세션의 Docker build/up/API QA를 중단했다. #188/#189/#190 승인 후 `integration/188-190-devotion-meal-billing`에서 세 기능 연결 QA를 한 번 수행한다. 결정 전 격리 build/up 시 Docker Desktop daemon이 중단되어 실제 HTTP 검증은 수행하지 않았고, destructive cleanup이나 volume 삭제는 실행하지 않았다.
+  - 영향: 기존 API path/request/response DTO와 Controller, ErrorCode 추가, DB schema/Flyway V1-V7, dependency, SecurityConfig 변경은 0건이다. 제거된 ErrorCode는 더 이상 유효하지 않은 관리자 PAID 금지 전용 상수 1건이며, terminal conflict는 기존 code를 재사용한다. Billing Entity가 Devotion Entity를 직접 참조하지 않는다.
+   - 이력서 문장 후보: `벌금 취소와 경건 재제출을 application port 기반 단일 transaction으로 연결하고 상태 전이와 source charge 재활성화를 row lock으로 직렬화해 daily 기록 보존·rollback·terminal conflict를 보장했으며, 148개 focused·425개 전체 테스트와 REST Docs로 검증했다.`
 
 - #186 Spring Security 취약 버전 maintenance upgrade와 보안 헤더 회귀:
   - 기준/선택: 최신 `origin/develop` `f3e81fb9`에서 Spring Boot plugin/BOM만 `3.5.0 -> 3.5.15`로 올렸다. 공식 Boot 3.5.15가 관리하는 Spring Security config/core/crypto/web/test `6.5.11`을 사용하며 개별 Security override와 eager-header workaround는 추가하지 않았다.

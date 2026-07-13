@@ -1,12 +1,15 @@
 package com.faithlog.billing.service;
 
 import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.service.command.ChangeChargeStatusCommand;
 import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.policy.BillingAccessPolicy;
 import com.faithlog.billing.service.policy.ChargeStatusPolicy;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
+import com.faithlog.billing.service.port.DevotionChargeReopenPort;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
@@ -23,21 +26,24 @@ public class ChargeStatusCommandService {
 	private final ChargeItemRepositoryPort chargeItemRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
+	private final DevotionChargeReopenPort devotionChargeReopenPort;
 
 	public ChargeStatusCommandService(
 		ChargeItemRepositoryPort chargeItemRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
-		CampusUserLookupPort userLookupPort
+		CampusUserLookupPort userLookupPort,
+		DevotionChargeReopenPort devotionChargeReopenPort
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
+		this.devotionChargeReopenPort = devotionChargeReopenPort;
 	}
 
 	@Transactional
 	public ChargeItemResult completeMyChargePayment(CompleteChargePaymentCommand command) {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
-		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
+		ChargeItem chargeItem = chargeItemRepository.findChargeItemByIdForUpdate(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
 
 		if (!chargeItem.userId().equals(requester.userId())) {
@@ -57,15 +63,28 @@ public class ChargeStatusCommandService {
 
 	@Transactional
 	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
-		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
+		ChargeItem chargeItem = chargeItemRepository.findChargeItemByIdForUpdate(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
 		if (chargeItem.paymentCategory() == PaymentCategory.MEAL) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND);
 		}
 		requireChargeStatusManager(chargeItem.campusId(), command.requesterId());
 		ChargeStatusPolicy.applyAdminStatusChange(chargeItem, command.status());
+		if (shouldReopenWeeklyDevotion(chargeItem, command.status())) {
+			devotionChargeReopenPort.reopenWeeklyDevotion(
+				chargeItem.campusId(),
+				chargeItem.userId(),
+				chargeItem.sourceId()
+			);
+		}
 
 		return ChargeItemResult.from(chargeItem);
+	}
+
+	private boolean shouldReopenWeeklyDevotion(ChargeItem chargeItem, ChargeStatus targetStatus) {
+		return targetStatus == ChargeStatus.CANCELED
+			&& chargeItem.paymentCategory() == PaymentCategory.PENALTY
+			&& chargeItem.sourceType() == ChargeSourceType.DEVOTION_RECORD;
 	}
 
 	private void requireChargeStatusManager(Long campusId, Long requesterId) {

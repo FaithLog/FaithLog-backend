@@ -1502,7 +1502,9 @@ include::{snippets}/charge-admin-member-detail-success/response-fields.adoc[]
 
 `PATCH /api/v1/admin/charges/{chargeItemId}/status`
 
-캠퍼스 관리자 또는 전역 `ADMIN`은 `UNPAID` 청구를 `WAIVED`/`CANCELED`로 변경하거나, 종료된 청구를 `UNPAID`로 되돌릴 수 있다. 관리자는 `PAID`로 변경할 수 없고, `PAID` 청구를 `UNPAID`로 되돌릴 때는 `paidAt`을 비운다.
+캠퍼스 관리자 또는 전역 `ADMIN` 사용자는 `UNPAID` 상태 청구를 `PAID` / `WAIVED` / `CANCELED` 상태로 변경하거나, 종료된 청구를 `UNPAID` 상태로 되돌릴 수 있다. 관리자 `UNPAID -> PAID` 전환은 서버 현재 시각을 `paidAt` 필드에 저장하고, terminal 상태에서 `PAID` 상태로의 전환은 409로 실패한다. `PAID` 상태 청구를 `UNPAID` 상태로 되돌릴 때는 `paidAt` 필드를 비운다.
+
+`PENALTY + DEVOTION_RECORD` 청구를 `UNPAID -> CANCELED`로 변경하면 같은 transaction에서 source weekly record의 `submittedAt`을 null로 재오픈한다. source weekly record는 청구와 같은 campus/user여야 하며, 기존 daily checks는 삭제하지 않는다. `WAIVED`, `COFFEE`, `POLL_RESPONSE` 취소는 경건생활을 재오픈하지 않는다. 재제출 벌금이 양수이면 기존 CANCELED source charge row를 UNPAID로 재사용해 현재 금액과 계좌 snapshot을 갱신하고, 0원이면 CANCELED row를 유지하며 새 row를 만들지 않는다.
 
 ==== Request
 
@@ -1527,6 +1529,56 @@ include::{snippets}/charge-admin-status-change-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/charge-admin-status-change-success/response-fields.adoc[]
+
+==== Terminal To Paid Conflict (409)
+
+include::{snippets}/charge-admin-status-change-conflict/http-request.adoc[]
+
+===== Request Headers
+
+include::{snippets}/charge-admin-status-change-conflict/request-headers.adoc[]
+
+===== Path Parameters
+
+include::{snippets}/charge-admin-status-change-conflict/path-parameters.adoc[]
+
+===== Request Fields
+
+include::{snippets}/charge-admin-status-change-conflict/request-fields.adoc[]
+
+===== Response
+
+include::{snippets}/charge-admin-status-change-conflict/http-response.adoc[]
+
+===== Response Fields
+
+include::{snippets}/charge-admin-status-change-conflict/response-fields.adoc[]
+
+==== Devotion Penalty Cancel And Reopen Example
+
+===== Request
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/http-request.adoc[]
+
+===== Request Headers
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/request-headers.adoc[]
+
+===== Path Parameters
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/path-parameters.adoc[]
+
+===== Request Fields
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/request-fields.adoc[]
+
+===== Response
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/http-response.adoc[]
+
+===== Response Fields
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/response-fields.adoc[]
 
 == Campus Admin Dashboard
 

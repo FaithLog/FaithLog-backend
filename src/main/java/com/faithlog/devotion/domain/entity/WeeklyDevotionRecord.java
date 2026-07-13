@@ -101,6 +101,10 @@ public class WeeklyDevotionRecord {
 		this.submittedAt = submittedAt;
 	}
 
+	public void reopenForResubmission() {
+		this.submittedAt = null;
+	}
+
 	public Long id() {
 		return id;
 	}
