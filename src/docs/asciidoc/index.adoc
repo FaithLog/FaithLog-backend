@@ -1482,6 +1482,30 @@ include::{snippets}/charge-admin-status-change-success/http-response.adoc[]
 
 include::{snippets}/charge-admin-status-change-success/response-fields.adoc[]
 
+==== Terminal To Paid Conflict (409)
+
+include::{snippets}/charge-admin-status-change-conflict/http-request.adoc[]
+
+===== Request Headers
+
+include::{snippets}/charge-admin-status-change-conflict/request-headers.adoc[]
+
+===== Path Parameters
+
+include::{snippets}/charge-admin-status-change-conflict/path-parameters.adoc[]
+
+===== Request Fields
+
+include::{snippets}/charge-admin-status-change-conflict/request-fields.adoc[]
+
+===== Response
+
+include::{snippets}/charge-admin-status-change-conflict/http-response.adoc[]
+
+===== Response Fields
+
+include::{snippets}/charge-admin-status-change-conflict/response-fields.adoc[]
+
 ==== Devotion Penalty Cancel And Reopen Example
 
 ===== Request
