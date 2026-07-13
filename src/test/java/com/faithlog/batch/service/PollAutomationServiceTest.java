@@ -26,6 +26,7 @@ import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.domain.type.SelectionType;
 import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
+import com.faithlog.poll.infrastructure.repository.CoffeeMenuCatalogRepository;
 import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
@@ -71,6 +72,9 @@ class PollAutomationServiceTest {
 
 	@Autowired
 	private PollOptionRepository pollOptionRepository;
+
+	@Autowired
+	private CoffeeMenuCatalogRepository coffeeMenuCatalogRepository;
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
@@ -194,10 +198,16 @@ class PollAutomationServiceTest {
 		assertThat(closed).isEqualTo(1);
 		assertThat(closedAgain).isZero();
 		assertThat(pollRepository.findById(poll.id())).get().extracting(Poll::status).isEqualTo(PollStatus.CLOSED);
+		assertThat(pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id()))
+			.extracting(PollOption::content, PollOption::composeMenuCode, PollOption::priceAmount)
+			.containsExactly(
+				org.assertj.core.groups.Tuple.tuple("아이스 아메리카노", "AMERICANO_ICE", 1800),
+				org.assertj.core.groups.Tuple.tuple("아메리카노", "AMERICANO_HOT", 1500)
+			);
 		assertThat(chargeItemRepository.findAll())
 			.hasSize(1)
-			.extracting(ChargeItem::userId, ChargeItem::paymentCategory, ChargeItem::amount)
-			.containsExactly(org.assertj.core.groups.Tuple.tuple(member.id(), PaymentCategory.COFFEE, 1800));
+			.extracting(ChargeItem::userId, ChargeItem::paymentCategory, ChargeItem::title, ChargeItem::amount)
+			.containsExactly(org.assertj.core.groups.Tuple.tuple(member.id(), PaymentCategory.COFFEE, "아이스 아메리카노", 1800));
 	}
 
 	private PollTemplateResult createTemplate(Long campusId, Long managerId, String title, boolean autoCreateEnabled) {
@@ -240,10 +250,14 @@ class PollAutomationServiceTest {
 			DayOfWeek.MONDAY,
 			LocalTime.of(12, 0),
 			List.of(
-				new CreatePollTemplateOptionCommand("아이스 아메리카노", null, 1800, 1),
-				new CreatePollTemplateOptionCommand("아메리카노", null, 1500, 2)
+				new CreatePollTemplateOptionCommand("클라이언트 위조 ICE", menuId("AMERICANO_ICE"), 1, 1),
+				new CreatePollTemplateOptionCommand("클라이언트 위조 HOT", menuId("AMERICANO_HOT"), 1, 2)
 			)
 		));
+	}
+
+	private Long menuId(String menuCode) {
+		return coffeeMenuCatalogRepository.findByMenuCode(menuCode).orElseThrow().id();
 	}
 
 	private ZonedDateTime mondayAt(int hour, int minute) {

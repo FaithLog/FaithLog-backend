@@ -285,8 +285,8 @@ class PollServiceTest {
 			DayOfWeek.THURSDAY,
 			LocalTime.of(17, 30),
 			List.of(
-				new CreatePollTemplateOptionCommand("참석", null, 0, 1),
-				new CreatePollTemplateOptionCommand("불참", null, 0, 2)
+				new CreatePollTemplateOptionCommand("클라이언트 참석", americanoMenuId, 1, 1),
+				new CreatePollTemplateOptionCommand("클라이언트 불참", menuId("CAFE_LATTE"), 1, 2)
 			)
 		));
 
@@ -294,7 +294,7 @@ class PollServiceTest {
 		assertThat(updated.selectionType()).isEqualTo(SelectionType.MULTIPLE);
 		assertThat(updated.autoCreateEnabled()).isTrue();
 		assertThat(updated.options()).extracting(PollTemplateOptionResult::content)
-			.containsExactly("참석", "불참");
+			.containsExactly("아메리카노", "카페라떼");
 
 		PollTemplateResult deactivated = pollTemplateService.deactivateTemplate(campus.campusId(), created.id(), manager.id());
 
@@ -477,7 +477,7 @@ class PollServiceTest {
 			));
 
 		assertThat(templated.options()).extracting(PollOptionResult::content)
-			.containsExactly("아이스 아메리카노", "아메리카노", "아이스티", "아이스 라떼", "라떼");
+			.containsExactly("아이스 아메리카노", "아메리카노", "아이스티", "카페라떼", "카푸치노");
 		List<PollOption> savedOptions = pollOptionRepository.findByPollIdOrderBySortOrderAsc(templated.id());
 		assertThat(savedOptions).extracting(PollOption::priceAmount)
 			.containsExactly(1800, 1500, 3000, 2900, 2900);
@@ -513,7 +513,7 @@ class PollServiceTest {
 			List.of(new CreatePollOptionCommand("클라이언트 아메리카노", null, 1, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode().name()).isEqualTo("POLL_COFFEE_OPTION_MENU_REQUIRED")
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_COFFEE_OPTION_MENU_REQUIRED)
 			);
 
 		assertThat(pollRepository.count()).isEqualTo(pollCount);
@@ -539,7 +539,7 @@ class PollServiceTest {
 			List.of(new CreatePollTemplateOptionCommand("클라이언트 라떼", null, 1, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode().name()).isEqualTo("POLL_COFFEE_OPTION_MENU_REQUIRED")
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_COFFEE_OPTION_MENU_REQUIRED)
 			);
 		assertThat(pollTemplateRepository.count()).isEqualTo(templateCount);
 		assertThat(pollTemplateOptionRepository.count()).isEqualTo(templateOptionCount);
@@ -560,10 +560,10 @@ class PollServiceTest {
 			List.of(new CreatePollTemplateOptionCommand("변조 선택지", null, 9999, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode().name()).isEqualTo("POLL_COFFEE_OPTION_MENU_REQUIRED")
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_COFFEE_OPTION_MENU_REQUIRED)
 			);
 
-		PollTemplateResult unchanged = pollTemplateService.getTemplate(campus.campusId(), persisted.id(), duty.id());
+		PollTemplateResult unchanged = pollTemplateService.getTemplate(campus.campusId(), persisted.id(), manager.id());
 		assertThat(unchanged.title()).isEqualTo("원본 커피 템플릿");
 		assertThat(unchanged.options())
 			.extracting(PollTemplateOptionResult::content, PollTemplateOptionResult::composeMenuCode, PollTemplateOptionResult::priceAmount)
@@ -601,6 +601,18 @@ class PollServiceTest {
 		assertThat(template.options())
 			.extracting(PollTemplateOptionResult::content, PollTemplateOptionResult::composeMenuCode, PollTemplateOptionResult::priceAmount)
 			.containsExactly(org.assertj.core.groups.Tuple.tuple("카페라떼", "CAFE_LATTE", 2900));
+
+		pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(), direct.id(), duty.id(), List.of(direct.options().get(0).id()), null
+		));
+		closePoll(direct.id());
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), direct.id());
+		assertThat(chargesForCampus(campus.campusId()))
+			.singleElement()
+			.satisfies(charge -> {
+				assertThat(charge.title()).isEqualTo("카페라떼");
+				assertThat(charge.amount()).isEqualTo(2900);
+			});
 	}
 
 	@Test
@@ -626,7 +638,7 @@ class PollServiceTest {
 			accountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 		PollResult coffeeExplicitFalse = pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
@@ -642,7 +654,7 @@ class PollServiceTest {
 			accountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("라떼", null, 2900, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("CAFE_LATTE"), null, 1))
 		));
 		PollResult customOmitted = pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
@@ -689,7 +701,7 @@ class PollServiceTest {
 			accountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 
 		assertThat(coffeePoll.pollType()).isEqualTo(PollType.COFFEE);
@@ -743,7 +755,7 @@ class PollServiceTest {
 			dutyAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -761,7 +773,7 @@ class PollServiceTest {
 			dutyAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -780,7 +792,7 @@ class PollServiceTest {
 			managerAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 		PollResult dutyCreated = pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
@@ -795,7 +807,7 @@ class PollServiceTest {
 			dutyAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 
 		assertThat(managerCreated.paymentAccountId()).isEqualTo(managerAccountId);
@@ -821,7 +833,7 @@ class PollServiceTest {
 			managerAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 		PollTemplateResult template = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
 			campus.campusId(),
@@ -838,7 +850,7 @@ class PollServiceTest {
 			LocalTime.of(9, 0),
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
-			List.of(new CreatePollTemplateOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 
 		assertThat(poll.pollType()).isEqualTo(PollType.COFFEE);
@@ -872,7 +884,7 @@ class PollServiceTest {
 			dutyAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -890,7 +902,7 @@ class PollServiceTest {
 			inactiveManagerAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -910,7 +922,7 @@ class PollServiceTest {
 			LocalTime.of(9, 0),
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
-			List.of(new CreatePollTemplateOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -928,7 +940,7 @@ class PollServiceTest {
 			activeManagerAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)).paymentAccountId()).isEqualTo(activeManagerAccountId);
 	}
 
@@ -961,7 +973,7 @@ class PollServiceTest {
 			otherAccountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -981,7 +993,7 @@ class PollServiceTest {
 			LocalTime.of(9, 0),
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
-			List.of(new CreatePollTemplateOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -1002,7 +1014,7 @@ class PollServiceTest {
 			LocalTime.of(9, 0),
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
-			List.of(new CreatePollTemplateOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 
 		assertThat(template.paymentAccountId()).isEqualTo(dutyAccountId);
@@ -1021,7 +1033,7 @@ class PollServiceTest {
 			LocalTime.of(9, 0),
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
-			List.of(new CreatePollTemplateOptionCommand("아메리카노", null, 1500, 1))
+			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -1553,13 +1565,13 @@ class PollServiceTest {
 		menu.deactivate();
 		assertThatThrownBy(() -> pollTemplateService.createTemplate(new CreatePollTemplateCommand(
 			campus.campusId(),
-			manager.id(),
+			duty.id(),
 			"비활성 메뉴 템플릿",
-			PollType.CUSTOM,
+			PollType.COFFEE,
 			SelectionType.SINGLE,
-			ChargeGenerationType.NONE,
-			null,
-			null,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			coffeeAccountId,
 			false,
 			DayOfWeek.MONDAY,
 			LocalTime.of(9, 0),
@@ -1570,6 +1582,20 @@ class PollServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_MENU_INACTIVE)
 			);
+
+		long pollCountBeforeMissingMenu = pollRepository.count();
+		long optionCountBeforeMissingMenu = pollOptionRepository.count();
+		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
+			campus.campusId(), duty.id(), null, "없는 메뉴 직접 커피 투표", PollType.COFFEE,
+			SelectionType.SINGLE, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE,
+			coffeeAccountId, Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand(null, Long.MAX_VALUE, null, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_MENU_NOT_FOUND)
+			);
+		assertThat(pollRepository.count()).isEqualTo(pollCountBeforeMissingMenu);
+		assertThat(pollOptionRepository.count()).isEqualTo(optionCountBeforeMissingMenu);
 
 		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
@@ -1584,7 +1610,7 @@ class PollServiceTest {
 			coffeeAccountId,
 			Instant.parse("2026-06-25T00:00:00Z"),
 			Instant.parse("2026-06-25T09:00:00Z"),
-			List.of(new CreatePollOptionCommand("선택", null, 0, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -1603,7 +1629,7 @@ class PollServiceTest {
 			null,
 			Instant.parse("2026-06-25T00:00:00Z"),
 			Instant.parse("2026-06-25T09:00:00Z"),
-			List.of(new CreatePollOptionCommand("선택", null, 0, 1))
+			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
@@ -2260,11 +2286,11 @@ class PollServiceTest {
 			DayOfWeek.MONDAY,
 			LocalTime.of(9, 0),
 			List.of(
-				new CreatePollTemplateOptionCommand("아이스 아메리카노", null, 1800, 1),
-				new CreatePollTemplateOptionCommand("아메리카노", null, 1500, 2),
-				new CreatePollTemplateOptionCommand("아이스티", null, 3000, 3),
-				new CreatePollTemplateOptionCommand("아이스 라떼", null, 2900, 4),
-				new CreatePollTemplateOptionCommand("라떼", null, 2900, 5)
+				new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_ICE"), null, 1),
+				new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 2),
+				new CreatePollTemplateOptionCommand(null, menuId("ICED_TEA"), null, 3),
+				new CreatePollTemplateOptionCommand(null, menuId("CAFE_LATTE"), null, 4),
+				new CreatePollTemplateOptionCommand(null, menuId("CAPPUCCINO"), null, 5)
 			)
 		));
 	}
@@ -2396,7 +2422,7 @@ class PollServiceTest {
 			LocalTime.of(10, 0),
 			DayOfWeek.THURSDAY,
 			LocalTime.of(17, 0),
-			List.of(new CreatePollTemplateOptionCommand("계좌 회귀 선택지", null, 1000, 1))
+			List.of(new CreatePollTemplateOptionCommand("클라이언트 계좌 회귀 선택지", menuId("AMERICANO_HOT"), 1, 1))
 		));
 	}
 
@@ -2458,8 +2484,8 @@ class PollServiceTest {
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of(
-				new CreatePollOptionCommand("아이스 아메리카노", null, 1800, 1),
-				new CreatePollOptionCommand("아메리카노", null, 1500, 2)
+				new CreatePollOptionCommand(null, menuId("AMERICANO_ICE"), null, 1),
+				new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 2)
 			)
 		));
 		com.faithlog.poll.domain.entity.Poll savedPoll = pollRepository.findById(poll.id()).orElseThrow();
