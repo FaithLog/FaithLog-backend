@@ -37,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WeeklyDevotionCommandService {
 
 	private static final String PENALTY_CHARGE_TITLE = "경건생활 벌금";
+	private static final int MAX_SATURDAY_LATE_MINUTES = 1_440;
 
 	private final WeeklyDevotionRecordRepository weeklyRecordRepository;
 	private final DevotionDailyCheckRepository dailyCheckRepository;
@@ -189,7 +190,7 @@ public class WeeklyDevotionCommandService {
 	}
 
 	private void validateSaturdayLateMinutes(int saturdayLateMinutes) {
-		if (saturdayLateMinutes < 0) {
+		if (saturdayLateMinutes < 0 || saturdayLateMinutes > MAX_SATURDAY_LATE_MINUTES) {
 			throw new BusinessException(ErrorCode.DEVOTION_INVALID_SATURDAY_LATE_MINUTES);
 		}
 	}
