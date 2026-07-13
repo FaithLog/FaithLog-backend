@@ -258,11 +258,15 @@ PAYMENT_REQUESTED
 
 사용자가 계좌이체 후 앱에서 `납부했어요`를 누르면 즉시 `PAID` 처리한다.
 
-`UNPAID -> PAID`는 사용자 납부 API에서만 가능하다.
+사용자 납부 API는 본인의 `UNPAID -> PAID`를 즉시 처리하는 기존 의미를 유지한다.
 
-관리자는 청구를 `PAID`로 변경할 수 없다.
+관리자는 기존 청구 관리 권한 범위의 `UNPAID` 청구를 `PAID`로 변경할 수 있고, `paidAt`은 서버 현재 시각을 사용한다. terminal 상태에서 `PAID`로의 전환은 409로 실패한다.
 
 관리자는 청구를 `WAIVED`, `CANCELED`로 변경할 수 있다.
+
+`PENALTY + DEVOTION_RECORD` 청구를 `UNPAID -> CANCELED`로 변경하면 같은 transaction에서 같은 campus/user의 source weekly record `submitted_at`을 null로 재오픈하고 daily checks는 보존한다. `WAIVED`, `COFFEE`, `POLL_RESPONSE`는 경건생활을 재오픈하지 않는다.
+
+재제출 벌금이 양수이면 기존 CANCELED source charge row를 같은 row로 `UNPAID` 재사용해 현재 금액과 계좌 snapshot을 갱신한다. 0원이면 CANCELED row를 유지하고 새 row를 생성하지 않는다.
 
 관리자는 잘못 처리된 `PAID`, `WAIVED`, `CANCELED` 청구를 `UNPAID`로 되돌릴 수 있다.
 

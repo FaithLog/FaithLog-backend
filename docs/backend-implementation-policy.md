@@ -426,11 +426,16 @@ Issue #34 is P0.
 - `PaymentCategory` values are `PENALTY` and `COFFEE`.
 - `ChargeSourceType` values are `DEVOTION_RECORD` and `POLL_RESPONSE`.
 - `ChargeStatus` values are `UNPAID`, `PAID`, `WAIVED`, and `CANCELED`.
-- User payment completion is the only path from `UNPAID` to `PAID`.
-- Administrators must not mark a charge as `PAID`.
+- User payment completion marks the authenticated member's own `UNPAID` charge as `PAID` immediately and remains unchanged.
+- Administrators with the existing charge-management permission may mark any manageable category's `UNPAID` charge as `PAID`; `paidAt` uses server current time.
+- Administrator attempts to move `PAID`, `WAIVED`, or `CANCELED` terminal charges to `PAID` fail with HTTP 409.
 - Administrators may change a charge to `WAIVED` or `CANCELED`.
 - Administrators may revert an incorrectly handled `PAID`, `WAIVED`, or `CANCELED` charge back to `UNPAID`.
 - When an administrator reverts `PAID` to `UNPAID`, clear `paidAt`.
+- Canceling an `UNPAID` `PENALTY + DEVOTION_RECORD` charge must set the matching same-campus/same-user weekly devotion record's `submittedAt` to null in the same transaction. Preserve all daily checks.
+- `WAIVED`, `COFFEE`, and `POLL_RESPONSE` status changes must not reopen weekly devotion records. Source mismatch or reopen failure must roll back the charge cancellation.
+- A positive devotion resubmission reuses the existing CANCELED unique-source charge row as `UNPAID`, refreshing amount, title/reason, due date, payment account, account snapshots, and clearing `paidAt`. A zero-amount resubmission leaves the existing row CANCELED and creates no row.
+- Billing entities must not reference Devotion entities directly; cancellation/reopen uses an application port and adapter under the Billing-owned transaction boundary.
 - Do not store administrator status-change reasons in Issue #35.
 - Charge creation must save `payment_account_id`, `bank_name_snapshot`, `account_number_snapshot`, and `account_holder_snapshot`.
 - Billing domain creation and unpaid-charge updates require `amount > 0`. Zero and negative charge rows are invalid for both `PENALTY` and `COFFEE`.
