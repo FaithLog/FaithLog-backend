@@ -361,9 +361,9 @@ class PollApiRestDocsTest {
 			.containsExactlyInAnyOrderElementsOf(
 				pollResponseRepository.findByPollIdOrderByIdAsc(pollId).stream().map(PollResponse::id).toList()
 			);
-		Instant oldEndsAt = Instant.now().minusSeconds(35L * 24 * 60 * 60);
+		Instant oldEndsAt = Instant.now().minusSeconds(8L * 24 * 60 * 60);
 		Poll oldClosedPoll = Poll.createMeal(
-			campusId, "오래된 종료 투표", false, false,
+			campusId, "7일 초과 종료 투표", false, false,
 			oldEndsAt.minusSeconds(3600), oldEndsAt, duty.id()
 		);
 		oldClosedPoll.close();
@@ -375,7 +375,7 @@ class PollApiRestDocsTest {
 			.andDo(document("meal-polls-management-list-success",
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())))
 			.andReturn().getResponse().getContentAsString();
-		assertThat(managementListBody).contains("오래된 종료 투표");
+		assertThat(managementListBody).contains("7일 초과 종료 투표");
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls/{pollId}", campusId, pollId)
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
