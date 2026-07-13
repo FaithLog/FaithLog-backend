@@ -249,10 +249,13 @@ No test was added. The following 16 existing test classes were selected.
 15. `AuthRefreshControllerTest`
 16. `AuthApiRestDocsTest`
 
-JUnit XML recount: **16 classes / 138 tests / 0 failures / 0 errors / 0 skipped**.
+Final PM independent JUnit XML recount: **16 suites / 138 tests / 0 failures / 0 errors / 0 skipped**.
 
-The final Gradle task was not successful even though all 16 XML suites report zero test failures.
-The default Gradle user cache first failed to read Kotlin DSL metadata. Isolated Gradle executions
-then overlapped and one task reported concurrent XML result-write failures. The audit stopped after
-the skill's three-attempt limit and did not delete Gradle caches or test output. This is reported as
-a verification concern, not as a passing `BUILD SUCCESSFUL` claim.
+Final verification status for Issue #160 is a passing focused-test rerun. PM reran all 16 documented
+focused classes in one Gradle invocation with isolated
+`GRADLE_USER_HOME=/private/tmp/faithlog-gradle-160-review`, `--no-parallel`, and `--rerun-tasks`,
+and confirmed `BUILD SUCCESSFUL`.
+
+Audit-session history is preserved separately: the initial Codex-only verification first failed to read
+default Gradle cache metadata, and later isolated executions overlapped while writing XML results. PM
+confirmed that those failures were execution-environment concerns and not code/test regressions.
