@@ -1072,9 +1072,9 @@ class PollApiRestDocsTest {
 			fieldWithPath("endDayOfWeek").description("마감 요일. 1=월요일, 7=일요일"),
 			fieldWithPath("endTime").description("마감 시간"),
 			fieldWithPath("options[]").description("템플릿 선택지"),
-			fieldWithPath("options[].content").optional().description("직접 선택지명. menuId가 있으면 생략 가능"),
-			fieldWithPath("options[].menuId").optional().description("커피 메뉴 ID"),
-			fieldWithPath("options[].priceAmount").optional().description("직접 선택지 가격"),
+			fieldWithPath("options[].content").optional().description("비-COFFEE 직접 선택지명. COFFEE에서는 전달돼도 catalog 메뉴명으로 덮어씀"),
+			fieldWithPath("options[].menuId").optional().description("COFFEE에서는 필수인 active backend catalog 메뉴 ID"),
+			fieldWithPath("options[].priceAmount").optional().description("비-COFFEE 직접 선택지 가격. COFFEE에서는 전달돼도 catalog 가격으로 덮어씀"),
 			fieldWithPath("options[].sortOrder").description("정렬 순서")
 		};
 	}
@@ -1093,9 +1093,9 @@ class PollApiRestDocsTest {
 			fieldWithPath("endDayOfWeek").description("마감 요일. 1=월요일, 7=일요일"),
 			fieldWithPath("endTime").description("마감 시간"),
 			fieldWithPath("options[]").description("템플릿 선택지"),
-			fieldWithPath("options[].content").optional().description("직접 선택지명"),
-			fieldWithPath("options[].menuId").optional().description("커피 메뉴 ID"),
-			fieldWithPath("options[].priceAmount").optional().description("직접 선택지 가격"),
+			fieldWithPath("options[].content").optional().description("비-COFFEE 직접 선택지명. persisted COFFEE 템플릿에서는 catalog 메뉴명으로 덮어씀"),
+			fieldWithPath("options[].menuId").optional().description("persisted COFFEE 템플릿에서는 필수인 active backend catalog 메뉴 ID"),
+			fieldWithPath("options[].priceAmount").optional().description("비-COFFEE 직접 선택지 가격. persisted COFFEE 템플릿에서는 catalog 가격으로 덮어씀"),
 			fieldWithPath("options[].sortOrder").description("정렬 순서")
 		};
 	}
@@ -1114,9 +1114,9 @@ class PollApiRestDocsTest {
 			fieldWithPath("startsAt").description("투표 시작 시각"),
 			fieldWithPath("endsAt").description("투표 종료 시각"),
 			fieldWithPath("options[]").optional().description("직접 선택지 목록. 템플릿 기반 생성 시 사용하지 않음"),
-			fieldWithPath("options[].content").optional().description("직접 선택지명"),
-			fieldWithPath("options[].menuId").optional().description("커피 메뉴 ID"),
-			fieldWithPath("options[].priceAmount").optional().description("직접 선택지 가격"),
+			fieldWithPath("options[].content").optional().description("비-COFFEE 직접 선택지명. COFFEE에서는 전달돼도 catalog 메뉴명으로 덮어씀"),
+			fieldWithPath("options[].menuId").optional().description("COFFEE에서는 필수인 active backend catalog 메뉴 ID"),
+			fieldWithPath("options[].priceAmount").optional().description("비-COFFEE 직접 선택지 가격. COFFEE에서는 전달돼도 catalog 가격으로 덮어씀"),
 			fieldWithPath("options[].sortOrder").optional().description("정렬 순서")
 		};
 	}
