@@ -13,6 +13,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 ### 2026-07-13 - Issue #188 Weekly Penalty Total Status Basis
 
 - Context: Issue #188 returns each active member's actual weekly `PENALTY` charge amount and status and also exposes `totalPenaltyAmount`. The Issue, previous decisions, and Notion did not define which charge statuses contribute to that total.
+- User approval evidence: In the current Issue #188 development conversation, the user explicitly answered, "각자 주차별이 페이드랑 언페이드랑 합산할게", selecting the `UNPAID + PAID` basis rather than an agent recommendation being treated as approval.
 - Decision: Each member row displays the actual charge `amount` and `status` for the weekly devotion record regardless of whether it is paid. `totalPenaltyAmount` sums charges whose status is `UNPAID` or `PAID`. A weekly member charge has only one current status, so it contributes to exactly one of those status buckets. `WAIVED` and `CANCELED` charges remain visible with their stored amount and status but do not contribute to `totalPenaltyAmount`.
 - Impact: The JSON API and Excel export use the same query model and identical `PAID + UNPAID` total basis. Historical amounts are read from `charge_items` and are never recalculated from current penalty rules.
 
