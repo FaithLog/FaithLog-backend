@@ -487,6 +487,123 @@ class PollServiceTest {
 	}
 
 	@Test
+	void direct_coffee_poll_requires_catalog_menu_id_without_persisting_rows() {
+		User manager = saveUser("poll-183-direct-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-183-direct-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "183직접검증캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		long pollCount = pollRepository.count();
+		long optionCount = pollOptionRepository.count();
+
+		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			duty.id(),
+			null,
+			"menuId 없는 직접 커피 투표",
+			PollType.COFFEE,
+			SelectionType.SINGLE,
+			false,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("클라이언트 아메리카노", null, 1, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode().name()).isEqualTo("POLL_COFFEE_OPTION_MENU_REQUIRED")
+			);
+
+		assertThat(pollRepository.count()).isEqualTo(pollCount);
+		assertThat(pollOptionRepository.count()).isEqualTo(optionCount);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
+	@Test
+	void coffee_template_create_and_persisted_update_require_catalog_menu_id_without_changes() {
+		User manager = saveUser("poll-183-template-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-183-template-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "183템플릿검증캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		long templateCount = pollTemplateRepository.count();
+		long templateOptionCount = pollTemplateOptionRepository.count();
+
+		assertThatThrownBy(() -> pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+			campus.campusId(), duty.id(), "menuId 없는 커피 템플릿", PollType.COFFEE,
+			SelectionType.SINGLE, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, accountId,
+			false, DayOfWeek.MONDAY, LocalTime.of(9, 0), DayOfWeek.MONDAY, LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand("클라이언트 라떼", null, 1, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode().name()).isEqualTo("POLL_COFFEE_OPTION_MENU_REQUIRED")
+			);
+		assertThat(pollTemplateRepository.count()).isEqualTo(templateCount);
+		assertThat(pollTemplateOptionRepository.count()).isEqualTo(templateOptionCount);
+
+		Long menuId = menuId("CAFE_LATTE");
+		PollTemplateResult persisted = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+			campus.campusId(), duty.id(), "원본 커피 템플릿", PollType.COFFEE,
+			SelectionType.SINGLE, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, accountId,
+			false, DayOfWeek.MONDAY, LocalTime.of(9, 0), DayOfWeek.MONDAY, LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand(null, menuId, null, 1))
+		));
+		long optionCountBeforeUpdate = pollTemplateOptionRepository.count();
+
+		assertThatThrownBy(() -> pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+			campus.campusId(), persisted.id(), duty.id(), "변조된 커피 템플릿", SelectionType.MULTIPLE,
+			ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, accountId, true,
+			DayOfWeek.TUESDAY, LocalTime.of(10, 0), DayOfWeek.THURSDAY, LocalTime.of(17, 30),
+			List.of(new CreatePollTemplateOptionCommand("변조 선택지", null, 9999, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode().name()).isEqualTo("POLL_COFFEE_OPTION_MENU_REQUIRED")
+			);
+
+		PollTemplateResult unchanged = pollTemplateService.getTemplate(campus.campusId(), persisted.id(), duty.id());
+		assertThat(unchanged.title()).isEqualTo("원본 커피 템플릿");
+		assertThat(unchanged.options())
+			.extracting(PollTemplateOptionResult::content, PollTemplateOptionResult::composeMenuCode, PollTemplateOptionResult::priceAmount)
+			.containsExactly(org.assertj.core.groups.Tuple.tuple("카페라떼", "CAFE_LATTE", 2900));
+		assertThat(pollTemplateOptionRepository.count()).isEqualTo(optionCountBeforeUpdate);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
+	@Test
+	void coffee_direct_and_template_options_ignore_client_snapshot_fields() {
+		User manager = saveUser("poll-183-override-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-183-override-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "183덮어쓰기검증캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Long menuId = menuId("CAFE_LATTE");
+
+		PollResult direct = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(), duty.id(), null, "snapshot 직접 검증", PollType.COFFEE,
+			SelectionType.SINGLE, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE,
+			accountId, Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("클라이언트 메뉴명", menuId, 1, 1))
+		));
+		PollTemplateResult template = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+			campus.campusId(), duty.id(), "snapshot 템플릿 검증", PollType.COFFEE,
+			SelectionType.SINGLE, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, accountId,
+			false, DayOfWeek.MONDAY, LocalTime.of(9, 0), DayOfWeek.MONDAY, LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand("클라이언트 템플릿 메뉴명", menuId, 1, 1))
+		));
+
+		assertThat(direct.options())
+			.extracting(PollOptionResult::content, PollOptionResult::composeMenuCode, PollOptionResult::priceAmount)
+			.containsExactly(org.assertj.core.groups.Tuple.tuple("카페라떼", "CAFE_LATTE", 2900));
+		assertThat(template.options())
+			.extracting(PollTemplateOptionResult::content, PollTemplateOptionResult::composeMenuCode, PollTemplateOptionResult::priceAmount)
+			.containsExactly(org.assertj.core.groups.Tuple.tuple("카페라떼", "CAFE_LATTE", 2900));
+	}
+
+	@Test
 	void direct_poll_defaults_user_option_add_by_poll_type_and_respects_explicit_false() {
 		User manager = saveUser("poll-direct-default-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-direct-default-duty@example.com", UserRole.USER);
