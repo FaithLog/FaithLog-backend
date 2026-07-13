@@ -1004,7 +1004,7 @@ tags:
 
 ### 10.1 PM 코드리뷰 완료 게이트
 
-1. 개발 세션은 구현, 테스트, 격리 Docker 실제 QA, 저장소 문서, Obsidian 기록, 작업 단위 커밋까지 완료한다.
+1. 병렬 feature 개발 세션은 구현, focused/full 테스트, `./gradlew test`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`, REST Docs, 저장소 문서, Obsidian 기록, 작업 단위 커밋까지 완료한다. Docker build/up/API QA는 feature 세션에서 실행하지 않는다.
 2. 개발 세션은 push, PR 생성, merge를 수행하지 않는다.
 3. 커밋 완료 즉시 원본 PM 세션에 `origin/develop...HEAD` 전체 diff 기준 상세 코드리뷰 보고서를 보낸다.
 4. 상세 보고서에는 다음을 모두 포함한다.
@@ -1013,16 +1013,17 @@ tags:
    - 구현 API, 권한, 트랜잭션, DB, Flyway, 의존성
    - TDD RED 명령과 실패 원인, GREEN 결과
    - focused/full test, build, asciidoctor, `git diff --check`
-   - Docker 실제 API QA와 마지막 `docker builder prune -f` 결과
+   - Docker QA를 integration branch로 이관한 상태와 이미 관찰한 Docker 오류가 있으면 그 사실
    - API/DTO/ErrorCode/기존 기능 회귀와 변경하지 않은 범위
    - REST Docs와 `index.adoc`
    - 저장소 문서와 Obsidian 기록
    - 발견한 리스크, pending decision, 미검증 항목
 5. PM 세션은 `origin/develop...HEAD` 전체 diff를 독립 코드리뷰한다.
 6. PM finding이 있으면 개발 세션은 finding별 실패 재현 또는 근거를 확인하고 최소 수정한다. 필수 전체 검증과 작업 단위 커밋을 다시 완료한 뒤 새 상세 코드리뷰 보고서를 보낸다.
-7. 병렬 개발 대상으로 묶인 모든 이슈가 finding 0건이고 필수 검증을 통과한 경우에만 PM 세션이 `origin/develop` 기반 별도 integration branch를 생성하고 승인된 feature branch들을 병합한다.
-8. 개발 세션은 feature branch 또는 `develop`에 직접 PR/merge하지 않는다. integration CI 실패나 충돌이 있으면 완료 처리하지 않고 원인을 수정, 재검증, 재리뷰한다.
-9. PM integration branch 통합과 Issue 종료 또는 완료 상태가 실제 확인되어야 이슈를 최종 완료한다.
+7. #188/#189/#190이 모두 finding 0건이고 필수 비Docker 검증을 통과한 경우에만 PM 세션이 최신 `origin/develop` 기반 `integration/188-190-devotion-meal-billing` 브랜치를 생성하고 승인된 feature branch들을 병합한다.
+8. 격리 PostgreSQL/Redis/backend Docker build/up/health와 세 기능 연결 실제 API QA는 integration branch에서 한 번 수행한다. 해당 compose project만 `down`하고 마지막 Docker 명령은 `docker builder prune -f`로 한다. `down -v`, named volume 삭제, `docker system/image/volume prune`은 실행하지 않는다.
+9. 개발 세션은 feature branch 또는 `develop`에 직접 PR/merge하지 않는다. integration CI 실패나 충돌이 있으면 완료 처리하지 않고 원인을 수정, 재검증, 재리뷰한다.
+10. PM integration branch 통합과 Issue 종료 또는 완료 상태가 실제 확인되어야 이슈를 최종 완료한다.
 
 ## 11. 보고 형식
 
