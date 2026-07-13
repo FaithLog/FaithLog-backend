@@ -2,6 +2,15 @@
 
 This document records the current backend implementation source of truth.
 
+## Dependency Security Baseline
+
+- The backend Spring Boot plugin/BOM maintenance baseline is `3.5.15`.
+- Spring Security config/core/crypto/web/test must resolve to `6.5.11` or later within the approved Spring Boot 3.5.x managed line.
+- Do not override individual Spring Security transitive modules. Upgrade through the official Spring Boot BOM unless the user approves a separate BOM/property strategy.
+- The dependency contract must fail if any Spring Security runtime/test module resolves to the vulnerable 6.5.0-6.5.10 range.
+- A maintenance dependency upgrade must preserve the existing API, authentication/authorization meaning, database schema, and infrastructure policy. Unexpected compatibility fixes require user approval before production changes.
+- Do not add an eager-header workaround or change servlet `ERROR` dispatch/`/error` authorization policy without an explicit user decision.
+
 ## Auth
 
 - Refresh Token is stored in Redis, not in the database.
