@@ -233,3 +233,98 @@ git log --all -G '<high-signal-format-pattern>' --format='%H' --no-patch
 
 The findings report will keep repository-confirmed facts separate from GitHub, GCP, Supabase, Upstash, and
 Firebase console checks that cannot be proved from this manifest.
+
+## 13. Resolved dependency census
+
+`./gradlew --no-daemon dependencies --configuration runtimeClasspath` resolved the baseline runtime graph
+without unresolved nodes. The report contained 15 first-level runtime rows and 208 unique resolved module
+coordinates. All 20 direct dependency declarations and all five plugin declarations use explicit versions or
+Spring Boot dependency-management; dynamic versions, `SNAPSHOT`, and version ranges were 0.
+
+Security-relevant resolved versions include:
+
+| Component | Resolved version | Repository source |
+| --- | --- | --- |
+| Spring Boot dependency platform | 3.5.0 | `build.gradle.kts:4` |
+| Spring Security config/core/web | 6.5.0 | transitive from `spring-boot-starter-security` |
+| Spring Framework web/webmvc | 6.2.7 | transitive from Spring Boot web starter |
+| Netty modules | 4.1.135.Final | forced in `build.gradle.kts:25-31` |
+| Firebase Admin | 9.9.0 | `build.gradle.kts:43` |
+| JJWT | 0.12.6 | `build.gradle.kts:45-47` |
+| PostgreSQL JDBC | 42.7.5 | Spring Boot-managed runtime dependency |
+| Flyway core/PostgreSQL | 11.7.2 | Spring Boot-managed dependencies |
+
+The dependency report is metadata, not an exhaustive vulnerability scanner. GitHub returned 0 open Dependabot
+alerts on 2026-07-13, but the repository SBOM endpoint returned 404 and no local OSV, Trivy, Grype,
+Dependency-Check, or Snyk executable was available. Therefore 0 alerts must not be restated as 0 vulnerable
+components.
+
+## 14. Supply-chain integrity controls
+
+| Control | Repository-confirmed state | Classification |
+| --- | --- | --- |
+| Gradle wrapper version | 8.14.5, exact URL | present |
+| wrapper URL validation | `validateDistributionUrl=true` | present |
+| wrapper JAR integrity | local SHA-256 matches Gradle's published 8.14.5 wrapper JAR checksum | verified in audit |
+| distribution ZIP checksum | no `distributionSha256Sum` | hardening candidate |
+| dependency version policy | 0 dynamic/SNAPSHOT/range declarations | present |
+| dependency locking | no lock state | hardening candidate |
+| dependency verification metadata | no `gradle/verification-metadata.xml` | hardening candidate |
+| dependency repository | Maven Central only | narrowed |
+| plugin repository | Gradle Plugin Portal default | present, no content filter |
+| Java toolchain | Java 21 | present |
+| Docker base image | builder/runtime tags set, digest absent | hardening candidate |
+| GitHub external actions | 8 invocations use mutable major tags | existing #157 H-157-02; not recounted |
+
+The official Gradle 8.14.5 binary distribution checksum observed during the audit was compared without modifying
+`gradle-wrapper.properties`. No lock, verification metadata, dependency, plugin, wrapper, or Docker image was
+changed.
+
+## 15. Deployment trust boundaries and protected assets
+
+| # | Trust boundary | Protected assets | Repository-confirmed defenses | Console-dependent defenses |
+| ---: | --- | --- | --- | --- |
+| 1 | contributor/PR -> GitHub repository | source, workflow, review history | PR CI for `main`/`develop`, read-only workflow token | collaborator roles, deploy keys |
+| 2 | GitHub runner -> external actions/Gradle repositories | runner token, source, dependency graph | top-level `contents: read`, Maven Central only, exact direct versions | organization action allowlist |
+| 3 | Docker builder -> base registry | build context, boot JAR, image layers | `.dockerignore`, multi-stage JAR-only runtime copy | registry trust policy, provenance |
+| 4 | source branch -> external Cloud Build/Artifact Registry | deploy trigger, image identity, release lineage | current repository has no duplicate GitHub CD workflow | trigger branch, approval, build service account, signing |
+| 5 | Artifact Registry -> Cloud Run | production image and runtime identity | image tag template includes git/release tag | digest deployment, binary authorization, runtime service account |
+| 6 | Cloud Run -> Secret Manager | DB/Redis/JWT/Firebase credentials | env-name contract, no tracked values | secret versions, rotation, accessor IAM, audit logs |
+| 7 | mobile client -> public Cloud Run API | JWT, account/campus/prayer/billing data | stateless JWT filter; non-public API requires authentication | ingress, Cloud Armor, upstream cache/CDN |
+| 8 | Cloud Run -> Supabase PostgreSQL | user and domain records, migrations | separate username/password, pool 5, Flyway, Hibernate validate | TLS enforcement, DB roles, pooler/direct policy, network controls |
+| 9 | Cloud Run -> Upstash Redis | refresh identifiers, revocation, locks/dedup | password + TLS configuration, hashed/opaque identifiers, fail-closed adapters | ACL, IP restriction, rotation, live TLS state |
+| 10 | Cloud Run -> Firebase Admin/FCM | Admin credential, FCM tokens, delivery logs | JSON-over-path preference, profile isolation, invalid-token deactivation | IAM/key age, API restrictions, delivery monitoring |
+
+## 16. Runtime boundary behavior matrix
+
+| Boundary | Repository-confirmed behavior | Security interpretation |
+| --- | --- | --- |
+| Cloud Run listener | `server.port=${PORT:${SERVER_PORT:8080}}` | Cloud Run `$PORT` contract satisfied |
+| application state | PostgreSQL/Redis/FCM are external; runtime image contains only JAR | container is structurally stateless |
+| production JDBC | URL, username, and password are separate; pool default 5 | TLS is URL/provider-console dependent and unverified |
+| schema lifecycle | Flyway enabled; `baseline-on-migrate=false`; JPA `validate` | startup fails on incompatible schema rather than silently mutating it |
+| production Redis | host, port, password, SSL enabled by default | live Upstash endpoint and ACL remain console checks |
+| authentication Redis failure | #158/#176 fail-closed paths preserved | not recounted as a #161 finding |
+| notification dedup/lock failure | adapter exception propagates; scheduled/manual callers preserve approved fail-closed behavior | not recounted as a #161 finding |
+| Firebase credential initialization | required outside local/docker/test; JSON preferred to path | missing/invalid production credential fails startup by approved design |
+| FCM delivery | asynchronous worker, 3 application retries, permanent-token deactivation | runtime send failures do not terminate the server process |
+| notification source of truth | `notification_logs` and `user_fcm_tokens` repositories | raw provider error persistence remains #160 U-160-03, not duplicated |
+| SpringDoc | production template defaults API docs and UI to disabled | live Cloud Run environment remains unverified |
+| Actuator | config exposes health/info, security permits only health anonymously | live management exposure remains unverified |
+| CORS | no explicit application CORS policy | mobile JWT API is not made private by CORS; upstream/browser requirements are unverified |
+
+## 17. Count reconciliation
+
+The tables above reconcile to their declared denominators:
+
+- workflow manifest: 2 file rows; action manifest: 8 invocation rows and 6 unique coordinates;
+- Docker manifest: 3 file rows;
+- Gradle surface: 6 files, 20 dependency rows, 5 plugin rows;
+- configuration: 4 env templates, 6 Spring profiles, 1 deployment contract;
+- adapters: Firebase 8 infrastructure/14 trace rows, Redis 7 infrastructure/9 trace rows;
+- schema: 7 Flyway migration rows;
+- resolved runtime graph: 15 first-level rows, 208 unique modules, 0 unresolved;
+- secret census: 0 current/history high-signal credential candidates and 0 non-example sensitive-path files.
+
+No row count includes nonexistent controls or console-only resources. No secret, token, private key, Firebase JSON,
+database/Redis credential, account number, or personal-data value is recorded in this matrix.
