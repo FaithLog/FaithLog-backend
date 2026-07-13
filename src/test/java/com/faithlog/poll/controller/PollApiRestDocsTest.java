@@ -272,7 +272,7 @@ class PollApiRestDocsTest {
 		JsonNode pollData = objectMapper.readTree(pollBody).path("data");
 		long pollId = pollData.path("id").asLong();
 		long optionId = pollData.path("options").get(0).path("id").asLong();
-		Instant originalEndsAt = Instant.parse(pollData.path("endsAt").asText());
+		Instant originalEndsAt = pollRepository.findById(pollId).orElseThrow().endsAt();
 		long chargedOptionId = optionId;
 
 		for (int index = 0; index < 3; index++) {
