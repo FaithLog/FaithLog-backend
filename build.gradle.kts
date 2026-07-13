@@ -1,3 +1,5 @@
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+
 plugins {
 	java
 	jacoco
@@ -21,6 +23,30 @@ repositories {
 }
 
 val snippetsDir = layout.buildDirectory.dir("generated-snippets")
+val runtimeSpringSecurityManifest = providers.provider {
+	configurations.getByName("runtimeClasspath")
+		.incoming
+		.artifacts
+		.artifacts
+		.asSequence()
+		.mapNotNull { it.id.componentIdentifier as? ModuleComponentIdentifier }
+		.filter { it.group == "org.springframework.security" }
+		.map { "${it.module}=${it.version}" }
+		.sorted()
+		.joinToString(",")
+}
+val testRuntimeSpringSecurityManifest = providers.provider {
+	configurations.getByName("testRuntimeClasspath")
+		.incoming
+		.artifacts
+		.artifacts
+		.asSequence()
+		.mapNotNull { it.id.componentIdentifier as? ModuleComponentIdentifier }
+		.filter { it.group == "org.springframework.security" }
+		.map { "${it.module}=${it.version}" }
+		.sorted()
+		.joinToString(",")
+}
 
 configurations.configureEach {
 	resolutionStrategy.eachDependency {
@@ -57,6 +83,18 @@ dependencies {
 tasks.withType<Test> {
 	useJUnitPlatform()
 	outputs.dir(snippetsDir)
+	inputs.property("springSecurityRuntimeClasspathManifest", runtimeSpringSecurityManifest)
+	inputs.property("springSecurityTestRuntimeClasspathManifest", testRuntimeSpringSecurityManifest)
+	doFirst {
+		systemProperty(
+			"faithlog.spring-security.runtime-classpath-manifest",
+			runtimeSpringSecurityManifest.get()
+		)
+		systemProperty(
+			"faithlog.spring-security.test-runtime-classpath-manifest",
+			testRuntimeSpringSecurityManifest.get()
+		)
+	}
 	finalizedBy(tasks.jacocoTestReport)
 }
 
