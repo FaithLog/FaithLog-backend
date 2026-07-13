@@ -2,6 +2,10 @@ package com.faithlog.billing.controller;
 
 import com.faithlog.billing.controller.dto.request.CreateMealPaymentAccountRequest;
 import com.faithlog.billing.controller.dto.response.PaymentAccountAdminResponse;
+import com.faithlog.billing.controller.dto.response.AdminCampusChargesResponse;
+import com.faithlog.billing.domain.type.ChargeStatus;
+import com.faithlog.billing.service.AdminChargeQueryService;
+import com.faithlog.billing.service.query.AdminCampusChargeListQuery;
 import com.faithlog.billing.service.MealPaymentAccountService;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import com.faithlog.global.response.ApiResponse;
@@ -25,9 +29,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class MealBillingController {
 
 	private final MealPaymentAccountService mealPaymentAccountService;
+	private final AdminChargeQueryService adminChargeQueryService;
 
-	public MealBillingController(MealPaymentAccountService mealPaymentAccountService) {
+	public MealBillingController(
+		MealPaymentAccountService mealPaymentAccountService,
+		AdminChargeQueryService adminChargeQueryService
+	) {
 		this.mealPaymentAccountService = mealPaymentAccountService;
+		this.adminChargeQueryService = adminChargeQueryService;
 	}
 
 	@PostMapping("/payment-accounts")
@@ -65,5 +74,30 @@ public class MealBillingController {
 			accountId,
 			authenticatedUser.userId()
 		)), "밥 납부 계좌가 비활성화되었습니다.");
+	}
+
+	@GetMapping("/charges/my-accounts")
+	public ApiResponse<AdminCampusChargesResponse> listMyAccountCharges(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@RequestParam(required = false) ChargeStatus status,
+		@RequestParam(required = false) Long userId,
+		@RequestParam(required = false) String keyword,
+		@RequestParam(defaultValue = "0") int page,
+		@RequestParam(defaultValue = "20") int size,
+		@RequestParam(defaultValue = "createdAt,desc") String sort
+	) {
+		return ApiResponse.success(AdminCampusChargesResponse.from(
+			adminChargeQueryService.listMealChargesForMyAccounts(new AdminCampusChargeListQuery(
+				campusId,
+				authenticatedUser.userId(),
+				com.faithlog.billing.domain.type.PaymentCategory.MEAL,
+				status,
+				userId,
+				keyword,
+				null,
+				BillingPageRequests.adminMembers(page, size, sort)
+			))
+		));
 	}
 }
