@@ -8,6 +8,6 @@ public record DevotionFineCalculationItemResult(
 	int chargeUnitCount,
 	int baseAmount,
 	int amountPerUnit,
-	int amount
+	long amount
 ) {
 }
