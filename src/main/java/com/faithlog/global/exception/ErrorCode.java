@@ -82,6 +82,7 @@ public enum ErrorCode {
 	POLL_MENU_INACTIVE(HttpStatus.BAD_REQUEST, "비활성화된 커피 메뉴는 사용할 수 없습니다."),
 	POLL_COFFEE_BRAND_NOT_FOUND(HttpStatus.NOT_FOUND, "커피 브랜드를 찾을 수 없습니다."),
 	POLL_COFFEE_DUTY_MISSING(HttpStatus.BAD_REQUEST, "관리자에게 문의하세요"),
+	POLL_COFFEE_OPTION_MENU_REQUIRED(HttpStatus.BAD_REQUEST, "커피 투표 선택지는 menuId가 필요합니다."),
 	POLL_INVALID_OPTION(HttpStatus.BAD_REQUEST, "투표 선택지가 올바르지 않습니다."),
 	POLL_INVALID_PERIOD(HttpStatus.BAD_REQUEST, "투표 기간이 올바르지 않습니다."),
 	POLL_NOT_FOUND(HttpStatus.NOT_FOUND, "투표를 찾을 수 없습니다."),
