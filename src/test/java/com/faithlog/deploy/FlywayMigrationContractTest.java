@@ -203,6 +203,7 @@ class FlywayMigrationContractTest {
 			"NOT VALID",
 			"VALIDATE CONSTRAINT"
 		);
+		assertThat(sql).doesNotContain("IF NOT EXISTS");
 		assertThat(v1).doesNotContain("ck_charge_items_amount_positive");
 	}
 }
