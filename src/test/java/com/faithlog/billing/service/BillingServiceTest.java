@@ -26,6 +26,7 @@ import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusRole;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
@@ -1195,7 +1196,7 @@ class BillingServiceTest {
 	}
 
 	@Test
-	void changeChargeStatus_rejects_paid_target_normal_member_manager_without_membership_and_invalid_transition() {
+	void changeChargeStatus_allows_paid_target_and_rejects_terminal_paid_normal_member_manager_without_membership() {
 		User manager = saveUser("billing-status-auth-manager@example.com", UserRole.MANAGER);
 		User serviceManager = saveUser("billing-status-auth-service-manager@example.com", UserRole.MANAGER);
 		User member = saveUser("billing-status-auth-member@example.com", UserRole.USER);
@@ -1206,13 +1207,22 @@ class BillingServiceTest {
 		ChargeItem waived = saveCharge(campus.campusId(), member.id(), account, 5011L);
 		waived.waive();
 
-		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+		ChargeItemResult paid = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
 			charge.id(),
 			manager.id(),
 			ChargeStatus.PAID
+		));
+		assertThat(paid.status()).isEqualTo(ChargeStatus.PAID);
+		assertThat(paid.paidAt()).isNotNull();
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			waived.id(),
+			manager.id(),
+			ChargeStatus.PAID
 		)))
-			.isInstanceOf(BusinessException.class)
-			.hasMessage("관리자는 청구를 PAID로 변경할 수 없습니다.");
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_TRANSITION_CONFLICT)
+			)
+			.hasMessage("허용되지 않는 청구 상태 전이입니다.");
 		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
 			charge.id(),
 			member.id(),

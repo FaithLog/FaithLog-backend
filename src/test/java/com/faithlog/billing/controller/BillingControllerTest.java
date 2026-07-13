@@ -360,6 +360,18 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data.status").value("UNPAID"))
 			.andExpect(jsonPath("$.data.paidAt").doesNotExist());
 
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", paidTarget.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("PAID"))
+			.andExpect(jsonPath("$.data.paidAt").isNotEmpty());
+
 		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -368,19 +380,30 @@ class BillingControllerTest {
 					  "status": "PAID"
 					}
 					"""))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.message").value("관리자는 청구를 PAID로 변경할 수 없습니다."));
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_TRANSITION_CONFLICT"))
+			.andExpect(jsonPath("$.message").value("허용되지 않는 청구 상태 전이입니다."));
 
 		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
 				.header("Authorization", "Bearer " + memberToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "status": "CANCELED"
+					  "status": "PAID"
 					}
 					"""))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.message").value("청구 상태 변경 권한이 없습니다."));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 
 		mockMvc.perform(patch("/api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid", campusId, terminalTarget.id())
 				.header("Authorization", "Bearer " + memberToken)

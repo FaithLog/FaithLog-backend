@@ -70,7 +70,6 @@ public enum ErrorCode {
 	BILLING_MY_CHARGE_PAYMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 청구 항목만 납부 완료 처리할 수 있습니다."),
 	BILLING_MY_CHARGE_CAMPUS_MISMATCH(HttpStatus.FORBIDDEN, "청구 항목의 캠퍼스가 요청 캠퍼스와 일치하지 않습니다."),
 	BILLING_MY_CHARGE_PAYMENT_CONFLICT(HttpStatus.CONFLICT, "미납 상태의 청구만 납부 완료 처리할 수 있습니다."),
-	BILLING_ADMIN_PAID_FORBIDDEN(HttpStatus.BAD_REQUEST, "관리자는 청구를 PAID로 변경할 수 없습니다."),
 	BILLING_CHARGE_STATUS_TRANSITION_CONFLICT(HttpStatus.CONFLICT, "허용되지 않는 청구 상태 전이입니다."),
 	BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "청구 상태 변경 권한이 없습니다."),
 
