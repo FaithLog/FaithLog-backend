@@ -38,6 +38,30 @@ Official sources:
 - Runtime and test `dependencyInsight` vulnerable Spring Security 6.5.0-6.5.10 occurrences: 0.
 - All resolved Spring Security config/core/crypto/web/test modules: 6.5.11.
 
+### Independent Runtime And Test Dependency Contract
+
+The PM follow-up review found that scanning JAR manifests from the test JVM could let a
+safe `testRuntimeClasspath` mask a vulnerable production `runtimeClasspath`. The final
+contract now reads Gradle's resolved artifacts from both configurations independently,
+filters the `org.springframework.security` group, and supplies two sorted `module=version`
+manifests to the test JVM as tracked `Test` task inputs.
+
+Actual final manifests:
+
+```text
+runtimeClasspath=spring-security-config=6.5.11,spring-security-core=6.5.11,spring-security-crypto=6.5.11,spring-security-web=6.5.11
+testRuntimeClasspath=spring-security-config=6.5.11,spring-security-core=6.5.11,spring-security-crypto=6.5.11,spring-security-test=6.5.11,spring-security-web=6.5.11
+```
+
+- Runtime required modules: config/core/crypto/web.
+- Test required modules: config/core/crypto/web/test.
+- Every discovered module must be at least 6.5.11.
+- Versions must be an exact numeric three-part release. RC, M, SNAPSHOT, `.Final`, build
+  metadata, two-part, and four-part versions fail.
+- A missing live Gradle manifest fails instead of falling back to the test classloader.
+- The Java plugin's `check` lifecycle includes `test`; the final `build` run confirmed the
+  contract stays on the normal check path without another plugin or dependency.
+
 ## Complete Runtime Resolved Dependency Diff
 
 The table below contains every changed or added coordinate from reproducible `runtimeClasspath` reports. Unchanged coordinates are omitted; removed coordinates are zero.
@@ -155,7 +179,42 @@ GREEN result after the one-line Boot upgrade:
 - `./gradlew asciidoctor`: success.
 - `git diff --check`: success.
 
+### PM Review Follow-up RED/GREEN
+
+The two review findings were reproduced before the contract implementation in test-only
+commit `d5fec90`.
+
+```text
+./gradlew --no-daemon --console=plain test \
+  --tests 'com.faithlog.global.security.SpringSecurityDependencyVersionContractTest'
+```
+
+RED result:
+
+- 3 tests executed, 2 failed.
+- A vulnerable runtime manifest (`6.5.10`) was ignored while the safe test classpath made
+  the old live contract pass.
+- `6.5.11-RC1` was accepted after the old parser removed its qualifier.
+
+GREEN result after `b266272`:
+
+- Dependency contract: 10 tests, 0 failures, 0 errors, 0 skipped.
+- Previous 59-test focused class range: 68 tests, 0 failures, 0 errors, 0 skipped. The
+  increase is exactly nine new dependency-contract cases.
+- Full suite: 413 tests, 410 passed, 0 failures, 0 errors, 3 skipped.
+- `./gradlew build`: success; `check` and the full `test` task remained in its lifecycle.
+- `./gradlew asciidoctor`: success.
+- Final runtime/test `dependencyInsight`: all five relevant modules are release 6.5.11;
+  vulnerable 6.5.0-6.5.10 occurrences are zero.
+- `git diff --check`: success.
+- PM independent structure review found no new blocking finding and approved both prior
+  false-green findings as resolved.
+
 ## Security Header Results
+
+`SecurityHeaderRegressionTest` is a general 200/401/403/MockMvc 404 default-header
+regression test. It is not a CVE exploit reproducer. The PM follow-up changed neither this
+test nor production header behavior.
 
 The approved default header set checked by MockMvc is:
 
@@ -214,6 +273,8 @@ Preserved and verified:
 - Final Docker command: `docker builder prune -f`.
 - Reclaimed build cache: 1.4GB.
 - No Docker commands were run after the builder prune.
+- Docker was not rerun for the PM follow-up because it changed only the test contract and
+  build-script test inputs, with no production or runtime behavior change.
 
 ## Static Scope Verification
 
@@ -225,4 +286,6 @@ Preserved and verified:
 - Gradle wrapper, dependency locking/verification metadata, Docker digest, and GitHub Action SHA pinning diff: 0.
 - Controller Entity return and Swagger annotation policy were not changed.
 - `docs/decision-log.md` was not changed because #186 did not introduce a product/API/security behavior decision.
+- PM follow-up implementation diff was limited to `build.gradle.kts` and
+  `SpringSecurityDependencyVersionContractTest`; documentation was then synchronized.
 - Push and PR were not performed.
