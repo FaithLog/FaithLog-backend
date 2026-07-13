@@ -31,6 +31,8 @@ this audit creates no follow-up Issue.
 - Known #157-#160 and #176/#179/#182/#183 findings and fixes are referenced but not duplicated.
 - Advisory matching uses official vendor documentation. The available dependency graph was resolved safely,
   but no new scanner/plugin/dependency was installed.
+- Team delegation was unavailable under this session's execution policy. Both confirmed findings were
+  self-verified by a second skeptical evidence pass; no independent sub-agent verification is claimed.
 - Secret scans record only counts, classifications, file paths, and commit counts. Matching values are never
   printed or documented.
 
@@ -291,3 +293,7 @@ or a complete third-party vulnerability database.
 - [Supabase database SSL enforcement](https://supabase.com/docs/guides/platform/ssl-enforcement)
 - [Upstash Redis TLS](https://upstash.com/docs/redis/features/encryption)
 - [Firebase Admin credential setup](https://firebase.google.com/docs/admin/setup)
+
+This is an AI-assisted first-pass audit, not a substitute for a professional security audit or penetration test.
+It is not comprehensive or guaranteed; production systems handling credentials, personal data, or financial
+records should also receive qualified independent review.
