@@ -188,6 +188,31 @@ class ChargeDevotionResubmissionIntegrationTest {
 			.get()
 			.extracting(WeeklyDevotionRecord::submittedAt)
 			.isNotNull();
+
+		ChargeItem pollResponsePenalty = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			coffeeFixture.campus().campusId(),
+			coffeeFixture.member().id(),
+			PaymentCategory.PENALTY,
+			coffeeFixture.account().id(),
+			"하나은행",
+			"190-POLL-RESPONSE-PENALTY",
+			"회계",
+			ChargeSourceType.POLL_RESPONSE,
+			coffeeFixture.weeklyRecord().id(),
+			"경건 source가 아닌 벌금",
+			"POLL_RESPONSE source는 경건을 재오픈하지 않음",
+			3000,
+			WEEK_START.plusDays(7)
+		));
+
+		billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			pollResponsePenalty.id(), coffeeFixture.manager().id(), ChargeStatus.CANCELED
+		));
+
+		assertThat(weeklyRecordRepository.findById(coffeeFixture.weeklyRecord().id()))
+			.get()
+			.extracting(WeeklyDevotionRecord::submittedAt)
+			.isNotNull();
 	}
 
 	@Test
