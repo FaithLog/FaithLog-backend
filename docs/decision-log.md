@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-13 - Issue #182 Devotion Fine Range And Positive Charge Integrity
+
+- Context: Issue #160 F-160-01 confirmed that unbounded `saturdayLateMinutes`, unchecked `int` arithmetic, and the absence of Billing/database positive-amount invariants could persist a negative `UNPAID` PENALTY charge and distort dashboard totals.
+- Decision: Weekly devotion requests accept `saturdayLateMinutes` only from 0 through 1,440 inclusive. Values outside that range reuse `DEVOTION_INVALID_SATURDAY_LATE_MINUTES` with HTTP 400 and message `saturdayLateMinutes는 0 이상 1,440 이하이어야 합니다.`. Fine calculation uses `long` with explicit exact multiplication and addition. Arithmetic overflow or a total outside the persisted PostgreSQL `INTEGER` range fails with `DEVOTION_FINE_AMOUNT_OUT_OF_RANGE`, HTTP 400, and `계산된 벌금 금액이 허용 범위를 초과했습니다.`.
+- Decision: Billing creates and updates only charges whose `amount > 0`; a calculated total of exactly 0 continues to skip PENALTY charge creation. Flyway V7 adds `ck_charge_items_amount_positive`. It is added `NOT VALID` so new or updated invalid rows are rejected without editing historical data, and it is conditionally validated when no legacy zero/negative row exists. Existing invalid production data must not be modified or deleted without a separate PM decision.
+- Impact: Weekly submission, seven daily rows, fine calculation, and Billing remain in one rollback boundary. API paths, successful request/response DTOs, penalty formula, charge storage type (`INTEGER`), dashboard response, and normal PENALTY/COFFEE behavior remain unchanged. V1-V6 migrations are not edited.
+
 ### 2026-07-12 - Issue #176 Atomic Refresh Rotation And Reuse Session Revocation
 
 - Context: Issue #158 confirmed that refresh current-JTI validation and replacement were separate Redis GET and SET operations, so two parallel requests using the same old refresh token could both issue token pairs. Issue #176 fixes this race without changing the public auth API, token response, token lifetime, logout meaning, role invalidation, withdrawal, or FCM behavior.
