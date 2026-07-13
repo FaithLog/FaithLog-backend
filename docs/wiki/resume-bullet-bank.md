@@ -1,7 +1,7 @@
 <!-- issue-work:start:resume-bullet-bank:2026-07-13-189 -->
 ## 2026-07-13 Issue #189
 
-- [ready] 다수 MEAL 담당자·본인 계좌·즉시 OPEN 투표와 option group별 후청구를 정규화하고 exact ceiling 산술·pessimistic lock·DB unique·단일 transaction으로 1회성 정산을 보장했으며, 423개 전체 테스트와 141개 REST Docs 계약으로 권한·격리·rollback을 검증했다. Evidence: `docs/resume-metrics.md` #189, `docs/wiki/engineering/2026-07-13-meal-duty-poll-settlement.md`.
+- [ready] 다수 MEAL 담당자·본인 계좌·즉시 OPEN 투표와 option group별 후청구를 정규화하고 exact ceiling 산술·pessimistic lock·DB unique·단일 transaction으로 1회성 정산을 보장했으며, 427개 전체 테스트와 143개 REST Docs 계약으로 권한·격리·rollback을 검증했다. Evidence: `docs/resume-metrics.md` #189, `docs/wiki/engineering/2026-07-13-meal-duty-poll-settlement.md`.
 <!-- issue-work:end:resume-bullet-bank:2026-07-13-189 -->
 
 <!-- daily-resume-monitor:start:resume-bullet-bank:2026-06-16 -->
