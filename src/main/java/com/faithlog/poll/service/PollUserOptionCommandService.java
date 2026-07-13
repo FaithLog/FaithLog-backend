@@ -4,6 +4,7 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.entity.PollOption;
+import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.service.command.AddPollOptionCommand;
 import com.faithlog.poll.service.result.PollOptionResult;
@@ -51,7 +52,9 @@ public class PollUserOptionCommandService {
 			.map(PollOption::content)
 			.anyMatch(existingContent -> existingContent.equalsIgnoreCase(snapshot.content()));
 		if (duplicated) {
-			throw new BusinessException(ErrorCode.POLL_OPTION_DUPLICATE_CONTENT);
+			throw new BusinessException(poll.pollType() == PollType.MEAL
+				? ErrorCode.POLL_MEAL_OPTION_DUPLICATE_CONTENT
+				: ErrorCode.POLL_OPTION_DUPLICATE_CONTENT);
 		}
 		return PollOptionResult.from(pollOptionRepository.save(PollOption.createUserAdded(
 			poll.id(), snapshot.content(), snapshot.composeMenuCode(), snapshot.priceAmount(),
