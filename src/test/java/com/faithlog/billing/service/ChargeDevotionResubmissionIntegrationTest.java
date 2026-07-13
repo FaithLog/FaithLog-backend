@@ -22,15 +22,16 @@ import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.devotion.domain.DevotionFineCalculator;
 import com.faithlog.devotion.domain.entity.DevotionDailyCheck;
 import com.faithlog.devotion.domain.entity.PenaltyRule;
 import com.faithlog.devotion.domain.entity.WeeklyDevotionRecord;
 import com.faithlog.devotion.domain.type.PenaltyCalculationType;
 import com.faithlog.devotion.domain.type.PenaltyRuleType;
+import com.faithlog.devotion.infrastructure.adapter.BillingDevotionChargeReopenAdapter;
 import com.faithlog.devotion.infrastructure.repository.DevotionDailyCheckRepository;
 import com.faithlog.devotion.infrastructure.repository.PenaltyRuleRepository;
 import com.faithlog.devotion.infrastructure.repository.WeeklyDevotionRecordRepository;
-import com.faithlog.devotion.infrastructure.adapter.BillingDevotionChargeReopenAdapter;
 import com.faithlog.devotion.service.DevotionService;
 import com.faithlog.devotion.service.command.DevotionDailyCheckCommand;
 import com.faithlog.devotion.service.command.UpdateDailyDevotionCommand;
@@ -51,6 +52,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -105,6 +107,9 @@ class ChargeDevotionResubmissionIntegrationTest {
 
 	@MockitoSpyBean
 	private BillingDevotionChargeReopenAdapter devotionChargeReopenAdapter;
+
+	@MockitoSpyBean
+	private DevotionFineCalculator devotionFineCalculator;
 
 	@Test
 	void admin_marks_any_unpaid_charge_paid_with_server_time_and_rejects_terminal_targets() {
@@ -329,6 +334,64 @@ class ChargeDevotionResubmissionIntegrationTest {
 			.get()
 			.extracting(WeeklyDevotionRecord::submittedAt)
 			.isNotNull();
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	@DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+	void concurrent_zero_amount_resubmissions_allow_only_one_submission() throws Exception {
+		SubmittedDevotion fixture = submitPenaltyDevotion("190-concurrent-zero-resubmit");
+		billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			fixture.charge().id(), fixture.manager().id(), ChargeStatus.CANCELED
+		));
+
+		CountDownLatch firstCalculationEntered = new CountDownLatch(1);
+		CountDownLatch allowFirstCalculation = new CountDownLatch(1);
+		CountDownLatch secondCalculationEntered = new CountDownLatch(1);
+		AtomicInteger calculationCount = new AtomicInteger();
+		doAnswer(invocation -> {
+			int invocationNumber = calculationCount.incrementAndGet();
+			if (invocationNumber == 1) {
+				firstCalculationEntered.countDown();
+				if (!allowFirstCalculation.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("Timed out while coordinating concurrent zero resubmissions.");
+				}
+			} else {
+				secondCalculationEntered.countDown();
+			}
+			return invocation.callRealMethod();
+		}).when(devotionFineCalculator).calculate(any(), any());
+
+		UpdateWeeklyDevotionCommand command = new UpdateWeeklyDevotionCommand(
+			fixture.campus().campusId(), fixture.member().id(), WEEK_START,
+			fullyCheckedWeekdays(), 0, true
+		);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<BusinessException> first = executor.submit(() -> captureBusinessException(
+				() -> devotionService.updateWeeklyCheck(command)
+			));
+			assertThat(firstCalculationEntered.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<BusinessException> second = executor.submit(() -> captureBusinessException(
+				() -> devotionService.updateWeeklyCheck(command)
+			));
+
+			assertThat(secondCalculationEntered.await(500, TimeUnit.MILLISECONDS)).isFalse();
+			allowFirstCalculation.countDown();
+
+			assertThat(first.get(5, TimeUnit.SECONDS)).isNull();
+			assertThat(second.get(5, TimeUnit.SECONDS))
+				.isNotNull()
+				.extracting(BusinessException::errorCode)
+				.isEqualTo(ErrorCode.DEVOTION_WEEKLY_ALREADY_SUBMITTED);
+			assertThat(chargeItemRepository.findById(fixture.charge().id()))
+				.get()
+				.extracting(ChargeItem::status)
+				.isEqualTo(ChargeStatus.CANCELED);
+		} finally {
+			allowFirstCalculation.countDown();
+			executor.shutdownNow();
+		}
 	}
 
 	@Test
@@ -618,6 +681,15 @@ class ChargeDevotionResubmissionIntegrationTest {
 			return new ConcurrentStatusResult(true, null);
 		} catch (BusinessException exception) {
 			return new ConcurrentStatusResult(false, exception.errorCode());
+		}
+	}
+
+	private BusinessException captureBusinessException(Runnable operation) {
+		try {
+			operation.run();
+			return null;
+		} catch (BusinessException exception) {
+			return exception;
 		}
 	}
 

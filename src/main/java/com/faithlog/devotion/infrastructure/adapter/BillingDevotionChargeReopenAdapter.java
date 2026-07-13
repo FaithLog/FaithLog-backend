@@ -18,7 +18,7 @@ public class BillingDevotionChargeReopenAdapter implements DevotionChargeReopenP
 
 	@Override
 	public void reopenWeeklyDevotion(Long campusId, Long userId, Long weeklyRecordId) {
-		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository.findById(weeklyRecordId)
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository.findByIdForUpdate(weeklyRecordId)
 			.filter(record -> record.campusId().equals(campusId))
 			.filter(record -> record.userId().equals(userId))
 			.orElseThrow(() -> new BusinessException(ErrorCode.DEVOTION_WEEKLY_RECORD_NOT_FOUND));
