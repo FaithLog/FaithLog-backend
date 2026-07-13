@@ -15,6 +15,7 @@ import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.command.CreateCoffeeChargeCommand;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
+import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import com.faithlog.campus.service.CampusService;
@@ -39,6 +40,8 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -49,10 +52,15 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -64,6 +72,7 @@ import org.springframework.transaction.annotation.Transactional;
 @ActiveProfiles("test")
 @Transactional
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
+@Import(ChargeDevotionResubmissionIntegrationTest.RepositoryProbeConfiguration.class)
 class ChargeDevotionResubmissionIntegrationTest {
 
 	private static final LocalDate WEEK_START = LocalDate.of(2026, 6, 15);
@@ -91,6 +100,9 @@ class ChargeDevotionResubmissionIntegrationTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private ChargeRepositoryLookupProbe chargeRepositoryLookupProbe;
 
 	@MockitoSpyBean
 	private BillingDevotionChargeReopenAdapter devotionChargeReopenAdapter;
@@ -361,6 +373,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 		SubmittedDevotion fixture = submitPenaltyDevotion("190-concurrent-status");
 		CountDownLatch reopenEntered = new CountDownLatch(1);
 		CountDownLatch allowReopen = new CountDownLatch(1);
+		CountDownLatch paymentLockLookupEntered = new CountDownLatch(1);
 		doAnswer(invocation -> {
 			reopenEntered.countDown();
 			if (!allowReopen.await(5, TimeUnit.SECONDS)) {
@@ -377,6 +390,9 @@ class ChargeDevotionResubmissionIntegrationTest {
 				))
 			));
 			assertThat(reopenEntered.await(5, TimeUnit.SECONDS)).isTrue();
+			chargeRepositoryLookupProbe.signalOnNextIdLock(
+				fixture.charge().id(), paymentLockLookupEntered
+			);
 
 			Future<ConcurrentStatusResult> paymentFuture = executor.submit(() -> captureStatusResult(() ->
 				billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
@@ -386,19 +402,11 @@ class ChargeDevotionResubmissionIntegrationTest {
 					Instant.now()
 				))
 			));
-
-			ConcurrentStatusResult earlyPayment = null;
-			try {
-				earlyPayment = paymentFuture.get(500, TimeUnit.MILLISECONDS);
-			} catch (TimeoutException ignored) {
-				// A locked second transition must wait for the cancel transaction to finish.
-			}
+			assertThat(paymentLockLookupEntered.await(5, TimeUnit.SECONDS)).isTrue();
 			allowReopen.countDown();
 
 			ConcurrentStatusResult cancelResult = cancelFuture.get(5, TimeUnit.SECONDS);
-			ConcurrentStatusResult paymentResult = earlyPayment != null
-				? earlyPayment
-				: paymentFuture.get(5, TimeUnit.SECONDS);
+			ConcurrentStatusResult paymentResult = paymentFuture.get(5, TimeUnit.SECONDS);
 			List<ConcurrentStatusResult> results = List.of(cancelResult, paymentResult);
 
 			assertThat(results).filteredOn(ConcurrentStatusResult::succeeded).hasSize(1);
@@ -417,6 +425,185 @@ class ChargeDevotionResubmissionIntegrationTest {
 		} finally {
 			allowReopen.countDown();
 			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	@DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+	void concurrent_positive_resubmission_and_payment_do_not_restore_paid_charge_to_unpaid() throws Exception {
+		SubmittedDevotion fixture = submitPenaltyDevotion("190-concurrent-resubmit-payment");
+		billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			fixture.charge().id(), fixture.manager().id(), ChargeStatus.CANCELED
+		));
+		billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			fixture.charge().id(), fixture.manager().id(), ChargeStatus.UNPAID
+		));
+
+		CountDownLatch sourceChargeLoaded = new CountDownLatch(1);
+		CountDownLatch allowSourceChargeUpdate = new CountDownLatch(1);
+		CountDownLatch paymentLockLookupEntered = new CountDownLatch(1);
+		chargeRepositoryLookupProbe.blockNextSourceLookup(
+			new ChargeSourceKey(
+				fixture.campus().campusId(),
+				fixture.member().id(),
+				PaymentCategory.PENALTY,
+				ChargeSourceType.DEVOTION_RECORD,
+				fixture.weeklyRecord().id()
+			),
+			sourceChargeLoaded,
+			allowSourceChargeUpdate
+		);
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> resubmissionFuture = executor.submit(() -> devotionService.updateWeeklyCheck(
+				new UpdateWeeklyDevotionCommand(
+					fixture.campus().campusId(), fixture.member().id(), WEEK_START,
+					List.of(new DevotionDailyCheckCommand(WEEK_START, true, true, true)),
+					0, true
+				)
+			));
+			assertThat(sourceChargeLoaded.await(5, TimeUnit.SECONDS)).isTrue();
+			chargeRepositoryLookupProbe.signalOnNextIdLock(
+				fixture.charge().id(), paymentLockLookupEntered
+			);
+
+			Future<ConcurrentStatusResult> paymentFuture = executor.submit(() -> captureStatusResult(() ->
+				billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+					fixture.campus().campusId(),
+					fixture.charge().id(),
+					fixture.member().id(),
+					Instant.now()
+				))
+			));
+			assertThat(paymentLockLookupEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+			ConcurrentStatusResult paymentBeforeResubmissionCommit = null;
+			try {
+				paymentBeforeResubmissionCommit = paymentFuture.get(5, TimeUnit.SECONDS);
+			} catch (TimeoutException ignored) {
+				// The source-key row lock must keep payment waiting until resubmission commits.
+			}
+			allowSourceChargeUpdate.countDown();
+
+			resubmissionFuture.get(5, TimeUnit.SECONDS);
+			ConcurrentStatusResult paymentResult = paymentBeforeResubmissionCommit != null
+				? paymentBeforeResubmissionCommit
+				: paymentFuture.get(5, TimeUnit.SECONDS);
+
+			assertThat(paymentBeforeResubmissionCommit).isNull();
+			assertThat(paymentResult.succeeded()).isTrue();
+			assertThat(chargeItemRepository.findById(fixture.charge().id())).get().satisfies(charge -> {
+				assertThat(charge.status()).isEqualTo(ChargeStatus.PAID);
+				assertThat(charge.paidAt()).isNotNull();
+			});
+		} finally {
+			allowSourceChargeUpdate.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@TestConfiguration(proxyBeanMethods = false)
+	static class RepositoryProbeConfiguration {
+
+		@Bean
+		ChargeRepositoryLookupProbe chargeRepositoryLookupProbe() {
+			return new ChargeRepositoryLookupProbe();
+		}
+
+		@Bean
+		@Primary
+		ChargeItemRepositoryPort probingChargeItemRepositoryPort(
+			ChargeItemRepository delegate,
+			ChargeRepositoryLookupProbe probe
+		) {
+			return (ChargeItemRepositoryPort) Proxy.newProxyInstance(
+				ChargeItemRepositoryPort.class.getClassLoader(),
+				new Class<?>[] {ChargeItemRepositoryPort.class},
+				(proxy, method, args) -> {
+					if (method.getName().equals("findChargeItemByIdForUpdate")) {
+						probe.beforeIdLockLookup((Long) args[0]);
+					}
+					try {
+						Object result = method.invoke(delegate, args);
+						if (method.getName().equals(
+							"findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId"
+						)) {
+							probe.afterSourceLookup(args);
+						}
+						return result;
+					} catch (InvocationTargetException exception) {
+						throw exception.getCause();
+					}
+				}
+			);
+		}
+	}
+
+	static class ChargeRepositoryLookupProbe {
+
+		private final AtomicReference<IdLockSignal> idLockSignal = new AtomicReference<>();
+		private final AtomicReference<SourceLookupBlock> sourceLookupBlock = new AtomicReference<>();
+
+		void signalOnNextIdLock(Long chargeItemId, CountDownLatch entered) {
+			idLockSignal.set(new IdLockSignal(chargeItemId, entered));
+		}
+
+		void blockNextSourceLookup(
+			ChargeSourceKey sourceKey,
+			CountDownLatch loaded,
+			CountDownLatch allowReturn
+		) {
+			sourceLookupBlock.set(new SourceLookupBlock(sourceKey, loaded, allowReturn));
+		}
+
+		void beforeIdLockLookup(Long chargeItemId) {
+			IdLockSignal signal = idLockSignal.get();
+			if (signal != null
+				&& signal.chargeItemId().equals(chargeItemId)
+				&& idLockSignal.compareAndSet(signal, null)) {
+				signal.entered().countDown();
+			}
+		}
+
+		void afterSourceLookup(Object[] args) throws InterruptedException {
+			SourceLookupBlock block = sourceLookupBlock.get();
+			if (block == null || !block.sourceKey().matches(args)
+				|| !sourceLookupBlock.compareAndSet(block, null)) {
+				return;
+			}
+			block.loaded().countDown();
+			if (!block.allowReturn().await(10, TimeUnit.SECONDS)) {
+				throw new IllegalStateException("Timed out while coordinating source charge update.");
+			}
+		}
+	}
+
+	private record IdLockSignal(Long chargeItemId, CountDownLatch entered) {
+	}
+
+	private record SourceLookupBlock(
+		ChargeSourceKey sourceKey,
+		CountDownLatch loaded,
+		CountDownLatch allowReturn
+	) {
+	}
+
+	private record ChargeSourceKey(
+		Long campusId,
+		Long userId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		Long sourceId
+	) {
+
+		boolean matches(Object[] args) {
+			return campusId.equals(args[0])
+				&& userId.equals(args[1])
+				&& paymentCategory == args[2]
+				&& sourceType == args[3]
+				&& sourceId.equals(args[4]);
 		}
 	}
 
