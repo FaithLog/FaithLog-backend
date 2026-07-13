@@ -230,6 +230,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - false positive/의도 정책 12개, GitHub/GCP/Supabase/Upstash/Firebase/Artifact Registry console 미확인 14개를 분리했다. #157-#160과 #176/#179/#182/#183의 7개 finding/hardening/unverified 묶음은 중복 집계하지 않았다.
   - secret census는 current/history high-signal candidate 0개, non-example sensitive-path file/commit 0개, untracked/ignored sensitive file 0개였다. 값은 출력·기록하지 않았고 0 open Dependabot alert는 SBOM endpoint 404와 scanner 부재 때문에 0 vulnerable component로 해석하지 않았다.
   - focused 7개 기존 test class 실행은 Gradle Plugin Portal에서 기존 Spring Boot 3.5.0 plugin을 resolve하지 못해 test 0개 실행으로 종료됐다. stale XML을 집계하지 않았고, 동일 baseline의 PR #185 repository checks와 기존 전체 `399 tests / 0 failures / 0 errors / 3 skipped` 기록을 별도 baseline evidence로만 유지했다.
+  - PM 독립 리뷰 후 7개 test class의 정확한 FQCN과 실행 명령, high-signal/generic-reference secret scan의 count-only regex·명령, 공식 Gradle 8.14.5 primary wrapper checksum endpoint와 로컬 비교 명령을 감사 문서에 추가했다. 재실행 결론은 test 0개, high-signal current/history 0/0, generic reference file/commit 17/25, wrapper checksum 일치로 유지된다.
   - production/test/config/DB/Flyway/운영 인프라 변경, Docker, 운영 smoke/부하/credential 사용, push/PR은 모두 0건이다.
   - 이력서 문장 후보: `배포·공급망 신뢰 경계의 2개 workflow/8개 action 호출·208개 runtime module·Docker/Cloud Run/Supabase/Upstash/Firebase 경계를 counted manifest로 감사해, vendor Critical 영향 Spring Security 구성 1건(High, 9/10)과 보호되지 않은 main/develop source-integrity gap 1건(Medium, 10/10)을 식별하고 12개 false positive와 14개 console 미확인을 분리했다.`
 

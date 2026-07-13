@@ -277,12 +277,41 @@ inferred from stale files. This audit is a point-in-time assessment, not a guara
 It did not inspect private cloud/provider consoles, organization-level policy, runtime traffic, production data,
 or a complete third-party vulnerability database.
 
+### 9.1 Focused test attempt manifest (7 classes)
+
+1. `com.faithlog.user.controller.UserMeControllerTest`
+2. `com.faithlog.global.security.RoleTokenInvalidationIntegrationTest`
+3. `com.faithlog.deploy.FlywayMigrationContractTest`
+4. `com.faithlog.notification.infrastructure.fcm.FirebaseFcmSendAdapterTest`
+5. `com.faithlog.notification.service.NotificationDeliveryWorkerTest`
+6. `com.faithlog.notification.service.NotificationDeduplicationServiceTest`
+7. `com.faithlog.notification.service.NotificationLockServiceTest`
+
+Exact attempted command:
+
+```bash
+./gradlew --no-daemon test \
+  --tests 'com.faithlog.user.controller.UserMeControllerTest' \
+  --tests 'com.faithlog.global.security.RoleTokenInvalidationIntegrationTest' \
+  --tests 'com.faithlog.deploy.FlywayMigrationContractTest' \
+  --tests 'com.faithlog.notification.infrastructure.fcm.FirebaseFcmSendAdapterTest' \
+  --tests 'com.faithlog.notification.service.NotificationDeliveryWorkerTest' \
+  --tests 'com.faithlog.notification.service.NotificationDeduplicationServiceTest' \
+  --tests 'com.faithlog.notification.service.NotificationLockServiceTest'
+```
+
+The build failed during plugin resolution before test execution. The denominator is seven requested test
+classes, not seven executed suites; the executed test count remains 0 and no XML result is attributed to this
+command.
+
 ## 10. Official references
 
 - [Spring CVE-2026-22732](https://spring.io/security/cve-2026-22732/)
 - [Spring CVE-2026-41003](https://spring.io/security/cve-2026-41003/)
 - [Spring Security default response headers](https://docs.spring.io/spring-security/reference/features/exploits/headers.html)
 - [Gradle wrapper verification](https://docs.gradle.org/current/userguide/gradle_wrapper.html#sec:verification)
+- [Gradle 8.14.5 wrapper JAR SHA-256](https://services.gradle.org/distributions/gradle-8.14.5-wrapper.jar.sha256)
+- [Gradle distribution and wrapper JAR checksums](https://gradle.org/release-checksums/#v8.14.5)
 - [Gradle dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html)
 - [Gradle dependency locking](https://docs.gradle.org/current/userguide/dependency_locking.html)
 - [GitHub protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)

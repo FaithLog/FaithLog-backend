@@ -219,16 +219,78 @@ No database, migration, or configuration file is modified by this audit.
 
 ## 12. Reproduction commands
 
-The audit uses filename-only or count-only secret scans. Commands that could print matched values are not used.
+### 12.1 Secret-scan denominator and pattern classes
 
-```text
+All content scans are pinned to the audited baseline. `git grep -I -l` emits filenames only and is immediately
+piped to a count; `git log -G --no-patch` emits commit hashes only. Neither command prints the matched value or
+diff. The pattern classes are credential formats, not credential values:
+
+- private-key PEM headers;
+- AWS access-key prefixes with their documented length;
+- GitHub personal/access-token prefixes with a minimum format length;
+- Slack token prefixes with a minimum format length;
+- OpenAI key prefixes with a minimum format length;
+- Google API key prefix and length;
+- credential-bearing PostgreSQL/Redis URI shape;
+- Firebase Admin JSON `private_key` plus PEM-header shape.
+
+```bash
+BASE=f3e81fb9b3c2afbc4ad9342eb6cf6bf55e19c553
+HIGH_SIGNAL_RE='(-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{20,255}|xox[baprs]-[A-Za-z0-9-]{10,255}|sk-(proj-)?[A-Za-z0-9_-]{20,255}|AIza[0-9A-Za-z_-]{35}|(postgres(ql)?|redis)://[^[:space:]/:@]+:[^[:space:]@]+@|"private_key"[[:space:]]*:[[:space:]]*"-----BEGIN)'
+GENERIC_REF_RE='(JWT_SECRET|FIREBASE_CONFIG_(JSON|PATH)|SPRING_DATASOURCE_(URL|USERNAME|PASSWORD)|SPRING_DATA_REDIS_(HOST|PORT|PASSWORD|SSL_ENABLED)|SUPABASE|UPSTASH)'
+SENSITIVE_PATH_RE='(^|/)\.env($|\.)|firebase-service-account.*\.json$|google-application-credentials.*\.json$|serviceAccountKey\.json$|\.(pem|key|p12|pfx|jks)$|application-.*secret.*\.ya?ml$'
+```
+
+The exact count-only or filename/commit-only commands are:
+
+```bash
+# current high-signal candidate files -> 0
+git grep -IlE "$HIGH_SIGNAL_RE" "$BASE" -- . | wc -l | tr -d ' '
+
+# baseline-reachable history commits whose diffs match a high-signal format -> 0
+git log "$BASE" -G "$HIGH_SIGNAL_RE" --format='%H' --no-patch \
+  | sort -u | wc -l | tr -d ' '
+
+# tracked non-example sensitive-path files at baseline -> 0
+git ls-tree -r --name-only "$BASE" \
+  | rg "$SENSITIVE_PATH_RE" | rg -v '(example|sample|template)' | wc -l | tr -d ' '
+
+# commits in baseline history that touched a non-example sensitive filename -> 0
+git log "$BASE" --format='@@%H' --name-only \
+  | awk '/^@@/ { commit=$0; next } /(^|\/)\.env($|\.)|firebase-service-account.*\.json$|google-application-credentials.*\.json$|serviceAccountKey\.json$|\.(pem|key|p12|pfx|jks)$|application-.*secret.*\.ya?ml$/ { if ($0 !~ /(example|sample|template)/) seen[commit]=1 } END { print length(seen) }'
+
+# baseline JSON files containing a Firebase private-key value shape -> 0
+git grep -IlE '"private_key"[[:space:]]*:[[:space:]]*"-----BEGIN (RSA |EC )?PRIVATE KEY-----' \
+  "$BASE" -- '*.json' | wc -l | tr -d ' '
+
+# current untracked and ignored non-example sensitive paths -> 0 / 0
+git ls-files --others --exclude-standard \
+  | rg "$SENSITIVE_PATH_RE" | rg -v '(example|sample|template)' | wc -l | tr -d ' '
+git ls-files --others --ignored --exclude-standard \
+  | rg "$SENSITIVE_PATH_RE" | rg -v '(example|sample|template)' | wc -l | tr -d ' '
+
+# baseline files containing only generic secret/config references -> 17
+git grep -IlE "$GENERIC_REF_RE" "$BASE" -- . | wc -l | tr -d ' '
+
+# all-ref commits containing generic references -> 25
+# Exclusions prevent #161's generated regex/report text and the cumulative metric log from self-incrementing.
+git log --all -G "$GENERIC_REF_RE" --format='%H' --no-patch -- . \
+  ':(exclude)docs/security/161-*' ':(exclude)docs/resume-metrics.md' \
+  | sort -u | wc -l | tr -d ' '
+```
+
+The 17/25 generic-reference rows are configuration-contract denominators, not credential findings. They count
+environment-variable names and provider names. The 0/0 high-signal rows use stricter value-format patterns.
+
+### 12.2 Non-secret manifest commands
+
+```bash
 rg --files --hidden .github/workflows
 rg -n '^\s*uses:' .github/workflows
 rg --files src/main/java/com/faithlog/notification/infrastructure/fcm
 rg --files src/main/resources/db/migration
 git ls-files '.env*'
 git status --porcelain --untracked-files=all
-git log --all -G '<high-signal-format-pattern>' --format='%H' --no-patch
 ```
 
 The findings report will keep repository-confirmed facts separate from GitHub, GCP, Supabase, Upstash, and
@@ -276,9 +338,27 @@ components.
 | Docker base image | builder/runtime tags set, digest absent | hardening candidate |
 | GitHub external actions | 8 invocations use mutable major tags | existing #157 H-157-02; not recounted |
 
-The official Gradle 8.14.5 binary distribution checksum observed during the audit was compared without modifying
-`gradle-wrapper.properties`. No lock, verification metadata, dependency, plugin, wrapper, or Docker image was
-changed.
+The primary wrapper checksum source is Gradle's
+[`gradle-8.14.5-wrapper.jar.sha256`](https://services.gradle.org/distributions/gradle-8.14.5-wrapper.jar.sha256)
+endpoint. Gradle's
+[distribution and wrapper JAR checksum reference](https://gradle.org/release-checksums/#v8.14.5) lists the same
+value. Both publish the 8.14.5 wrapper JAR SHA-256 as
+`7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172` and the binary ZIP SHA-256 as
+`6f74b601422d6d6fc4e1f9a1ab6522f642c2fdcbc15ae33ebd30ba3d7198e854`.
+
+The local wrapper comparison is reproducible without modifying the wrapper:
+
+```bash
+EXPECTED=$(curl -fsSL \
+  https://services.gradle.org/distributions/gradle-8.14.5-wrapper.jar.sha256 \
+  | tr -d '[:space:]')
+ACTUAL=$(shasum -a 256 gradle/wrapper/gradle-wrapper.jar | awk '{print $1}')
+test "$ACTUAL" = "$EXPECTED"
+```
+
+The comparison exits 0. The published binary ZIP checksum is not present as `distributionSha256Sum` in
+`gradle-wrapper.properties`; that absence remains H-161-01. No lock, verification metadata, dependency, plugin,
+wrapper, or Docker image was changed.
 
 ## 15. Deployment trust boundaries and protected assets
 
