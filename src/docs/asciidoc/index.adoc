@@ -706,7 +706,7 @@ include::{snippets}/devotion-daily-check-success/response-fields.adoc[]
 
 `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
 
-`weekStartDate`는 월요일만 허용한다. 주간 저장/제출은 월요일부터 일요일까지 7일치 daily row를 생성 또는 수정하고, 요청에 없는 날짜는 false 기본값으로 채운다. `dailyChecks[].recordDate`는 요청 주차 안의 날짜만 허용하고, `saturdayLateMinutes`는 0 이상만 허용한다. #31에서는 `submit = true`일 때 `submittedAt`과 주간 요약값만 갱신하며, 실제 `PENALTY` 청구 생성/갱신은 #33 범위로 분리한다.
+`weekStartDate`는 월요일만 허용한다. 주간 저장/제출은 월요일부터 일요일까지 7일치 daily row를 생성 또는 수정하고, 요청에 없는 날짜는 false 기본값으로 채운다. `dailyChecks[].recordDate`는 요청 주차 안의 날짜만 허용하고, `saturdayLateMinutes`는 0 이상 1,440 이하만 허용한다. 최종 제출의 벌금 계산은 `long` exact arithmetic을 사용하며 산술 overflow 또는 청구 저장 범위 초과를 400 오류로 거부한다.
 
 ==== Request
 

@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.output.MigrateResult;
@@ -53,6 +54,33 @@ class PostgresFlywayMigrationTest {
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
 	}
 
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v7PreservesLegacyInvalidRowsAndStillRejectsNewInvalidRows() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway flyway = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("6")
+			.load();
+
+		flyway.clean();
+		assertThat(flyway.migrate().success).isTrue();
+		insertLegacyInvalidCharge(jdbcUrl, username, password);
+
+		Flyway v7 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.load();
+		assertThat(v7.migrate().success).isTrue();
+		assertConstraintNotValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
+		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
+		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
+	}
+
 	private static void assertConstraintValidated(
 		String jdbcUrl, String username, String password, String tableName, String constraintName
 	) throws Exception {
@@ -64,22 +92,60 @@ class PostgresFlywayMigrationTest {
 		);
 	}
 
+	private static void assertConstraintNotValidated(
+		String jdbcUrl, String username, String password, String tableName, String constraintName
+	) throws Exception {
+		assertExists(
+			jdbcUrl, username, password,
+			"select exists (select 1 from pg_constraint c join pg_class t on t.oid = c.conrelid "
+				+ "where t.relname = ? and c.conname = ? and not c.convalidated)",
+			tableName, constraintName
+		);
+	}
+
+	private static void insertLegacyInvalidCharge(String jdbcUrl, String username, String password) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement session = connection.createStatement()
+		) {
+			session.execute("set session_replication_role = replica");
+			try (PreparedStatement statement = connection.prepareStatement(
+				"insert into charge_items (campus_id, user_id, payment_category, payment_account_id, "
+					+ "bank_name_snapshot, account_number_snapshot, account_holder_snapshot, source_type, source_id, "
+					+ "title, amount, status, created_at, updated_at) values "
+					+ "(1, 1, 'PENALTY', 1, 'bank', 'account', 'holder', 'DEVOTION_RECORD', 8999, "
+					+ "'legacy-invalid', 0, 'UNPAID', now(), now())"
+			)) {
+				statement.executeUpdate();
+			} finally {
+				session.execute("set session_replication_role = origin");
+			}
+		}
+	}
+
 	private static void assertInvalidChargeAmountRejected(
 		String jdbcUrl, String username, String password, int amount
 	) throws Exception {
 		try (
 			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
-			PreparedStatement statement = connection.prepareStatement(
+			Statement session = connection.createStatement()
+		) {
+			session.execute("set session_replication_role = replica");
+			try (PreparedStatement statement = connection.prepareStatement(
 				"insert into charge_items (campus_id, user_id, payment_category, payment_account_id, "
 					+ "bank_name_snapshot, account_number_snapshot, account_holder_snapshot, source_type, source_id, "
 					+ "title, amount, status, created_at, updated_at) values "
 					+ "(1, 1, 'PENALTY', 1, 'bank', 'account', 'holder', 'DEVOTION_RECORD', ?, "
 					+ "'invalid', ?, 'UNPAID', now(), now())"
-			)
-		) {
-			statement.setLong(1, 9_000L + Math.abs(amount));
-			statement.setInt(2, amount);
-			assertThatThrownBy(statement::executeUpdate).isInstanceOf(java.sql.SQLException.class);
+			)) {
+				statement.setLong(1, 9_000L + Math.abs(amount));
+				statement.setInt(2, amount);
+				assertThatThrownBy(statement::executeUpdate)
+					.isInstanceOf(java.sql.SQLException.class)
+					.hasMessageContaining("ck_charge_items_amount_positive");
+			} finally {
+				session.execute("set session_replication_role = origin");
+			}
 		}
 	}
 

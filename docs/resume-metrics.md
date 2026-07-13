@@ -13,23 +13,33 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #179, 386 tests / 0 failures / 0 errors / 2 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #182, 396 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 75 test files (2026-07-12 #176) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 76 test files (2026-07-13 #182) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 123 snippet groups (2026-07-13 #179) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #179) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #182) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 588 Java sources including tests (2026-07-12 #176) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 6 (Flyway V1-V6, 2026-07-06) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 7 (Flyway V1-V7, 2026-07-13 #182) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-07-13
+
+- #182 경건 벌금 overflow와 음수 청구 차단:
+  - TDD RED: production 수정 전에 saturdayLateMinutes 1,440 성공·1,441/음수 실패, 규칙 곱셈/항목 합산/저장 범위 overflow, weekly/daily/charge rollback, ChargeItem create/update 0·음수 거부, V7 migration과 DB CHECK 테스트를 추가했다. 격리 재실행은 `57 tests / 11 failures`로 요구사항별 실패를 확인했고 테스트 전용 rollback fixture는 `@DirtiesContext`로 격리했다.
+  - 계산/트랜잭션: 입력 범위를 `0..1,440`으로 제한하고 기존 `DEVOTION_INVALID_SATURDAY_LATE_MINUTES` 400을 재사용했다. 계산은 `Math.multiplyExact`/`Math.addExact` 기반 `long`으로 수행하고 최종 PostgreSQL `INTEGER` 범위를 검사한다. overflow/저장범위 초과는 `400 DEVOTION_FINE_AMOUNT_OUT_OF_RANGE`로 변환되며 weekly 생성, 7개 daily upsert, submit, Billing 호출이 동일 transaction에서 rollback된다. 금액 저장형은 `double`이 아니라 기존 `INTEGER`를 유지한다.
+  - Billing/DB: `ChargeItem` create와 unpaid update가 `amount > 0`을 강제한다. V1-V6 수정 없이 V7 `ck_charge_items_amount_positive`를 추가했다. 신규/갱신 0·음수는 즉시 거부하고, legacy 위반 row가 없으면 validate하며 있으면 데이터를 수정하지 않은 채 미검증 상태로 migration을 완료한다.
+  - PostgreSQL: clean V1→V7은 constraint validated 상태와 0/음수 CHECK 거부를 통과했다. 별도 V6 fixture에 legacy 0원 row를 넣은 경로는 V7 migration 성공, row 보존, constraint 미검증, 신규 0/음수 거부를 통과했다.
+  - 전체 검증: focused 57 tests GREEN, 전체 `396 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`가 성공했다. test source는 76개, REST Docs snippet group은 123개, Flyway는 V1-V7이다.
+  - Docker HTTP QA: 격리 project `faithlog-qa-182-20260713`에서 PostgreSQL/Redis healthy, Flyway 7 migrations, Hibernate validate, app health 200을 확인했다. 1,440은 200, 1,441/음수는 각각 400, 저장범위 초과는 400과 weekly/daily/charge `0→0`, 0원은 charge `0→0`, 정상 2,500원 PENALTY는 charge `0→1`, dashboard unpaid 2,500원을 확인했다. 같은 project를 volume 삭제 없이 `docker compose down`했고 마지막 Docker 명령 `docker builder prune -f`로 696.6MB를 회수했다.
+  - 영향: API mapping과 정상 request/response DTO, 권한, 벌금 공식, COFFEE 정산 흐름은 변경하지 않았다. 실제 운영 DB 조회/수정/삭제, `down -v`, volume/image/system prune, secret/token 기록, push/PR은 수행하지 않았다.
+  - 이력서 문장 후보: `경건 벌금 계산을 long exact arithmetic과 INTEGER 범위 검증으로 보강하고 Billing·Flyway 양수 불변식을 3중 적용해 음수 청구와 dashboard 상쇄를 차단했으며, 11개 RED 실패·396개 전체 테스트·clean/legacy PostgreSQL migration·격리 Docker HTTP rollback QA로 검증했다.`
 
 - #160 입력 검증과 민감정보 노출 읽기 전용 보안 감사:
   - 최신 `origin/develop` `52e0b4ae` 기준 21개 Controller·80개 endpoint·36개 request DTO·57개 response DTO·123개 path/query binding·4개 page/sort parser·56개 persistence constraint 파일을 입력 surface → validation → normalization → persistence constraint → error status와 민감 필드 → 저장 위치 → 응답 DTO → 로그/문서 → 허용 역할 순서로 대조했다.

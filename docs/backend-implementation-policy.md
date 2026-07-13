@@ -312,6 +312,8 @@ Penalty table:
 - Bible reading: 300 KRW per missing day.
 - Saturday lateness: 1,000 KRW base plus 100 KRW per late minute.
 - Saturday lateness is 0 KRW when `saturdayLateMinutes = 0`; when `saturdayLateMinutes > 0`, calculate `1,000 + saturdayLateMinutes * 100`.
+- `saturdayLateMinutes` accepts only 0 through 1,440 inclusive. Out-of-range input uses `DEVOTION_INVALID_SATURDAY_LATE_MINUTES` with HTTP 400.
+- Fine multiplication and item-total addition use `long` exact arithmetic. Arithmetic overflow or a total outside the persisted PostgreSQL `INTEGER` range uses `DEVOTION_FINE_AMOUNT_OUT_OF_RANGE` with HTTP 400.
 - A weekly devotion submission creates one combined `PENALTY` charge for the weekly record, not separate charges per penalty category.
 
 Penalty rule APIs for issue #32:
@@ -418,6 +420,8 @@ Issue #34 is P0.
 - When an administrator reverts `PAID` to `UNPAID`, clear `paidAt`.
 - Do not store administrator status-change reasons in Issue #35.
 - Charge creation must save `payment_account_id`, `bank_name_snapshot`, `account_number_snapshot`, and `account_holder_snapshot`.
+- Billing domain creation and unpaid-charge updates require `amount > 0`. Zero and negative charge rows are invalid for both `PENALTY` and `COFFEE`.
+- Flyway V7 adds `ck_charge_items_amount_positive`. The constraint rejects new or updated `amount <= 0` rows immediately and is validated only when no legacy violating row exists; migration must not edit or delete historical rows.
 - Do not create incomplete `charge_items` rows when a required account is missing.
 - If the active `PENALTY` account is missing during positive-amount penalty charge creation, fail with the user-facing message `관리자에게 문의하세요`.
 - Manual admin charge creation is not part of the MVP.
