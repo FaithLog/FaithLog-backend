@@ -13,7 +13,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #190, 424 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-14 #190, 425 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
@@ -37,10 +37,11 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 취소/재오픈 경계: `UNPAID PENALTY + DEVOTION_RECORD` 취소 시 Billing transaction owner가 application port를 호출하고 Devotion adapter가 same-campus/same-user/source weekly record를 검증해 `submittedAt`만 null로 만든다. daily checks는 보존하며 mismatch나 adapter 실패 시 charge 취소까지 rollback된다. `WAIVED`, `COFFEE`, `POLL_RESPONSE`는 재오픈하지 않는다.
   - 재제출: 현재 활성 벌금 규칙을 다시 계산한다. 양수이면 기존 CANCELED unique-source charge row를 같은 ID로 `UNPAID` 재활성화하면서 amount, 계좌 FK/snapshot, title/reason/dueDate를 갱신한다. 0원이면 CANCELED row를 유지하고 신규 row를 만들지 않는다. #182의 양수 domain/DB 불변식은 유지했다.
   - PM 리뷰 RED/GREEN: 같은 청구에 대한 관리자 취소와 사용자 납부가 동시에 모두 성공하는 lost update를 deterministic latch 통합 테스트로 재현했다. 두 요청이 실제로 모두 성공해 RED였고, 사용자·관리자 상태 쓰기가 동일 charge row의 `PESSIMISTIC_WRITE` 잠금을 거치도록 고쳐 한 요청만 성공하고 다른 요청은 기존 `409 BILLING_MY_CHARGE_PAYMENT_CONFLICT`로 종료되게 했다. 관리자 `ADMIN`·`ELDER`·`CAMPUS_LEADER` PAID, 만료 토큰 401, 다른 캠퍼스 관리자 403, terminal-to-PAID 409 REST Docs와 문서 index 회귀도 보강했다.
-  - 검증: Billing·Devotion·관리자 Controller·REST Docs focused `147 tests / 0 failures / 0 errors / 0 skipped`, 전체 `424 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`가 성공했다. test source는 80개, REST Docs snippet group은 126개다.
+  - PM 재검토 RED/GREEN: 양수 재제출이 source key로 읽은 CANCELED row를 잠그지 않아 동시 사용자 납부의 PAID를 stale UNPAID로 덮어쓸 수 있음을 repository 진입 latch 테스트로 재현했다. PENALTY와 COFFEE의 기존 source charge 조회·갱신도 `PESSIMISTIC_WRITE`로 직렬화하고, 취소·납부 경쟁 테스트 역시 실제 잠금 조회 진입을 확인한 뒤 경쟁시키도록 보강했다.
+  - 검증: Billing·Devotion·관리자 Controller·REST Docs focused `148 tests / 0 failures / 0 errors / 0 skipped`, 전체 `425 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew --no-daemon --max-workers=1 build`, `./gradlew --no-daemon --max-workers=1 asciidoctor`, `git diff --check`가 성공했다. test source는 80개, REST Docs snippet group은 126개다.
   - Docker: 사용자 최신 결정으로 feature 세션의 Docker build/up/API QA를 중단했다. #188/#189/#190 승인 후 `integration/188-190-devotion-meal-billing`에서 세 기능 연결 QA를 한 번 수행한다. 결정 전 격리 build/up 시 Docker Desktop daemon이 중단되어 실제 HTTP 검증은 수행하지 않았고, destructive cleanup이나 volume 삭제는 실행하지 않았다.
   - 영향: 기존 API path/request/response DTO와 Controller, ErrorCode 추가, DB schema/Flyway V1-V7, dependency, SecurityConfig 변경은 0건이다. 제거된 ErrorCode는 더 이상 유효하지 않은 관리자 PAID 금지 전용 상수 1건이며, terminal conflict는 기존 code를 재사용한다. Billing Entity가 Devotion Entity를 직접 참조하지 않는다.
-  - 이력서 문장 후보: `벌금 취소와 경건 재제출을 application port 기반 단일 transaction으로 연결하고 같은 청구의 취소·납부 경쟁을 row lock으로 직렬화해 daily 기록 보존·rollback·terminal conflict를 보장했으며, 147개 focused·424개 전체 테스트와 REST Docs로 검증했다.`
+  - 이력서 문장 후보: `벌금 취소와 경건 재제출을 application port 기반 단일 transaction으로 연결하고 상태 전이와 source charge 재활성화를 row lock으로 직렬화해 daily 기록 보존·rollback·terminal conflict를 보장했으며, 148개 focused·425개 전체 테스트와 REST Docs로 검증했다.`
 
 - #186 Spring Security 취약 버전 maintenance upgrade와 보안 헤더 회귀:
   - 기준/선택: 최신 `origin/develop` `f3e81fb9`에서 Spring Boot plugin/BOM만 `3.5.0 -> 3.5.15`로 올렸다. 공식 Boot 3.5.15가 관리하는 Spring Security config/core/crypto/web/test `6.5.11`을 사용하며 개별 Security override와 eager-header workaround는 추가하지 않았다.
