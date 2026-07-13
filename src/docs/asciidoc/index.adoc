@@ -836,6 +836,54 @@ include::{snippets}/devotion-admin-missing-success/http-response.adoc[]
 
 include::{snippets}/devotion-admin-missing-success/response-fields.adoc[]
 
+=== Get Admin Weekly Devotion Members
+
+`GET /api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/members`
+
+전역 `ADMIN` 또는 해당 캠퍼스의 ACTIVE `MINISTER`, `ELDER`, `CAMPUS_LEADER`가 현재 ACTIVE 멤버의 주간 경건생활과 실제 저장된 `PENALTY` 청구를 조회한다. 제출자와 미제출자를 분리하며, 미제출자는 응답 하단에 둔다. `totalPenaltyAmount`는 실제 청구 중 `PAID`와 `UNPAID`를 합산하고 `WAIVED`, `CANCELED`는 제외한다.
+
+==== Request
+
+include::{snippets}/devotion-admin-weekly-members-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-admin-weekly-members-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-admin-weekly-members-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-admin-weekly-members-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-admin-weekly-members-success/response-fields.adoc[]
+
+=== Export Admin Weekly Devotion Workbook
+
+`GET /api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/export`
+
+JSON 조회와 동일한 권한·주차·ACTIVE 멤버·벌금 집계 query model로 XLSX 파일을 생성한다. 파일명은 `faithlog-devotion-{campusId}-{weekStartDate}.xlsx`이며, 첫 시트는 `주간 요약`, 두 번째 시트는 `일별 상세`다. 두 시트 모두 제출자를 먼저 표시하고 미제출자를 하단 별도 구역에 둔다.
+
+==== Request
+
+include::{snippets}/devotion-admin-weekly-export-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-admin-weekly-export-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-admin-weekly-export-success/path-parameters.adoc[]
+
+==== Response Headers
+
+include::{snippets}/devotion-admin-weekly-export-success/response-headers.adoc[]
+
 === Get My Monthly Devotion Summary
 
 `GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}`

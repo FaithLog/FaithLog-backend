@@ -10,6 +10,21 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-13 - Issue #188 Weekly Penalty Total Status Basis
+
+- Context: Issue #188 returns each active member's actual weekly `PENALTY` charge amount and status and also exposes `totalPenaltyAmount`. The Issue, previous decisions, and Notion did not define which charge statuses contribute to that total.
+- User approval evidence: In the current Issue #188 development conversation, the user explicitly answered, "각자 주차별이 페이드랑 언페이드랑 합산할게", selecting the `UNPAID + PAID` basis rather than an agent recommendation being treated as approval.
+- Decision: Each member row displays the actual charge `amount` and `status` for the weekly devotion record regardless of whether it is paid. `totalPenaltyAmount` sums charges whose status is `UNPAID` or `PAID`. A weekly member charge has only one current status, so it contributes to exactly one of those status buckets. `WAIVED` and `CANCELED` charges remain visible with their stored amount and status but do not contribute to `totalPenaltyAmount`.
+- Impact: The JSON API and Excel export use the same query model and identical `PAID + UNPAID` total basis. Historical amounts are read from `charge_items` and are never recalculated from current penalty rules.
+
+### 2026-07-13 - Development Completion Requires Independent PM Review And Integration Branch
+
+- Context: The user established one completion and review workflow beginning with Issue #188 and applying to every later development issue.
+- Decision: A feature development session completes implementation, focused/full tests, `./gradlew test`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`, REST Docs, repository documentation, Obsidian records, and small work-unit commits, but does not run Docker build/up/API QA and does not push, create a PR, or merge. It then sends the source PM session a detailed review report covering the entire `origin/develop...HEAD` range. The PM session independently reviews the full diff. Each PM finding must be reproduced or evidence-checked, minimally fixed, fully reverified, committed, and reported again.
+- Decision: For the parallel #188/#189/#190 work, all three feature branches must reach zero PM findings and pass every required non-Docker verification before the PM session creates `integration/188-190-devotion-meal-billing` from the latest `origin/develop` and merges the three approved feature branches there. Development sessions do not create a PR or merge into `develop`. CI failures or integration conflicts keep the affected issue open and require correction, re-verification, and re-review.
+- Decision: Isolated PostgreSQL/Redis/backend Docker build/up/health and connected real API QA for all three features run once on the integration branch. After QA, only that compose project is stopped with `down`, preserving volumes, and the final Docker command is `docker builder prune -f`. `down -v`, named volume deletion, and Docker system/image/volume prune are prohibited.
+- Impact: Development-session completion reports include repository identity and cleanliness, all commits/diff ranges, API/authorization/transaction/DB/Flyway/dependency changes, RED/GREEN evidence, focused/full/build/asciidoctor/diff-check results, the explicit Docker deferral, regression and unchanged scope, REST Docs/index, repository/Obsidian records, and all risks, pending decisions, and unverified items. A prior #188 Docker attempt failed during Docker Desktop storage operations with only 561MiB host space available; this observation is retained but is not a feature completion blocker under the superseding decision. No file or Docker data deletion is authorized. PM approval is a mandatory integration gate and does not authorize a development session to push, open a PR, or merge. An issue is final only after the PM integration branch includes it and the Issue is closed or completion is confirmed.
+
 ### 2026-07-13 - Issue #183 COFFEE Option Catalog Authority
 
 - Context: Issue #160 F-160-02 confirmed that direct COFFEE Poll and COFFEE PollTemplate create/update accepted an option with `menuId = null`, allowing client `content` and `priceAmount` to become the persisted snapshot and later CLOSED settlement charge source.

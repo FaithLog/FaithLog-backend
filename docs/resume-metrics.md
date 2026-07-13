@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #186 review follow-up, 413 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #188, 420 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 78 test files (2026-07-13 #186) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 124 snippet groups (2026-07-13 #183) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #186) | 성공 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 81 test files (2026-07-13 #188) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 126 snippet groups (2026-07-13 #188) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #188) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -30,6 +30,19 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## Daily Monitoring Notes
 
 ### 2026-07-13
+
+- #188 관리자 주차별 사용자 경건·벌금 조회 및 Excel 다운로드:
+  - 제품 기준: 현재 ACTIVE 캠퍼스 멤버를 제출/미제출로 분리한다. 실제 저장 `PENALTY` 청구 id/amount/status를 표시하고 과거 금액을 현재 규칙으로 재계산하지 않는다. 사용자 확정에 따라 `totalPenaltyAmount`는 `PAID + UNPAID`이고, `WAIVED/CANCELED`는 행에는 표시하되 합계에서 제외한다.
+  - API/권한: JSON 조회와 XLSX export 2개 endpoint를 추가했다. service `ADMIN` 또는 해당 캠퍼스 ACTIVE `MINISTER/ELDER/CAMPUS_LEADER`만 허용하며 MEMBER와 다른 캠퍼스 관리자는 403, non-Monday는 400이다. read-only transaction 안에서 ACTIVE members/users/weekly records/daily checks/charges를 bulk 조회하고 repository-call characterization으로 멤버 수 비례 조회를 차단했다.
+  - Excel/의존성: JSON과 동일 query result를 `주간 요약`, `일별 상세` 2개 시트로 렌더링하고 제출자를 먼저, 미제출자를 별도 하단 구역에 둔다. direct dependency는 `org.apache.poi:poi-ooxml:5.5.1` 1개이며 runtime에 POI 5.5.1 3개 artifact, XMLBeans 5.3.0, Commons Compress 1.28.0 등이 해석됐다. 추가 전 runtime에는 Apache POI가 없었다.
+  - TDD RED/GREEN: JSON endpoint 부재로 controller 3 tests가 expected 200/actual 404, Excel endpoint 부재로 단일 test가 404, REST Docs index include 누락으로 1 test가 assertion failure였다. 구현 후 JSON/bulk/structure focused, Excel, REST Docs/index가 각각 GREEN이었다.
+  - 검증 수치: Devotion/Billing/Admin focused `82 tests / 0 failures / 0 errors / 0 skipped`, 전체 `420 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check` 성공. test source 81개, REST Docs snippet group 126개다.
+  - REST Docs: JSON 전체 response field와 Excel `Content-Type`/`Content-Disposition`/filename을 문서화하고 `index.adoc` include를 테스트로 고정했다. XLSX binary에는 pretty-print를 적용하지 않았으며 POI 테스트가 실제 workbook의 2 sheets/header/order/value를 연다.
+  - PM finding 대응: 벌금 합계는 현재 개발 대화에서 사용자가 “각자 주차별이 페이드랑 언페이드랑 합산할게”라고 직접 선택한 `PAID + UNPAID` 기준임을 확인해 decision log에 승인 근거를 명시했다. 전역 `AGENTS.md`와 Codex Hook에서는 일회성 #188/#189/#190 번호·통합 브랜치·Docker 순서를 제거하고, 일반 PM 전체 diff 리뷰/finding 재검증 게이트만 유지했다. 이번 통합 절차는 `docs/decision-log.md`에만 남겼다.
+  - PM finding 후 재검증: PM 독립 실행과 동일한 4개 focused class는 `18 tests / 0 failures / 0 errors / 0 skipped`, 전체는 `420 tests / 0 failures / 0 errors / 3 skipped`, build와 asciidoctor 및 diff check는 성공했다. 첫 focused 재실행은 macOS JVM Byte Buddy 동적 attach 보조 프로세스에서 정지해 해당 실행만 중단했고, 저장소 변경 없이 기존 resolved Byte Buddy agent를 실행 시점에 선로딩해 focused 32초·전체 1분 38초로 통과했다.
+  - Docker 이관: 최신 사용자 결정으로 feature 세션의 Docker build/up/API QA는 실행하지 않고 #188/#189/#190 통합 후 `integration/188-190-devotion-meal-billing`에서 한 번 수행한다. 이전 시도에서는 public image pull과 Docker 내부 `bootJar` 4분 38초 성공 뒤 overlay2/containerd `input/output error`가 발생했고 host available space 561MiB를 관찰했다. 이 사실은 기록하되 feature blocker로 집계하지 않으며 파일/Docker 데이터 삭제는 수행하지 않았다.
+  - DB/회귀: Entity/DB/Flyway/ErrorCode/기존 API/기존 경건 제출·벌금 생성·납부·정산 동작은 변경하지 않았다. Controller Entity 반환과 Swagger annotation 추가도 없다.
+  - 이력서 문장 후보: `관리자 주차별 경건·실제 벌금 조회와 2-sheet XLSX export를 동일 bulk query model로 구현해 campus 격리와 N+1 회귀를 고정하고, 82개 focused·420개 전체 테스트와 REST Docs 126개 스니펫 기준으로 권한·집계·파일 계약을 검증했다.`
 
 - #186 Spring Security 취약 버전 maintenance upgrade와 보안 헤더 회귀:
   - 기준/선택: 최신 `origin/develop` `f3e81fb9`에서 Spring Boot plugin/BOM만 `3.5.0 -> 3.5.15`로 올렸다. 공식 Boot 3.5.15가 관리하는 Spring Security config/core/crypto/web/test `6.5.11`을 사용하며 개별 Security override와 eager-header workaround는 추가하지 않았다.

@@ -66,6 +66,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.flywaydb:flyway-core")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.14")
+	implementation("org.apache.poi:poi-ooxml:5.5.1")
 	implementation("com.google.firebase:firebase-admin:9.9.0")
 	implementation("org.apache.commons:commons-lang3:3.20.0")
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")

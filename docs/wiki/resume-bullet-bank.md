@@ -1,3 +1,9 @@
+<!-- issue-work:start:resume-bullet-bank:2026-07-13-188 -->
+## 2026-07-13 Issue #188
+
+- [ready] 관리자 주차별 경건·실제 벌금 조회와 2-sheet XLSX export를 동일 bulk query model로 구현해 campus 격리와 N+1 회귀를 고정하고, 82개 focused·420개 전체 테스트와 REST Docs 126개 스니펫 기준으로 권한·집계·파일 계약을 검증했다. Evidence: `docs/resume-metrics.md` 2026-07-13 #188.
+<!-- issue-work:end:resume-bullet-bank:2026-07-13-188 -->
+
 <!-- daily-resume-monitor:start:resume-bullet-bank:2026-06-16 -->
 ## 2026-06-16
 

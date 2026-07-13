@@ -87,6 +87,13 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		Long sourceId
 	);
 
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndSourceTypeAndSourceIdInOrderByIdAsc(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		List<Long> sourceIds
+	);
+
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		delete from ChargeItem charge
