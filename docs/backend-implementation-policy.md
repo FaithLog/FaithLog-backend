@@ -486,15 +486,27 @@ Issue #34 is P0.
 - GitHub Project Board Status is the source of truth.
 - Do not keep manual status lines such as `칸반 상태: To Do` in issue bodies.
 
+## Meal Duty, Poll, And Post-settlement Billing
+
+- `MEAL` is a separate duty, payment category, and poll type. A campus may have multiple ACTIVE MEAL duties; assigning duty never changes service or campus roles.
+- Every MEAL operational endpoint requires a same-campus ACTIVE member with an ACTIVE MEAL duty. Service ADMIN and campus managers receive 403 when they do not hold that duty.
+- MEAL accounts are requester-owned. Only the owner may create, list, deactivate, select, or aggregate charges for those accounts. Generic admin account/charge APIs must not expose MEAL accounts or charges.
+- MEAL polls are `SINGLE`, use a server-generated shared `startsAt`/`createdAt`, and are immediately `OPEN`. The client supplies only a future `endsAt`; account and amount fields are rejected.
+- Existing active-campus-member poll list/detail/response and `optionIds`/`poll_response_options` contracts remain available to ordinary poll participants. `allowUserOptionAdd` reuses the #97 API, and user-added MEAL options have no catalog, price, or account snapshot until settlement.
+- Closing a MEAL poll only transitions OPEN to CLOSED. It must create zero settlement and charge rows.
+- A CLOSED MEAL poll is charged by one poll-level request with one requester-owned ACTIVE MEAL account shared across all groups. Every option with final responses appears exactly once; zero-response options are excluded.
+- `PER_MEMBER` uses the entered per-member amount. `GROUP_TOTAL` uses exact integer ceiling division. Store entered, per-member, requested total, actual total, and rounding adjustment snapshots. Convert all overflow to a 400 business error before persistence.
+- Persist `meal_poll_settlements`, `meal_poll_charge_groups`, and all MEAL charge items in one transaction. Use a poll row lock plus DB unique constraints to reject retry/races with 409 and roll back every row when any group or charge fails.
+- Management detail exposes another duty's charged state/count/calculation but returns that duty's payment account ID/details as null.
+
 ## MVP Exclusions
 
 Keep these out of MVP scope:
 
-- Lunch polls
-- Lunch group orders
-- Lunch amount splitting
-- Lunch manager
-- Lunch account
+- Recurring or scheduled MEAL polls
+- MULTIPLE-selection MEAL polls
+- MEAL menu catalog and automatic price snapshots
+- MEAL settlement edit, cancellation, or re-charge
 - Admin payment approval/rejection
 - Deposit proof photo
 - Payment API integration
