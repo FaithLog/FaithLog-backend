@@ -16,6 +16,8 @@ public interface ChargeItemRepositoryPort {
 
 	Optional<ChargeItem> findChargeItemById(Long chargeItemId);
 
+	Optional<ChargeItem> findChargeItemByIdForUpdate(Long chargeItemId);
+
 	Page<ChargeItem> searchCharges(ChargeSearchCriteria criteria, Pageable pageable);
 
 	List<ChargeItem> searchCharges(ChargeSearchCriteria criteria);

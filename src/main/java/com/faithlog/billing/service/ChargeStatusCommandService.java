@@ -43,7 +43,7 @@ public class ChargeStatusCommandService {
 	@Transactional
 	public ChargeItemResult completeMyChargePayment(CompleteChargePaymentCommand command) {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
-		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
+		ChargeItem chargeItem = chargeItemRepository.findChargeItemByIdForUpdate(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
 
 		if (!chargeItem.userId().equals(requester.userId())) {
@@ -63,7 +63,7 @@ public class ChargeStatusCommandService {
 
 	@Transactional
 	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
-		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
+		ChargeItem chargeItem = chargeItemRepository.findChargeItemByIdForUpdate(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
 		requireChargeStatusManager(chargeItem.campusId(), command.requesterId());
 		ChargeStatusPolicy.applyAdminStatusChange(chargeItem, command.status());
