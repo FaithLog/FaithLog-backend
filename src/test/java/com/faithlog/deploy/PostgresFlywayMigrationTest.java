@@ -9,6 +9,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,7 @@ class PostgresFlywayMigrationTest {
 
 	@Test
 	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
-	void v7PreservesLegacyInvalidRowsAndStillRejectsNewInvalidRows() throws Exception {
+	void v7FailsClosedWhenLegacyInvalidRowsExist() throws Exception {
 		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
 		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
 		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
@@ -75,10 +76,13 @@ class PostgresFlywayMigrationTest {
 			.dataSource(jdbcUrl, username, password)
 			.locations("classpath:db/migration")
 			.load();
-		assertThat(v7.migrate().success).isTrue();
-		assertConstraintNotValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
-		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
-		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
+
+		assertThatThrownBy(v7::migrate)
+			.isInstanceOf(FlywayException.class)
+			.hasMessageContaining("V7__enforce_positive_charge_amount.sql")
+			.hasMessageContaining("ck_charge_items_amount_positive");
+		assertFlywayVersionMissing(jdbcUrl, username, password, "7");
+		assertLegacyInvalidChargePreserved(jdbcUrl, username, password);
 	}
 
 	private static void assertConstraintValidated(
@@ -88,17 +92,6 @@ class PostgresFlywayMigrationTest {
 			jdbcUrl, username, password,
 			"select exists (select 1 from pg_constraint c join pg_class t on t.oid = c.conrelid "
 				+ "where t.relname = ? and c.conname = ? and c.convalidated)",
-			tableName, constraintName
-		);
-	}
-
-	private static void assertConstraintNotValidated(
-		String jdbcUrl, String username, String password, String tableName, String constraintName
-	) throws Exception {
-		assertExists(
-			jdbcUrl, username, password,
-			"select exists (select 1 from pg_constraint c join pg_class t on t.oid = c.conrelid "
-				+ "where t.relname = ? and c.conname = ? and not c.convalidated)",
 			tableName, constraintName
 		);
 	}
@@ -121,6 +114,28 @@ class PostgresFlywayMigrationTest {
 				session.execute("set session_replication_role = origin");
 			}
 		}
+	}
+
+	private static void assertFlywayVersionMissing(String jdbcUrl, String username, String password, String version)
+		throws Exception {
+		assertThat(exists(
+			jdbcUrl,
+			username,
+			password,
+			"select exists (select 1 from flyway_schema_history where version = ?)",
+			version
+		)).isFalse();
+	}
+
+	private static void assertLegacyInvalidChargePreserved(String jdbcUrl, String username, String password)
+		throws Exception {
+		assertThat(exists(
+			jdbcUrl,
+			username,
+			password,
+			"select exists (select 1 from charge_items where title = ? and amount = 0 and status = 'UNPAID')",
+			"legacy-invalid"
+		)).isTrue();
 	}
 
 	private static void assertInvalidChargeAmountRejected(
@@ -207,6 +222,11 @@ class PostgresFlywayMigrationTest {
 
 	private static void assertExists(String jdbcUrl, String username, String password, String sql, String... params)
 		throws Exception {
+		assertThat(exists(jdbcUrl, username, password, sql, params)).isTrue();
+	}
+
+	private static boolean exists(String jdbcUrl, String username, String password, String sql, String... params)
+		throws Exception {
 		try (
 			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
 			PreparedStatement statement = connection.prepareStatement(sql)
@@ -216,7 +236,7 @@ class PostgresFlywayMigrationTest {
 			}
 			try (ResultSet resultSet = statement.executeQuery()) {
 				assertThat(resultSet.next()).isTrue();
-				assertThat(resultSet.getBoolean(1)).isTrue();
+				return resultSet.getBoolean(1);
 			}
 		}
 	}
