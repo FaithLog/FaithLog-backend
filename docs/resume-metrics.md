@@ -13,7 +13,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #186, 404 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #186 review follow-up, 413 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
@@ -34,13 +34,16 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - #186 Spring Security 취약 버전 maintenance upgrade와 보안 헤더 회귀:
   - 기준/선택: 최신 `origin/develop` `f3e81fb9`에서 Spring Boot plugin/BOM만 `3.5.0 -> 3.5.15`로 올렸다. 공식 Boot 3.5.15가 관리하는 Spring Security config/core/crypto/web/test `6.5.11`을 사용하며 개별 Security override와 eager-header workaround는 추가하지 않았다.
   - TDD RED/GREEN: test-only commit `cc0aa8b`에서 dependency contract와 200/401/403/404 기본 헤더 테스트를 먼저 추가했다. 최초 5 tests 중 헤더 4건은 통과하고 Security 6.5.0 module 때문에 contract 1건이 실패했다. 업그레이드 후 모두 GREEN이며 runtime/test `dependencyInsight`의 Security 6.5.0-6.5.10 잔여는 0건이다.
+  - PM review contract 보강: 기존 test JVM JAR manifest scan은 안전한 test dependency가 취약 production runtime을 가릴 수 있고 qualifier를 제거해 RC를 정식 release로 인정했다. test-only commit `d5fec90`에서 취약 runtime+안전 test runtime false-green과 `6.5.11-RC1` 허용을 `3 tests / 2 failures`로 재현했다. `b266272`는 Gradle 실제 `runtimeClasspath`/`testRuntimeClasspath` resolved artifacts를 독립 manifest와 Test task input으로 전달하고, runtime config/core/crypto/web 및 test config/core/crypto/web/test 전체에 `>=6.5.11`과 숫자 3-part 정식 release만 허용한다. RC/M/SNAPSHOT/.Final/+build/2-part/4-part를 거부하며 contract는 `10 tests / 0 failures`로 GREEN이다.
+  - 최종 manifest: runtime은 `config/core/crypto/web=6.5.11`, test runtime은 `config/core/crypto/test/web=6.5.11`이며 취약 범위 잔여 0건이다. PM 독립 구조 리뷰도 두 false-green finding 해소와 새 blocking finding 0건을 확인했다.
   - resolved graph: runtime 좌표는 208개에서 209개로 바뀌었고 81개 버전 변경, 1개 추가, 제거 0이다. 주요 전이는 Spring Framework 6.2.7→6.2.19, Spring Data 3.5.0→3.5.12, Hibernate 6.6.15→6.6.53, Jackson BOM 2.19.0→2.21.4, Lettuce 6.5.5→6.6.0, PostgreSQL JDBC 42.7.5→42.7.11이다. 전체 좌표 diff는 `docs/security/186-spring-security-maintenance-upgrade.md`에 기록했다.
-  - 테스트/빌드: auth/login/refresh/logout/withdrawal/tokenVersion role invalidation/FCM/REST Docs focused `59 tests / 0 failures / 0 errors / 0 skipped`, 전체 `404 tests / 0 failures / 0 errors / 3 skipped`, 실제 Redis Lua 통합 `1 test / 0 failures`를 통과했다. `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`도 성공했다. test source는 78개, REST Docs snippet group은 124개다.
+  - 테스트/빌드: 기존 auth/login/refresh/logout/withdrawal/tokenVersion role invalidation/FCM/REST Docs focused 59 범위는 contract 사례 9건 증가 후 `68 tests / 0 failures / 0 errors / 0 skipped`, 전체 `413 tests / 0 failures / 0 errors / 3 skipped`, 실제 Redis Lua 통합 `1 test / 0 failures`를 통과했다. `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`도 성공했다. test source는 78개, REST Docs snippet group은 124개다.
   - Docker HTTP QA: 격리 project `faithlog-qa-186-20260713`에서 PostgreSQL/Redis healthy, backend Boot 3.5.15 health 200/UP을 확인했다. signup/login, Access 1,800초/Refresh 1,209,600초, 200/401/403 기본 non-HSTS 헤더, refresh rotation, old-token reuse session revoke, logout access/refresh 무효화를 통과했다. 실제 Redis 동시 Lua는 ROTATED 1/REJECTED 1과 1,209,660초 marker TTL 경계를 통과했다.
   - 404 한계/결정: MockMvc 미등록 경로는 404와 승인 헤더를 검증하지만 실제 servlet ERROR dispatch를 대표하지 않는다. 별도 Boot 3.5.0 baseline과 3.5.15 Docker 모두 valid token + unmatched path가 `401 AUTH_UNAUTHORIZED`였으므로 #186 회귀가 아니다. PM A안대로 `DispatcherType.ERROR`/`/error` 및 SecurityConfig는 수정하지 않았고 실제 HTTP 404 성공으로 집계하지 않는다. 별도 Issue도 생성하지 않았다.
   - Docker 정리: 진단용 baseline 컨테이너와 compose 컨테이너/network만 종료·제거하고 named volume은 보존했다. `down -v`, volume/image/system prune은 실행하지 않았으며 마지막 Docker 명령 `docker builder prune -f`로 1.4GB를 회수했다.
+  - PM review 후 Docker: 보강 범위가 test/build-script의 dependency contract에만 한정되고 production 동작 변경이 없어 Docker는 재실행하지 않았다.
   - 영향: production Java/API mapping/DTO/ErrorCode/status/message/SecurityConfig/DB/Entity/Flyway/Cloud Run·GCP·Supabase·Upstash·Firebase diff는 0이다. #176 rotate-or-revoke/fail-closed, #76 tokenVersion, logout/withdrawal/FCM, 401/403 구분을 유지했고 실제 access/refresh token 값은 QA 출력·저장소 문서에 남기지 않았다. `docs/decision-log.md` 변경, push, PR도 수행하지 않았다.
-  - 이력서 문장 후보: `Spring Boot 3.5.0→3.5.15 managed BOM으로 취약 Spring Security 6.5.0을 6.5.11로 교체하고 209개 runtime 좌표의 81개 전이·취약 잔여 0건을 계약 테스트로 고정했으며, 404 ERROR-dispatch 한계를 baseline 비교로 분리한 채 404개 전체 테스트·실제 Redis Lua·격리 Docker 인증/헤더 QA로 회귀를 검증했다.`
+  - 이력서 문장 후보: `Spring Boot 3.5.0→3.5.15 managed BOM으로 취약 Spring Security 6.5.0을 6.5.11로 교체하고 production/test resolved graph 독립 계약과 정식 release 검증으로 false-green을 차단했으며, 209개 runtime 좌표의 81개 전이·413개 전체 테스트·실제 Redis Lua·격리 Docker 인증/헤더 QA로 회귀를 검증했다.`
 
 - #183 COFFEE 옵션 가격 backend catalog authority 고정:
   - TDD RED: production 수정 전에 direct COFFEE Poll null `menuId`, COFFEE template create/update null `menuId`, client `content`/`priceAmount` override, REST Docs 400 계약을 먼저 추가했고 `4 tests / 4 failures`로 catalog 우회가 저장 경로에 남아 있음을 확인했다.
