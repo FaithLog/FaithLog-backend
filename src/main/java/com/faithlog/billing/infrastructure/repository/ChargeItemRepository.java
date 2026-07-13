@@ -93,6 +93,23 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		Long sourceId
 	);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select charge from ChargeItem charge
+		where charge.campusId = :campusId
+			and charge.userId = :userId
+			and charge.paymentCategory = :paymentCategory
+			and charge.sourceType = :sourceType
+			and charge.sourceId = :sourceId
+		""")
+	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceIdForUpdate(
+		@Param("campusId") Long campusId,
+		@Param("userId") Long userId,
+		@Param("paymentCategory") PaymentCategory paymentCategory,
+		@Param("sourceType") ChargeSourceType sourceType,
+		@Param("sourceId") Long sourceId
+	);
+
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
 		delete from ChargeItem charge

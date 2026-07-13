@@ -35,4 +35,12 @@ public interface ChargeItemRepositoryPort {
 		ChargeSourceType sourceType,
 		Long sourceId
 	);
+
+	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceIdForUpdate(
+		Long campusId,
+		Long userId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		Long sourceId
+	);
 }

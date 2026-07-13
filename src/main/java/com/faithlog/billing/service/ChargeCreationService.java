@@ -36,7 +36,7 @@ public class ChargeCreationService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
 
 		ChargeItem existingCharge = chargeItemRepository
-			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceIdForUpdate(
 				command.campusId(),
 				command.userId(),
 				PaymentCategory.PENALTY,
@@ -90,7 +90,7 @@ public class ChargeCreationService {
 	public ChargeItemResult createOrUpdateCoffeeCharge(CreateCoffeeChargeCommand command) {
 		PaymentAccount account = findValidCoffeeAccount(command);
 		ChargeItem existingCharge = chargeItemRepository
-			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceIdForUpdate(
 				command.campusId(),
 				command.userId(),
 				PaymentCategory.COFFEE,

@@ -481,7 +481,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 
 			ConcurrentStatusResult paymentBeforeResubmissionCommit = null;
 			try {
-				paymentBeforeResubmissionCommit = paymentFuture.get(5, TimeUnit.SECONDS);
+				paymentBeforeResubmissionCommit = paymentFuture.get(500, TimeUnit.MILLISECONDS);
 			} catch (TimeoutException ignored) {
 				// The source-key row lock must keep payment waiting until resubmission commits.
 			}
@@ -527,7 +527,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 					}
 					try {
 						Object result = method.invoke(delegate, args);
-						if (method.getName().equals(
+						if (method.getName().startsWith(
 							"findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId"
 						)) {
 							probe.afterSourceLookup(args);
