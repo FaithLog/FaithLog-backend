@@ -48,7 +48,7 @@ public class PollResponseCommandService {
 	@Transactional
 	public PollResponseResult respondToPoll(RespondToPollCommand command) {
 		pollAccessService.requireActiveCampusMember(command.campusId(), command.requesterId());
-		Poll poll = pollLookupSupport.getPollInCampus(command.campusId(), command.pollId());
+		Poll poll = pollLookupSupport.getPollInCampusForUpdate(command.campusId(), command.pollId());
 		pollStatusSynchronizer.requireOpenPoll(poll);
 		validateSelectionCount(poll.selectionType(), command.optionIds());
 		validateNoDuplicateOptions(command.optionIds());

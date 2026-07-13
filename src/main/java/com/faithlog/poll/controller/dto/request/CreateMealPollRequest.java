@@ -35,7 +35,7 @@ public class CreateMealPollRequest {
 	@Size(min = 1)
 	@Valid
 	@JsonProperty
-	private List<CreateMealPollOptionRequest> options;
+	private List<@NotNull CreateMealPollOptionRequest> options;
 
 	private final Set<String> unknownFields = new LinkedHashSet<>();
 

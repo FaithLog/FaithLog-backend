@@ -38,7 +38,7 @@ public class PollUserOptionCommandService {
 	@Transactional
 	public PollOptionResult addUserOption(AddPollOptionCommand command) {
 		pollAccessService.requireActiveCampusMember(command.campusId(), command.requesterId());
-		Poll poll = pollLookupSupport.getPollInCampus(command.campusId(), command.pollId());
+		Poll poll = pollLookupSupport.getPollInCampusForUpdate(command.campusId(), command.pollId());
 		pollStatusSynchronizer.requireOpenPoll(poll);
 		if (!poll.allowUserOptionAdd()) {
 			throw new BusinessException(ErrorCode.POLL_USER_OPTION_ADD_DISABLED);

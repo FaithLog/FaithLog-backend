@@ -158,6 +158,24 @@ class PollApiRestDocsTest {
 			.andExpect(status().isConflict())
 			.andDo(document("meal-poll-user-option-duplicate-conflict",
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/close", campusId, pollId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POLL_NOT_FOUND"))
+			.andDo(document("meal-poll-generic-admin-close-not-found",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "null option boundary",
+					  "endsAt": "%s",
+					  "options": [null]
+					}
+					""".formatted(endsAt)))
+			.andExpect(status().isBadRequest());
 
 		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
 				.header("Authorization", "Bearer " + dutyToken)
@@ -251,6 +269,16 @@ class PollApiRestDocsTest {
 		assertThat(mealPollSettlementRepository.count()).isZero();
 		assertThat(chargeItemRepository.findAll().stream()
 			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)).isEmpty();
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, pollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "paymentAccountId": %d,
+					  "groups": [null]
+					}
+					""".formatted(accountId)))
+			.andExpect(status().isBadRequest());
 
 		String request = """
 			{
@@ -321,7 +349,9 @@ class PollApiRestDocsTest {
 			.andExpect(jsonPath("$.data.summary.totalAmount").value(0));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
 				.header("Authorization", "Bearer " + managerToken))
-			.andExpect(status().isForbidden());
+			.andExpect(status().isForbidden())
+			.andDo(document("meal-polls-management-list-forbidden",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
 
 		String rollbackPollBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
 				.header("Authorization", "Bearer " + dutyToken)

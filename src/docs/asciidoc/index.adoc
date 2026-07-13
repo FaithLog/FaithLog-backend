@@ -2728,6 +2728,7 @@ include::{snippets}/meal-poll-create-forbidden-field-bad-request/http-response.a
 include::{snippets}/meal-poll-user-option-add-success/http-request.adoc[]
 include::{snippets}/meal-poll-user-option-add-success/http-response.adoc[]
 include::{snippets}/meal-poll-user-option-duplicate-conflict/http-response.adoc[]
+include::{snippets}/meal-poll-generic-admin-close-not-found/http-response.adoc[]
 
 === Manage and Close Meal Poll
 
@@ -2735,6 +2736,7 @@ include::{snippets}/meal-poll-user-option-duplicate-conflict/http-response.adoc[
 
 include::{snippets}/meal-polls-management-list-success/http-request.adoc[]
 include::{snippets}/meal-polls-management-list-success/http-response.adoc[]
+include::{snippets}/meal-polls-management-list-forbidden/http-response.adoc[]
 include::{snippets}/meal-poll-close-success/http-request.adoc[]
 include::{snippets}/meal-poll-close-success/http-response.adoc[]
 

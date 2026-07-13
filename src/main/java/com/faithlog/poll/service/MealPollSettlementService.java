@@ -22,7 +22,6 @@ import com.faithlog.poll.domain.type.SelectionType;
 import com.faithlog.poll.infrastructure.repository.MealPollChargeGroupRepository;
 import com.faithlog.poll.infrastructure.repository.MealPollSettlementRepository;
 import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
-import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
 import com.faithlog.poll.service.command.CreateMealPollChargeGroupCommand;
@@ -46,7 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class MealPollSettlementService {
 
 	private final MealDutyAccessService mealDutyAccessService;
-	private final PollRepository pollRepository;
+	private final PollLookupSupport pollLookupSupport;
 	private final PollOptionRepository pollOptionRepository;
 	private final PollResponseRepository pollResponseRepository;
 	private final PollResponseOptionRepository pollResponseOptionRepository;
@@ -60,7 +59,7 @@ public class MealPollSettlementService {
 
 	public MealPollSettlementService(
 		MealDutyAccessService mealDutyAccessService,
-		PollRepository pollRepository,
+		PollLookupSupport pollLookupSupport,
 		PollOptionRepository pollOptionRepository,
 		PollResponseRepository pollResponseRepository,
 		PollResponseOptionRepository pollResponseOptionRepository,
@@ -73,7 +72,7 @@ public class MealPollSettlementService {
 		Clock clock
 	) {
 		this.mealDutyAccessService = mealDutyAccessService;
-		this.pollRepository = pollRepository;
+		this.pollLookupSupport = pollLookupSupport;
 		this.pollOptionRepository = pollOptionRepository;
 		this.pollResponseRepository = pollResponseRepository;
 		this.pollResponseOptionRepository = pollResponseOptionRepository;
@@ -89,10 +88,10 @@ public class MealPollSettlementService {
 	@Transactional
 	public MealPollSettlementResult settle(CreateMealPollChargesCommand command) {
 		mealDutyAccessService.requireActiveMealDuty(command.campusId(), command.requesterId());
-		Poll poll = pollRepository.findByIdAndCampusIdForUpdate(command.pollId(), command.campusId())
-			.filter(candidate -> candidate.pollType() == PollType.MEAL)
-			.filter(candidate -> candidate.selectionType() == SelectionType.SINGLE)
-			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
+		Poll poll = pollLookupSupport.getPollInCampusForUpdate(command.campusId(), command.pollId());
+		if (poll.pollType() != PollType.MEAL || poll.selectionType() != SelectionType.SINGLE) {
+			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
+		}
 		if (poll.status() != PollStatus.CLOSED) {
 			throw new BusinessException(ErrorCode.MEAL_SETTLEMENT_NOT_CLOSED);
 		}
@@ -195,6 +194,9 @@ public class MealPollSettlementService {
 		List<CreateMealPollChargeGroupCommand> commands,
 		Set<Long> expectedOptionIds
 	) {
+		if (commands == null) {
+			throw new BusinessException(ErrorCode.MEAL_SETTLEMENT_INVALID_GROUPS);
+		}
 		Map<Long, CreateMealPollChargeGroupCommand> byOption = new LinkedHashMap<>();
 		for (CreateMealPollChargeGroupCommand command : commands) {
 			if (command == null || command.optionId() == null || command.calculationType() == null

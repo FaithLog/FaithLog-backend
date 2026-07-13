@@ -26,6 +26,7 @@ public class MealPollService {
 
 	private final MealDutyAccessService mealDutyAccessService;
 	private final PollRepository pollRepository;
+	private final PollLookupSupport pollLookupSupport;
 	private final PollOptionRepository pollOptionRepository;
 	private final PollResultAssembler pollResultAssembler;
 	private final Clock clock;
@@ -33,12 +34,14 @@ public class MealPollService {
 	public MealPollService(
 		MealDutyAccessService mealDutyAccessService,
 		PollRepository pollRepository,
+		PollLookupSupport pollLookupSupport,
 		PollOptionRepository pollOptionRepository,
 		PollResultAssembler pollResultAssembler,
 		Clock clock
 	) {
 		this.mealDutyAccessService = mealDutyAccessService;
 		this.pollRepository = pollRepository;
+		this.pollLookupSupport = pollLookupSupport;
 		this.pollOptionRepository = pollOptionRepository;
 		this.pollResultAssembler = pollResultAssembler;
 		this.clock = clock;
@@ -71,7 +74,7 @@ public class MealPollService {
 	@Transactional
 	public PollResult close(Long campusId, Long pollId, Long requesterId) {
 		mealDutyAccessService.requireActiveMealDuty(campusId, requesterId);
-		Poll poll = findMealPoll(campusId, pollId);
+		Poll poll = findMealPollForUpdate(campusId, pollId);
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}
@@ -79,10 +82,12 @@ public class MealPollService {
 		return pollResultAssembler.toResult(poll);
 	}
 
-	private Poll findMealPoll(Long campusId, Long pollId) {
-		return pollRepository.findByIdAndCampusId(pollId, campusId)
-			.filter(poll -> poll.pollType() == PollType.MEAL)
-			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
+	private Poll findMealPollForUpdate(Long campusId, Long pollId) {
+		Poll poll = pollLookupSupport.getPollInCampusForUpdate(campusId, pollId);
+		if (poll.pollType() != PollType.MEAL) {
+			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
+		}
+		return poll;
 	}
 
 	private void validateCreateCommand(CreateMealPollCommand command) {
@@ -94,7 +99,7 @@ public class MealPollService {
 		}
 		Set<String> contents = new HashSet<>();
 		for (CreateMealPollOptionCommand option : command.options()) {
-			if (!option.unknownFields().isEmpty() || option.content() == null || option.content().isBlank()
+			if (option == null || !option.unknownFields().isEmpty() || option.content() == null || option.content().isBlank()
 				|| option.content().trim().length() > 200
 				|| !contents.add(option.content().trim().toLowerCase(Locale.ROOT))) {
 				throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);

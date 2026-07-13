@@ -44,4 +44,9 @@ class PollLookupSupport {
 		}
 		return poll;
 	}
+
+	Poll getPollInCampusForUpdate(Long campusId, Long pollId) {
+		return pollRepository.findByIdAndCampusIdForUpdate(pollId, campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
+	}
 }

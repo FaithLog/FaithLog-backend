@@ -8,7 +8,7 @@ import java.util.List;
 
 public record CreateMealPollChargesRequest(
 	@NotNull Long paymentAccountId,
-	@NotNull @Valid List<CreateMealPollChargeGroupRequest> groups
+	@NotNull @Valid List<@NotNull CreateMealPollChargeGroupRequest> groups
 ) {
 
 	public CreateMealPollChargesCommand toCommand(
