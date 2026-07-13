@@ -28,6 +28,7 @@ import com.faithlog.devotion.infrastructure.repository.PenaltyRuleRepository;
 import com.faithlog.devotion.infrastructure.repository.WeeklyDevotionRecordRepository;
 import com.faithlog.devotion.service.DevotionService;
 import com.faithlog.devotion.service.command.DevotionDailyCheckCommand;
+import com.faithlog.devotion.service.command.UpdateDailyDevotionCommand;
 import com.faithlog.devotion.service.command.UpdateWeeklyDevotionCommand;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -145,6 +146,18 @@ class ChargeDevotionResubmissionIntegrationTest {
 		assertThat(dailyCheckRepository.findByWeeklyRecordIdOrderByRecordDateAsc(fixture.weeklyRecord().id()))
 			.usingRecursiveFieldByFieldElementComparatorIgnoringFields("updatedAt")
 			.containsExactlyElementsOf(before);
+
+		devotionService.updateDailyCheck(new UpdateDailyDevotionCommand(
+			fixture.campus().campusId(), fixture.member().id(), WEEK_START,
+			false, true, true
+		));
+		assertThat(dailyCheckRepository.findByWeeklyRecordIdAndRecordDate(fixture.weeklyRecord().id(), WEEK_START))
+			.get()
+			.satisfies(check -> {
+				assertThat(check.quietTimeChecked()).isFalse();
+				assertThat(check.prayerChecked()).isTrue();
+				assertThat(check.bibleReadingChecked()).isTrue();
+			});
 	}
 
 	@Test
