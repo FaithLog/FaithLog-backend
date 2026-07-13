@@ -62,7 +62,7 @@ CREATE TABLE meal_poll_settlements (
         AND actual_total_amount = requested_total_amount + rounding_adjustment
     ),
     CONSTRAINT fk_meal_poll_settlements_campus FOREIGN KEY (campus_id) REFERENCES campuses (id),
-    CONSTRAINT fk_meal_poll_settlements_poll FOREIGN KEY (poll_id) REFERENCES polls (id),
+    CONSTRAINT fk_meal_poll_settlements_poll FOREIGN KEY (poll_id) REFERENCES polls (id) ON DELETE CASCADE,
     CONSTRAINT fk_meal_poll_settlements_payment_account FOREIGN KEY (payment_account_id) REFERENCES payment_accounts (id),
     CONSTRAINT fk_meal_poll_settlements_charged_by FOREIGN KEY (charged_by_user_id) REFERENCES users (id)
 );
@@ -93,5 +93,5 @@ CREATE TABLE meal_poll_charge_groups (
     ),
     CONSTRAINT fk_meal_poll_charge_groups_settlement FOREIGN KEY (settlement_id) REFERENCES meal_poll_settlements (id),
     CONSTRAINT fk_meal_poll_charge_groups_poll FOREIGN KEY (poll_id) REFERENCES polls (id),
-    CONSTRAINT fk_meal_poll_charge_groups_option FOREIGN KEY (option_id) REFERENCES poll_options (id)
+    CONSTRAINT fk_meal_poll_charge_groups_option FOREIGN KEY (option_id) REFERENCES poll_options (id) ON DELETE CASCADE
 );

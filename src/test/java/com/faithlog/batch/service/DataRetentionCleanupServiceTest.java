@@ -20,13 +20,18 @@ import com.faithlog.notification.domain.entity.NotificationLog;
 import com.faithlog.notification.domain.type.NotificationType;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import com.faithlog.poll.domain.type.ChargeGenerationType;
+import com.faithlog.poll.domain.entity.MealPollChargeGroup;
+import com.faithlog.poll.domain.entity.MealPollSettlement;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.entity.PollComment;
 import com.faithlog.poll.domain.entity.PollOption;
 import com.faithlog.poll.domain.entity.PollResponse;
 import com.faithlog.poll.domain.entity.PollResponseOption;
+import com.faithlog.poll.domain.type.MealChargeCalculationType;
 import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.domain.type.SelectionType;
+import com.faithlog.poll.infrastructure.repository.MealPollChargeGroupRepository;
+import com.faithlog.poll.infrastructure.repository.MealPollSettlementRepository;
 import com.faithlog.poll.infrastructure.repository.PollCommentRepository;
 import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
@@ -43,6 +48,9 @@ import com.faithlog.prayer.infrastructure.repository.PrayerWeekRepository;
 import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -64,6 +72,9 @@ class DataRetentionCleanupServiceTest {
 	private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
 	private static final Instant DAILY_NOW = ZonedDateTime.of(2027, 2, 2, 4, 30, 0, 0, SEOUL_ZONE).toInstant();
 	private static final Instant ANNUAL_DUE = ZonedDateTime.of(2027, 2, 1, 4, 30, 0, 0, SEOUL_ZONE).toInstant();
+	private static final Path MEAL_SETTLEMENT_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V8__add_meal_poll_settlement.sql"
+	);
 
 	@Autowired
 	private DataRetentionCleanupService dataRetentionCleanupService;
@@ -85,6 +96,12 @@ class DataRetentionCleanupServiceTest {
 
 	@Autowired
 	private PollCommentRepository pollCommentRepository;
+
+	@Autowired
+	private MealPollSettlementRepository mealPollSettlementRepository;
+
+	@Autowired
+	private MealPollChargeGroupRepository mealPollChargeGroupRepository;
 
 	@Autowired
 	private PrayerSeasonRepository prayerSeasonRepository;
@@ -163,6 +180,26 @@ class DataRetentionCleanupServiceTest {
 		assertThat(pollResponseRepository.findById(fresh.responseId())).isPresent();
 		assertThat(pollResponseOptionRepository.findById(fresh.responseOptionId())).isPresent();
 		assertThat(pollCommentRepository.findById(fresh.commentId())).isPresent();
+	}
+
+	@Test
+	void cleanupDaily_deletes_expired_settled_meal_poll_graph_with_migration_cascades() throws IOException {
+		installMealSettlementForeignKeysFromMigration();
+		User user = saveUser("retention-settled-meal-user@example.com");
+		Campus campus = saveCampus("retention-settled-meal");
+		SettledMealPollGraph expired = saveSettledMealPollGraph(
+			campus.id(), user.id(), DAILY_NOW.minusSeconds(31L * 24 * 60 * 60)
+		);
+
+		DataRetentionCleanupResult result = dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+
+		assertThat(result.pollsDeleted()).isEqualTo(1);
+		assertThat(mealPollChargeGroupRepository.findById(expired.chargeGroupId())).isEmpty();
+		assertThat(mealPollSettlementRepository.findById(expired.settlementId())).isEmpty();
+		assertThat(pollResponseOptionRepository.findById(expired.responseOptionId())).isEmpty();
+		assertThat(pollResponseRepository.findById(expired.responseId())).isEmpty();
+		assertThat(pollOptionRepository.findById(expired.optionId())).isEmpty();
+		assertThat(pollRepository.findById(expired.pollId())).isEmpty();
 	}
 
 	@Test
@@ -293,6 +330,79 @@ class DataRetentionCleanupServiceTest {
 		return new PollGraph(poll.id(), option.id(), response.id(), responseOption.id(), comment.id());
 	}
 
+	private SettledMealPollGraph saveSettledMealPollGraph(Long campusId, Long userId, Instant endsAt) {
+		Poll poll = Poll.createMeal(
+			campusId,
+			"정리 대상 정산 밥 투표",
+			false,
+			true,
+			endsAt.minusSeconds(3600),
+			endsAt,
+			userId
+		);
+		poll.close();
+		poll = pollRepository.saveAndFlush(poll);
+		PollOption option = pollOptionRepository.saveAndFlush(PollOption.create(poll.id(), "한식", null, 0, 1));
+		PollResponse response = pollResponseRepository.saveAndFlush(PollResponse.create(poll.id(), userId, null));
+		PollResponseOption responseOption = pollResponseOptionRepository.saveAndFlush(
+			PollResponseOption.create(response.id(), option.id())
+		);
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campusId,
+			PaymentCategory.MEAL,
+			"밥 계좌",
+			"테스트은행",
+			"333-444",
+			"밥 담당",
+			userId
+		));
+		MealPollSettlement settlement = mealPollSettlementRepository.saveAndFlush(MealPollSettlement.create(
+			campusId,
+			poll.id(),
+			account.id(),
+			userId,
+			1000,
+			1000,
+			0,
+			endsAt
+		));
+		MealPollChargeGroup chargeGroup = mealPollChargeGroupRepository.saveAndFlush(MealPollChargeGroup.create(
+			settlement.id(),
+			poll.id(),
+			option.id(),
+			MealChargeCalculationType.PER_MEMBER,
+			1000,
+			1,
+			1000,
+			1000,
+			1000,
+			0
+		));
+		return new SettledMealPollGraph(
+			poll.id(), option.id(), response.id(), responseOption.id(), settlement.id(), chargeGroup.id()
+		);
+	}
+
+	private void installMealSettlementForeignKeysFromMigration() throws IOException {
+		String migration = Files.readString(MEAL_SETTLEMENT_MIGRATION);
+		String settlementPollCascade = migration.contains(
+			"FOREIGN KEY (poll_id) REFERENCES polls (id) ON DELETE CASCADE"
+		) ? " ON DELETE CASCADE" : "";
+		String chargeGroupOptionCascade = migration.contains(
+			"FOREIGN KEY (option_id) REFERENCES poll_options (id) ON DELETE CASCADE"
+		) ? " ON DELETE CASCADE" : "";
+		jdbcTemplate.execute("""
+			ALTER TABLE meal_poll_settlements
+			ADD CONSTRAINT fk_test_meal_poll_settlements_poll
+			FOREIGN KEY (poll_id) REFERENCES polls (id)%s
+			""".formatted(settlementPollCascade));
+		jdbcTemplate.execute("""
+			ALTER TABLE meal_poll_charge_groups
+			ADD CONSTRAINT fk_test_meal_poll_charge_groups_option
+			FOREIGN KEY (option_id) REFERENCES poll_options (id)%s
+			""".formatted(chargeGroupOptionCascade));
+	}
+
 	private Poll savePoll(Long campusId, Instant endsAt) {
 		Poll poll = Poll.create(
 			campusId,
@@ -397,5 +507,15 @@ class DataRetentionCleanupServiceTest {
 	}
 
 	private record PollGraph(Long pollId, Long optionId, Long responseId, Long responseOptionId, Long commentId) {
+	}
+
+	private record SettledMealPollGraph(
+		Long pollId,
+		Long optionId,
+		Long responseId,
+		Long responseOptionId,
+		Long settlementId,
+		Long chargeGroupId
+	) {
 	}
 }
