@@ -48,6 +48,9 @@ public class PaymentAccountCommandService {
 
 	@Transactional
 	public PaymentAccountResult createPaymentAccount(CreatePaymentAccountCommand command) {
+		if (command.accountType() == PaymentCategory.MEAL) {
+			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "MEAL 계좌는 밥 계좌 API에서만 등록할 수 있습니다.");
+		}
 		requirePaymentAccountManager(command.campusId(), command.requesterId(), command.accountType());
 		lockCampusOrThrow(command.campusId());
 		Long ownerUserId = resolveOwnerUserId(command);
@@ -76,6 +79,7 @@ public class PaymentAccountCommandService {
 	public PaymentAccountResult deactivatePaymentAccount(Long accountId, Long requesterId) {
 		PaymentAccount account = paymentAccountRepository.findById(accountId)
 			.filter(paymentAccount -> !paymentAccount.isDeleted())
+			.filter(paymentAccount -> paymentAccount.accountType() != PaymentCategory.MEAL)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
 		requirePaymentAccountManager(account.campusId(), requesterId, account.accountType());
@@ -173,6 +177,7 @@ public class PaymentAccountCommandService {
 	private PaymentAccount findPaymentAccountInCampus(Long campusId, Long paymentAccountId) {
 		return paymentAccountRepository.findById(paymentAccountId)
 			.filter(account -> !account.isDeleted())
+			.filter(account -> account.accountType() != PaymentCategory.MEAL)
 			.filter(account -> account.campusId().equals(campusId))
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 	}
