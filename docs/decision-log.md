@@ -16,7 +16,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: 기존 `PATCH /api/v1/admin/charges/{chargeItemId}/status`에서 관리 가능한 모든 category의 `UNPAID -> PAID`를 허용하고 서버 현재 시각을 `paidAt`으로 저장한다. terminal 상태에서 `PAID`로의 전환은 `409 BILLING_CHARGE_STATUS_TRANSITION_CONFLICT`로 거부하며 기존 관리자 권한과 401/403 구분, 사용자 `납부했어요` API 의미를 유지한다.
 - Decision: `UNPAID`인 `PENALTY + DEVOTION_RECORD` 청구를 `CANCELED`로 전환할 때 Billing transaction owner가 application port를 호출하고 Devotion adapter가 같은 campus/user/source weekly record를 검증한 뒤 `submittedAt`만 null로 만든다. daily checks는 보존하고, `WAIVED`, 다른 category/source는 재오픈하지 않으며 검증 실패 시 charge 취소도 rollback한다.
 - Decision: 재제출은 현재 활성 벌금 규칙으로 계산한다. 양수이면 기존 CANCELED source charge row를 같은 ID로 `UNPAID` 재활성화해 amount/title/reason/dueDate/계좌와 snapshot을 갱신하고 `paidAt`을 null로 둔다. 0원이면 기존 row를 CANCELED로 유지하고 새 row를 만들지 않는다. #182 `amount > 0` 및 V7 CHECK를 유지한다.
-- Impact: API path/envelope/DTO, Controller Entity 비반환, 권한, DB schema/Flyway V1-V7, dependency, COFFEE terminal 보존 정책은 변경하지 않는다. Billing Entity는 Devotion Entity를 참조하지 않고 Billing port와 Devotion adapter 경계를 사용한다. 같은 청구의 사용자·관리자 상태 쓰기와 PENALTY/COFFEE 기존 source charge 갱신·재활성화는 동일 row write lock으로 직렬화해 뒤 요청이 커밋된 상태를 기준으로 기존 conflict를 반환하도록 한다.
+- Impact: API path/envelope/DTO, Controller Entity 비반환, 권한, DB schema/Flyway V1-V7, dependency, COFFEE terminal 보존 정책은 변경하지 않는다. Billing Entity는 Devotion Entity를 참조하지 않고 Billing port와 Devotion adapter 경계를 사용한다. 같은 청구의 사용자·관리자 상태 쓰기와 PENALTY/COFFEE 기존 source charge 갱신·재활성화는 동일 row write lock으로 직렬화해 뒤 요청이 커밋된 상태를 다시 읽고 기존 상태별 전이 규칙을 적용하도록 한다.
 
 ### 2026-07-13 - Issue #183 COFFEE Option Catalog Authority
 
