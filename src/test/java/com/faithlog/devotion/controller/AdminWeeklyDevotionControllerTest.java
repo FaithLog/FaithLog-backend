@@ -3,6 +3,7 @@ package com.faithlog.devotion.controller;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -25,7 +26,11 @@ import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.io.ByteArrayInputStream;
 import java.util.List;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -242,6 +247,88 @@ class AdminWeeklyDevotionControllerTest {
 		org.assertj.core.api.Assertions.assertThat(waivedMembershipId).isPositive();
 		org.assertj.core.api.Assertions.assertThat(missingMembershipId).isPositive();
 		org.assertj.core.api.Assertions.assertThat(draftMembershipId).isPositive();
+	}
+
+	@Test
+	void weekly_export_returns_two_sheet_workbook_with_submitted_rows_before_missing_section() throws Exception {
+		String managerToken = signupAndLogin("weekly-excel-manager@example.com", UserRole.MANAGER, "엑셀관리자");
+		String paidToken = signupAndLogin("weekly-excel-paid@example.com", UserRole.USER, "엑셀납부자");
+		String missingToken = signupAndLogin("weekly-excel-missing@example.com", UserRole.USER, "엑셀미제출");
+		JsonNode campus = createCampus(managerToken, "주간엑셀캠");
+		long campusId = campus.path("campusId").asLong();
+		String inviteCode = campus.path("inviteCode").asText();
+		joinCampus(paidToken, inviteCode);
+		joinCampus(missingToken, inviteCode);
+		User manager = userRepository.findByEmail("weekly-excel-manager@example.com").orElseThrow();
+		User paid = userRepository.findByEmail("weekly-excel-paid@example.com").orElseThrow();
+		WeeklyDevotionRecord managerRecord = saveWeeklyRecord(
+			campusId,
+			manager.id(),
+			true,
+			List.of(
+				new DailyValue(0, true, false, true),
+				new DailyValue(1, false, true, false)
+			),
+			4,
+			Instant.parse("2026-07-19T01:00:00Z")
+		);
+		WeeklyDevotionRecord paidRecord = saveWeeklyRecord(
+			campusId,
+			paid.id(),
+			true,
+			List.of(new DailyValue(2, true, true, true)),
+			0,
+			Instant.parse("2026-07-19T02:00:00Z")
+		);
+		createCharge(campusId, manager.id(), managerRecord.id(), 2500, ChargeStatus.UNPAID);
+		createCharge(campusId, paid.id(), paidRecord.id(), 1200, ChargeStatus.PAID);
+
+		byte[] workbookBytes = mockMvc.perform(get(
+				"/api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/export",
+				campusId,
+				WEEK_START_DATE)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+			.andExpect(header().string(
+				"Content-Disposition",
+				"attachment; filename=\"faithlog-devotion-%d-%s.xlsx\"".formatted(campusId, WEEK_START_DATE)
+			))
+			.andReturn()
+			.getResponse()
+			.getContentAsByteArray();
+
+		try (Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(workbookBytes))) {
+			org.assertj.core.api.Assertions.assertThat(workbook.getNumberOfSheets()).isEqualTo(2);
+			org.assertj.core.api.Assertions.assertThat(workbook.getSheetName(0)).isEqualTo("주간 요약");
+			org.assertj.core.api.Assertions.assertThat(workbook.getSheetName(1)).isEqualTo("일별 상세");
+
+			Sheet summary = workbook.getSheetAt(0);
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(0).getCell(0).getStringCellValue()).isEqualTo("주차");
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(0).getCell(1).getStringCellValue())
+				.isEqualTo("2026-07-13 ~ 2026-07-19");
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(4).getCell(1).getNumericCellValue()).isEqualTo(3700);
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(7).getCell(0).getStringCellValue()).isEqualTo("사용자 ID");
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(8).getCell(1).getStringCellValue()).isEqualTo("엑셀관리자");
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(8).getCell(9).getNumericCellValue()).isEqualTo(2500);
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(8).getCell(10).getStringCellValue()).isEqualTo("UNPAID");
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(9).getCell(1).getStringCellValue()).isEqualTo("엑셀납부자");
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(9).getCell(10).getStringCellValue()).isEqualTo("PAID");
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(11).getCell(0).getStringCellValue()).isEqualTo("미제출자");
+			org.assertj.core.api.Assertions.assertThat(summary.getRow(13).getCell(1).getStringCellValue()).isEqualTo("엑셀미제출");
+
+			Sheet daily = workbook.getSheetAt(1);
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(0).getCell(0).getStringCellValue()).isEqualTo("구분");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(1).getCell(2).getStringCellValue()).isEqualTo("엑셀관리자");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(1).getCell(4).getStringCellValue()).isEqualTo("2026-07-13");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(1).getCell(5).getStringCellValue()).isEqualTo("월");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(1).getCell(6).getStringCellValue()).isEqualTo("Y");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(1).getCell(7).getStringCellValue()).isEqualTo("Y");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(1).getCell(8).getStringCellValue()).isEqualTo("N");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(8).getCell(2).getStringCellValue()).isEqualTo("엑셀납부자");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(16).getCell(0).getStringCellValue()).isEqualTo("미제출자");
+			org.assertj.core.api.Assertions.assertThat(daily.getRow(18).getCell(2).getStringCellValue()).isEqualTo("엑셀미제출");
+		}
 	}
 
 	private WeeklyDevotionRecord saveWeeklyRecord(
