@@ -58,6 +58,9 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		if (criteria.paymentCategory() != null) {
 			predicates.add(criteriaBuilder.equal(root.get("paymentCategory"), criteria.paymentCategory()));
 		}
+		if (criteria.excludedPaymentCategory() != null) {
+			predicates.add(criteriaBuilder.notEqual(root.get("paymentCategory"), criteria.excludedPaymentCategory()));
+		}
 		if (criteria.status() != null) {
 			predicates.add(criteriaBuilder.equal(root.get("status"), criteria.status()));
 		}

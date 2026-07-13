@@ -6,6 +6,7 @@ import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.service.command.CreateCoffeeChargeCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
+import com.faithlog.billing.service.command.CreateMealChargeCommand;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.billing.service.result.ChargeItemResult;
@@ -117,6 +118,44 @@ public class ChargeCreationService {
 			command.dueDate()
 		);
 		return ChargeItemResult.from(chargeItemRepository.save(chargeItem));
+	}
+
+	@Transactional
+	public ChargeItemResult createMealCharge(CreateMealChargeCommand command) {
+		PaymentAccount account = paymentAccountRepository.findById(command.paymentAccountId())
+			.filter(candidate -> !candidate.isDeleted())
+			.filter(PaymentAccount::isActive)
+			.filter(candidate -> candidate.campusId().equals(command.campusId()))
+			.filter(candidate -> candidate.accountType() == PaymentCategory.MEAL)
+			.filter(candidate -> candidate.ownerUserId().equals(command.requesterId()))
+			.orElseThrow(() -> new BusinessException(ErrorCode.MEAL_PAYMENT_ACCOUNT_NOT_FOUND));
+		if (command.amount() <= 0) {
+			throw new BusinessException(ErrorCode.MEAL_SETTLEMENT_INVALID_AMOUNT);
+		}
+		if (chargeItemRepository.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+			command.campusId(),
+			command.userId(),
+			PaymentCategory.MEAL,
+			ChargeSourceType.POLL_RESPONSE,
+			command.pollResponseId()
+		).isPresent()) {
+			throw new BusinessException(ErrorCode.MEAL_SETTLEMENT_ALREADY_CHARGED);
+		}
+		return ChargeItemResult.from(chargeItemRepository.save(ChargeItem.create(
+			command.campusId(),
+			command.userId(),
+			PaymentCategory.MEAL,
+			account.id(),
+			account.bankName(),
+			account.accountNumber(),
+			account.accountHolder(),
+			ChargeSourceType.POLL_RESPONSE,
+			command.pollResponseId(),
+			command.title(),
+			null,
+			command.amount(),
+			null
+		)));
 	}
 
 	private PaymentAccount findValidCoffeeAccount(CreateCoffeeChargeCommand command) {

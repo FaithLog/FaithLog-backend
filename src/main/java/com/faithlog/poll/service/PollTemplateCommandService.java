@@ -38,6 +38,9 @@ public class PollTemplateCommandService {
 
 	@Transactional
 	public PollTemplateResult createTemplate(CreatePollTemplateCommand command) {
+		if (command.pollType() == PollType.MEAL || command.paymentCategory() == PaymentCategory.MEAL) {
+			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "MEAL 투표는 템플릿을 지원하지 않습니다.");
+		}
 		requireTemplateManageAccess(
 			command.campusId(),
 			command.requesterId(),
@@ -84,6 +87,9 @@ public class PollTemplateCommandService {
 			command.requesterId(),
 			template.pollType()
 		);
+		if (template.pollType() == PollType.MEAL || command.paymentCategory() == PaymentCategory.MEAL) {
+			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "MEAL 투표는 템플릿을 지원하지 않습니다.");
+		}
 		requirePaymentAccountIfNeeded(
 			template.pollType(),
 			command.chargeGenerationType(),

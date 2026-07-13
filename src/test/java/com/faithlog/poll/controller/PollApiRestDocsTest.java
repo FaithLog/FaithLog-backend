@@ -1,5 +1,6 @@
 package com.faithlog.poll.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.restdocs.headers.HeaderDocumentation.headerWithName;
 import static org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
@@ -22,18 +23,32 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.billing.service.BillingService;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.poll.domain.type.PollStatus;
+import com.faithlog.poll.domain.type.PollType;
+import com.faithlog.poll.domain.type.SelectionType;
+import com.faithlog.poll.domain.type.ChargeGenerationType;
+import com.faithlog.poll.domain.entity.Poll;
+import com.faithlog.poll.domain.entity.PollResponse;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
+import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
+import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
+import com.faithlog.poll.infrastructure.repository.MealPollSettlementRepository;
+import com.faithlog.poll.infrastructure.repository.MealPollChargeGroupRepository;
 import com.faithlog.poll.infrastructure.repository.CoffeeMenuCatalogRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
@@ -68,6 +83,12 @@ class PollApiRestDocsTest {
 	private PollRepository pollRepository;
 
 	@Autowired
+	private PollOptionRepository pollOptionRepository;
+
+	@Autowired
+	private PollResponseRepository pollResponseRepository;
+
+	@Autowired
 	private BillingService billingService;
 
 	@Autowired
@@ -75,6 +96,481 @@ class PollApiRestDocsTest {
 
 	@Autowired
 	private CampusService campusService;
+
+	@Autowired
+	private MealPollSettlementRepository mealPollSettlementRepository;
+
+	@Autowired
+	private MealPollChargeGroupRepository mealPollChargeGroupRepository;
+
+	@Test
+	void meal_poll_create_is_server_started_open_and_rejects_billing_fields() throws Exception {
+		String managerToken = signupAndLogin("meal-poll-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("meal-poll-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "189밥투표캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("meal-poll-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("meal-poll-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), duty.id()));
+		String endsAt = java.time.Instant.now().plusSeconds(3600).toString();
+
+		String body = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "점심 메뉴",
+					  "isAnonymous": false,
+					  "allowUserOptionAdd": true,
+					  "endsAt": "%s",
+					  "options": [
+					    {"content": "제육볶음", "sortOrder": 0},
+					    {"content": "김치찌개", "sortOrder": 1}
+					  ]
+					}
+					""".formatted(endsAt)))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.pollType").value("MEAL"))
+			.andExpect(jsonPath("$.data.selectionType").value("SINGLE"))
+			.andExpect(jsonPath("$.data.status").value("OPEN"))
+			.andExpect(jsonPath("$.data.paymentAccountId").isEmpty())
+			.andExpect(jsonPath("$.data.startsAt").isNotEmpty())
+			.andDo(document("meal-poll-create-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())))
+			.andReturn().getResponse().getContentAsString();
+		long pollId = objectMapper.readTree(body).path("data").path("id").asLong();
+		com.faithlog.poll.domain.entity.Poll poll = pollRepository.findById(pollId).orElseThrow();
+		assertThat(poll.createdAt()).isEqualTo(poll.startsAt());
+		String memberToken = signupAndLogin("meal-poll-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("meal-poll-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"content": "  김치전  "}
+					"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.content").value("김치전"))
+			.andExpect(jsonPath("$.data.userAdded").value(true))
+			.andDo(document("meal-poll-user-option-add-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		assertThat(pollOptionRepository.findByPollIdOrderBySortOrderAsc(pollId).get(2).createdByUserId())
+			.isEqualTo(member.id());
+		assertThat(pollResponseRepository.countByPollId(pollId)).isZero();
+		assertThat(mealPollSettlementRepository.count()).isZero();
+		assertThat(chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)).isEmpty();
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"content": "김치전"}
+					"""))
+			.andExpect(status().isConflict())
+			.andDo(document("meal-poll-user-option-duplicate-conflict",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/close", campusId, pollId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POLL_NOT_FOUND"))
+			.andDo(document("meal-poll-generic-admin-close-not-found",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		Poll nonMealPoll = Poll.create(
+			campusId, null, "일반 투표", PollType.CUSTOM, SelectionType.SINGLE, false, false,
+			ChargeGenerationType.NONE, null, null, Instant.now(), Instant.now().plusSeconds(3600), manager.id()
+		);
+		nonMealPoll.open();
+		nonMealPoll = pollRepository.saveAndFlush(nonMealPoll);
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/meal/polls/{pollId}/close", campusId, nonMealPoll.id())
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POLL_NOT_FOUND"))
+			.andDo(document("meal-poll-close-non-meal-not-found",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		long otherCampusId = createCampus(managerToken, "189다른밥캠").path("campusId").asLong();
+		Poll crossCampusPoll = pollRepository.saveAndFlush(Poll.createMeal(
+			otherCampusId, "다른 캠퍼스 밥 투표", false, false,
+			Instant.now(), Instant.now().plusSeconds(3600), manager.id()
+		));
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/meal/polls/{pollId}/close", campusId, crossCampusPoll.id())
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POLL_NOT_FOUND"))
+			.andDo(document("meal-poll-close-cross-campus-not-found",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "null option boundary",
+					  "endsAt": "%s",
+					  "options": [null]
+					}
+					""".formatted(endsAt)))
+			.andExpect(status().isBadRequest());
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "금지 필드",
+					  "endsAt": "%s",
+					  "startsAt": "2026-07-13T00:00:00Z",
+					  "paymentAccountId": 1,
+					  "options": [{"content": "메뉴", "sortOrder": 0}]
+					}
+					""".formatted(endsAt)))
+			.andExpect(status().isBadRequest())
+			.andDo(document("meal-poll-create-forbidden-field-bad-request",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+	}
+
+	@Test
+	void meal_poll_group_total_settlement_rounds_up_and_rejects_retry() throws Exception {
+		String managerToken = signupAndLogin("meal-settlement-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("meal-settlement-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "189정산캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("meal-settlement-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("meal-settlement-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), duty.id()));
+		long accountId = objectMapper.readTree(mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "정산 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "189-SETTLE",
+					  "accountHolder": "밥담당"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andDo(document("meal-payment-account-create-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())))
+			.andReturn().getResponse().getContentAsString())
+			.path("data").path("id").asLong();
+		String pollBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "정산 점심",
+					  "allowUserOptionAdd": true,
+					  "endsAt": "%s",
+					  "options": [{"content": "제육볶음", "sortOrder": 0}]
+					}
+					""".formatted(java.time.Instant.now().plusSeconds(3600))))
+			.andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+		JsonNode pollData = objectMapper.readTree(pollBody).path("data");
+		long pollId = pollData.path("id").asLong();
+		long optionId = pollData.path("options").get(0).path("id").asLong();
+		Instant originalEndsAt = Instant.parse(pollData.path("endsAt").asText());
+		long chargedOptionId = optionId;
+
+		for (int index = 0; index < 3; index++) {
+			String email = "meal-settlement-member-" + index + "@example.com";
+			String memberToken = signupAndLogin(email, UserRole.USER);
+			joinCampus(memberToken, campus.path("inviteCode").asText());
+			if (index == 0) {
+				String addedBody = mockMvc.perform(post(
+						"/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, pollId)
+						.header("Authorization", "Bearer " + memberToken)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+							{"content": "사용자 김치찌개"}
+							"""))
+					.andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+				chargedOptionId = objectMapper.readTree(addedBody).path("data").path("id").asLong();
+			}
+			mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, pollId)
+					.header("Authorization", "Bearer " + memberToken)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{"optionIds": [%d]}
+						""".formatted(chargedOptionId)))
+				.andExpect(status().isOk());
+		}
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/meal/polls/{pollId}/close", campusId, pollId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andDo(document("meal-poll-close-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		assertThat(pollRepository.findById(pollId)).get()
+			.extracting(com.faithlog.poll.domain.entity.Poll::endsAt)
+			.isEqualTo(originalEndsAt);
+		assertThat(mealPollSettlementRepository.count()).isZero();
+		assertThat(chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)).isEmpty();
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, pollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "paymentAccountId": %d,
+					  "groups": [null]
+					}
+					""".formatted(accountId)))
+			.andExpect(status().isBadRequest());
+
+		String request = """
+			{
+			  "paymentAccountId": %d,
+			  "groups": [{
+			    "optionId": %d,
+			    "calculationType": "GROUP_TOTAL",
+			    "enteredAmount": 10000
+			  }]
+			}
+			""".formatted(accountId, chargedOptionId);
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, pollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(request))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.requestedTotalAmount").value(10000))
+			.andExpect(jsonPath("$.data.actualTotalAmount").value(10002))
+			.andExpect(jsonPath("$.data.roundingAdjustment").value(2))
+			.andExpect(jsonPath("$.data.groups[0].responseCount").value(3))
+			.andExpect(jsonPath("$.data.groups[0].amountPerMember").value(3334))
+			.andDo(document("meal-poll-charges-create-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		List<ChargeItem> createdMealCharges = chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)
+			.toList();
+		assertThat(createdMealCharges.stream().map(ChargeItem::amount))
+			.containsExactlyInAnyOrder(3334, 3334, 3334);
+		assertThat(createdMealCharges.stream().map(ChargeItem::title))
+			.containsOnly("사용자 김치찌개");
+		assertThat(createdMealCharges).allSatisfy(charge -> {
+			assertThat(charge.sourceType()).isEqualTo(ChargeSourceType.POLL_RESPONSE);
+			assertThat(charge.paymentAccountId()).isEqualTo(accountId);
+			assertThat(charge.bankNameSnapshot()).isEqualTo("국민은행");
+			assertThat(charge.accountNumberSnapshot()).isEqualTo("189-SETTLE");
+			assertThat(charge.accountHolderSnapshot()).isEqualTo("밥담당");
+			assertThat(charge.dueDate()).isNull();
+		});
+		assertThat(createdMealCharges.stream().map(ChargeItem::sourceId))
+			.containsExactlyInAnyOrderElementsOf(
+				pollResponseRepository.findByPollIdOrderByIdAsc(pollId).stream().map(PollResponse::id).toList()
+			);
+		Instant oldEndsAt = Instant.now().minusSeconds(8L * 24 * 60 * 60);
+		Poll oldClosedPoll = Poll.createMeal(
+			campusId, "7일 초과 종료 투표", false, false,
+			oldEndsAt.minusSeconds(3600), oldEndsAt, duty.id()
+		);
+		oldClosedPoll.close();
+		pollRepository.saveAndFlush(oldClosedPoll);
+		String managementListBody = mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.content[0].settlementStatus").value("CHARGED"))
+			.andDo(document("meal-polls-management-list-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())))
+			.andReturn().getResponse().getContentAsString();
+		assertThat(managementListBody).contains("7일 초과 종료 투표");
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls/{pollId}", campusId, pollId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.options[0].responseCount").value(0))
+			.andExpect(jsonPath("$.data.options[0].charge.chargeStatus").value("NOT_CHARGED"))
+			.andExpect(jsonPath("$.data.options[1].charge.paymentAccountId").value(accountId))
+			.andExpect(jsonPath("$.data.options[1].charge.chargedByMe").value(true))
+			.andDo(document("meal-poll-management-detail-charged-by-me-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/charges/my-accounts", campusId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(10002))
+			.andDo(document("meal-charges-my-accounts-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		String secondDutyToken = signupAndLogin("meal-settlement-duty-b@example.com", UserRole.USER);
+		User secondDuty = userRepository.findByEmail("meal-settlement-duty-b@example.com").orElseThrow();
+		joinCampus(secondDutyToken, campus.path("inviteCode").asText());
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), secondDuty.id()));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls/{pollId}", campusId, pollId)
+				.header("Authorization", "Bearer " + secondDutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.options[1].charge.paymentAccountId").isEmpty())
+			.andExpect(jsonPath("$.data.options[1].charge.chargedByMe").value(false))
+			.andExpect(jsonPath("$.data.options[1].charge.amountPerMember").value(3334))
+			.andDo(document("meal-poll-management-detail-other-duty-redacted-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/charges/my-accounts", campusId)
+				.header("Authorization", "Bearer " + secondDutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(0));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isForbidden())
+			.andDo(document("meal-polls-management-list-forbidden",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+
+		String rollbackPollBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "롤백 검증",
+					  "endsAt": "%s",
+					  "options": [
+					    {"content": "A", "sortOrder": 0},
+					    {"content": "B", "sortOrder": 1}
+					  ]
+					}
+					""".formatted(java.time.Instant.now().plusSeconds(3600))))
+			.andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+		JsonNode rollbackPoll = objectMapper.readTree(rollbackPollBody).path("data");
+		long rollbackPollId = rollbackPoll.path("id").asLong();
+		long optionA = rollbackPoll.path("options").get(0).path("id").asLong();
+		long optionB = rollbackPoll.path("options").get(1).path("id").asLong();
+		for (int index = 0; index < 2; index++) {
+			String rollbackToken = signupAndLogin("meal-rollback-" + index + "@example.com", UserRole.USER);
+			joinCampus(rollbackToken, campus.path("inviteCode").asText());
+			long selectedOption = index == 0 ? optionA : optionB;
+			mockMvc.perform(put(
+					"/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, rollbackPollId)
+					.header("Authorization", "Bearer " + rollbackToken)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{"optionIds": [%d]}
+						""".formatted(selectedOption)))
+				.andExpect(status().isOk());
+		}
+		mockMvc.perform(patch(
+				"/api/v1/campuses/{campusId}/meal/polls/{pollId}/close", campusId, rollbackPollId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk());
+		mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, rollbackPollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "paymentAccountId": %d,
+					  "groups": [{"optionId": %d, "calculationType": "PER_MEMBER", "enteredAmount": 5000}]
+					}
+					""".formatted(accountId, optionA)))
+			.andExpect(status().isBadRequest());
+		assertThat(mealPollSettlementRepository.count()).isEqualTo(1);
+		assertThat(chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)).hasSize(3);
+		mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, rollbackPollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "paymentAccountId": %d,
+					  "groups": [
+					    {"optionId": %d, "calculationType": "PER_MEMBER", "enteredAmount": 5000},
+					    {"optionId": %d, "calculationType": "GROUP_TOTAL", "enteredAmount": 9223372036854775807}
+					  ]
+					}
+					""".formatted(accountId, optionA, optionB)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("MEAL_SETTLEMENT_AMOUNT_OVERFLOW"));
+		assertThat(mealPollSettlementRepository.count()).isEqualTo(1);
+		assertThat(chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)).hasSize(3);
+		List<PollResponse> rollbackResponses = pollResponseRepository.findByPollIdOrderByIdAsc(rollbackPollId);
+		PollResponse conflictingResponse = rollbackResponses.get(1);
+		ChargeItem conflictingCharge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			conflictingResponse.userId(),
+			PaymentCategory.MEAL,
+			accountId,
+			"국민은행",
+			"189-SETTLE",
+			"밥담당",
+			ChargeSourceType.POLL_RESPONSE,
+			conflictingResponse.id(),
+			"선행 충돌 청구",
+			null,
+			1,
+			null
+		));
+		String perMemberRequest = """
+			{
+			  "paymentAccountId": %d,
+			  "groups": [
+			    {"optionId": %d, "calculationType": "PER_MEMBER", "enteredAmount": 5000},
+			    {"optionId": %d, "calculationType": "PER_MEMBER", "enteredAmount": 6000}
+			  ]
+			}
+			""".formatted(accountId, optionA, optionB);
+		mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, rollbackPollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(perMemberRequest))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("MEAL_SETTLEMENT_ALREADY_CHARGED"))
+			.andDo(document("meal-poll-charges-write-rollback-conflict",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		assertThat(mealPollSettlementRepository.count()).isEqualTo(1);
+		assertThat(mealPollChargeGroupRepository.count()).isEqualTo(1);
+		assertThat(chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)).hasSize(4);
+		PollResponse firstRollbackResponse = rollbackResponses.get(0);
+		assertThat(chargeItemRepository.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+			campusId,
+			firstRollbackResponse.userId(),
+			PaymentCategory.MEAL,
+			ChargeSourceType.POLL_RESPONSE,
+			firstRollbackResponse.id()
+		)).isEmpty();
+		chargeItemRepository.delete(conflictingCharge);
+		chargeItemRepository.flush();
+		mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, rollbackPollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(perMemberRequest))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.requestedTotalAmount").value(11000))
+			.andExpect(jsonPath("$.data.actualTotalAmount").value(11000))
+			.andExpect(jsonPath("$.data.roundingAdjustment").value(0))
+			.andExpect(jsonPath("$.data.groups[0].calculationType").value("PER_MEMBER"))
+			.andExpect(jsonPath("$.data.groups[1].calculationType").value("PER_MEMBER"))
+			.andDo(document("meal-poll-charges-per-member-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		assertThat(mealPollSettlementRepository.count()).isEqualTo(2);
+		assertThat(mealPollChargeGroupRepository.count()).isEqualTo(3);
+		assertThat(rollbackResponses.stream().map(response -> chargeItemRepository
+			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+				campusId, response.userId(), PaymentCategory.MEAL, ChargeSourceType.POLL_RESPONSE, response.id()
+			).orElseThrow().amount()))
+			.containsExactly(5000, 6000);
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, pollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(request))
+			.andExpect(status().isConflict())
+			.andDo(document("meal-poll-charges-retry-conflict",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.param("includeInactive", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].id").value(accountId))
+			.andDo(document("meal-payment-accounts-my-list-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+		mockMvc.perform(patch(
+				"/api/v1/campuses/{campusId}/meal/payment-accounts/{accountId}/deactivate", campusId, accountId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andDo(document("meal-payment-account-deactivate-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+	}
 
 	@Test
 	void documents_coffee_catalog_template_and_poll_create_contracts() throws Exception {
@@ -409,7 +905,7 @@ class PollApiRestDocsTest {
 			  "title": "권한 없는 변조",
 			  "selectionType": "MULTIPLE",
 			  "chargeGenerationType": "OPTION_PRICE",
-			  "paymentCategory": "COFFEE",
+			  "paymentCategory": "MEAL",
 			  "paymentAccountId": %d,
 			  "allowUserOptionAdd": true,
 			  "autoCreateEnabled": true,
@@ -441,6 +937,13 @@ class PollApiRestDocsTest {
 				requestFields(updateTemplateRequestFields()),
 				responseFields(errorResponseFields())
 			));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(attackBody))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"));
 
 		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}",
 				otherCampus.path("campusId").asLong(), templateId)

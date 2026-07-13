@@ -1,6 +1,7 @@
 package com.faithlog.campus.service;
 
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
@@ -77,6 +78,46 @@ class CampusDutyAssignmentConcurrencyTest {
 		List<DutyAssignmentResult> activeAssignments = campusService.getDutyAssignments(campus.campusId(), manager.id());
 		assertThat(activeAssignments).hasSize(1);
 		assertThat(activeAssignments.getFirst().active()).isTrue();
+	}
+
+	@Test
+	void assignMealDuty_keeps_multiple_members_but_one_active_assignment_per_member_under_concurrency() throws Exception {
+		User manager = saveUser("meal-concurrent-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "동시밥캠", "분당", "동시 밥 담당자 테스트 캠퍼스"
+		));
+		List<User> targets = new ArrayList<>();
+		for (int index = 0; index < 6; index++) {
+			User target = saveUser("meal-concurrent-target-%02d@example.com".formatted(index), UserRole.USER);
+			campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+			targets.add(target);
+		}
+		List<User> requests = new ArrayList<>(targets);
+		requests.add(targets.getFirst());
+		requests.add(targets.getFirst());
+		ExecutorService executor = Executors.newFixedThreadPool(requests.size());
+		CountDownLatch ready = new CountDownLatch(requests.size());
+		CountDownLatch start = new CountDownLatch(1);
+		List<Future<DutyAssignmentResult>> futures = requests.stream().map(target -> executor.submit(() -> {
+			ready.countDown();
+			start.await(5, TimeUnit.SECONDS);
+			return campusService.assignMealDuty(new AssignMealDutyCommand(
+				campus.campusId(), manager.id(), target.id()
+			));
+		})).toList();
+
+		assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+		start.countDown();
+		for (Future<DutyAssignmentResult> future : futures) {
+			future.get(5, TimeUnit.SECONDS);
+		}
+		executor.shutdown();
+		assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+		assertThat(campusService.getDutyAssignments(campus.campusId(), manager.id()).stream()
+			.filter(assignment -> assignment.dutyType().equals("MEAL")))
+			.hasSize(6)
+			.extracting(DutyAssignmentResult::userId)
+			.containsExactlyInAnyOrderElementsOf(targets.stream().map(User::id).toList());
 	}
 
 	private User saveUser(String email, UserRole role) {

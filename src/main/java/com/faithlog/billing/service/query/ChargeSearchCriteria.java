@@ -9,8 +9,19 @@ public record ChargeSearchCriteria(
 	Set<Long> userIds,
 	PaymentCategory paymentCategory,
 	ChargeStatus status,
-	Set<Long> paymentAccountIds
+	Set<Long> paymentAccountIds,
+	PaymentCategory excludedPaymentCategory
 ) {
+
+	public ChargeSearchCriteria(
+		Long campusId,
+		Set<Long> userIds,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
+	) {
+		this(campusId, userIds, paymentCategory, status, paymentAccountIds, null);
+	}
 
 	public ChargeSearchCriteria(
 		Long campusId,
@@ -18,6 +29,6 @@ public record ChargeSearchCriteria(
 		PaymentCategory paymentCategory,
 		ChargeStatus status
 	) {
-		this(campusId, userIds, paymentCategory, status, null);
+		this(campusId, userIds, paymentCategory, status, null, null);
 	}
 }

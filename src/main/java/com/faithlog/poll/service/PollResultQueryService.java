@@ -3,10 +3,13 @@ package com.faithlog.poll.service;
 import com.faithlog.campus.domain.type.CampusMemberStatus;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.service.port.CampusUserLookupResult;
+import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.entity.PollOption;
 import com.faithlog.poll.domain.entity.PollResponse;
 import com.faithlog.poll.domain.entity.PollResponseOption;
+import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
@@ -87,6 +90,9 @@ public class PollResultQueryService {
 	@Transactional(readOnly = true)
 	public List<PollMissingMemberResult> getMissingMembers(Long campusId, Long pollId, Long requesterId) {
 		Poll poll = pollLookupSupport.getPollInCampus(campusId, pollId);
+		if (poll.pollType() == PollType.MEAL) {
+			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
+		}
 		pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
 		Set<Long> respondedUserIds = pollResponseRepository.findByPollIdOrderByIdAsc(poll.id())
 			.stream()

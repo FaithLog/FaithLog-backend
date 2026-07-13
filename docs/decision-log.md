@@ -715,6 +715,22 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: `POST /api/v1/auth/refresh` receives `refreshToken` in the JSON request body and returns the same token response shape as login. Refresh rotation keeps the same `sessionId` and replaces the refresh token identifier. `POST /api/v1/auth/logout` requires `Authorization: Bearer {accessToken}` and accepts optional body fields `refreshToken`, `clientInstanceId`, and `fcmToken`; logout must still succeed without FCM fields. Issue #28 should not implement Notification entities directly. It may define and call an application port for current-device FCM deactivation, while #40 owns the actual `user_fcm_tokens` persistence implementation. New/changed auth APIs should add Spring REST Docs tests.
 - Impact: Issue #28, Notion auth API pages, backend policy, and the Codex hook must align on this contract before the development session starts. Tests must cover refresh rotation, old refresh token reuse, logout blacklist/allowlist deletion, optional FCM fields, no raw token storage, Redis TTLs, and REST Docs snippets.
 
+## Issue #189 Approved Decisions
+
+### 2026-07-13 - Issue #189 Meal Duty Poll Post-settlement Contract
+
+- Context: Issue #189 introduced a MEAL workflow separate from COFFEE, and the user approved the recommended DTO and visibility details needed to implement the issue without inventing missing API fields.
+- Decision: A campus may have unlimited ACTIVE MEAL duty assignments and assigning the same active member is idempotent. MEAL operational APIs require the requester to be an ACTIVE member and ACTIVE MEAL duty even when the requester is a service ADMIN or campus manager. A MEAL account create request contains only `nickname`, `bankName`, `accountNumber`, and `accountHolder`; the server fixes category to MEAL and owner to the requester. A MEAL poll create request contains `title`, `isAnonymous`, `allowUserOptionAdd`, future `endsAt`, and `options[{content,sortOrder}]`; account, amount, `startsAt`, category, generation, and price fields are rejected with 400. Other-campus and non-MEAL resources are hidden as 404 after the MEAL duty access boundary, while a same-campus requester without ACTIVE MEAL duty receives 403.
+- Decision: The server uses one `Instant` for MEAL poll `startsAt` and `createdAt`, opens it immediately, and preserves the existing `optionIds`/`poll_response_options` response contract and #97 user-added option contract. Closing creates zero settlement/charge rows. One later poll-level request chooses exactly one requester-owned ACTIVE MEAL account and includes every responded option once. `PER_MEMBER` and `GROUP_TOTAL` use integer exact arithmetic; GROUP_TOTAL uses ceiling division and stores requested, actual, and rounding adjustment separately. Settlement/group/charge persistence is one transaction and a poll may be settled once.
+- Decision: Another MEAL duty may see charged status, counts, and calculation snapshots but never another duty's account ID/details. `/meal/charges/my-accounts` includes only MEAL charges connected to accounts owned by the requester. Existing generic admin account/charge APIs exclude MEAL data so this non-exposure boundary cannot be bypassed.
+- Impact: V8 adds MEAL enum/check support, active MEAL duty/account partial uniqueness, and normalized `meal_poll_settlements` / `meal_poll_charge_groups` tables without modifying V1-V7 or operational data. Existing COFFEE, PENALTY, and non-MEAL Poll semantics remain unchanged.
+
+### 2026-07-13 - Issue #189 Feature Docker QA Deferred To Integration
+
+- Context: The user changed the validation sequence after implementation began.
+- Decision: Do not run Docker build/up/API QA in the #189 feature worktree. Complete focused/full Gradle tests, build, asciidoctor, REST Docs, `git diff --check`, repository docs, Obsidian, and PM review in the feature branch. After #188/#189/#190 all receive PM approval, merge them only into `integration/188-190-devotion-meal-billing` created from latest `origin/develop`, then run the single isolated PostgreSQL/Redis/backend Docker health and connected HTTP QA there.
+- Impact: Docker QA absence is an explicit user-approved deferral, not a hidden omission or feature failure. No Docker command was started in the #189 session. PM approval remains required before push, PR, or merge.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope

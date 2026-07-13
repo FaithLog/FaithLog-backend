@@ -14,6 +14,8 @@ public interface ChargeItemRepositoryPort {
 
 	ChargeItem save(ChargeItem chargeItem);
 
+	void flush();
+
 	Optional<ChargeItem> findChargeItemById(Long chargeItemId);
 
 	Page<ChargeItem> searchCharges(ChargeSearchCriteria criteria, Pageable pageable);

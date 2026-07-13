@@ -1,6 +1,7 @@
 package com.faithlog.campus.service;
 
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.command.ChangeCampusRoleCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
@@ -68,12 +69,24 @@ public class CampusService {
 		return campusDutyAssignmentService.getMyCoffeeDutyAssignment(campusId, requesterId);
 	}
 
+	public MyDutyAssignmentResult getMyMealDutyAssignment(Long campusId, Long requesterId) {
+		return campusDutyAssignmentService.getMyMealDutyAssignment(campusId, requesterId);
+	}
+
 	public DutyAssignmentResult assignCoffeeDuty(AssignCoffeeDutyCommand command) {
 		return campusDutyAssignmentService.assignCoffeeDuty(command);
 	}
 
+	public DutyAssignmentResult assignMealDuty(AssignMealDutyCommand command) {
+		return campusDutyAssignmentService.assignMealDuty(command);
+	}
+
 	public void revokeCoffeeDuty(Long campusId, Long assignmentId, Long requesterId) {
 		campusDutyAssignmentService.revokeCoffeeDuty(campusId, assignmentId, requesterId);
+	}
+
+	public void revokeMealDuty(Long campusId, Long assignmentId, Long requesterId) {
+		campusDutyAssignmentService.revokeMealDuty(campusId, assignmentId, requesterId);
 	}
 
 	public List<CampusMembershipResult> getMyCampuses(Long requesterId) {

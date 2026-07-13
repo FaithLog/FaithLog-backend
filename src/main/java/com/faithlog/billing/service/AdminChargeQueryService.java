@@ -24,6 +24,7 @@ import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.service.port.CampusRepositoryPort;
 import com.faithlog.campus.service.port.CampusUserLookupPort;
 import com.faithlog.campus.service.port.CampusUserLookupResult;
+import com.faithlog.campus.service.MealDutyAccessService;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.time.Instant;
@@ -54,6 +55,7 @@ public class AdminChargeQueryService {
 	private final CampusUserLookupPort userLookupPort;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 	private final PaymentAccountRepositoryPort paymentAccountRepository;
+	private final MealDutyAccessService mealDutyAccessService;
 
 	public AdminChargeQueryService(
 		ChargeItemRepositoryPort chargeItemRepository,
@@ -61,7 +63,8 @@ public class AdminChargeQueryService {
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusUserLookupPort userLookupPort,
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
-		PaymentAccountRepositoryPort paymentAccountRepository
+		PaymentAccountRepositoryPort paymentAccountRepository,
+		MealDutyAccessService mealDutyAccessService
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusRepository = campusRepository;
@@ -69,10 +72,14 @@ public class AdminChargeQueryService {
 		this.userLookupPort = userLookupPort;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
 		this.paymentAccountRepository = paymentAccountRepository;
+		this.mealDutyAccessService = mealDutyAccessService;
 	}
 
 	@Transactional(readOnly = true)
 	public AdminCampusChargesResult listAdminCampusCharges(AdminCampusChargeListQuery query) {
+		if (query.paymentCategory() == PaymentCategory.MEAL) {
+			throw forbidden();
+		}
 		Campus campus = getCampus(query.campusId());
 		Set<Long> paymentAccountIds = resolveChargePaymentAccountIds(
 			query.campusId(),
@@ -92,7 +99,8 @@ public class AdminChargeQueryService {
 			targetUserIds,
 			query.paymentCategory(),
 			query.status(),
-			paymentAccountIds
+			paymentAccountIds,
+			PaymentCategory.MEAL
 		));
 		List<AdminCampusChargeMemberResult> members = aggregateMembers(charges, usersById, query.pageable());
 		return new AdminCampusChargesResult(
@@ -106,6 +114,9 @@ public class AdminChargeQueryService {
 
 	@Transactional(readOnly = true)
 	public AdminCampusChargesResult listAdminCampusChargesForMyAccounts(AdminCampusChargeListQuery query) {
+		if (query.paymentCategory() == PaymentCategory.MEAL) {
+			throw forbidden();
+		}
 		Campus campus = getCampus(query.campusId());
 		Set<Long> paymentAccountIds = resolveMyChargePaymentAccountIds(
 			query.campusId(),
@@ -125,7 +136,8 @@ public class AdminChargeQueryService {
 			targetUserIds,
 			query.paymentCategory(),
 			query.status(),
-			paymentAccountIds
+			paymentAccountIds,
+			PaymentCategory.MEAL
 		));
 		List<AdminCampusChargeMemberResult> members = aggregateMembers(charges, usersById, query.pageable());
 		return new AdminCampusChargesResult(
@@ -139,6 +151,9 @@ public class AdminChargeQueryService {
 
 	@Transactional(readOnly = true)
 	public AdminMemberChargesResult listAdminMemberCharges(AdminMemberChargeListQuery query) {
+		if (query.paymentCategory() == PaymentCategory.MEAL) {
+			throw forbidden();
+		}
 		Campus campus = getCampus(query.campusId());
 		requireCampusChargeManager(query.campusId(), query.requesterId(), query.paymentCategory());
 		requireActiveCampusMember(query.campusId(), query.userId());
@@ -148,7 +163,9 @@ public class AdminChargeQueryService {
 			query.campusId(),
 			Set.of(query.userId()),
 			query.paymentCategory(),
-			query.status()
+			query.status(),
+			null,
+			PaymentCategory.MEAL
 		);
 		List<ChargeItem> summaryTargets = chargeItemRepository.searchCharges(criteria);
 		Page<ChargeItem> page = chargeItemRepository.searchCharges(criteria, query.pageable());
@@ -161,6 +178,27 @@ public class AdminChargeQueryService {
 			targetUser.email(),
 			summarize(summaryTargets),
 			page.stream().map(ChargeListItemResult::from).toList()
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public AdminCampusChargesResult listMealChargesForMyAccounts(AdminCampusChargeListQuery query) {
+		mealDutyAccessService.requireActiveMealDuty(query.campusId(), query.requesterId());
+		Campus campus = getCampus(query.campusId());
+		Set<Long> accountIds = paymentAccountRepository
+			.findByCampusIdAndOwnerUserIdAndAccountTypeAndDeletedAtIsNullOrderByIdAsc(
+				query.campusId(), query.requesterId(), PaymentCategory.MEAL)
+			.stream().map(PaymentAccount::id).collect(Collectors.toSet());
+		List<CampusUserLookupResult> targetUsers = targetUsers(query.campusId(), query.userId(), query.keyword());
+		Set<Long> targetUserIds = targetUsers.stream().map(CampusUserLookupResult::userId).collect(Collectors.toSet());
+		Map<Long, CampusUserLookupResult> usersById = targetUsers.stream()
+			.collect(Collectors.toMap(CampusUserLookupResult::userId, Function.identity()));
+		List<ChargeItem> charges = chargeItemRepository.searchCharges(new ChargeSearchCriteria(
+			query.campusId(), targetUserIds, PaymentCategory.MEAL, query.status(), accountIds
+		));
+		return new AdminCampusChargesResult(
+			campus.id(), campus.name(), campus.region(), summarize(charges),
+			aggregateMembers(charges, usersById, query.pageable())
 		);
 	}
 
@@ -381,6 +419,9 @@ public class AdminChargeQueryService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 		if (!account.campusId().equals(campusId)) {
 			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND);
+		}
+		if (account.accountType() == PaymentCategory.MEAL) {
+			throw forbidden();
 		}
 		return account;
 	}

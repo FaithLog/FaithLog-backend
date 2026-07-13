@@ -23,6 +23,7 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.type.PollStatus;
+import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
 import com.faithlog.user.domain.entity.User;
@@ -155,11 +156,14 @@ public class AdminDashboardQueryService {
 	}
 
 	private ChargeSummary chargeSummary(Long campusId) {
-		List<ChargeItem> unpaidCharges = chargeItemRepository.findByCampusIdAndStatus(campusId, ChargeStatus.UNPAID);
+		List<ChargeItem> unpaidCharges = chargeItemRepository.findByCampusIdAndStatus(campusId, ChargeStatus.UNPAID)
+			.stream()
+			.filter(charge -> charge.paymentCategory() != PaymentCategory.MEAL)
+			.toList();
 		long unpaidAmount = unpaidCharges.stream().mapToLong(ChargeItem::amount).sum();
 		long unpaidMemberCount = unpaidCharges.stream().map(ChargeItem::userId).distinct().count();
 		Map<PaymentCategory, Long> amountByCategory = new EnumMap<>(PaymentCategory.class);
-		for (PaymentCategory paymentCategory : PaymentCategory.values()) {
+		for (PaymentCategory paymentCategory : List.of(PaymentCategory.PENALTY, PaymentCategory.COFFEE)) {
 			amountByCategory.put(paymentCategory, 0L);
 		}
 		unpaidCharges.forEach(charge -> amountByCategory.merge(
@@ -177,13 +181,16 @@ public class AdminDashboardQueryService {
 
 	private PollSummary pollSummary(Long campusId, List<CampusMember> activeMembers) {
 		Instant now = Instant.now();
-		List<Poll> openPolls = pollRepository.findByCampusIdAndStatusOrderByIdAsc(campusId, PollStatus.OPEN);
+		List<Poll> openPolls = pollRepository.findByCampusIdAndStatusOrderByIdAsc(campusId, PollStatus.OPEN)
+			.stream()
+			.filter(poll -> poll.pollType() != PollType.MEAL)
+			.toList();
 		long recentlyClosedCount = pollRepository.findByCampusIdAndStatusAndEndsAtBetweenOrderByIdAsc(
 			campusId,
 			PollStatus.CLOSED,
 			now.minusSeconds(RECENTLY_CLOSED_DAYS * 24L * 60L * 60L),
 			now
-		).size();
+		).stream().filter(poll -> poll.pollType() != PollType.MEAL).count();
 		Set<Long> activeUserIds = activeMembers.stream().map(CampusMember::userId).collect(Collectors.toSet());
 		long missingResponseCount = activeUserIds.isEmpty()
 			? 0

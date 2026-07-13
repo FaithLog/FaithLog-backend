@@ -35,6 +35,7 @@ public enum ErrorCode {
 	CAMPUS_VIEW_FORBIDDEN(HttpStatus.FORBIDDEN, "캠퍼스 조회 권한이 없습니다."),
 	CAMPUS_NOT_FOUND(HttpStatus.NOT_FOUND, "캠퍼스를 찾을 수 없습니다."),
 	CAMPUS_INVITE_CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "초대코드 생성에 실패했습니다."),
+	MEAL_DUTY_REQUIRED(HttpStatus.FORBIDDEN, "활성 밥 담당자만 이용할 수 있습니다."),
 
 	DEVOTION_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
 	DEVOTION_INVALID_YEAR_MONTH(HttpStatus.BAD_REQUEST, "조회 연월이 올바르지 않습니다."),
@@ -73,6 +74,7 @@ public enum ErrorCode {
 	BILLING_ADMIN_PAID_FORBIDDEN(HttpStatus.BAD_REQUEST, "관리자는 청구를 PAID로 변경할 수 없습니다."),
 	BILLING_CHARGE_STATUS_TRANSITION_CONFLICT(HttpStatus.CONFLICT, "허용되지 않는 청구 상태 전이입니다."),
 	BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "청구 상태 변경 권한이 없습니다."),
+	MEAL_PAYMENT_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "밥 납부 계좌를 찾을 수 없습니다."),
 
 	POLL_TEMPLATE_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 템플릿 관리 권한이 없습니다."),
 	POLL_CREATE_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 생성 권한이 없습니다."),
@@ -95,10 +97,16 @@ public enum ErrorCode {
 	POLL_USER_OPTION_CONTENT_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "커피 투표 항목에는 content를 직접 사용할 수 없습니다."),
 	POLL_USER_OPTION_MENU_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "커피 외 투표 항목에는 menuId를 사용할 수 없습니다."),
 	POLL_OPTION_DUPLICATE_CONTENT(HttpStatus.BAD_REQUEST, "이미 같은 이름의 투표 선택지가 있습니다."),
+	POLL_MEAL_OPTION_DUPLICATE_CONTENT(HttpStatus.CONFLICT, "이미 같은 이름의 밥 투표 선택지가 있습니다."),
 	POLL_RESPONSE_INVALID_SELECTION_COUNT(HttpStatus.BAD_REQUEST, "투표 선택 개수가 올바르지 않습니다."),
 	POLL_RESPONSE_DUPLICATE_OPTION(HttpStatus.BAD_REQUEST, "중복된 투표 선택지가 포함되어 있습니다."),
 	POLL_CLOSED(HttpStatus.CONFLICT, "마감된 투표에는 응답하거나 댓글을 작성할 수 없습니다."),
 	POLL_SETTLEMENT_NOT_CLOSED(HttpStatus.CONFLICT, "마감된 커피 투표만 정산할 수 있습니다."),
+	MEAL_SETTLEMENT_NOT_CLOSED(HttpStatus.CONFLICT, "마감된 밥 투표만 청구할 수 있습니다."),
+	MEAL_SETTLEMENT_INVALID_GROUPS(HttpStatus.BAD_REQUEST, "밥 투표 청구 그룹이 올바르지 않습니다."),
+	MEAL_SETTLEMENT_INVALID_AMOUNT(HttpStatus.BAD_REQUEST, "밥 투표 청구 금액이 올바르지 않습니다."),
+	MEAL_SETTLEMENT_AMOUNT_OVERFLOW(HttpStatus.BAD_REQUEST, "밥 투표 청구 금액이 허용 범위를 초과했습니다."),
+	MEAL_SETTLEMENT_ALREADY_CHARGED(HttpStatus.CONFLICT, "이미 청구한 밥 투표입니다."),
 	POLL_COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "투표 댓글을 찾을 수 없습니다."),
 	POLL_COMMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 댓글 수정/삭제 권한이 없습니다."),
 
