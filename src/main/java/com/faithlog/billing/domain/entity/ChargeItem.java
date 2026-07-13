@@ -198,6 +198,22 @@ public class ChargeItem {
 		this.dueDate = dueDate;
 	}
 
+	public void reactivateCanceledCharge(
+		PaymentAccount account,
+		String title,
+		String reason,
+		int amount,
+		LocalDate dueDate
+	) {
+		if (status != ChargeStatus.CANCELED) {
+			throw new IllegalStateException("Only canceled charges can be reactivated.");
+		}
+		validatePositiveAmount(amount);
+		this.status = ChargeStatus.UNPAID;
+		this.paidAt = null;
+		updateUnpaidCharge(account, title, reason, amount, dueDate);
+	}
+
 	private static void validatePositiveAmount(int amount) {
 		if (amount <= 0) {
 			throw new IllegalArgumentException("Charge amount must be positive.");

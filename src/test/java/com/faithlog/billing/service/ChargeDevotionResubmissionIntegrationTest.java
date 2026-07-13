@@ -231,6 +231,14 @@ class ChargeDevotionResubmissionIntegrationTest {
 		PaymentAccountResult replacement = createAccount(
 			fixture.campus().campusId(), fixture.manager().id(), PaymentCategory.PENALTY, "190-REPLACEMENT"
 		);
+		PenaltyRule currentQuietTimeRule = penaltyRuleRepository
+			.findByCampusIdOrderByIdAsc(fixture.campus().campusId())
+			.stream()
+			.filter(rule -> rule.ruleType() == PenaltyRuleType.QUIET_TIME)
+			.findFirst()
+			.orElseThrow();
+		currentQuietTimeRule.update(5, 0, 700, true);
+		penaltyRuleRepository.saveAndFlush(currentQuietTimeRule);
 
 		devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
 			fixture.campus().campusId(), fixture.member().id(), WEEK_START,
@@ -241,7 +249,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 		assertThat(chargeItemRepository.count()).isEqualTo(originalChargeCount);
 		assertThat(chargeItemRepository.findById(fixture.charge().id())).get().satisfies(reused -> {
 			assertThat(reused.status()).isEqualTo(ChargeStatus.UNPAID);
-			assertThat(reused.amount()).isEqualTo(5200);
+			assertThat(reused.amount()).isEqualTo(6000);
 			assertThat(reused.paymentAccountId()).isEqualTo(replacement.id());
 			assertThat(reused.accountNumberSnapshot()).isEqualTo("190-REPLACEMENT");
 			assertThat(reused.paidAt()).isNull();

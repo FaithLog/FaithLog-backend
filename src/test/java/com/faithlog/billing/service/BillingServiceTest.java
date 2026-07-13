@@ -1109,7 +1109,9 @@ class BillingServiceTest {
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
 		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-009");
 		ChargeItem waiveTarget = saveCharge(campus.campusId(), member.id(), account, 5007L);
-		ChargeItem cancelTarget = saveCharge(campus.campusId(), member.id(), account, 5008L);
+		ChargeItem cancelTarget = saveCharge(
+			campus.campusId(), member.id(), account, ChargeSourceType.POLL_RESPONSE, 5008L
+		);
 		ChargeItem paidTarget = saveCharge(campus.campusId(), member.id(), account, 5009L);
 		paidTarget.markPaid(Instant.parse("2026-06-12T12:30:00Z"));
 
@@ -1178,7 +1180,9 @@ class BillingServiceTest {
 		campusMemberRepository.saveAndFlush(leaderMembership);
 		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "123-456789-015");
 		ChargeItem waiveTarget = saveCharge(campus.campusId(), member.id(), account, 5013L);
-		ChargeItem cancelTarget = saveCharge(campus.campusId(), member.id(), account, 5014L);
+		ChargeItem cancelTarget = saveCharge(
+			campus.campusId(), member.id(), account, ChargeSourceType.POLL_RESPONSE, 5014L
+		);
 
 		ChargeItemResult waived = billingService.changeChargeStatus(new ChangeChargeStatusCommand(
 			waiveTarget.id(),
@@ -1313,6 +1317,16 @@ class BillingServiceTest {
 	}
 
 	private ChargeItem saveCharge(Long campusId, Long userId, PaymentAccountResult account, Long sourceId) {
+		return saveCharge(campusId, userId, account, ChargeSourceType.DEVOTION_RECORD, sourceId);
+	}
+
+	private ChargeItem saveCharge(
+		Long campusId,
+		Long userId,
+		PaymentAccountResult account,
+		ChargeSourceType sourceType,
+		Long sourceId
+	) {
 		return chargeItemRepository.saveAndFlush(ChargeItem.create(
 			campusId,
 			userId,
@@ -1321,7 +1335,7 @@ class BillingServiceTest {
 			account.bankName(),
 			account.accountNumber(),
 			account.accountHolder(),
-			ChargeSourceType.DEVOTION_RECORD,
+			sourceType,
 			sourceId,
 			"경건생활 벌금",
 			"2026-06-15 주간",

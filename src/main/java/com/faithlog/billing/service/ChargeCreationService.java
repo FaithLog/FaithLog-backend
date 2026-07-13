@@ -3,6 +3,7 @@ package com.faithlog.billing.service;
 import com.faithlog.billing.domain.entity.ChargeItem;
 import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.service.command.CreateCoffeeChargeCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
@@ -45,6 +46,16 @@ public class ChargeCreationService {
 			.orElse(null);
 		if (existingCharge != null && existingCharge.isUnpaid()) {
 			existingCharge.updateUnpaidCharge(
+				account,
+				command.title(),
+				command.reason(),
+				command.amount(),
+				command.dueDate()
+			);
+			return ChargeItemResult.from(existingCharge);
+		}
+		if (existingCharge != null && existingCharge.status() == ChargeStatus.CANCELED) {
+			existingCharge.reactivateCanceledCharge(
 				account,
 				command.title(),
 				command.reason(),
