@@ -35,11 +35,12 @@
 - GREEN: enum/Flyway, duty/account, poll create, GROUP_TOTAL 10,000원÷3명=3,334원·실제 10,002원·차액 2원, retry 409, calculator focused 테스트 통과.
 - 리뷰 GREEN: response/user option/generic·전용 close/settlement가 같은 pessimistic poll lookup을 사용한다. 일반 관리자 MEAL close·missing-members·status 변경은 404, dashboard와 generic create/template은 MEAL을 제외하며, V8 option/poll cascade가 30일 cleanup을 보장한다. null 요소는 400이고 회귀 묶음 90개가 통과했다.
 - 재리뷰 GREEN: 수동 close는 `endsAt`을 유지하고 상태만 CLOSED로 바꾼다. settlement/group/첫 charge write 이후 unique 충돌도 전부 rollback하며, 전용 close cross-campus/non-MEAL 404, role 불변, PER_MEMBER/source/account snapshot, 오래된 CLOSED 목록을 명시 검증했다.
+- 최종 DB 리뷰 GREEN: settlement 응답 option 조회를 ID 오름차순으로 고정해 충돌 charge가 반드시 두 번째 처리되고 첫 charge INSERT 이후 rollback되는 경로를 결정적으로 검증한다.
 
 ## 검증 범위
 
-- focused: Duty/Poll/Billing/Flyway/REST Docs 187 tests / 0 failures / 0 errors / 2 skipped. 사용자 option 후청구, 0응답 제외, account 격리, 실제 write 후 rollback, Clock 경계, 경합 중복 차단까지 보강했다.
-- full: `./gradlew test` 427 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check` 성공.
+- focused: Duty/Poll/Billing/Flyway/REST Docs 188 tests / 0 failures / 0 errors / 2 skipped. 사용자 option 후청구, 0응답 제외, account 격리, 실제 write 후 rollback, Clock 경계, 경합 중복 차단까지 보강했다.
+- full: `./gradlew test` 428 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check` 성공.
 - REST Docs: 전체 147개 snippet group 중 MEAL 관련 23개를 생성하고 `build/docs/asciidoc/index.html` 렌더를 확인했다.
 - Docker QA: 사용자 최신 결정에 따라 이 feature에서는 실행하지 않고 #188/#189/#190 승인 후 integration branch에서 PostgreSQL/Redis/backend 연결 QA로 이관한다.
 
