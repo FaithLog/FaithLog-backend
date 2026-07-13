@@ -1020,9 +1020,9 @@ tags:
    - 발견한 리스크, pending decision, 미검증 항목
 5. PM 세션은 `origin/develop...HEAD` 전체 diff를 독립 코드리뷰한다.
 6. PM finding이 있으면 개발 세션은 finding별 실패 재현 또는 근거를 확인하고 최소 수정한다. 필수 전체 검증과 작업 단위 커밋을 다시 완료한 뒤 새 상세 코드리뷰 보고서를 보낸다.
-7. finding이 0건이고 필수 검증이 모두 통과한 경우에만 PM 세션이 develop 대상 PR을 생성하고 CI를 확인해 머지한다.
-8. CI 실패나 PR 충돌이 있으면 완료 처리하지 않고 원인을 수정, 재검증, 재리뷰한다.
-9. develop 머지 성공과 Issue 종료 또는 완료 상태가 실제 확인되어야 이슈를 최종 완료한다.
+7. 병렬 개발 대상으로 묶인 모든 이슈가 finding 0건이고 필수 검증을 통과한 경우에만 PM 세션이 `origin/develop` 기반 별도 integration branch를 생성하고 승인된 feature branch들을 병합한다.
+8. 개발 세션은 feature branch 또는 `develop`에 직접 PR/merge하지 않는다. integration CI 실패나 충돌이 있으면 완료 처리하지 않고 원인을 수정, 재검증, 재리뷰한다.
+9. PM integration branch 통합과 Issue 종료 또는 완료 상태가 실제 확인되어야 이슈를 최종 완료한다.
 
 ## 11. 보고 형식
 

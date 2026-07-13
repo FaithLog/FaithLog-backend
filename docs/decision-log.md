@@ -10,12 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
-### 2026-07-13 - Development Completion Requires Independent PM Review And Develop Merge
+### 2026-07-13 - Issue #188 Weekly Penalty Total Status Basis
+
+- Context: Issue #188 returns each active member's actual weekly `PENALTY` charge amount and status and also exposes `totalPenaltyAmount`. The Issue, previous decisions, and Notion did not define which charge statuses contribute to that total.
+- Decision: Each member row displays the actual charge `amount` and `status` for the weekly devotion record regardless of whether it is paid. `totalPenaltyAmount` sums charges whose status is `UNPAID` or `PAID`. A weekly member charge has only one current status, so it contributes to exactly one of those status buckets. `WAIVED` and `CANCELED` charges remain visible with their stored amount and status but do not contribute to `totalPenaltyAmount`.
+- Impact: The JSON API and Excel export use the same query model and identical `PAID + UNPAID` total basis. Historical amounts are read from `charge_items` and are never recalculated from current penalty rules.
+
+### 2026-07-13 - Development Completion Requires Independent PM Review And Integration Branch
 
 - Context: The user established one completion and review workflow beginning with Issue #188 and applying to every later development issue.
-- Decision: A development session completes implementation, tests, isolated Docker QA, repository documentation, Obsidian records, and small work-unit commits, but does not push, create a PR, or merge. It then sends the source PM session a detailed review report covering the entire `origin/develop...HEAD` range. The PM session independently reviews the full diff. Each PM finding must be reproduced or evidence-checked, minimally fixed, fully reverified, committed, and reported again. Only the PM session may create the develop-targeting PR after zero findings and all required verification passes.
-- Decision: CI failures or PR conflicts keep the issue open and require correction, re-verification, and re-review. An issue is complete only after the develop merge actually succeeds and the Issue is closed or its completed state is confirmed.
-- Impact: Development-session completion reports must include repository identity and cleanliness, all commits/diff ranges, API/authorization/transaction/DB/Flyway/dependency changes, RED/GREEN evidence, focused/full/build/asciidoctor/diff-check results, real Docker API/Excel QA and the final `docker builder prune -f` result, regression and unchanged scope, REST Docs/index, repository/Obsidian records, and all risks, pending decisions, and unverified items. PM approval is a mandatory release gate and does not authorize the development session to push or open a PR.
+- Decision: A development session completes implementation, tests, isolated Docker QA, repository documentation, Obsidian records, and small work-unit commits, but does not push, create a PR, or merge. It then sends the source PM session a detailed review report covering the entire `origin/develop...HEAD` range. The PM session independently reviews the full diff. Each PM finding must be reproduced or evidence-checked, minimally fixed, fully reverified, committed, and reported again.
+- Decision: For the parallel #188/#189/#190 work, all three feature branches must reach zero PM findings and pass every required verification before the PM session creates a separate integration branch from `origin/develop` and merges the three approved feature branches there. Development sessions do not create a PR or merge into `develop`. CI failures or integration conflicts keep the affected issue open and require correction, re-verification, and re-review.
+- Impact: Development-session completion reports must include repository identity and cleanliness, all commits/diff ranges, API/authorization/transaction/DB/Flyway/dependency changes, RED/GREEN evidence, focused/full/build/asciidoctor/diff-check results, real Docker API/Excel QA and the final `docker builder prune -f` result, regression and unchanged scope, REST Docs/index, repository/Obsidian records, and all risks, pending decisions, and unverified items. PM approval is a mandatory integration gate and does not authorize a development session to push, open a PR, or merge. An issue is final only after the PM integration branch includes it and the Issue is closed or completion is confirmed.
 
 ### 2026-07-13 - Issue #183 COFFEE Option Catalog Authority
 
