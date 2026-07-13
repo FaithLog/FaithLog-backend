@@ -358,19 +358,25 @@ class PollServiceTest {
 	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	void coffee_duty_cannot_update_persisted_custom_template_with_coffee_request_body() {
-		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.CUSTOM);
+		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.CUSTOM, PaymentCategory.COFFEE);
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void coffee_duty_cannot_update_persisted_custom_template_with_meal_request_body() {
+		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.CUSTOM, PaymentCategory.MEAL);
 	}
 
 	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	void coffee_duty_cannot_update_persisted_wed_service_template_with_coffee_request_body() {
-		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.WED_SERVICE);
+		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.WED_SERVICE, PaymentCategory.COFFEE);
 	}
 
 	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	void coffee_duty_cannot_update_persisted_saturday_leader_template_with_coffee_request_body() {
-		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.SATURDAY_LEADER);
+		assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType.SATURDAY_LEADER, PaymentCategory.COFFEE);
 	}
 
 	@Test
@@ -2389,8 +2395,11 @@ class PollServiceTest {
 		));
 	}
 
-	private void assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(PollType persistedPollType) {
-		String testId = persistedPollType.name().toLowerCase();
+	private void assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(
+		PollType persistedPollType,
+		PaymentCategory requestPaymentCategory
+	) {
+		String testId = persistedPollType.name().toLowerCase() + "-" + requestPaymentCategory.name().toLowerCase();
 		User manager = saveUser("poll-179-" + testId + "-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-179-" + testId + "-duty@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "179" + persistedPollType + "캠");
@@ -2425,7 +2434,7 @@ class PollServiceTest {
 			"권한 없는 수정 " + persistedPollType,
 			SelectionType.MULTIPLE,
 			ChargeGenerationType.OPTION_PRICE,
-			PaymentCategory.COFFEE,
+			requestPaymentCategory,
 			dutyAccountId,
 			true,
 			true,

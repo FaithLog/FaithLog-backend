@@ -905,7 +905,7 @@ class PollApiRestDocsTest {
 			  "title": "권한 없는 변조",
 			  "selectionType": "MULTIPLE",
 			  "chargeGenerationType": "OPTION_PRICE",
-			  "paymentCategory": "COFFEE",
+			  "paymentCategory": "MEAL",
 			  "paymentAccountId": %d,
 			  "allowUserOptionAdd": true,
 			  "autoCreateEnabled": true,
@@ -937,6 +937,13 @@ class PollApiRestDocsTest {
 				requestFields(updateTemplateRequestFields()),
 				responseFields(errorResponseFields())
 			));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}", campusId, templateId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(attackBody))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"));
 
 		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/poll-templates/{templateId}",
 				otherCampus.path("campusId").asLong(), templateId)
