@@ -35,6 +35,7 @@ public enum ErrorCode {
 	CAMPUS_VIEW_FORBIDDEN(HttpStatus.FORBIDDEN, "캠퍼스 조회 권한이 없습니다."),
 	CAMPUS_NOT_FOUND(HttpStatus.NOT_FOUND, "캠퍼스를 찾을 수 없습니다."),
 	CAMPUS_INVITE_CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "초대코드 생성에 실패했습니다."),
+	MEAL_DUTY_REQUIRED(HttpStatus.FORBIDDEN, "활성 밥 담당자만 이용할 수 있습니다."),
 
 	DEVOTION_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
 	DEVOTION_INVALID_YEAR_MONTH(HttpStatus.BAD_REQUEST, "조회 연월이 올바르지 않습니다."),
@@ -73,6 +74,7 @@ public enum ErrorCode {
 	BILLING_ADMIN_PAID_FORBIDDEN(HttpStatus.BAD_REQUEST, "관리자는 청구를 PAID로 변경할 수 없습니다."),
 	BILLING_CHARGE_STATUS_TRANSITION_CONFLICT(HttpStatus.CONFLICT, "허용되지 않는 청구 상태 전이입니다."),
 	BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "청구 상태 변경 권한이 없습니다."),
+	MEAL_PAYMENT_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "밥 납부 계좌를 찾을 수 없습니다."),
 
 	POLL_TEMPLATE_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 템플릿 관리 권한이 없습니다."),
 	POLL_CREATE_FORBIDDEN(HttpStatus.FORBIDDEN, "투표 생성 권한이 없습니다."),

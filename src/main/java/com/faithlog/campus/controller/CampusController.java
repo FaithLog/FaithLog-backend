@@ -114,6 +114,18 @@ public class CampusController {
 		return ApiResponse.success(MyDutyAssignmentResponse.from(result));
 	}
 
+	@GetMapping("/{campusId}/duty-assignments/me/meal")
+	public ApiResponse<MyDutyAssignmentResponse> getMyMealDutyAssignment(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId
+	) {
+		MyDutyAssignmentResult result = campusDutyAssignmentService.getMyMealDutyAssignment(
+			campusId,
+			authenticatedUser.userId()
+		);
+		return ApiResponse.success(MyDutyAssignmentResponse.from(result));
+	}
+
 	@PatchMapping("/{campusId}")
 	public ApiResponse<CampusDetailResponse> updateCampus(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,

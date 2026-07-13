@@ -448,6 +448,72 @@ class CampusControllerTest {
 			.andExpect(jsonPath("$.code").value("CAMPUS_VIEW_FORBIDDEN"));
 	}
 
+	@Test
+	void meal_duty_allows_multiple_active_assignments_and_is_idempotent_per_member() throws Exception {
+		String managerToken = signupAndLogin("meal-http-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "189식사캠");
+		long campusId = campus.path("campusId").asLong();
+		String firstToken = signupAndLogin("meal-http-first@example.com", UserRole.USER);
+		User first = userRepository.findByEmail("meal-http-first@example.com").orElseThrow();
+		joinCampus(firstToken, campus.path("inviteCode").asText());
+		String secondToken = signupAndLogin("meal-http-second@example.com", UserRole.USER);
+		User second = userRepository.findByEmail("meal-http-second@example.com").orElseThrow();
+		joinCampus(secondToken, campus.path("inviteCode").asText());
+
+		String firstBody = mockMvc.perform(post(
+				"/api/v1/admin/campuses/{campusId}/duty-assignments/meal", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(first.id())))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.dutyType").value("MEAL"))
+			.andReturn().getResponse().getContentAsString();
+		long firstAssignmentId = objectMapper.readTree(firstBody).path("data").path("assignmentId").asLong();
+
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/duty-assignments/meal", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(first.id())))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.assignmentId").value(firstAssignmentId));
+
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/duty-assignments/meal", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(second.id())))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/duty-assignments/me/meal", campusId)
+				.header("Authorization", "Bearer " + firstToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.dutyType").value("MEAL"))
+			.andExpect(jsonPath("$.data.isActive").value(true));
+
+		mockMvc.perform(delete(
+				"/api/v1/admin/campuses/{campusId}/duty-assignments/meal/{assignmentId}",
+				campusId,
+				firstAssignmentId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/duty-assignments/me/meal", campusId)
+				.header("Authorization", "Bearer " + firstToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.isActive").value(false));
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)

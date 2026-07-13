@@ -5,6 +5,7 @@ import com.faithlog.campus.service.CampusDutyAssignmentService;
 import com.faithlog.campus.service.CampusMemberManagementService;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
 import com.faithlog.campus.controller.dto.request.AssignCoffeeDutyRequest;
+import com.faithlog.campus.controller.dto.request.AssignMealDutyRequest;
 import com.faithlog.campus.controller.dto.response.CampusMemberAdminResponse;
 import com.faithlog.campus.controller.dto.request.ChangeCampusRoleRequest;
 import com.faithlog.campus.controller.dto.response.DutyAssignmentResponse;
@@ -17,6 +18,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -91,6 +93,18 @@ public class AdminCampusController {
 		return ApiResponse.success(DutyAssignmentResponse.from(result));
 	}
 
+	@PostMapping("/{campusId}/duty-assignments/meal")
+	public ApiResponse<DutyAssignmentResponse> assignMealDuty(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@Valid @RequestBody AssignMealDutyRequest request
+	) {
+		DutyAssignmentResult result = campusDutyAssignmentService.assignMealDuty(
+			request.toCommand(campusId, authenticatedUser)
+		);
+		return ApiResponse.success(DutyAssignmentResponse.from(result));
+	}
+
 	@DeleteMapping("/{campusId}/duty-assignments/coffee/{assignmentId}")
 	public ResponseEntity<Void> revokeCoffeeDuty(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
@@ -98,6 +112,16 @@ public class AdminCampusController {
 		@PathVariable Long assignmentId
 	) {
 		campusDutyAssignmentService.revokeCoffeeDuty(campusId, assignmentId, authenticatedUser.userId());
+		return ResponseEntity.noContent().build();
+	}
+
+	@DeleteMapping("/{campusId}/duty-assignments/meal/{assignmentId}")
+	public ResponseEntity<Void> revokeMealDuty(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@PathVariable Long assignmentId
+	) {
+		campusDutyAssignmentService.revokeMealDuty(campusId, assignmentId, authenticatedUser.userId());
 		return ResponseEntity.noContent().build();
 	}
 }
