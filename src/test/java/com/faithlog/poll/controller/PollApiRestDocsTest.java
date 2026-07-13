@@ -891,7 +891,40 @@ class PollApiRestDocsTest {
 			.as("CUSTOM 투표 종료 API는 종료만 수행하고 청구/정산을 실행하지 않는다")
 			.isEqualTo(chargeCountBeforeClose);
 
-			String coffeePollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "templateId": null,
+					  "title": "menuId 없는 커피 투표",
+					  "pollType": "COFFEE",
+					  "selectionType": "SINGLE",
+					  "isAnonymous": false,
+					  "allowUserOptionAdd": true,
+					  "chargeGenerationType": "OPTION_PRICE",
+					  "paymentCategory": "COFFEE",
+					  "paymentAccountId": %d,
+					  "startsAt": "2026-06-20T00:00:00Z",
+					  "endsAt": "2026-06-21T00:00:00Z",
+					  "options": [
+					    {"content": "클라이언트 메뉴", "menuId": null, "priceAmount": 1, "sortOrder": 1}
+					  ]
+					}
+					""".formatted(coffeeAccountId)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("POLL_COFFEE_OPTION_MENU_REQUIRED"))
+			.andExpect(jsonPath("$.message").value("커피 투표 선택지는 menuId가 필요합니다."))
+			.andDo(document("poll-create-coffee-menu-required-error",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				requestFields(pollCreateRequestFields()),
+				responseFields(errorResponseFields())
+			));
+
+		String coffeePollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
 					.header("Authorization", "Bearer " + memberToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -908,11 +941,14 @@ class PollApiRestDocsTest {
 					  "startsAt": "2026-06-20T00:00:00Z",
 					  "endsAt": "2026-06-21T00:00:00Z",
 					  "options": [
-					    {"content": "아메리카노", "menuId": null, "priceAmount": 1500, "sortOrder": 1}
+					    {"content": "클라이언트 라떼", "menuId": %d, "priceAmount": 1, "sortOrder": 1}
 					  ]
 					}
-					""".formatted(coffeeAccountId)))
+					""".formatted(coffeeAccountId, latteMenuId)))
 			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.options[0].content").value("카페라떼"))
+			.andExpect(jsonPath("$.data.options[0].composeMenuCode").value("CAFE_LATTE"))
+			.andExpect(jsonPath("$.data.options[0].priceAmount").value(2900))
 			.andReturn()
 			.getResponse()
 			.getContentAsString();
