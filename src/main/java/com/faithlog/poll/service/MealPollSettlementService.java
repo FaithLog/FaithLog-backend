@@ -174,7 +174,7 @@ public class MealPollSettlementService {
 		Map<Long, List<PollResponse>> result = new LinkedHashMap<>();
 		List<PollResponseOption> selections = responses.isEmpty()
 			? List.of()
-			: pollResponseOptionRepository.findByResponseIdIn(responsesById.keySet());
+			: pollResponseOptionRepository.findByResponseIdInOrderByIdAsc(responsesById.keySet());
 		Set<Long> selectedResponseIds = new HashSet<>();
 		for (PollResponseOption selection : selections) {
 			PollResponse response = responsesById.get(selection.responseId());

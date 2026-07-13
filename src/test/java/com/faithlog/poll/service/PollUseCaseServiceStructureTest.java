@@ -119,6 +119,19 @@ class PollUseCaseServiceStructureTest {
 	}
 
 	@Test
+	void mealSettlementOrdersResponseSelectionsSoPostWriteRollbackTestIsDeterministic() {
+		String settlement = read(SERVICE_ROOT.resolve("MealPollSettlementService.java"));
+		String repository = read(MAIN_ROOT.resolve(
+			"poll/infrastructure/repository/PollResponseOptionRepository.java"
+		));
+
+		assertAll(
+			() -> assertTrue(repository.contains("findByResponseIdInOrderByIdAsc")),
+			() -> assertTrue(settlement.contains("findByResponseIdInOrderByIdAsc"))
+		);
+	}
+
+	@Test
 	void compatibilityFacadeDoesNotOwnRepositoriesTransactionsOrBusinessRules() {
 		String facade = read(SERVICE_ROOT.resolve("PollService.java"));
 
