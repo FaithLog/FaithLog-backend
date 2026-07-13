@@ -341,7 +341,28 @@ class DevotionControllerTest {
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_SATURDAY_LATE_MINUTES"))
-			.andExpect(jsonPath("$.message").value("saturdayLateMinutes는 0 이상이어야 합니다."));
+			.andExpect(jsonPath("$.message").value("saturdayLateMinutes는 0 이상 1,440 이하이어야 합니다."));
+	}
+
+	@Test
+	void weekly_api_rejects_saturday_late_minutes_above_1440() throws Exception {
+		String managerToken = signupAndLogin("devotion-http-excessive-late-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "182지각초과캠");
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campus.path("campusId").asLong(), "2026-06-15")
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [],
+					  "saturdayLateMinutes": 1441,
+					  "submit": false
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("DEVOTION_INVALID_SATURDAY_LATE_MINUTES"))
+			.andExpect(jsonPath("$.message").value("saturdayLateMinutes는 0 이상 1,440 이하이어야 합니다."));
 	}
 
 	@Test

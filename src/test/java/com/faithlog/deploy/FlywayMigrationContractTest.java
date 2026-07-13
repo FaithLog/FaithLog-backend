@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Test;
 class FlywayMigrationContractTest {
 
 	private static final Path MIGRATION = Path.of("src/main/resources/db/migration/V1__initial_schema.sql");
+	private static final Path POSITIVE_CHARGE_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V7__enforce_positive_charge_amount.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -186,5 +189,20 @@ class FlywayMigrationContractTest {
 			"SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}"
 		);
 		assertThat(compose).doesNotContain("upstash");
+	}
+
+	@Test
+	void v7MigrationAddsPositiveChargeAmountConstraintWithoutEditingV1() throws IOException {
+		assertThat(POSITIVE_CHARGE_MIGRATION).exists();
+		String sql = Files.readString(POSITIVE_CHARGE_MIGRATION);
+		String v1 = Files.readString(MIGRATION);
+
+		assertThat(sql).contains(
+			"ck_charge_items_amount_positive",
+			"CHECK (amount > 0)",
+			"NOT VALID",
+			"VALIDATE CONSTRAINT"
+		);
+		assertThat(v1).doesNotContain("ck_charge_items_amount_positive");
 	}
 }

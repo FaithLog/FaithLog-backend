@@ -470,7 +470,7 @@ class DevotionApiRestDocsTest {
 					      "bibleReadingChecked": true
 					    }
 					  ],
-					  "saturdayLateMinutes": -1,
+				  "saturdayLateMinutes": 1441,
 					  "submit": true
 					}
 					"""))
@@ -644,7 +644,7 @@ class DevotionApiRestDocsTest {
 			fieldWithPath("dailyChecks[].quietTimeChecked").description("큐티 체크 여부"),
 			fieldWithPath("dailyChecks[].prayerChecked").description("기도 체크 여부"),
 			fieldWithPath("dailyChecks[].bibleReadingChecked").description("말씀 읽기 체크 여부"),
-			fieldWithPath("saturdayLateMinutes").description("토요 목자모임 지각 시간(분). 0 이상만 허용"),
+		fieldWithPath("saturdayLateMinutes").description("토요 목자모임 지각 시간(분). 0 이상 1,440 이하만 허용"),
 			fieldWithPath("submit").description("제출 여부")
 		};
 	}

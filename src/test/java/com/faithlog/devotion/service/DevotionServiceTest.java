@@ -47,6 +47,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -853,7 +854,57 @@ class DevotionServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_INVALID_SATURDAY_LATE_MINUTES)
 			)
-			.hasMessage("saturdayLateMinutes는 0 이상이어야 합니다.");
+			.hasMessage("saturdayLateMinutes는 0 이상 1,440 이하이어야 합니다.");
+	}
+
+	@Test
+	void updateWeeklyCheck_accepts_1440_and_rejects_1441_saturday_late_minutes() {
+		User manager = saveUser("devotion-late-boundary-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "182지각경계캠");
+		User member = saveUser("devotion-late-boundary-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		LocalDate acceptedWeek = LocalDate.of(2026, 6, 15);
+
+		WeeklyDevotionResult accepted = devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(), member.id(), acceptedWeek, List.of(), 1440, false
+		));
+		assertThat(accepted.saturdayLateMinutes()).isEqualTo(1440);
+
+		assertThatThrownBy(() -> devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(), member.id(), acceptedWeek.plusWeeks(1), List.of(), 1441, false
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.DEVOTION_INVALID_SATURDAY_LATE_MINUTES)
+			)
+			.hasMessage("saturdayLateMinutes는 0 이상 1,440 이하이어야 합니다.");
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	@DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+	void fine_storage_range_failure_rolls_back_weekly_daily_and_charge_rows() {
+		User manager = saveUser("devotion-overflow-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "182오버플로캠");
+		User member = saveUser("devotion-overflow-member@example.com", UserRole.USER);
+		joinCampus(campus, member);
+		createPenaltyAccount(campus.campusId(), manager.id(), "182-OVERFLOW");
+		penaltyRuleRepository.saveAndFlush(PenaltyRule.create(
+			campus.campusId(), PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT,
+			5, 0, Integer.MAX_VALUE
+		));
+		LocalDate weekStartDate = LocalDate.of(2026, 6, 15);
+
+		assertThatThrownBy(() -> devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campus.campusId(), member.id(), weekStartDate, List.of(), 0, true
+		)))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("계산된 벌금 금액이 허용 범위를 초과했습니다.");
+
+		assertThat(weeklyRecordRepository.findByCampusIdAndUserIdAndWeekStartDate(
+			campus.campusId(), member.id(), weekStartDate
+		)).isEmpty();
+		assertThat(dailyCheckRepository.count()).isZero();
+		assertThat(chargeItemRepository.count()).isZero();
 	}
 
 	@Test
