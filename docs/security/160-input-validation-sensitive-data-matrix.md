@@ -149,14 +149,110 @@ repository predicates, database nullability, length/check/unique constraints, an
 
 ## 3. Input surface to persistence matrix
 
-Pending static trace. Each final row will record input surface, Bean Validation, service
-normalization/business validation, persistence constraint, error status, and existing test evidence.
+The rows below cover all 36 request DTOs and the Controller query/path surfaces. A row can contain
+multiple DTOs only when they share one validation and persistence boundary.
+
+| # | Input surface / request DTO | Bean Validation / conversion | Normalization and business validation | Persistence constraint / sink | Current error status |
+| ---: | --- | --- | --- | --- | --- |
+| 1 | `SignupRequest` | name/email/password nonblank, email syntax; no maximum lengths | duplicate email and password hashing; no trim or length bound | `users.name` 100, email/password hash 255 | DTO 400; overlong persisted field can reach unhandled DB 5xx |
+| 2 | `LoginRequest`, `RefreshRequest`, `DeleteMyAccountRequest` | nonblank; login email syntax | credential/JWT/confirm-text checks; principal fixes deletion owner | user/Redis lookup only; no raw token storage | fixed 400/401 business errors |
+| 3 | optional `LogoutRequest` | optional body and fields; no length bounds | principal fixes user/session/JTI; optional refresh/FCM cleanup is owner-scoped | Redis identifiers and FCM lookup | 200 without body; invalid supplied token does not echo input |
+| 4 | `CreateCampusRequest`, `JoinCampusRequest`, `UpdateCampusRequest` | create name 100, region 100; join code 50; update has no annotations | principal fixes requester; update applies nullable fields; no common trim | campus name/region 100, invite code 50, description text | validation/business 400; overlong update can reach DB 5xx |
+| 5 | `AssignCoffeeDutyRequest`, `ChangeCampusRoleRequest`, `AddCampusMemberRequest`, `ChangeUserRoleRequest` | identifier/enum nonnull | requester comes from principal; role hierarchy and target membership checks | numeric IDs and enum columns | 400 conversion/validation, domain 403/404/409 |
+| 6 | `CreatePaymentAccountRequest` | type nonnull; four strings nonblank and max 100 | COFFEE owner is requester; account scope/type/owner rules | account and snapshots max 100 | aligned 400 before DB |
+| 7 | optional `CompleteChargePaymentRequest`, `ChangeChargeStatusRequest` | optional `paidAt`; status nonnull | owner/principal and status transition policy | charge timestamp/status | domain 400/403/404/409 |
+| 8 | `UpdateDailyDevotionRequest` | primitive booleans | path date derives Monday; principal fixes user; submitted-week guard | unique weekly record/date constraints | conversion 400; domain 403/409 |
+| 9 | `UpdateWeeklyDevotionRequest` | daily date nonnull; nested validation; no list maximum; no upper bound on lateness | Monday, in-week dates, negative lateness, duplicates through map semantics; missing days default false | integer summary columns and charge amount lack positive/max checks | negative input 400; excessive positive input reaches F-160-01 |
+| 10 | `CreatePenaltyRuleRequest`, `UpdatePenaltyRuleRequest` | nonnull values; no `@Min`/`@Max` | entity rejects negative and invalid type pairing; no upper bound | integer rule columns have no range checks | negative/type errors 400; excessive values contribute to F-160-01 |
+| 11 | `CreatePollRequest` | title nonblank, times nonnull, nested options valid marker; no title/list maximum | requires `startsAt < endsAt`; template fields ignored when template-backed; direct options resolved | title 200, option content 200, price/sort integer | period/business 400; overlong title/content can reach DB 5xx |
+| 12 | `CreatePollTemplateRequest`, `UpdatePollTemplateRequest` | title/nonnull enums/times, day 1-7, nonempty nested options; no title/list maximum | persisted target type drives update authorization after #179; account checks; option snapshot resolution | title/content 200, price/sort integer | validation/domain 400/403/404; client price reaches F-160-02 |
+| 13 | `PollOptionRequest`, `PollTemplateOptionRequest` | no field annotations despite nested `@Valid` | blank content rejected only when menu absent; user-added non-COFFEE content trims/max 200, admin create paths do not; menu path uses catalog price | option content 200; integer price has no range/catalog constraint | invalid option 400; direct COFFEE price reaches F-160-02 |
+| 14 | `AddPollOptionRequest` | no annotations | COFFEE requires catalog menu and forbids content; non-COFFEE trims content and maxes at 200; duplicate names rejected | option content 200 and catalog snapshot | domain 400/403/404; aligned for user-added option path |
+| 15 | `RespondToPollRequest` | no annotations | nonempty, SINGLE exactly one, duplicate IDs rejected, every option must belong to poll | response-option unique constraint; memo max 500 | domain 400/404; overlong memo can reach DB 5xx, U-160-02 |
+| 16 | `PollCommentRequest` | nonblank only | author/manager and OPEN-window checks; no trim/max | comment content max 1000 | blank 400; overlong content can reach DB 5xx |
+| 17 | `CreatePrayerSeasonRequest`, `ClosePrayerSeasonRequest` | name nonblank/start/end nonnull; no name max | manager guard; close does not compare end against start | season name 100 and dates | validation/domain 400/403/404; overlong name can reach DB 5xx |
+| 18 | `CreatePrayerGroupRequest`, `UpdatePrayerGroupRequest` | create name nonblank/sort nonnull; update has no annotations | manager guard; nullable patch fields; no trim/range/max | group name 100, sort integer | validation/domain 400/403/404; overlong update can reach DB 5xx |
+| 19 | `ReplacePrayerGroupMembersRequest` | list nonnull; no empty/max/element constraint | null/duplicate rejected, targets intersect ACTIVE campus, other-group assignment rejected | unique group/user rows | domain 400/404/409; collection size hardening U-160-01 |
+| 20 | `SavePrayerSubmissionsRequest`, `SaveMyPrayerSubmissionRequest` | group list nonnull/nested valid; IDs/version nonnull; content and list unbounded; self request unannotated | Monday, scope, duplicate users, version and optimistic update checks | one text submission per week/user | domain 400/403/409; text/list hardening U-160-01 |
+| 21 | `RegisterFcmTokenRequest` | token/client nonblank, client max 100, device nonnull, app max 50; token unbounded | principal fixes owner; active ownership upsert/deactivation | token text; client/app limits aligned | validation 400; token-size hardening U-160-01 |
+| 22 | `SendNotificationRequest` | type nonnull, title nonblank/max 200, body nonblank; target list/body unbounded | manager guard; target IDs distinct and intersect ACTIVE campus | title 200, body text, one log per effective target | validation/domain 400/403; body/list hardening U-160-01 |
+| 23 | admin/billing/notification `page`, `size`, `sort` | Spring int/string conversion | common validator enforces page >= 0, size 1-100, format, field allowlist, asc/desc | parameterized Pageable/Criteria | domain-specific 400, no silent correction |
+| 24 | query filters `keyword`, name/email/region, enum, UUID, dates, IDs | Spring conversion; nullable | Criteria API values are bound parameters; blank filters ignored; no keyword length/wildcard escaping | parameterized JPA Criteria/JPQL | malformed typed values 400; no SQL/JPQL injection found |
+| 25 | path IDs, enums, `LocalDate`, year/month | Spring conversion | parent/principal rules from #159; Monday/year-month and poll period checks | scoped repository predicates | malformed conversion 400; domain 400/403/404/409 |
+| 26 | JSON unknown fields / entity binding | Jackson binds explicit record components; default unknown-field rejection is not configured | Controllers accept request DTOs only and convert to commands | no Controller accepts an Entity | unknown fields can be ignored, but no mass assignment to Entity |
+
+### 3.1 Injection, file, and external-send result
+
+- All dynamic repository filters use Spring Data method parameters, JPQL named parameters, or
+  Criteria API predicates. No request string is concatenated into SQL/JPQL/native SQL.
+- Sort fields and directions are allowlisted before reaching Spring Data.
+- No production external command execution, SpEL/template evaluation, unsafe Java deserialization,
+  request-controlled URL fetch, upload, or regular-expression surface was found.
+- The coffee seed parser reads one fixed classpath CSV path. The Firebase JSON/path inputs are
+  environment configuration, not HTTP request data. No request-controlled traversal path was found.
+- Notification title/body are sent as Firebase notification data, not rendered as backend HTML or
+  executed as a URL/template. Control-character and client rendering policy remains a hardening item,
+  not a confirmed backend injection path.
 
 ## 4. Sensitive-field exposure matrix
 
-Pending static trace. Each final row will record the sensitive field class, storage location,
-response DTO boundary, logging/documentation boundary, and approved roles.
+| # | Sensitive field | Storage | Response DTO boundary | Log / documentation boundary | Allowed role / result |
+| ---: | --- | --- | --- | --- | --- |
+| 1 | access/refresh token | access stateless; refresh JTI/session state in Redis, raw token not stored | login/refresh return token pair and expiry only; no JTI/sessionId/tokenVersion fields | application logger does not write token; generated test docs can contain test JWT | public credential exchange to the authenticating client; intended policy |
+| 2 | JTI, sessionId, tokenVersion | JWT claims, Redis/DB version state | not exposed in application response DTOs | fixed auth errors do not echo parser claims | internal auth boundary only |
+| 3 | FCM token, clientInstanceId, appVersion | `user_fcm_tokens` | `FcmTokenResponse` returns the registered row fields | REST Docs documents test fixtures; application logger has no FCM field | authenticated SELF registration response; approved policy |
+| 4 | account number, holder, bank name | account rows and immutable charge snapshots | member DTO has payment fields only; admin DTO adds campus/owner/status/timestamps | no application logger path; test docs use fixture data | ACTIVE member full number is approved for transfer; admin metadata is separated |
+| 5 | user ID, name, email | user and membership data | service ADMIN lists/details; campus managers see member/duty/missing/notification targets; member self DTO | no direct application logger path; test docs use fixtures | role-scoped operational identity; no anonymous Poll reuse |
+| 6 | non-anonymous Poll respondents / missing members | response and membership rows | non-anonymous result and admin missing-member DTOs include identity; anonymous result identity remains empty | REST Docs test fixtures only | intended policy; anonymous boundary was verified in #159 and not recounted |
+| 7 | prayer content | `prayer_submissions.content` text | campus weekly board includes all group content | no application logger/error interpolation; REST Docs test fixtures only | campus-wide ACTIVE member read is approved policy; write scope remains group/self/admin |
+| 8 | notification title/body | one copy per target in `notification_logs` | manager-only notification log response includes title/body | Firebase payload receives values; no logger writes them | campus manager/service ADMIN operational history; intended boundary |
+| 9 | notification provider failure reason | notification log and token failure columns | manager log response includes raw provider-derived message | recovery logger can include exception stack | possible provider detail/token echo is U-160-03; not proven |
+| 10 | validation/JSON/business errors | not persisted by handler | validation field + constraint text; malformed JSON and auth are fixed messages; BusinessException uses controlled code/message | scheduled-job failures log stack traces internally | no client stacktrace, SQL, class/package, or raw rejected value confirmed |
+| 11 | Firebase JSON, JWT/DB/Redis password | environment variables / credential stream | no response DTO | config names only; values are not logged | internal runtime configuration |
+| 12 | actuator and SpringDoc | runtime framework metadata | health is public; info requires auth under current security chain; API docs routes are public only when enabled | prod example defaults SpringDoc off | deployed profile state remains predecessor operational verification, not a new #160 finding |
+
+### 4.1 Secret-pattern scan without value output
+
+| Area | Result |
+| --- | --- |
+| tracked env files | 4, all named `.env*.example`; no tracked non-example env file |
+| current production/docs high-signal prefix candidates | 0 real-key prefix files; 2 local/docker config files matched only the generic assignment heuristic |
+| current test high-signal prefix candidates | 0 files |
+| narrow git-history high-signal prefix candidate commits | 0 commits |
+| generated REST Docs files | 771 files |
+| generated files with high-signal secret prefixes | 0 files |
+| generated files with JWT-shaped test values | 244 files, ignored `build/` test artifacts |
+| repository scanner policy file | no `.gitleaks.toml` or `.secretlintrc`; hardening candidate only |
+
+Generated-field-name counts are not treated as leaked-value counts: auth/password fields appeared in
+66 files, FCM/client fields in 13, account fields in 40, prayer/content fields in 192, and
+notification/title/body fields in 98. No actual value is recorded in this report.
 
 ## 5. Test manifest and XML result
 
-Pending focused-test discovery and execution. No test is added by this audit.
+No test was added. The following 16 existing test classes were selected.
+
+1. `AdminManagementControllerTest`
+2. `BillingControllerTest`
+3. `BillingApiRestDocsTest`
+4. `DevotionControllerTest`
+5. `PenaltyRuleServiceTest`
+6. `FcmTokenControllerTest`
+7. `NotificationControllerTest`
+8. `NotificationApiRestDocsTest`
+9. `FirebaseFcmSendAdapterTest`
+10. `PollServiceTest`
+11. `PollApiRestDocsTest`
+12. `PrayerServiceTest`
+13. `PrayerApiRestDocsTest`
+14. `AuthControllerTest`
+15. `AuthRefreshControllerTest`
+16. `AuthApiRestDocsTest`
+
+JUnit XML recount: **16 classes / 138 tests / 0 failures / 0 errors / 0 skipped**.
+
+The final Gradle task was not successful even though all 16 XML suites report zero test failures.
+The default Gradle user cache first failed to read Kotlin DSL metadata. Isolated Gradle executions
+then overlapped and one task reported concurrent XML result-write failures. The audit stopped after
+the skill's three-attempt limit and did not delete Gradle caches or test output. This is reported as
+a verification concern, not as a passing `BUILD SUCCESSFUL` claim.
