@@ -53,7 +53,7 @@ public class PollTemplateCommandService {
 			command.campusId(),
 			command.requesterId()
 		);
-		List<PollOptionSnapshot> snapshots = optionSupport.resolve(command.options());
+		List<PollOptionSnapshot> snapshots = optionSupport.resolve(command.pollType(), command.options());
 		PollTemplate template = pollTemplateRepository.save(PollTemplate.create(
 			command.campusId(),
 			command.title(),
@@ -92,7 +92,7 @@ public class PollTemplateCommandService {
 			command.campusId(),
 			command.requesterId()
 		);
-		List<PollOptionSnapshot> snapshots = optionSupport.resolve(command.options());
+		List<PollOptionSnapshot> snapshots = optionSupport.resolve(template.pollType(), command.options());
 		template.update(
 			command.title(),
 			command.selectionType(),

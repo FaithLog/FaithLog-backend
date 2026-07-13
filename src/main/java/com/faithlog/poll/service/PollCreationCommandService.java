@@ -114,7 +114,7 @@ public class PollCreationCommandService {
 		boolean allowUserOptionAdd = command.allowUserOptionAdd() == null
 			? pollType == PollType.COFFEE
 			: command.allowUserOptionAdd();
-		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolvePollOptions(command.options());
+		List<PollOptionSnapshot> snapshots = optionSnapshotResolver.resolvePollOptions(pollType, command.options());
 		requireCoffeePrerequisitesIfNeeded(
 			pollType, chargeGenerationType, command.paymentCategory(), command.paymentAccountId(),
 			command.campusId(), command.requesterId()

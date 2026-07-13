@@ -21,18 +21,18 @@ class PollOptionSnapshotResolver {
 		this.coffeeMenuCatalogRepository = coffeeMenuCatalogRepository;
 	}
 
-	List<PollOptionSnapshot> resolveTemplateOptions(List<CreatePollTemplateOptionCommand> commands) {
+	List<PollOptionSnapshot> resolveTemplateOptions(PollType pollType, List<CreatePollTemplateOptionCommand> commands) {
 		List<PollOptionSnapshot> snapshots = new ArrayList<>();
 		for (CreatePollTemplateOptionCommand command : commands) {
-			snapshots.add(resolve(command.content(), command.menuId(), command.priceAmount(), command.sortOrder()));
+			snapshots.add(resolve(pollType, command.content(), command.menuId(), command.priceAmount(), command.sortOrder()));
 		}
 		return sortAndValidate(snapshots);
 	}
 
-	List<PollOptionSnapshot> resolvePollOptions(List<CreatePollOptionCommand> commands) {
+	List<PollOptionSnapshot> resolvePollOptions(PollType pollType, List<CreatePollOptionCommand> commands) {
 		List<PollOptionSnapshot> snapshots = new ArrayList<>();
 		for (CreatePollOptionCommand command : commands) {
-			snapshots.add(resolve(command.content(), command.menuId(), command.priceAmount(), command.sortOrder()));
+			snapshots.add(resolve(pollType, command.content(), command.menuId(), command.priceAmount(), command.sortOrder()));
 		}
 		return sortAndValidate(snapshots);
 	}
@@ -45,7 +45,7 @@ class PollOptionSnapshotResolver {
 			if (content != null && !content.isBlank()) {
 				throw new BusinessException(ErrorCode.POLL_USER_OPTION_CONTENT_NOT_ALLOWED);
 			}
-			return resolve(null, menuId, null, sortOrder);
+			return resolve(pollType, null, menuId, null, sortOrder);
 		}
 		if (menuId != null) {
 			throw new BusinessException(ErrorCode.POLL_USER_OPTION_MENU_NOT_ALLOWED);
@@ -56,8 +56,11 @@ class PollOptionSnapshotResolver {
 		return new PollOptionSnapshot(content.trim(), null, 0, sortOrder);
 	}
 
-	private PollOptionSnapshot resolve(String content, Long menuId, Integer priceAmount, int sortOrder) {
+	private PollOptionSnapshot resolve(PollType pollType, String content, Long menuId, Integer priceAmount, int sortOrder) {
 		if (menuId == null) {
+			if (pollType == PollType.COFFEE) {
+				throw new BusinessException(ErrorCode.POLL_COFFEE_OPTION_MENU_REQUIRED);
+			}
 			if (content == null || content.isBlank()) {
 				throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
 			}
@@ -69,7 +72,9 @@ class PollOptionSnapshotResolver {
 		if (!menu.isActive()) {
 			throw new BusinessException(ErrorCode.POLL_MENU_INACTIVE);
 		}
-		String snapshotContent = (content == null || content.isBlank()) ? menu.name() : content;
+		String snapshotContent = pollType == PollType.COFFEE || content == null || content.isBlank()
+			? menu.name()
+			: content;
 		return new PollOptionSnapshot(snapshotContent, menu.menuCode(), menu.priceAmount(), sortOrder);
 	}
 
