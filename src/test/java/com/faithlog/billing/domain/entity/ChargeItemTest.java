@@ -1,6 +1,7 @@
 package com.faithlog.billing.domain.entity;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.billing.domain.type.PaymentCategory;
@@ -28,6 +29,7 @@ class ChargeItemTest {
 			.isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> charge.updateUnpaidCharge(account, "제목", "사유", -1, LocalDate.now()))
 			.isInstanceOf(IllegalArgumentException.class);
+		assertThat(charge.amount()).isEqualTo(1000);
 	}
 
 	private ChargeItem createCharge(int amount) {

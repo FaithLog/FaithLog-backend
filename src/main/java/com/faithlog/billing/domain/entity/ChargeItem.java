@@ -105,6 +105,7 @@ public class ChargeItem {
 		int amount,
 		LocalDate dueDate
 	) {
+		validatePositiveAmount(amount);
 		this.campusId = campusId;
 		this.userId = userId;
 		this.paymentCategory = paymentCategory;
@@ -189,11 +190,18 @@ public class ChargeItem {
 		if (!isUnpaid()) {
 			throw new IllegalStateException("Only unpaid charges can be updated.");
 		}
+		validatePositiveAmount(amount);
 		reconnectPaymentAccount(account);
 		this.title = title;
 		this.reason = reason;
 		this.amount = amount;
 		this.dueDate = dueDate;
+	}
+
+	private static void validatePositiveAmount(int amount) {
+		if (amount <= 0) {
+			throw new IllegalArgumentException("Charge amount must be positive.");
+		}
 	}
 
 	public void markPaid() {
