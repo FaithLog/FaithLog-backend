@@ -16,8 +16,9 @@ At baseline `52e0b4ae26995e2a730832d4164d1cf8212b95be`, the audit traced 21 Cont
 - Unverified / hardening rows: 3
 - Predecessor findings or operational checks excluded from #160 totals: 5
 - Fix Issues, code/test/config/DB/Flyway changes, Docker, push, and PR: 0
-- Existing focused XML suites: 16 classes / 138 tests / 0 failures / 0 errors / 0 skipped
-- Gradle task result: failed for cache metadata and concurrent XML reporting reasons, not test assertion failures
+- Existing focused XML suites: 16 suites / 138 tests / 0 failures / 0 errors / 0 skipped
+- Final verification status: PM independent rerun succeeded (`BUILD SUCCESSFUL`)
+- Audit-session history: the initial Codex-only run stopped on cache metadata and concurrent XML reporting concerns, not test assertion failures
 
 ## 2. Confirmed findings
 
@@ -214,10 +215,14 @@ No test or Issue is added by this audit.
 
 ## 8. Verification and scope integrity
 
-- Counted manifest totals were mechanically compared with repository paths.
-- JUnit XML: 16 classes / 138 tests / 0 failures / 0 errors / 0 skipped.
-- Gradle did not produce a successful task result because the default cache metadata was unreadable and
-  overlapping isolated runs collided while writing XML. The audit stopped after three attempts.
+- Counted manifest totals were mechanically compared with repository paths and independently rechecked by PM.
+- Final PM verification reran the documented 16 focused test classes in one Gradle invocation with an
+  isolated `GRADLE_USER_HOME=/private/tmp/faithlog-gradle-160-review`, `--no-parallel`, and
+  `--rerun-tasks`, and finished `BUILD SUCCESSFUL`.
+- Final JUnit XML recount: 16 suites / 138 tests / 0 failures / 0 errors / 0 skipped.
+- Audit-session history: the initial Codex-only verification first hit unreadable default cache metadata
+  and then overlapping isolated runs collided while writing XML. PM confirmed those were execution-environment
+  concerns, not code or test failures.
 - Current/high-signal history secret prefix candidates: 0; generated high-signal prefix files: 0.
 - Generated JWT-shaped values were confined to 244 ignored test-document files; no value was recorded.
 - Docker: not used.
