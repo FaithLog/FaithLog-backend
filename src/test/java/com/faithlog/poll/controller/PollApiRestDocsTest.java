@@ -209,6 +209,7 @@ class PollApiRestDocsTest {
 				.content("""
 					{
 					  "title": "정산 점심",
+					  "allowUserOptionAdd": true,
 					  "endsAt": "%s",
 					  "options": [{"content": "제육볶음", "sortOrder": 0}]
 					}
@@ -217,17 +218,29 @@ class PollApiRestDocsTest {
 		JsonNode pollData = objectMapper.readTree(pollBody).path("data");
 		long pollId = pollData.path("id").asLong();
 		long optionId = pollData.path("options").get(0).path("id").asLong();
+		long chargedOptionId = optionId;
 
 		for (int index = 0; index < 3; index++) {
 			String email = "meal-settlement-member-" + index + "@example.com";
 			String memberToken = signupAndLogin(email, UserRole.USER);
 			joinCampus(memberToken, campus.path("inviteCode").asText());
+			if (index == 0) {
+				String addedBody = mockMvc.perform(post(
+						"/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, pollId)
+						.header("Authorization", "Bearer " + memberToken)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+							{"content": "사용자 김치찌개"}
+							"""))
+					.andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+				chargedOptionId = objectMapper.readTree(addedBody).path("data").path("id").asLong();
+			}
 			mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, pollId)
 					.header("Authorization", "Bearer " + memberToken)
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
 						{"optionIds": [%d]}
-						""".formatted(optionId)))
+						""".formatted(chargedOptionId)))
 				.andExpect(status().isOk());
 		}
 		mockMvc.perform(patch("/api/v1/campuses/{campusId}/meal/polls/{pollId}/close", campusId, pollId)
@@ -248,7 +261,7 @@ class PollApiRestDocsTest {
 			    "enteredAmount": 10000
 			  }]
 			}
-			""".formatted(accountId, optionId);
+			""".formatted(accountId, chargedOptionId);
 		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, pollId)
 				.header("Authorization", "Bearer " + dutyToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -265,6 +278,10 @@ class PollApiRestDocsTest {
 			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)
 			.map(com.faithlog.billing.domain.entity.ChargeItem::amount))
 			.containsExactlyInAnyOrder(3334, 3334, 3334);
+		assertThat(chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)
+			.map(com.faithlog.billing.domain.entity.ChargeItem::title))
+			.containsOnly("사용자 김치찌개");
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
@@ -274,8 +291,10 @@ class PollApiRestDocsTest {
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls/{pollId}", campusId, pollId)
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.options[0].charge.paymentAccountId").value(accountId))
-			.andExpect(jsonPath("$.data.options[0].charge.chargedByMe").value(true))
+			.andExpect(jsonPath("$.data.options[0].responseCount").value(0))
+			.andExpect(jsonPath("$.data.options[0].charge.chargeStatus").value("NOT_CHARGED"))
+			.andExpect(jsonPath("$.data.options[1].charge.paymentAccountId").value(accountId))
+			.andExpect(jsonPath("$.data.options[1].charge.chargedByMe").value(true))
 			.andDo(document("meal-poll-management-detail-charged-by-me-success",
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/charges/my-accounts", campusId)
@@ -291,9 +310,9 @@ class PollApiRestDocsTest {
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls/{pollId}", campusId, pollId)
 				.header("Authorization", "Bearer " + secondDutyToken))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.options[0].charge.paymentAccountId").isEmpty())
-			.andExpect(jsonPath("$.data.options[0].charge.chargedByMe").value(false))
-			.andExpect(jsonPath("$.data.options[0].charge.amountPerMember").value(3334))
+			.andExpect(jsonPath("$.data.options[1].charge.paymentAccountId").isEmpty())
+			.andExpect(jsonPath("$.data.options[1].charge.chargedByMe").value(false))
+			.andExpect(jsonPath("$.data.options[1].charge.amountPerMember").value(3334))
 			.andDo(document("meal-poll-management-detail-other-duty-redacted-success",
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/charges/my-accounts", campusId)
@@ -303,6 +322,74 @@ class PollApiRestDocsTest {
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
 				.header("Authorization", "Bearer " + managerToken))
 			.andExpect(status().isForbidden());
+
+		String rollbackPollBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "롤백 검증",
+					  "endsAt": "%s",
+					  "options": [
+					    {"content": "A", "sortOrder": 0},
+					    {"content": "B", "sortOrder": 1}
+					  ]
+					}
+					""".formatted(java.time.Instant.now().plusSeconds(3600))))
+			.andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+		JsonNode rollbackPoll = objectMapper.readTree(rollbackPollBody).path("data");
+		long rollbackPollId = rollbackPoll.path("id").asLong();
+		long optionA = rollbackPoll.path("options").get(0).path("id").asLong();
+		long optionB = rollbackPoll.path("options").get(1).path("id").asLong();
+		for (int index = 0; index < 2; index++) {
+			String rollbackToken = signupAndLogin("meal-rollback-" + index + "@example.com", UserRole.USER);
+			joinCampus(rollbackToken, campus.path("inviteCode").asText());
+			long selectedOption = index == 0 ? optionA : optionB;
+			mockMvc.perform(put(
+					"/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, rollbackPollId)
+					.header("Authorization", "Bearer " + rollbackToken)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{"optionIds": [%d]}
+						""".formatted(selectedOption)))
+				.andExpect(status().isOk());
+		}
+		mockMvc.perform(patch(
+				"/api/v1/campuses/{campusId}/meal/polls/{pollId}/close", campusId, rollbackPollId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk());
+		mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, rollbackPollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "paymentAccountId": %d,
+					  "groups": [{"optionId": %d, "calculationType": "PER_MEMBER", "enteredAmount": 5000}]
+					}
+					""".formatted(accountId, optionA)))
+			.andExpect(status().isBadRequest());
+		assertThat(mealPollSettlementRepository.count()).isEqualTo(1);
+		assertThat(chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)).hasSize(3);
+		mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, rollbackPollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "paymentAccountId": %d,
+					  "groups": [
+					    {"optionId": %d, "calculationType": "PER_MEMBER", "enteredAmount": 5000},
+					    {"optionId": %d, "calculationType": "GROUP_TOTAL", "enteredAmount": 9223372036854775807}
+					  ]
+					}
+					""".formatted(accountId, optionA, optionB)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("MEAL_SETTLEMENT_AMOUNT_OVERFLOW"));
+		assertThat(mealPollSettlementRepository.count()).isEqualTo(1);
+		assertThat(chargeItemRepository.findAll().stream()
+			.filter(charge -> charge.paymentCategory() == PaymentCategory.MEAL)).hasSize(3);
 
 		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges", campusId, pollId)
 				.header("Authorization", "Bearer " + dutyToken)

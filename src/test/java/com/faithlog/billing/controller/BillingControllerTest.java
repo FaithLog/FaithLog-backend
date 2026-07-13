@@ -76,6 +76,10 @@ class BillingControllerTest {
 		User duty = userRepository.findByEmail("meal-account-duty@example.com").orElseThrow();
 		joinCampus(dutyToken, campus.path("inviteCode").asText());
 		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), duty.id()));
+		String secondDutyToken = signupAndLogin("meal-account-duty-b@example.com", UserRole.USER);
+		User secondDuty = userRepository.findByEmail("meal-account-duty-b@example.com").orElseThrow();
+		joinCampus(secondDutyToken, campus.path("inviteCode").asText());
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), secondDuty.id()));
 
 		String created = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/payment-accounts", campusId)
 				.header("Authorization", "Bearer " + dutyToken)
@@ -93,16 +97,40 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data.ownerUserId").value(duty.id()))
 			.andReturn().getResponse().getContentAsString();
 		long accountId = objectMapper.readTree(created).path("data").path("id").asLong();
+		String secondCreated = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + secondDutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "B 밥 계좌",
+					  "bankName": "신한은행",
+					  "accountNumber": "189-0002",
+					  "accountHolder": "B담당"
+					}
+					"""))
+			.andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+		long secondAccountId = objectMapper.readTree(secondCreated).path("data").path("id").asLong();
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.length()").value(1))
 			.andExpect(jsonPath("$.data[0].id").value(accountId));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
+				.header("Authorization", "Bearer " + secondDutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(secondAccountId));
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
 				.header("Authorization", "Bearer " + managerToken))
 			.andExpect(status().isForbidden());
+		mockMvc.perform(patch(
+				"/api/v1/campuses/{campusId}/meal/payment-accounts/{accountId}/deactivate",
+				campusId,
+				secondAccountId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isNotFound());
 
 		mockMvc.perform(patch(
 				"/api/v1/campuses/{campusId}/meal/payment-accounts/{accountId}/deactivate",
@@ -111,6 +139,11 @@ class BillingControllerTest {
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.isActive").value(false));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
+				.header("Authorization", "Bearer " + secondDutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].id").value(secondAccountId))
+			.andExpect(jsonPath("$.data[0].isActive").value(true));
 	}
 
 	@Test
