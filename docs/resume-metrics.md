@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #182, 396 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #183, 399 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 76 test files (2026-07-13 #182) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 123 snippet groups (2026-07-13 #179) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #182) | 성공 |
+| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 76 test files (2026-07-13 #183) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 124 snippet groups (2026-07-13 #183) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #183) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -30,6 +30,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## Daily Monitoring Notes
 
 ### 2026-07-13
+
+- #183 COFFEE 옵션 가격 backend catalog authority 고정:
+  - TDD RED: production 수정 전에 direct COFFEE Poll null `menuId`, COFFEE template create/update null `menuId`, client `content`/`priceAmount` override, REST Docs 400 계약을 먼저 추가했고 `4 tests / 4 failures`로 catalog 우회가 저장 경로에 남아 있음을 확인했다.
+  - 구현: direct Poll은 요청 `pollType`, template create는 요청 `pollType`, persisted template update는 #179와 동일하게 저장된 `template.pollType()`을 resolver에 전달한다. COFFEE는 active catalog `menuId`를 필수로 하고 `content = catalog.name`, `composeMenuCode = catalog.menuCode`, `priceAmount = catalog.priceAmount`만 snapshot한다. null은 승인된 `400 POLL_COFFEE_OPTION_MENU_REQUIRED`, not-found/inactive는 기존 오류를 재사용한다. 비-COFFEE custom content/0원 경로와 사용자 COFFEE option-add 계약은 분리해 유지했다.
+  - 흐름 검증: direct/template create/update의 null·missing·inactive 거부와 row/charge 불변, client override 무시, template→자동 생성 Poll snapshot 일치, 응답 시 charge 미생성, 수동 close/스케줄러 CLOSED 정산의 catalog 제목·금액 일치, `optionIds`/`poll_response_options`, #179 persisted-target authorization, #182 `ChargeItem amount > 0` 회귀를 검증했다.
+  - 테스트/문서: Poll/template/catalog/Batch/REST Docs focused 64 tests GREEN 뒤 #179/#182를 포함한 Poll·Billing·Batch·REST Docs 집중 회귀 `87 tests / 0 failures / 0 errors / 0 skipped`, 전체 `399 tests / 0 failures / 0 errors / 3 skipped`를 통과했다. `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`도 성공했고 test source 76개, REST Docs snippet group 124개를 확인했다.
+  - Docker API QA: #183 전용 PostgreSQL/Redis/app 컨테이너·DB·포트·named volume에서 Flyway V1-V7, Hibernate validate, health UP 후 catalog 준비, direct/template/update override, null/inactive 400 및 row 불변, template 자동 생성, response-only, scheduler close, settlement title/amount의 11개 시나리오를 통과했다. volume을 삭제하지 않고 `docker compose down`했으며 마지막 Docker 명령 `docker builder prune -f`에서 696.7MB를 회수했다.
+  - 영향: API mapping과 정상 request/response DTO, Controller, `optionIds`, `poll_response_options`, 권한 의미/순서, DB/Flyway, dependency, non-COFFEE 동작, #182 Billing/Flyway는 변경하지 않았다. client 입력은 로그/오류에 echo하지 않았고 실제 secret/token/개인정보 기록, push/PR은 수행하지 않았다.
+  - 이력서 문장 후보: `COFFEE Poll/template 옵션의 이름·코드·가격 권한을 backend catalog로 고정하고 client override와 null/inactive 우회를 차단했으며, persisted-target 인가 순서를 보존한 채 4개 RED 실패·87개 집중 회귀·399개 전체 테스트·11개 격리 Docker API/스케줄러 정산 시나리오로 검증했다.`
 
 - #182 경건 벌금 overflow와 음수 청구 차단:
   - TDD RED: production 수정 전에 saturdayLateMinutes 1,440 성공·1,441/음수 실패, 규칙 곱셈/항목 합산/저장 범위 overflow, weekly/daily/charge rollback, ChargeItem create/update 0·음수 거부, V7 migration과 DB CHECK 테스트를 추가했다. 격리 재실행은 `57 tests / 11 failures`로 요구사항별 실패를 확인했고 테스트 전용 rollback fixture는 `@DirtiesContext`로 격리했다.
