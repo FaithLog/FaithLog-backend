@@ -78,7 +78,7 @@ public class MealPollService {
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}
-		poll.closeAt(clock.instant());
+		poll.close();
 		return pollResultAssembler.toResult(poll);
 	}
 

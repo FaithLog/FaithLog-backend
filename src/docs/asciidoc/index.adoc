@@ -2728,17 +2728,19 @@ include::{snippets}/meal-poll-create-forbidden-field-bad-request/http-response.a
 include::{snippets}/meal-poll-user-option-add-success/http-request.adoc[]
 include::{snippets}/meal-poll-user-option-add-success/http-response.adoc[]
 include::{snippets}/meal-poll-user-option-duplicate-conflict/http-response.adoc[]
-include::{snippets}/meal-poll-generic-admin-close-not-found/http-response.adoc[]
 
 === Manage and Close Meal Poll
 
-관리 목록은 MEAL poll만 pagination하며 과거 CLOSED poll도 반환한다. `settlementStatus`는 `NOT_CHARGED` 또는 `CHARGED`다. 수동 종료는 OPEN MEAL poll을 CLOSED로 바꿀 뿐 settlement나 charge를 만들지 않는다.
+관리 목록은 MEAL poll만 pagination하며 마감 후 3일이 지난 CLOSED poll도 반환한다. `settlementStatus`는 `NOT_CHARGED` 또는 `CHARGED`다. 수동 종료는 OPEN MEAL poll의 상태만 CLOSED로 바꾸며 기존 `endsAt`을 유지하고 settlement나 charge를 만들지 않는다. 전용 종료 API에서 다른 캠퍼스와 non-MEAL poll은 모두 `404 POLL_NOT_FOUND`로 숨기며, 일반 관리자 종료 API로도 MEAL poll을 우회할 수 없다.
 
 include::{snippets}/meal-polls-management-list-success/http-request.adoc[]
 include::{snippets}/meal-polls-management-list-success/http-response.adoc[]
 include::{snippets}/meal-polls-management-list-forbidden/http-response.adoc[]
 include::{snippets}/meal-poll-close-success/http-request.adoc[]
 include::{snippets}/meal-poll-close-success/http-response.adoc[]
+include::{snippets}/meal-poll-close-non-meal-not-found/http-response.adoc[]
+include::{snippets}/meal-poll-close-cross-campus-not-found/http-response.adoc[]
+include::{snippets}/meal-poll-generic-admin-close-not-found/http-response.adoc[]
 
 === Create Poll-level Meal Charges
 
@@ -2746,6 +2748,8 @@ include::{snippets}/meal-poll-close-success/http-response.adoc[]
 
 include::{snippets}/meal-poll-charges-create-success/http-request.adoc[]
 include::{snippets}/meal-poll-charges-create-success/http-response.adoc[]
+include::{snippets}/meal-poll-charges-per-member-success/http-response.adoc[]
+include::{snippets}/meal-poll-charges-write-rollback-conflict/http-response.adoc[]
 include::{snippets}/meal-poll-charges-retry-conflict/http-response.adoc[]
 
 === Meal Poll Management Detail and Account Redaction

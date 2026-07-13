@@ -494,6 +494,12 @@ class CampusControllerTest {
 					}
 					""".formatted(second.id())))
 			.andExpect(status().isOk());
+		assertThat(userRepository.findById(first.id()).orElseThrow().role()).isEqualTo(UserRole.USER);
+		assertThat(userRepository.findById(second.id()).orElseThrow().role()).isEqualTo(UserRole.USER);
+		assertThat(campusMemberRepository.findByCampusIdAndUserId(campusId, first.id()).orElseThrow().campusRole())
+			.isEqualTo(CampusRole.MEMBER);
+		assertThat(campusMemberRepository.findByCampusIdAndUserId(campusId, second.id()).orElseThrow().campusRole())
+			.isEqualTo(CampusRole.MEMBER);
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/duty-assignments/me/meal", campusId)
 				.header("Authorization", "Bearer " + firstToken))
