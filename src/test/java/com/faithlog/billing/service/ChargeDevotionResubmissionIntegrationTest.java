@@ -51,7 +51,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -374,6 +373,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 		CountDownLatch reopenEntered = new CountDownLatch(1);
 		CountDownLatch allowReopen = new CountDownLatch(1);
 		CountDownLatch paymentLockLookupEntered = new CountDownLatch(1);
+		CountDownLatch paymentLockLookupCompleted = new CountDownLatch(1);
 		doAnswer(invocation -> {
 			reopenEntered.countDown();
 			if (!allowReopen.await(5, TimeUnit.SECONDS)) {
@@ -391,7 +391,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 			));
 			assertThat(reopenEntered.await(5, TimeUnit.SECONDS)).isTrue();
 			chargeRepositoryLookupProbe.signalOnNextIdLock(
-				fixture.charge().id(), paymentLockLookupEntered
+				fixture.charge().id(), paymentLockLookupEntered, paymentLockLookupCompleted
 			);
 
 			Future<ConcurrentStatusResult> paymentFuture = executor.submit(() -> captureStatusResult(() ->
@@ -403,6 +403,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 				))
 			));
 			assertThat(paymentLockLookupEntered.await(5, TimeUnit.SECONDS)).isTrue();
+			assertThat(paymentLockLookupCompleted.await(500, TimeUnit.MILLISECONDS)).isFalse();
 			allowReopen.countDown();
 
 			ConcurrentStatusResult cancelResult = cancelFuture.get(5, TimeUnit.SECONDS);
@@ -443,6 +444,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 		CountDownLatch sourceChargeLoaded = new CountDownLatch(1);
 		CountDownLatch allowSourceChargeUpdate = new CountDownLatch(1);
 		CountDownLatch paymentLockLookupEntered = new CountDownLatch(1);
+		CountDownLatch paymentLockLookupCompleted = new CountDownLatch(1);
 		chargeRepositoryLookupProbe.blockNextSourceLookup(
 			new ChargeSourceKey(
 				fixture.campus().campusId(),
@@ -466,7 +468,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 			));
 			assertThat(sourceChargeLoaded.await(5, TimeUnit.SECONDS)).isTrue();
 			chargeRepositoryLookupProbe.signalOnNextIdLock(
-				fixture.charge().id(), paymentLockLookupEntered
+				fixture.charge().id(), paymentLockLookupEntered, paymentLockLookupCompleted
 			);
 
 			Future<ConcurrentStatusResult> paymentFuture = executor.submit(() -> captureStatusResult(() ->
@@ -478,21 +480,12 @@ class ChargeDevotionResubmissionIntegrationTest {
 				))
 			));
 			assertThat(paymentLockLookupEntered.await(5, TimeUnit.SECONDS)).isTrue();
-
-			ConcurrentStatusResult paymentBeforeResubmissionCommit = null;
-			try {
-				paymentBeforeResubmissionCommit = paymentFuture.get(500, TimeUnit.MILLISECONDS);
-			} catch (TimeoutException ignored) {
-				// The source-key row lock must keep payment waiting until resubmission commits.
-			}
+			assertThat(paymentLockLookupCompleted.await(500, TimeUnit.MILLISECONDS)).isFalse();
 			allowSourceChargeUpdate.countDown();
 
 			resubmissionFuture.get(5, TimeUnit.SECONDS);
-			ConcurrentStatusResult paymentResult = paymentBeforeResubmissionCommit != null
-				? paymentBeforeResubmissionCommit
-				: paymentFuture.get(5, TimeUnit.SECONDS);
+			ConcurrentStatusResult paymentResult = paymentFuture.get(5, TimeUnit.SECONDS);
 
-			assertThat(paymentBeforeResubmissionCommit).isNull();
 			assertThat(paymentResult.succeeded()).isTrue();
 			assertThat(chargeItemRepository.findById(fixture.charge().id())).get().satisfies(charge -> {
 				assertThat(charge.status()).isEqualTo(ChargeStatus.PAID);
@@ -522,11 +515,15 @@ class ChargeDevotionResubmissionIntegrationTest {
 				ChargeItemRepositoryPort.class.getClassLoader(),
 				new Class<?>[] {ChargeItemRepositoryPort.class},
 				(proxy, method, args) -> {
-					if (method.getName().equals("findChargeItemByIdForUpdate")) {
+					boolean idLockLookup = method.getName().equals("findChargeItemByIdForUpdate");
+					if (idLockLookup) {
 						probe.beforeIdLockLookup((Long) args[0]);
 					}
 					try {
 						Object result = method.invoke(delegate, args);
+						if (idLockLookup) {
+							probe.afterIdLockLookup((Long) args[0]);
+						}
 						if (method.getName().startsWith(
 							"findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId"
 						)) {
@@ -546,8 +543,8 @@ class ChargeDevotionResubmissionIntegrationTest {
 		private final AtomicReference<IdLockSignal> idLockSignal = new AtomicReference<>();
 		private final AtomicReference<SourceLookupBlock> sourceLookupBlock = new AtomicReference<>();
 
-		void signalOnNextIdLock(Long chargeItemId, CountDownLatch entered) {
-			idLockSignal.set(new IdLockSignal(chargeItemId, entered));
+		void signalOnNextIdLock(Long chargeItemId, CountDownLatch entered, CountDownLatch completed) {
+			idLockSignal.set(new IdLockSignal(chargeItemId, entered, completed));
 		}
 
 		void blockNextSourceLookup(
@@ -561,9 +558,17 @@ class ChargeDevotionResubmissionIntegrationTest {
 		void beforeIdLockLookup(Long chargeItemId) {
 			IdLockSignal signal = idLockSignal.get();
 			if (signal != null
+				&& signal.chargeItemId().equals(chargeItemId)) {
+				signal.entered().countDown();
+			}
+		}
+
+		void afterIdLockLookup(Long chargeItemId) {
+			IdLockSignal signal = idLockSignal.get();
+			if (signal != null
 				&& signal.chargeItemId().equals(chargeItemId)
 				&& idLockSignal.compareAndSet(signal, null)) {
-				signal.entered().countDown();
+				signal.completed().countDown();
 			}
 		}
 
@@ -580,7 +585,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 		}
 	}
 
-	private record IdLockSignal(Long chargeItemId, CountDownLatch entered) {
+	private record IdLockSignal(Long chargeItemId, CountDownLatch entered, CountDownLatch completed) {
 	}
 
 	private record SourceLookupBlock(
