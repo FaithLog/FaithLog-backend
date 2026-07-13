@@ -19,7 +19,7 @@
 - Flyway V8: MEAL enum/check 확장, COFFEE 단일 duty index 분리, ACTIVE MEAL duty 사용자 unique, 본인 ACTIVE MEAL account unique, 정규화된 `meal_poll_settlements`와 `meal_poll_charge_groups`.
 - Duty: 다수 배정, 사용자별 idempotency, 본인 duty 상태 API, MEAL 운영 공통 access service.
 - Account: 본인 소유 MEAL 계좌 전용 API, 담당자별 active 교체, generic admin API의 MEAL 비노출.
-- Poll: 전용 create/manage/detail/close API, 즉시 OPEN, 과거 CLOSED pagination, settlement status, 사용자 option 409 중복.
+- Poll: 전용 create/manage/detail/close API, 즉시 OPEN, 7일 초과·30일 retention 범위 내 CLOSED pagination, settlement status, 사용자 option 409 중복.
 - Settlement: 응답 option 완전집합 검증, zero-response 제외, exact calculation, 공통 account snapshot charge, all-or-nothing rollback, retry 409.
 - Query: 요청자 소유 MEAL account에 연결된 MEAL charge만 집계.
 
@@ -32,15 +32,17 @@
 - RED: exact arithmetic 계산기 부재로 compile test 실패.
 - 리뷰 RED: generic MEAL 우회·dashboard 노출·공용 poll lock·null list 요소 회귀 묶음 82개 중 6개 실패, 정산된 poll 보존 삭제 1개 FK 실패.
 - 재리뷰 RED: 수동 close가 미래 `endsAt`을 변경하는 계약 위반 1개 실패.
+- PM 리뷰 RED: 권한 없는 coffee duty가 persisted 비-COFFEE template에 MEAL request body로 update하면 target 인가보다 unsupported validation이 먼저 실행되어 unit/HTTP 2개가 기대 403 대신 400으로 실패했다.
 - GREEN: enum/Flyway, duty/account, poll create, GROUP_TOTAL 10,000원÷3명=3,334원·실제 10,002원·차액 2원, retry 409, calculator focused 테스트 통과.
 - 리뷰 GREEN: response/user option/generic·전용 close/settlement가 같은 pessimistic poll lookup을 사용한다. 일반 관리자 MEAL close·missing-members·status 변경은 404, dashboard와 generic create/template은 MEAL을 제외하며, V8 option/poll cascade가 30일 cleanup을 보장한다. null 요소는 400이고 회귀 묶음 90개가 통과했다.
-- 재리뷰 GREEN: 수동 close는 `endsAt`을 유지하고 상태만 CLOSED로 바꾼다. settlement/group/첫 charge write 이후 unique 충돌도 전부 rollback하며, 전용 close cross-campus/non-MEAL 404, role 불변, PER_MEMBER/source/account snapshot, 오래된 CLOSED 목록을 명시 검증했다.
+- 재리뷰 GREEN: 수동 close는 `endsAt`을 유지하고 상태만 CLOSED로 바꾼다. settlement/group/첫 charge write 이후 unique 충돌도 전부 rollback하며, 전용 close cross-campus/non-MEAL 404, role 불변, PER_MEMBER/source/account snapshot, 7일 초과·30일 retention 범위 내 CLOSED 목록을 명시 검증했다.
 - 최종 DB 리뷰 GREEN: settlement 응답 option 조회를 ID 오름차순으로 고정해 충돌 charge가 반드시 두 번째 처리되고 첫 charge INSERT 이후 rollback되는 경로를 결정적으로 검증한다.
+- PM 리뷰 GREEN: persisted template target 인가를 MEAL unsupported validation보다 먼저 수행해 권한 없는 요청은 403, 권한 있는 manager의 unsupported 요청은 400을 유지했고 template/options 전체 불변을 unit/HTTP로 확인했다. 기존 35일 CLOSED false-green은 8일로 정정하고 31일 settled MEAL cascade 삭제 테스트는 유지했다.
 
 ## 검증 범위
 
-- focused: Duty/Poll/Billing/Flyway/REST Docs 188 tests / 0 failures / 0 errors / 2 skipped. 사용자 option 후청구, 0응답 제외, account 격리, 실제 write 후 rollback, Clock 경계, 경합 중복 차단까지 보강했다.
-- full: `./gradlew test` 428 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check` 성공.
+- focused: Duty/Poll/Billing/Flyway/REST Docs 188 tests / 0 failures / 0 errors / 2 skipped. 사용자 option 후청구, 0응답 제외, account 격리, 실제 write 후 rollback, Clock 경계, 경합 중복 차단, persisted target 인가 순서까지 보강했다.
+- full: `./gradlew test` 429 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check` 성공.
 - REST Docs: 전체 147개 snippet group 중 MEAL 관련 23개를 생성하고 `build/docs/asciidoc/index.html` 렌더를 확인했다.
 - Docker QA: 사용자 최신 결정에 따라 이 feature에서는 실행하지 않고 #188/#189/#190 승인 후 integration branch에서 PostgreSQL/Redis/backend 연결 QA로 이관한다.
 
