@@ -1,6 +1,7 @@
 package com.faithlog.deploy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -34,6 +35,7 @@ class PostgresFlywayMigrationTest {
 		assertThat(result.migrationsExecuted).isGreaterThanOrEqualTo(2);
 		assertThat(flyway.info().current()).isNotNull();
 		assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(MigrationVersion.fromVersion("6"));
+		assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(MigrationVersion.fromVersion("7"));
 		assertTableExists(jdbcUrl, username, password, "users");
 		assertTableExists(jdbcUrl, username, password, "poll_response_options");
 		assertTableExists(jdbcUrl, username, password, "flyway_schema_history");
@@ -45,6 +47,40 @@ class PostgresFlywayMigrationTest {
 		assertConstraintExists(jdbcUrl, username, password, "poll_options", "fk_poll_options_created_by_user");
 		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_token");
 		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_user_client");
+		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
+		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
+		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
+		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
+	}
+
+	private static void assertConstraintValidated(
+		String jdbcUrl, String username, String password, String tableName, String constraintName
+	) throws Exception {
+		assertExists(
+			jdbcUrl, username, password,
+			"select exists (select 1 from pg_constraint c join pg_class t on t.oid = c.conrelid "
+				+ "where t.relname = ? and c.conname = ? and c.convalidated)",
+			tableName, constraintName
+		);
+	}
+
+	private static void assertInvalidChargeAmountRejected(
+		String jdbcUrl, String username, String password, int amount
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement statement = connection.prepareStatement(
+				"insert into charge_items (campus_id, user_id, payment_category, payment_account_id, "
+					+ "bank_name_snapshot, account_number_snapshot, account_holder_snapshot, source_type, source_id, "
+					+ "title, amount, status, created_at, updated_at) values "
+					+ "(1, 1, 'PENALTY', 1, 'bank', 'account', 'holder', 'DEVOTION_RECORD', ?, "
+					+ "'invalid', ?, 'UNPAID', now(), now())"
+			)
+		) {
+			statement.setLong(1, 9_000L + Math.abs(amount));
+			statement.setInt(2, amount);
+			assertThatThrownBy(statement::executeUpdate).isInstanceOf(java.sql.SQLException.class);
+		}
 	}
 
 	private static String envOrDefault(String name, String defaultValue) {
