@@ -228,13 +228,17 @@ class PollApiRestDocsTest {
 					  "endDayOfWeek": 4,
 					  "endTime": "17:30:00",
 					  "options": [
-					    {"content": "참석", "menuId": null, "priceAmount": 0, "sortOrder": 1},
-					    {"content": "불참", "menuId": null, "priceAmount": 0, "sortOrder": 2}
+					    {"content": "클라이언트 참석", "menuId": %d, "priceAmount": 1, "sortOrder": 1},
+					    {"content": "클라이언트 불참", "menuId": %d, "priceAmount": 1, "sortOrder": 2}
 					  ]
 					}
-					""".formatted(coffeeAccountId)))
+					""".formatted(coffeeAccountId, americanoMenuId, latteMenuId)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.autoCreateEnabled").value(true))
+			.andExpect(jsonPath("$.data.options[0].content").value("아메리카노"))
+			.andExpect(jsonPath("$.data.options[0].priceAmount").value(1500))
+			.andExpect(jsonPath("$.data.options[1].content").value("카페라떼"))
+			.andExpect(jsonPath("$.data.options[1].priceAmount").value(2900))
 			.andDo(document("poll-template-update-success",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
@@ -748,6 +752,7 @@ class PollApiRestDocsTest {
 		joinCampus(memberToken, campus.path("inviteCode").asText());
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), member.id()));
 		long coffeeAccountId = createCoffeeAccount(campusId, member.id(), member.id());
+		long americanoMenuId = menuId("AMERICANO_HOT");
 		long latteMenuId = menuId("CAFE_LATTE");
 
 		String pollBody = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/polls", campusId)
@@ -941,14 +946,14 @@ class PollApiRestDocsTest {
 					  "startsAt": "2026-06-20T00:00:00Z",
 					  "endsAt": "2026-06-21T00:00:00Z",
 					  "options": [
-					    {"content": "클라이언트 라떼", "menuId": %d, "priceAmount": 1, "sortOrder": 1}
+					    {"content": "클라이언트 아메리카노", "menuId": %d, "priceAmount": 1, "sortOrder": 1}
 					  ]
 					}
-					""".formatted(coffeeAccountId, latteMenuId)))
+					""".formatted(coffeeAccountId, americanoMenuId)))
 			.andExpect(status().isCreated())
-			.andExpect(jsonPath("$.data.options[0].content").value("카페라떼"))
-			.andExpect(jsonPath("$.data.options[0].composeMenuCode").value("CAFE_LATTE"))
-			.andExpect(jsonPath("$.data.options[0].priceAmount").value(2900))
+			.andExpect(jsonPath("$.data.options[0].content").value("아메리카노"))
+			.andExpect(jsonPath("$.data.options[0].composeMenuCode").value("AMERICANO_HOT"))
+			.andExpect(jsonPath("$.data.options[0].priceAmount").value(1500))
 			.andReturn()
 			.getResponse()
 			.getContentAsString();
