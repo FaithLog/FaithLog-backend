@@ -1,6 +1,7 @@
 package com.faithlog.billing.service;
 
 import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.service.command.ChangeChargeStatusCommand;
 import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.policy.BillingAccessPolicy;
@@ -58,6 +59,9 @@ public class ChargeStatusCommandService {
 	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
 		ChargeItem chargeItem = chargeItemRepository.findChargeItemById(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
+		if (chargeItem.paymentCategory() == PaymentCategory.MEAL) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND);
+		}
 		requireChargeStatusManager(chargeItem.campusId(), command.requesterId());
 		ChargeStatusPolicy.applyAdminStatusChange(chargeItem, command.status());
 

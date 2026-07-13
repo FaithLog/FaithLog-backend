@@ -411,6 +411,67 @@ class BillingControllerTest {
 	}
 
 	@Test
+	void generic_admin_charge_status_hides_meal_charge_but_member_can_pay_own_charge() throws Exception {
+		String managerToken = signupAndLogin("billing-meal-status-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-meal-status-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "189MEAL청구상태캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("billing-meal-status-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("billing-meal-status-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), duty.id()));
+		long accountId = objectMapper.readTree(mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "내 밥 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "189-STATUS",
+					  "accountHolder": "밥담당"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andReturn().getResponse().getContentAsString())
+			.path("data").path("id").asLong();
+		String memberToken = signupAndLogin("billing-meal-status-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-meal-status-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		ChargeItem mealCharge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			member.id(),
+			PaymentCategory.MEAL,
+			accountId,
+			"국민은행",
+			"189-STATUS",
+			"밥담당",
+			ChargeSourceType.POLL_RESPONSE,
+			189001L,
+			"점심 메뉴",
+			null,
+			5000,
+			null
+		));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", mealCharge.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"status": "WAIVED"}
+					"""))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_ITEM_NOT_FOUND"));
+		mockMvc.perform(patch(
+				"/api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid", campusId, mealCharge.id())
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("PAID"));
+	}
+
+	@Test
 	void charge_status_api_reopens_paid_charge_and_rejects_forbidden_or_invalid_transitions() throws Exception {
 		String managerToken = signupAndLogin("billing-http-status-auth-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("billing-http-status-auth-manager@example.com").orElseThrow();

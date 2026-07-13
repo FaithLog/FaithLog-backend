@@ -174,10 +174,15 @@ class AdminDashboardControllerTest {
 		createCharge(campusId, manager.id(), PaymentCategory.PENALTY, ChargeSourceType.DEVOTION_RECORD, 101L, 32000, true);
 		createCharge(campusId, elder.id(), PaymentCategory.COFFEE, ChargeSourceType.POLL_RESPONSE, 102L, 22000, true);
 		createCharge(campusId, leader.id(), PaymentCategory.COFFEE, ChargeSourceType.POLL_RESPONSE, 103L, 9000, false);
+		createCharge(campusId, member.id(), PaymentCategory.MEAL, ChargeSourceType.POLL_RESPONSE, 104L, 10000, true);
 		Poll openPoll1 = createPoll(campusId, "진행 투표 1", PollStatusFixture.OPEN, Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600));
 		Poll openPoll2 = createPoll(campusId, "진행 투표 2", PollStatusFixture.OPEN, Instant.now().minusSeconds(60), Instant.now().plusSeconds(7200));
 		createPoll(campusId, "최근 종료", PollStatusFixture.CLOSED, Instant.now().minusSeconds(8 * 24 * 60 * 60), Instant.now().minusSeconds(3 * 24 * 60 * 60));
 		createPoll(campusId, "오래 전 종료", PollStatusFixture.CLOSED, Instant.now().minusSeconds(10 * 24 * 60 * 60), Instant.now().minusSeconds(8 * 24 * 60 * 60));
+		createMealPoll(campusId, manager.id(), "MEAL 진행 제외", PollStatusFixture.OPEN,
+			Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600));
+		createMealPoll(campusId, manager.id(), "MEAL 종료 제외", PollStatusFixture.CLOSED,
+			Instant.now().minusSeconds(8 * 24 * 60 * 60), Instant.now().minusSeconds(3 * 24 * 60 * 60));
 		pollResponseRepository.save(PollResponse.create(openPoll1.id(), manager.id(), null));
 		pollResponseRepository.save(PollResponse.create(openPoll1.id(), elder.id(), null));
 		pollResponseRepository.save(PollResponse.create(openPoll2.id(), member.id(), null));
@@ -202,6 +207,7 @@ class AdminDashboardControllerTest {
 			.andExpect(jsonPath("$.data.charges.byCategory[0].unpaidAmount").value(32000))
 			.andExpect(jsonPath("$.data.charges.byCategory[1].paymentCategory").value("COFFEE"))
 			.andExpect(jsonPath("$.data.charges.byCategory[1].unpaidAmount").value(22000))
+			.andExpect(jsonPath("$.data.charges.byCategory.length()").value(2))
 			.andExpect(jsonPath("$.data.polls.openCount").value(2))
 			.andExpect(jsonPath("$.data.polls.recentlyClosedCount").value(1))
 			.andExpect(jsonPath("$.data.polls.missingResponseCount").value(5))
@@ -309,6 +315,21 @@ class AdminDashboardControllerTest {
 		if (status == PollStatusFixture.OPEN) {
 			poll.open();
 		}
+		if (status == PollStatusFixture.CLOSED) {
+			poll.close();
+		}
+		return pollRepository.save(poll);
+	}
+
+	private Poll createMealPoll(
+		Long campusId,
+		Long createdBy,
+		String title,
+		PollStatusFixture status,
+		Instant startsAt,
+		Instant endsAt
+	) {
+		Poll poll = Poll.createMeal(campusId, title, false, false, startsAt, endsAt, createdBy);
 		if (status == PollStatusFixture.CLOSED) {
 			poll.close();
 		}

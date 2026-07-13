@@ -82,6 +82,9 @@ public class PollTemplateCommandService {
 		PollTemplate template = pollTemplateRepository.findById(command.templateId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
 		requireSameCampusScope(template, command.campusId());
+		if (template.pollType() == PollType.MEAL || command.paymentCategory() == PaymentCategory.MEAL) {
+			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "MEAL 투표는 템플릿을 지원하지 않습니다.");
+		}
 		requirePersistedTemplateManageAccess(
 			command.campusId(),
 			command.requesterId(),

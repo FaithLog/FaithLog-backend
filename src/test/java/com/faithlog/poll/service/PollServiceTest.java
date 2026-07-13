@@ -53,6 +53,7 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.type.ChargeGenerationType;
 import com.faithlog.poll.domain.entity.CoffeeBrand;
 import com.faithlog.poll.domain.entity.CoffeeMenuCatalog;
+import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.entity.PollOption;
 import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.entity.PollTemplate;
@@ -484,6 +485,99 @@ class PollServiceTest {
 		assertThat(pollRepository.findById(templated.id())).get()
 			.extracting(poll -> poll.status())
 			.isEqualTo(PollStatus.SCHEDULED);
+	}
+
+	@Test
+	void generic_poll_operations_hide_meal_poll_and_reject_meal_billing_contracts() {
+		User manager = saveUser("poll-meal-generic-boundary-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "189MEALgeneric경계캠");
+		Poll mealPoll = pollRepository.save(Poll.createMeal(
+			campus.campusId(),
+			"점심 메뉴",
+			false,
+			false,
+			Instant.now(),
+			Instant.now().plusSeconds(3600),
+			manager.id()
+		));
+
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), mealPoll.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_NOT_FOUND)
+			);
+		assertThatThrownBy(() -> pollService.getMissingMembers(campus.campusId(), mealPoll.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_NOT_FOUND)
+			);
+
+		long pollCount = pollRepository.count();
+		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"일반 API MEAL 청구 우회",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			ChargeGenerationType.NONE,
+			PaymentCategory.MEAL,
+			null,
+			Instant.now(),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("메뉴", null, 0, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED)
+			);
+		assertThat(pollRepository.count()).isEqualTo(pollCount);
+
+		assertThatThrownBy(() -> pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+			campus.campusId(),
+			manager.id(),
+			"일반 API MEAL 템플릿 생성 우회",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			ChargeGenerationType.NONE,
+			PaymentCategory.MEAL,
+			null,
+			false,
+			false,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand("메뉴", null, 0, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED)
+			);
+
+		PollTemplateResult customTemplate = createNonCoffeeTemplate(
+			campus.campusId(), manager.id(), PollType.CUSTOM, "MEAL 수정 전"
+		);
+		assertThatThrownBy(() -> pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+			campus.campusId(),
+			customTemplate.id(),
+			manager.id(),
+			"MEAL 수정 우회",
+			SelectionType.SINGLE,
+			ChargeGenerationType.NONE,
+			PaymentCategory.MEAL,
+			null,
+			false,
+			false,
+			DayOfWeek.TUESDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.TUESDAY,
+			LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand("메뉴", null, 0, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED)
+			);
+		assertThat(pollTemplateRepository.findById(customTemplate.id())).get()
+			.extracting(PollTemplate::paymentCategory)
+			.isNull();
 	}
 
 	@Test
