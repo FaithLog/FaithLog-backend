@@ -4,5 +4,6 @@ public enum PollType {
 	WED_SERVICE,
 	SATURDAY_LEADER,
 	COFFEE,
+	MEAL,
 	CUSTOM
 }

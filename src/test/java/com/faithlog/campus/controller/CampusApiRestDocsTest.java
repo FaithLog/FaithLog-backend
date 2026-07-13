@@ -412,6 +412,59 @@ class CampusApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_meal_duty_assignment_contracts() throws Exception {
+		String managerToken = signupAndLogin("docs-meal-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampusForDocs(managerToken, "189문서밥캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-meal-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-meal-member@example.com").orElseThrow();
+		joinCampusForDocs(memberToken, campus.path("inviteCode").asText());
+
+		String body = mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/duty-assignments/meal", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"userId": %d}
+					""".formatted(member.id())))
+			.andExpect(status().isOk())
+			.andDo(document("admin-meal-duty-assign-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				requestFields(fieldWithPath("userId").description("밥 담당자로 지정할 ACTIVE 캠퍼스 멤버 사용자 ID")),
+				responseFields(apiResponseFields(dutyAssignmentFields("data.")))
+			))
+			.andReturn().getResponse().getContentAsString();
+		long assignmentId = objectMapper.readTree(body).path("data").path("assignmentId").asLong();
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/duty-assignments/me/meal", campusId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andDo(document("my-meal-duty-assignment-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				responseFields(apiResponseFields(myDutyAssignmentFields("data.")))
+			));
+
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/duty-assignments/meal/{assignmentId}",
+				campusId, assignmentId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNoContent())
+			.andDo(document("admin-meal-duty-revoke-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("assignmentId").description("해제할 MEAL duty assignment ID")
+				)
+			));
+	}
+
 	private String signupAndLogin(String email, UserRole role) throws Exception {
 		mockMvc.perform(post("/api/v1/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)

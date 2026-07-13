@@ -836,6 +836,54 @@ include::{snippets}/devotion-admin-missing-success/http-response.adoc[]
 
 include::{snippets}/devotion-admin-missing-success/response-fields.adoc[]
 
+=== Get Admin Weekly Devotion Members
+
+`GET /api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/members`
+
+전역 `ADMIN` 또는 해당 캠퍼스의 ACTIVE `MINISTER`, `ELDER`, `CAMPUS_LEADER`가 현재 ACTIVE 멤버의 주간 경건생활과 실제 저장된 `PENALTY` 청구를 조회한다. 제출자와 미제출자를 분리하며, 미제출자는 응답 하단에 둔다. `totalPenaltyAmount`는 실제 청구 중 `PAID`와 `UNPAID`를 합산하고 `WAIVED`, `CANCELED`는 제외한다.
+
+==== Request
+
+include::{snippets}/devotion-admin-weekly-members-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-admin-weekly-members-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-admin-weekly-members-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-admin-weekly-members-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-admin-weekly-members-success/response-fields.adoc[]
+
+=== Export Admin Weekly Devotion Workbook
+
+`GET /api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/export`
+
+JSON 조회와 동일한 권한·주차·ACTIVE 멤버·벌금 집계 query model로 XLSX 파일을 생성한다. 파일명은 `faithlog-devotion-{campusId}-{weekStartDate}.xlsx`이며, 첫 시트는 `주간 요약`, 두 번째 시트는 `일별 상세`다. 두 시트 모두 제출자를 먼저 표시하고 미제출자를 하단 별도 구역에 둔다.
+
+==== Request
+
+include::{snippets}/devotion-admin-weekly-export-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-admin-weekly-export-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-admin-weekly-export-success/path-parameters.adoc[]
+
+==== Response Headers
+
+include::{snippets}/devotion-admin-weekly-export-success/response-headers.adoc[]
+
 === Get My Monthly Devotion Summary
 
 `GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year={year}&month={month}`
@@ -1454,7 +1502,9 @@ include::{snippets}/charge-admin-member-detail-success/response-fields.adoc[]
 
 `PATCH /api/v1/admin/charges/{chargeItemId}/status`
 
-캠퍼스 관리자 또는 전역 `ADMIN`은 `UNPAID` 청구를 `WAIVED`/`CANCELED`로 변경하거나, 종료된 청구를 `UNPAID`로 되돌릴 수 있다. 관리자는 `PAID`로 변경할 수 없고, `PAID` 청구를 `UNPAID`로 되돌릴 때는 `paidAt`을 비운다.
+캠퍼스 관리자 또는 전역 `ADMIN` 사용자는 `UNPAID` 상태 청구를 `PAID` / `WAIVED` / `CANCELED` 상태로 변경하거나, 종료된 청구를 `UNPAID` 상태로 되돌릴 수 있다. 관리자 `UNPAID -> PAID` 전환은 서버 현재 시각을 `paidAt` 필드에 저장하고, terminal 상태에서 `PAID` 상태로의 전환은 409로 실패한다. `PAID` 상태 청구를 `UNPAID` 상태로 되돌릴 때는 `paidAt` 필드를 비운다.
+
+`PENALTY + DEVOTION_RECORD` 청구를 `UNPAID -> CANCELED`로 변경하면 같은 transaction에서 source weekly record의 `submittedAt`을 null로 재오픈한다. source weekly record는 청구와 같은 campus/user여야 하며, 기존 daily checks는 삭제하지 않는다. `WAIVED`, `COFFEE`, `POLL_RESPONSE` 취소는 경건생활을 재오픈하지 않는다. 재제출 벌금이 양수이면 기존 CANCELED source charge row를 UNPAID로 재사용해 현재 금액과 계좌 snapshot을 갱신하고, 0원이면 CANCELED row를 유지하며 새 row를 만들지 않는다.
 
 ==== Request
 
@@ -1479,6 +1529,56 @@ include::{snippets}/charge-admin-status-change-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/charge-admin-status-change-success/response-fields.adoc[]
+
+==== Terminal To Paid Conflict (409)
+
+include::{snippets}/charge-admin-status-change-conflict/http-request.adoc[]
+
+===== Request Headers
+
+include::{snippets}/charge-admin-status-change-conflict/request-headers.adoc[]
+
+===== Path Parameters
+
+include::{snippets}/charge-admin-status-change-conflict/path-parameters.adoc[]
+
+===== Request Fields
+
+include::{snippets}/charge-admin-status-change-conflict/request-fields.adoc[]
+
+===== Response
+
+include::{snippets}/charge-admin-status-change-conflict/http-response.adoc[]
+
+===== Response Fields
+
+include::{snippets}/charge-admin-status-change-conflict/response-fields.adoc[]
+
+==== Devotion Penalty Cancel And Reopen Example
+
+===== Request
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/http-request.adoc[]
+
+===== Request Headers
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/request-headers.adoc[]
+
+===== Path Parameters
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/path-parameters.adoc[]
+
+===== Request Fields
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/request-fields.adoc[]
+
+===== Response
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/http-response.adoc[]
+
+===== Response Fields
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/response-fields.adoc[]
 
 == Campus Admin Dashboard
 
@@ -2685,3 +2785,83 @@ include::{snippets}/prayer-submissions-save-version-conflict/http-request.adoc[]
 include::{snippets}/prayer-submissions-save-version-conflict/http-response.adoc[]
 
 include::{snippets}/prayer-submissions-save-version-conflict/response-fields.adoc[]
+
+== Meal Duty, Poll, and Post-settlement Billing
+
+MEAL 운영 API는 같은 캠퍼스의 현재 ACTIVE MEAL 담당자만 사용할 수 있다. service ADMIN 또는 캠퍼스 관리자도 MEAL duty가 없으면 `403`이다. 일반 사용자의 투표 목록·상세·응답과 사용자 옵션 추가는 기존 캠퍼스 멤버 정책을 유지한다.
+
+=== Assign and Revoke Meal Duty
+
+한 캠퍼스에 여러 ACTIVE MEAL duty를 둘 수 있고, 같은 사용자의 재지정은 기존 ACTIVE assignment를 반환한다. duty 지정은 서비스 role이나 캠퍼스 role을 변경하지 않는다.
+
+include::{snippets}/admin-meal-duty-assign-success/http-request.adoc[]
+include::{snippets}/admin-meal-duty-assign-success/http-response.adoc[]
+include::{snippets}/my-meal-duty-assignment-success/http-request.adoc[]
+include::{snippets}/my-meal-duty-assignment-success/http-response.adoc[]
+include::{snippets}/admin-meal-duty-revoke-success/http-request.adoc[]
+include::{snippets}/admin-meal-duty-revoke-success/http-response.adoc[]
+
+=== My Meal Payment Accounts
+
+MEAL 담당자는 본인 소유 계좌만 생성·조회·비활성화할 수 있다. 새 계좌를 만들면 같은 캠퍼스의 기존 본인 ACTIVE MEAL 계좌는 비활성화된다. 다른 담당자의 계좌는 이 API에 노출되지 않는다.
+
+include::{snippets}/meal-payment-account-create-success/http-request.adoc[]
+include::{snippets}/meal-payment-account-create-success/http-response.adoc[]
+include::{snippets}/meal-payment-accounts-my-list-success/http-request.adoc[]
+include::{snippets}/meal-payment-accounts-my-list-success/http-response.adoc[]
+include::{snippets}/meal-payment-account-deactivate-success/http-request.adoc[]
+include::{snippets}/meal-payment-account-deactivate-success/http-response.adoc[]
+
+=== Create Meal Poll
+
+MEAL poll은 `SINGLE`로 생성되며 서버가 하나의 현재 시각을 `startsAt`과 `createdAt`에 사용하고 즉시 `OPEN`으로 저장한다. 요청은 미래 `endsAt`만 받는다. `startsAt`, `paymentAccountId`, payment category, charge generation type, 가격 또는 금액 필드는 `400`으로 거절하며 조용히 무시하지 않는다.
+
+include::{snippets}/meal-poll-create-success/http-request.adoc[]
+include::{snippets}/meal-poll-create-success/http-response.adoc[]
+include::{snippets}/meal-poll-create-forbidden-field-bad-request/http-request.adoc[]
+include::{snippets}/meal-poll-create-forbidden-field-bad-request/http-response.adoc[]
+
+=== Add User Meal Option
+
+`allowUserOptionAdd=true`인 OPEN MEAL poll은 기존 `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`를 사용한다. content는 trim하고, 대소문자 무시 중복은 `409`다. 옵션 추가만으로 response, settlement, charge는 생성되지 않으며 실제 응답은 기존 `optionIds`와 `poll_response_options` 계약을 사용한다.
+
+include::{snippets}/meal-poll-user-option-add-success/http-request.adoc[]
+include::{snippets}/meal-poll-user-option-add-success/http-response.adoc[]
+include::{snippets}/meal-poll-user-option-duplicate-conflict/http-response.adoc[]
+
+=== Manage and Close Meal Poll
+
+관리 목록은 MEAL poll만 pagination하며 마감 후 3일이 지난 CLOSED poll도 반환한다. `settlementStatus`는 `NOT_CHARGED` 또는 `CHARGED`다. 수동 종료는 OPEN MEAL poll의 상태만 CLOSED로 바꾸며 기존 `endsAt`을 유지하고 settlement나 charge를 만들지 않는다. 전용 종료 API에서 다른 캠퍼스와 non-MEAL poll은 모두 `404 POLL_NOT_FOUND`로 숨기며, 일반 관리자 종료 API로도 MEAL poll을 우회할 수 없다.
+
+include::{snippets}/meal-polls-management-list-success/http-request.adoc[]
+include::{snippets}/meal-polls-management-list-success/http-response.adoc[]
+include::{snippets}/meal-polls-management-list-forbidden/http-response.adoc[]
+include::{snippets}/meal-poll-close-success/http-request.adoc[]
+include::{snippets}/meal-poll-close-success/http-response.adoc[]
+include::{snippets}/meal-poll-close-non-meal-not-found/http-response.adoc[]
+include::{snippets}/meal-poll-close-cross-campus-not-found/http-response.adoc[]
+include::{snippets}/meal-poll-generic-admin-close-not-found/http-response.adoc[]
+
+=== Create Poll-level Meal Charges
+
+요청의 `paymentAccountId` 하나가 모든 option group에 공통으로 적용된다. 응답자가 있는 모든 option을 정확히 한 번 포함해야 하며, 0명인 option은 제외한다. `PER_MEMBER`는 입력한 1인당 금액을 곱하고, `GROUP_TOTAL`은 `ceil(enteredAmount / responseCount)`를 정수 연산으로 계산한다. `requestedTotalAmount`, `actualTotalAmount`, `roundingAdjustment`를 분리한다. 전체 settlement/group/charge는 단일 transaction이며 같은 poll 재청구는 `409`다.
+
+include::{snippets}/meal-poll-charges-create-success/http-request.adoc[]
+include::{snippets}/meal-poll-charges-create-success/http-response.adoc[]
+include::{snippets}/meal-poll-charges-per-member-success/http-response.adoc[]
+include::{snippets}/meal-poll-charges-write-rollback-conflict/http-response.adoc[]
+include::{snippets}/meal-poll-charges-retry-conflict/http-response.adoc[]
+
+=== Meal Poll Management Detail and Account Redaction
+
+각 option은 최종 `responseCount`와 charge 계산 snapshot을 반환한다. 요청자가 settlement에 사용한 계좌의 소유자일 때만 `paymentAccountId`를 반환한다. 다른 ACTIVE MEAL 담당자가 조회하면 `chargedByMe=false`이고 계좌 ID/상세는 null이지만 청구 상태·금액·인원은 확인할 수 있다.
+
+include::{snippets}/meal-poll-management-detail-charged-by-me-success/http-response.adoc[]
+include::{snippets}/meal-poll-management-detail-other-duty-redacted-success/http-response.adoc[]
+
+=== Charges Connected to My Meal Accounts
+
+본인이 소유한 MEAL 계좌에 연결된 MEAL charge만 조회·집계하며 다른 담당자 계좌의 청구는 반환하지 않는다.
+
+include::{snippets}/meal-charges-my-accounts-success/http-request.adoc[]
+include::{snippets}/meal-charges-my-accounts-success/http-response.adoc[]

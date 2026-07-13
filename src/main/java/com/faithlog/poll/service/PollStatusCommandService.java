@@ -32,7 +32,10 @@ public class PollStatusCommandService {
 
 	@Transactional
 	public PollResult closePoll(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupSupport.getPollInCampus(campusId, pollId);
+		Poll poll = pollLookupSupport.getPollInCampusForUpdate(campusId, pollId);
+		if (poll.pollType() == PollType.MEAL) {
+			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
+		}
 		pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);

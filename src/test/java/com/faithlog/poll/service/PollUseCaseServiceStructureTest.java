@@ -98,6 +98,40 @@ class PollUseCaseServiceStructureTest {
 	}
 
 	@Test
+	void pollMutationsShareTheSettlementPessimisticWriteLookup() {
+		String lookup = read(SERVICE_ROOT.resolve("PollLookupSupport.java"));
+		List<String> mutationServices = List.of(
+			"PollResponseCommandService.java",
+			"PollUserOptionCommandService.java",
+			"PollStatusCommandService.java",
+			"MealPollService.java",
+			"MealPollSettlementService.java"
+		);
+
+		assertAll(
+			() -> assertTrue(lookup.contains("getPollInCampusForUpdate")),
+			() -> assertTrue(lookup.contains("findByIdAndCampusIdForUpdate")),
+			() -> assertAll(mutationServices.stream().map(service -> () -> assertTrue(
+				read(SERVICE_ROOT.resolve(service)).contains("getPollInCampusForUpdate"),
+				service + "가 settlement와 같은 poll PESSIMISTIC_WRITE 조회를 사용해야 합니다."
+			)))
+		);
+	}
+
+	@Test
+	void mealSettlementOrdersResponseSelectionsSoPostWriteRollbackTestIsDeterministic() {
+		String settlement = read(SERVICE_ROOT.resolve("MealPollSettlementService.java"));
+		String repository = read(MAIN_ROOT.resolve(
+			"poll/infrastructure/repository/PollResponseOptionRepository.java"
+		));
+
+		assertAll(
+			() -> assertTrue(repository.contains("findByResponseIdInOrderByIdAsc")),
+			() -> assertTrue(settlement.contains("findByResponseIdInOrderByIdAsc"))
+		);
+	}
+
+	@Test
 	void compatibilityFacadeDoesNotOwnRepositoriesTransactionsOrBusinessRules() {
 		String facade = read(SERVICE_ROOT.resolve("PollService.java"));
 

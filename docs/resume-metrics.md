@@ -13,23 +13,71 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-13 #186 review follow-up, 413 tests / 0 failures / 0 errors / 3 skipped) | 100% |
-| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 78 test files (2026-07-13 #186) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 124 snippet groups (2026-07-13 #183) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #186) | 성공 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-14 #188/#189/#190 integration, 449 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.41% (7,223 / 7,651, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
+| 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 75.77% (1,113 / 1,469, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
+| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.70% (510 / 522, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
+| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 89.79% (1,935 / 2,155, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
+| 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 85 test files (2026-07-14 integration) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 151 snippet groups (2026-07-14 integration) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-14 integration) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
-| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 588 Java sources including tests (2026-07-12 #176) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 7 (Flyway V1-V7, 2026-07-13 #182) | 추적 |
+| 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 634 Java sources including tests (2026-07-13 #189) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 8 (Flyway V1-V8, 2026-07-13 #189) | 추적 |
 
 ## Daily Monitoring Notes
 
+### 2026-07-14
+
+- #188/#189/#190 통합 검증:
+  - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
+  - 통합 리뷰 RED/GREEN: 재오픈된 weekly row를 잠그지 않아 동시 0원 재제출 두 건이 모두 제출 검사를 통과할 수 있는 race를 결정적 latch 테스트로 재현했다. RED `1 test / 1 failure` 뒤 취소 재오픈과 재제출 양쪽이 같은 weekly row `PESSIMISTIC_WRITE`를 사용하도록 보강했고, 신규 회귀와 #190 전체 재제출 통합 class가 GREEN이었다. production API/DTO/ErrorCode/Flyway는 바꾸지 않았다.
+  - 비Docker 전체 검증: `449 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`가 성공했다. JaCoCo는 line 94.41%, branch 75.77%, class 97.70%, method 89.79%이며 새 성과로 과장하지 않고 통합 시점 관찰값으로만 기록한다. test source 85개, 전체 Java source/test 646개, REST Docs snippet group 151개이고 `index.adoc`이 참조한 150개 group 누락은 0개다.
+  - Docker/Flyway 복구 검증: 사용자가 승인한 재생성 가능 build/node_modules 정리 뒤 host Data volume 가용 공간 12GiB에서 Docker Desktop 29.6.1 engine을 복구했다. 격리 project `faithlog-qa-188-190-20260714`로 current source image `sha256:c65cff97bdccd1bc88e1e06d5427e81b7951fce57cc68c750f36c10bffa94a04`를 build하고 PostgreSQL 17, Redis 7, backend를 기동했다. 빈 `faithlog` DB는 V1→V8을 순서대로 적용했고 별도 `faithlog_upgrade` DB는 V1→V7 target 적용 후 V8만 upgrade해 두 history 모두 8/8 success였다. PostgreSQL/Redis는 healthy/PONG, backend `GET /api/v1/health`는 200/UP이다.
+  - 실제 HTTP A/B/C/D: secret/token을 출력·저장하지 않은 격리 fixture `1783981848`, campus `1`에서 45개 검증 step이 실패 0으로 통과했다. #188은 ACTIVE 7명을 submitted 3/missing 4로 분리하고 PAID+UNPAID 10,400원 합계와 WAIVED/CANCELED 제외, non-Monday 400, 일반 멤버 403, XLSX MIME/filename/2 sheets/실제 archive open을 확인했다. #189는 MEAL duty 2명 role 불변, 본인 계좌 격리, OPEN/SINGLE 서버 시작 poll, 사용자 option/`optionIds`, close 후 charge 0, GROUP_TOTAL 10,000÷3=3,334원·actual 10,002원, 다른 duty 계좌 ID 비노출, 재정산 409, 8일 CLOSED poll의 30일 관리 목록 노출을 확인했다. 추가 fixture `rollback-1783982391`은 첫 MEAL charge write 뒤 두 번째 source-key 충돌을 실제 HTTP 409로 유발하고 settlement/group/첫 charge가 모두 0건으로 rollback되며 선행 충돌 row 1건만 유지됨을 확인했다. #190은 관리자 UNPAID→PAID/`paidAt`, terminal→PAID 409, DEVOTION_RECORD cancel의 submittedAt null/daily 7건 보존, 양수 재제출 동일 charge row UNPAID 재사용, 0원 재제출 CANCELED 유지와 source-key 중복 0을 확인했다.
+  - 연결/동시성: cancel 직후 #188 JSON에서 대상이 missing으로 이동하고 합계에서 제외됐으며 실제 Excel 미제출 행은 3 cells였다. 양수 재제출 뒤 같은 charge ID/5,200원/UNPAID로 submitted에 복귀하고 합계가 복원됐으며 Excel 제출 행은 11 cells였다. 동일 charge에 실제 HTTP PAID/CANCELED를 동시에 보낸 fixture `concurrent-1783982008`은 200 1건/409 1건, 최종 CANCELED, daily 7건/source row 1건으로 직렬화됐다. MEAL 정산 후 PENALTY 합계는 10,400원으로 불변이었다.
+  - CI 시간 정밀도 보강: PR #191의 Linux CI에서 생성 응답의 nanosecond `endsAt`과 DB 재조회 값의 정밀도 차이로 REST Docs 테스트 1건이 실패했다. 종료 API가 값을 변경한 회귀가 아니므로 테스트가 생성 응답이 아닌 생성 직후 DB 저장값을 기준으로 close 전후 불변을 비교하도록 보강했다. 실패 단일 테스트와 전체 `449 tests / 0 failures / 0 errors / 3 skipped`를 다시 통과했다.
+  - 프론트 read-only 계약 대조: `/Users/josephuk77/Documents/FeithLog-frontend`의 clean `develop` `aba1ab0`에서 #188 신규 weekly JSON/export 호출부, #189 MEAL enum·duty/account/poll/settlement client가 없고, #190 `AdminWritableChargeStatus`와 관리자 UI가 PAID를 차단함을 확인했다. 기존 user devotion GET/PUT, 본인 납부 PATCH, 기존 admin missing 호출은 현재 계약과 일치한다. 백엔드나 프론트 계약은 임의 변경하지 않고 PM integration finding으로 남긴다.
+  - 실행 상태/정리 결정: 최신 사용자 지시에 따라 compose down과 builder prune을 실행하지 않았다. backend `28080`, PostgreSQL `25432`, Redis `26379`를 계속 실행 중이며 최종 host 가용 공간은 7.8GiB, Docker image 2.107GB/volume 502.8MB/build cache 1.729GB 관찰값이다. image/volume/source/DB 삭제는 0건이다. browse 계층은 Playwright headless shell 미설치로 시작하지 못했지만 동일 localhost endpoint의 실제 curl HTTP와 XLSX binary 검증은 완료했다.
+  - 리뷰 잔여 후보: V8 `meal_poll_charge_groups(settlement_id, id)` 조회 인덱스, MEAL 정산의 응답자별 반복 조회/저장, MEAL 청구 대상 사용자 bulk lookup, #188의 Billing projection port 경계는 성능·아키텍처·스키마 결정이 필요해 통합 세션이 임의 변경하지 않았다. PM이 별도 반영 여부를 결정해야 한다.
+  - 이력서 문장 후보: `세 기능 브랜치를 merge commit으로 통합하고 경건 재제출 race를 row lock으로 해소해 449개 전체 테스트·151개 REST Docs 스니펫을 통과했으며, 격리 PostgreSQL V1→V8 clean/V7→V8 upgrade와 실제 HTTP 45-step 연결 QA를 실패 0건으로 검증했다.`
+
 ### 2026-07-13
+
+- #188 관리자 주차별 사용자 경건·벌금 조회 및 Excel 다운로드:
+  - 제품 기준: 현재 ACTIVE 캠퍼스 멤버를 제출/미제출로 분리한다. 실제 저장 `PENALTY` 청구 id/amount/status를 표시하고 과거 금액을 현재 규칙으로 재계산하지 않는다. 사용자 확정에 따라 `totalPenaltyAmount`는 `PAID + UNPAID`이고, `WAIVED/CANCELED`는 행에는 표시하되 합계에서 제외한다.
+  - API/권한: JSON 조회와 XLSX export 2개 endpoint를 추가했다. service `ADMIN` 또는 해당 캠퍼스 ACTIVE `MINISTER/ELDER/CAMPUS_LEADER`만 허용하며 MEMBER와 다른 캠퍼스 관리자는 403, non-Monday는 400이다. read-only transaction 안에서 ACTIVE members/users/weekly records/daily checks/charges를 bulk 조회하고 repository-call characterization으로 멤버 수 비례 조회를 차단했다.
+  - Excel/의존성: JSON과 동일 query result를 `주간 요약`, `일별 상세` 2개 시트로 렌더링하고 제출자를 먼저, 미제출자를 별도 하단 구역에 둔다. direct dependency는 `org.apache.poi:poi-ooxml:5.5.1` 1개이며 runtime에 POI 5.5.1 3개 artifact, XMLBeans 5.3.0, Commons Compress 1.28.0 등이 해석됐다. 추가 전 runtime에는 Apache POI가 없었다.
+  - TDD RED/GREEN: JSON endpoint 부재로 controller 3 tests가 expected 200/actual 404, Excel endpoint 부재로 단일 test가 404, REST Docs index include 누락으로 1 test가 assertion failure였다. 구현 후 JSON/bulk/structure focused, Excel, REST Docs/index가 각각 GREEN이었다.
+  - 검증 수치: Devotion/Billing/Admin focused `82 tests / 0 failures / 0 errors / 0 skipped`, 전체 `420 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check` 성공. test source 81개, REST Docs snippet group 126개다.
+  - REST Docs: JSON 전체 response field와 Excel `Content-Type`/`Content-Disposition`/filename을 문서화하고 `index.adoc` include를 테스트로 고정했다. XLSX binary에는 pretty-print를 적용하지 않았으며 POI 테스트가 실제 workbook의 2 sheets/header/order/value를 연다.
+  - PM finding 대응: 벌금 합계는 현재 개발 대화에서 사용자가 “각자 주차별이 페이드랑 언페이드랑 합산할게”라고 직접 선택한 `PAID + UNPAID` 기준임을 확인해 decision log에 승인 근거를 명시했다. 전역 `AGENTS.md`와 Codex Hook에서는 일회성 #188/#189/#190 번호·통합 브랜치·Docker 순서를 제거하고, 일반 PM 전체 diff 리뷰/finding 재검증 게이트만 유지했다. 이번 통합 절차는 `docs/decision-log.md`에만 남겼다.
+  - PM finding 후 재검증: PM 독립 실행과 동일한 4개 focused class는 `18 tests / 0 failures / 0 errors / 0 skipped`, 전체는 `420 tests / 0 failures / 0 errors / 3 skipped`, build와 asciidoctor 및 diff check는 성공했다. 첫 focused 재실행은 macOS JVM Byte Buddy 동적 attach 보조 프로세스에서 정지해 해당 실행만 중단했고, 저장소 변경 없이 기존 resolved Byte Buddy agent를 실행 시점에 선로딩해 focused 32초·전체 1분 38초로 통과했다.
+  - Docker 이관: 최신 사용자 결정으로 feature 세션의 Docker build/up/API QA는 실행하지 않고 #188/#189/#190 통합 후 `integration/188-190-devotion-meal-billing`에서 한 번 수행한다. 이전 시도에서는 public image pull과 Docker 내부 `bootJar` 4분 38초 성공 뒤 overlay2/containerd `input/output error`가 발생했고 host available space 561MiB를 관찰했다. 이 사실은 기록하되 feature blocker로 집계하지 않으며 파일/Docker 데이터 삭제는 수행하지 않았다.
+  - DB/회귀: Entity/DB/Flyway/ErrorCode/기존 API/기존 경건 제출·벌금 생성·납부·정산 동작은 변경하지 않았다. Controller Entity 반환과 Swagger annotation 추가도 없다.
+  - 이력서 문장 후보: `관리자 주차별 경건·실제 벌금 조회와 2-sheet XLSX export를 동일 bulk query model로 구현해 campus 격리와 N+1 회귀를 고정하고, 82개 focused·420개 전체 테스트와 REST Docs 126개 스니펫 기준으로 권한·집계·파일 계약을 검증했다.`
+- #189 밥 담당과 투표 항목 그룹별 후청구:
+  - TDD RED: production 수정 전에 MEAL enum/V8, 본인 계좌 API, 서버 시각 즉시 OPEN poll, poll 단위 후청구 API, 정수 exact calculator 계약을 추가했다. 최초 실행은 각각 enum/V8 2 failures, account endpoint 실패, `createdAt` compile 실패, charges 404, calculator compile 실패로 요구사항 부재를 확인했다.
+  - 구현: 한 캠퍼스의 ACTIVE MEAL duty 수 제한을 없애고 사용자별 idempotent 배정과 DB partial unique를 적용했다. 모든 MEAL 운영 API는 service ADMIN/캠퍼스 관리자 여부와 무관하게 active same-campus MEAL duty를 요구하며, 담당자는 본인 소유 ACTIVE MEAL 계좌만 관리한다. MEAL poll은 같은 서버 `Clock` instant로 `startsAt/createdAt`을 기록하고 `SINGLE/OPEN`으로 즉시 생성하며 미래 `endsAt` 외 billing/time 필드는 거부한다.
+  - 정산/격리: CLOSED poll의 최종 `poll_response_options`를 서버에서 다시 집계하고, poll 공통 본인 계좌 1개와 option별 `PER_MEMBER`/`GROUP_TOTAL`을 한 batch로 처리한다. GROUP_TOTAL은 quotient/remainder 기반 ceiling으로 10,000원÷3명을 3,334원씩 청구해 requested 10,000원, actual 10,002원, rounding 2원으로 분리한다. poll pessimistic lock, settlement/charge DB unique, 단일 transaction으로 재청구 409·경합 중복·부분 저장을 차단하며 다른 담당자에게 계좌 ID를 노출하지 않는다.
+  - 코드리뷰 RED/GREEN: 일반 관리자 close·missing-members·charge status·dashboard와 generic poll/template의 MEAL 우회, response/option/close/settlement 사이의 poll lock 불일치, 정산된 poll 30일 보존 삭제 FK 충돌, 요청 list null 요소를 회귀 테스트로 고정했다. 기존 production에서 API/구조 묶음은 `82 tests / 6 failures`, 보존 삭제는 `1 test / 1 failure`로 RED였고, 공용 pessimistic lock·404 비노출·dashboard 제외·V8 cascade·Bean Validation 보강 후 회귀 묶음 `90 tests / 0 failures`로 GREEN이 됐다. 재리뷰에서 수동 close의 `endsAt` 변경을 `1 test / 1 failure`로 추가 재현해 상태만 CLOSED로 바꾸도록 수정했고, 실제 settlement/group/첫 charge write 뒤 unique 충돌 rollback, 전용 close 404, role 불변, PER_MEMBER/source/account snapshot을 보강했다. 마지막 DB 리뷰의 무정렬 false-green도 구조 테스트 RED 후 settlement 응답 option을 ID 오름차순으로 고정해 첫 charge INSERT 이후 rollback 경로를 결정적으로 만들었다. PM 재리뷰에서는 persisted template target 인가보다 MEAL request validation이 먼저 실행되는 회귀를 unit/HTTP `2 tests / 2 failures`로 재현해 인가 우선 403과 권한 있는 manager의 unsupported 400을 고정했다. 목록 계약은 35일 false-green 대신 7일 초과·30일 retention 범위 내인 8일 CLOSED poll로 정정하고, 31일 settled MEAL cascade 삭제 회귀는 유지했다.
+  - 전체 검증: Duty/Poll/Billing/Flyway/REST Docs focused `188 tests / 0 failures / 0 errors / 2 skipped`, 전체 `429 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`가 성공했다. test source는 80개, Java source/test는 634개, REST Docs snippet group은 147개이며 MEAL 관련 group 23개와 렌더된 `index.html`을 확인했다.
+  - Docker 결정: 이 feature에서는 Docker build/up/API QA를 실행하지 않았다. 사용자 최신 결정에 따라 실제 PostgreSQL Flyway clean/upgrade와 #188/#189/#190 연결 HTTP QA는 세 feature PM 승인 후 `integration/188-190-devotion-meal-billing`에서 한 번 수행한다.
+  - 제약/영향: GitHub token에 `read:project` scope가 없어 Issue #189 Project 카드 존재/상태 확인과 In Progress 이동은 수행하지 못했다. V1-V7, 기존 COFFEE/PENALTY 의미, dependency, Swagger annotation, Controller Entity 반환은 변경하지 않았고 push/PR/merge도 수행하지 않았다.
+  - 이력서 문장 후보: `다수 MEAL 담당자·본인 계좌·즉시 OPEN 투표와 option group별 후청구를 정규화하고 exact ceiling 산술·pessimistic lock·DB unique·단일 transaction으로 1회성 정산을 보장했으며, 429개 전체 테스트와 147개 REST Docs 계약으로 권한·격리·rollback을 검증했다.`
+- #190 벌금 취소 후 경건 재제출과 관리자 납부 완료:
+  - TDD RED: production 수정 전에 관리자 `UNPAID -> PAID`, 서버 `paidAt`, terminal conflict, PENALTY cancel/reopen, daily 보존, 양수 동일 row 재사용, 0원 CANCELED 유지, category/source/campus/권한/rollback, 사용자 납부 회귀, REST Docs 계약을 추가했다. 신규 통합 테스트 최초 실행은 `7 tests / 6 failures / 0 errors / 0 skipped`였고 영향 제외 경로 1건만 기존 동작으로 통과했다.
+  - 관리자 상태 전이: 기존 `PATCH /api/v1/admin/charges/{chargeItemId}/status`에서 관리 가능한 category의 `UNPAID -> PAID`를 허용하고 `paidAt`을 서버 현재 시각으로 기록한다. `PAID/WAIVED/CANCELED -> PAID`는 기존 `409 BILLING_CHARGE_STATUS_TRANSITION_CONFLICT`를 사용하며 관리자 권한과 401/403, 사용자 본인 `납부했어요` 흐름을 유지했다.
+  - 취소/재오픈 경계: `UNPAID PENALTY + DEVOTION_RECORD` 취소 시 Billing transaction owner가 application port를 호출하고 Devotion adapter가 same-campus/same-user/source weekly record를 검증해 `submittedAt`만 null로 만든다. daily checks는 보존하며 mismatch나 adapter 실패 시 charge 취소까지 rollback된다. `WAIVED`, `COFFEE`, `POLL_RESPONSE`는 재오픈하지 않는다.
+  - 재제출: 현재 활성 벌금 규칙을 다시 계산한다. 양수이면 기존 CANCELED unique-source charge row를 같은 ID로 `UNPAID` 재활성화하면서 amount, 계좌 FK/snapshot, title/reason/dueDate를 갱신한다. 0원이면 CANCELED row를 유지하고 신규 row를 만들지 않는다. #182의 양수 domain/DB 불변식은 유지했다.
+  - PM 리뷰 RED/GREEN: 같은 청구에 대한 관리자 취소와 사용자 납부가 동시에 모두 성공하는 lost update를 deterministic latch 통합 테스트로 재현했다. 두 요청이 실제로 모두 성공해 RED였고, 사용자·관리자 상태 쓰기가 동일 charge row의 `PESSIMISTIC_WRITE` 잠금을 거치도록 고쳐 후행 요청이 커밋된 상태를 다시 읽고 기존 상태별 전이 규칙을 적용하게 했다. 관리자 `ADMIN`·`ELDER`·`CAMPUS_LEADER` PAID, 만료 토큰 401, 다른 캠퍼스 관리자 403, terminal-to-PAID 409 REST Docs와 문서 index 회귀도 보강했다.
+  - PM 재검토 RED/GREEN: 양수 재제출이 source key로 읽은 CANCELED row를 잠그지 않아 동시 사용자 납부의 PAID를 stale UNPAID로 덮어쓸 수 있음을 repository 진입 latch 테스트로 재현했다. PENALTY와 COFFEE의 기존 source charge 조회·갱신도 `PESSIMISTIC_WRITE`로 직렬화하고, 두 동시성 테스트 모두 실제 잠금 조회 호출 전·완료 후 latch를 분리해 선행 transaction 해제 전에는 조회가 완료되지 않음을 검증하도록 보강했다.
+  - 검증: Billing·Devotion·관리자 Controller·REST Docs focused `148 tests / 0 failures / 0 errors / 0 skipped`, 전체 `425 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew --no-daemon --max-workers=1 build`, `./gradlew --no-daemon --max-workers=1 asciidoctor`, `git diff --check`가 성공했다. test source는 80개, REST Docs snippet group은 126개다.
+  - Docker: 사용자 최신 결정으로 feature 세션의 Docker build/up/API QA를 중단했다. #188/#189/#190 승인 후 `integration/188-190-devotion-meal-billing`에서 세 기능 연결 QA를 한 번 수행한다. 결정 전 격리 build/up 시 Docker Desktop daemon이 중단되어 실제 HTTP 검증은 수행하지 않았고, destructive cleanup이나 volume 삭제는 실행하지 않았다.
+  - 영향: 기존 API path/request/response DTO와 Controller, ErrorCode 추가, DB schema/Flyway V1-V7, dependency, SecurityConfig 변경은 0건이다. 제거된 ErrorCode는 더 이상 유효하지 않은 관리자 PAID 금지 전용 상수 1건이며, terminal conflict는 기존 code를 재사용한다. Billing Entity가 Devotion Entity를 직접 참조하지 않는다.
+   - 이력서 문장 후보: `벌금 취소와 경건 재제출을 application port 기반 단일 transaction으로 연결하고 상태 전이와 source charge 재활성화를 row lock으로 직렬화해 daily 기록 보존·rollback·terminal conflict를 보장했으며, 148개 focused·425개 전체 테스트와 REST Docs로 검증했다.`
 
 - #186 Spring Security 취약 버전 maintenance upgrade와 보안 헤더 회귀:
   - 기준/선택: 최신 `origin/develop` `f3e81fb9`에서 Spring Boot plugin/BOM만 `3.5.0 -> 3.5.15`로 올렸다. 공식 Boot 3.5.15가 관리하는 Spring Security config/core/crypto/web/test `6.5.11`을 사용하며 개별 Security override와 eager-header workaround는 추가하지 않았다.

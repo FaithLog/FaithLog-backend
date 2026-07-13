@@ -61,6 +61,9 @@ class BillingCommandUseCaseServiceStructureTest {
 		String devotionAdapter = read(
 			MAIN_ROOT.resolve("devotion/infrastructure/adapter/BillingDevotionPenaltyChargeAdapter.java")
 		);
+		String devotionReopenAdapter = read(
+			MAIN_ROOT.resolve("devotion/infrastructure/adapter/BillingDevotionChargeReopenAdapter.java")
+		);
 		String coffeeAdapter = read(
 			MAIN_ROOT.resolve("poll/infrastructure/adapter/BillingCoffeePollChargeAdapter.java")
 		);
@@ -81,6 +84,9 @@ class BillingCommandUseCaseServiceStructureTest {
 			() -> assertTrue(devotionAdapter.contains("ChargeCreationService")),
 			() -> assertTrue(devotionAdapter.contains("chargeCreationService.createPenaltyCharge(")),
 			() -> assertFalse(devotionAdapter.contains("billingService.createPenaltyCharge(")),
+			() -> assertTrue(devotionReopenAdapter.contains("DevotionChargeReopenPort")),
+			() -> assertTrue(devotionReopenAdapter.contains("weeklyRecord.reopenForResubmission()")),
+			() -> assertFalse(devotionReopenAdapter.contains("ChargeItem")),
 			() -> assertTrue(coffeeAdapter.contains("ChargeCreationService")),
 			() -> assertTrue(coffeeAdapter.contains("chargeCreationService.createOrUpdateCoffeeCharge(")),
 			() -> assertFalse(coffeeAdapter.contains("billingService.createOrUpdateCoffeeCharge("))

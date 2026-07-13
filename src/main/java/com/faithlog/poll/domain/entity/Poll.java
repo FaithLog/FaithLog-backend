@@ -144,11 +144,45 @@ public class Poll {
 		);
 	}
 
+	public static Poll createMeal(
+		Long campusId,
+		String title,
+		boolean isAnonymous,
+		boolean allowUserOptionAdd,
+		Instant now,
+		Instant endsAt,
+		Long createdBy
+	) {
+		Poll poll = new Poll(
+			campusId,
+			null,
+			title,
+			PollType.MEAL,
+			SelectionType.SINGLE,
+			isAnonymous,
+			allowUserOptionAdd,
+			ChargeGenerationType.NONE,
+			null,
+			null,
+			now,
+			endsAt,
+			createdBy
+		);
+		poll.status = PollStatus.OPEN;
+		poll.createdAt = now;
+		poll.updatedAt = now;
+		return poll;
+	}
+
 	@PrePersist
 	void prePersist() {
 		Instant now = Instant.now();
-		this.createdAt = now;
-		this.updatedAt = now;
+		if (this.createdAt == null) {
+			this.createdAt = now;
+		}
+		if (this.updatedAt == null) {
+			this.updatedAt = now;
+		}
 	}
 
 	@PreUpdate
@@ -214,6 +248,10 @@ public class Poll {
 
 	public Long createdBy() {
 		return createdBy;
+	}
+
+	public Instant createdAt() {
+		return createdAt;
 	}
 
 	public void open() {

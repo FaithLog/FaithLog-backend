@@ -44,6 +44,7 @@ public class PaymentAccountQueryService {
 		requirePaymentAccountListAccess(campusId, requesterId);
 		return paymentAccountRepository.findByCampusIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(campusId)
 			.stream()
+			.filter(account -> account.accountType() != PaymentCategory.MEAL)
 			.map(PaymentAccountResult::from)
 			.toList();
 	}
@@ -102,6 +103,7 @@ public class PaymentAccountQueryService {
 			accounts = paymentAccountRepository.findByCampusIdAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(campusId);
 		}
 		return accounts.stream()
+			.filter(account -> account.accountType() != PaymentCategory.MEAL)
 			.map(PaymentAccountResult::from)
 			.toList();
 	}

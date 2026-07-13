@@ -10,6 +10,29 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-13 - Issue #190 Penalty Cancel Resubmission And Admin Paid
+
+- Context: 기존 관리자 청구 상태 변경은 `PAID`를 금지했고, `PENALTY + DEVOTION_RECORD` 청구 취소가 source weekly record를 재오픈하지 않아 사용자가 잘못 제출한 경건생활을 수정·재제출할 수 없었다. 기존 unique source key 때문에 CANCELED 청구가 있는 weekly record를 다시 제출하면 양수 벌금 upsert도 terminal charge 오류로 실패했다.
+- Decision: 기존 `PATCH /api/v1/admin/charges/{chargeItemId}/status`에서 관리 가능한 모든 category의 `UNPAID -> PAID`를 허용하고 서버 현재 시각을 `paidAt`으로 저장한다. terminal 상태에서 `PAID`로의 전환은 `409 BILLING_CHARGE_STATUS_TRANSITION_CONFLICT`로 거부하며 기존 관리자 권한과 401/403 구분, 사용자 `납부했어요` API 의미를 유지한다.
+- Decision: `UNPAID`인 `PENALTY + DEVOTION_RECORD` 청구를 `CANCELED`로 전환할 때 Billing transaction owner가 application port를 호출하고 Devotion adapter가 같은 campus/user/source weekly record를 검증한 뒤 `submittedAt`만 null로 만든다. daily checks는 보존하고, `WAIVED`, 다른 category/source는 재오픈하지 않으며 검증 실패 시 charge 취소도 rollback한다.
+- Decision: 재제출은 현재 활성 벌금 규칙으로 계산한다. 양수이면 기존 CANCELED source charge row를 같은 ID로 `UNPAID` 재활성화해 amount/title/reason/dueDate/계좌와 snapshot을 갱신하고 `paidAt`을 null로 둔다. 0원이면 기존 row를 CANCELED로 유지하고 새 row를 만들지 않는다. #182 `amount > 0` 및 V7 CHECK를 유지한다.
+- Impact: API path/envelope/DTO, Controller Entity 비반환, 권한, DB schema/Flyway V1-V7, dependency, COFFEE terminal 보존 정책은 변경하지 않는다. Billing Entity는 Devotion Entity를 참조하지 않고 Billing port와 Devotion adapter 경계를 사용한다. 같은 청구의 사용자·관리자 상태 쓰기와 PENALTY/COFFEE 기존 source charge 갱신·재활성화는 동일 row write lock으로 직렬화해 뒤 요청이 커밋된 상태를 다시 읽고 기존 상태별 전이 규칙을 적용하도록 한다.
+
+### 2026-07-13 - Issue #188 Weekly Penalty Total Status Basis
+
+- Context: Issue #188 returns each active member's actual weekly `PENALTY` charge amount and status and also exposes `totalPenaltyAmount`. The Issue, previous decisions, and Notion did not define which charge statuses contribute to that total.
+- User approval evidence: In the current Issue #188 development conversation, the user explicitly answered, "각자 주차별이 페이드랑 언페이드랑 합산할게", selecting the `UNPAID + PAID` basis rather than an agent recommendation being treated as approval.
+- Decision: Each member row displays the actual charge `amount` and `status` for the weekly devotion record regardless of whether it is paid. `totalPenaltyAmount` sums charges whose status is `UNPAID` or `PAID`. A weekly member charge has only one current status, so it contributes to exactly one of those status buckets. `WAIVED` and `CANCELED` charges remain visible with their stored amount and status but do not contribute to `totalPenaltyAmount`.
+- Impact: The JSON API and Excel export use the same query model and identical `PAID + UNPAID` total basis. Historical amounts are read from `charge_items` and are never recalculated from current penalty rules.
+
+### 2026-07-13 - Development Completion Requires Independent PM Review And Integration Branch
+
+- Context: The user established one completion and review workflow beginning with Issue #188 and applying to every later development issue.
+- Decision: A feature development session completes implementation, focused/full tests, `./gradlew test`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`, REST Docs, repository documentation, Obsidian records, and small work-unit commits, but does not run Docker build/up/API QA and does not push, create a PR, or merge. It then sends the source PM session a detailed review report covering the entire `origin/develop...HEAD` range. The PM session independently reviews the full diff. Each PM finding must be reproduced or evidence-checked, minimally fixed, fully reverified, committed, and reported again.
+- Decision: For the parallel #188/#189/#190 work, all three feature branches must reach zero PM findings and pass every required non-Docker verification before the PM session creates `integration/188-190-devotion-meal-billing` from the latest `origin/develop` and merges the three approved feature branches there. Development sessions do not create a PR or merge into `develop`. CI failures or integration conflicts keep the affected issue open and require correction, re-verification, and re-review.
+- Decision: Isolated PostgreSQL/Redis/backend Docker build/up/health and connected real API QA for all three features run once on the integration branch. After QA, only that compose project is stopped with `down`, preserving volumes, and the final Docker command is `docker builder prune -f`. `down -v`, named volume deletion, and Docker system/image/volume prune are prohibited.
+- Impact: Development-session completion reports include repository identity and cleanliness, all commits/diff ranges, API/authorization/transaction/DB/Flyway/dependency changes, RED/GREEN evidence, focused/full/build/asciidoctor/diff-check results, the explicit Docker deferral, regression and unchanged scope, REST Docs/index, repository/Obsidian records, and all risks, pending decisions, and unverified items. A prior #188 Docker attempt failed during Docker Desktop storage operations with only 561MiB host space available; this observation is retained but is not a feature completion blocker under the superseding decision. No file or Docker data deletion is authorized. PM approval is a mandatory integration gate and does not authorize a development session to push, open a PR, or merge. An issue is final only after the PM integration branch includes it and the Issue is closed or completion is confirmed.
+
 ### 2026-07-13 - Issue #183 COFFEE Option Catalog Authority
 
 - Context: Issue #160 F-160-02 confirmed that direct COFFEE Poll and COFFEE PollTemplate create/update accepted an option with `menuId = null`, allowing client `content` and `priceAmount` to become the persisted snapshot and later CLOSED settlement charge source.
@@ -699,6 +722,22 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Context: Issue #28 needed clarification before development so Codex would not guess the refresh/logout request contracts, session rotation behavior, FCM dependency boundary, or REST Docs expectations.
 - Decision: `POST /api/v1/auth/refresh` receives `refreshToken` in the JSON request body and returns the same token response shape as login. Refresh rotation keeps the same `sessionId` and replaces the refresh token identifier. `POST /api/v1/auth/logout` requires `Authorization: Bearer {accessToken}` and accepts optional body fields `refreshToken`, `clientInstanceId`, and `fcmToken`; logout must still succeed without FCM fields. Issue #28 should not implement Notification entities directly. It may define and call an application port for current-device FCM deactivation, while #40 owns the actual `user_fcm_tokens` persistence implementation. New/changed auth APIs should add Spring REST Docs tests.
 - Impact: Issue #28, Notion auth API pages, backend policy, and the Codex hook must align on this contract before the development session starts. Tests must cover refresh rotation, old refresh token reuse, logout blacklist/allowlist deletion, optional FCM fields, no raw token storage, Redis TTLs, and REST Docs snippets.
+
+## Issue #189 Approved Decisions
+
+### 2026-07-13 - Issue #189 Meal Duty Poll Post-settlement Contract
+
+- Context: Issue #189 introduced a MEAL workflow separate from COFFEE, and the user approved the recommended DTO and visibility details needed to implement the issue without inventing missing API fields.
+- Decision: A campus may have unlimited ACTIVE MEAL duty assignments and assigning the same active member is idempotent. MEAL operational APIs require the requester to be an ACTIVE member and ACTIVE MEAL duty even when the requester is a service ADMIN or campus manager. A MEAL account create request contains only `nickname`, `bankName`, `accountNumber`, and `accountHolder`; the server fixes category to MEAL and owner to the requester. A MEAL poll create request contains `title`, `isAnonymous`, `allowUserOptionAdd`, future `endsAt`, and `options[{content,sortOrder}]`; account, amount, `startsAt`, category, generation, and price fields are rejected with 400. Other-campus and non-MEAL resources are hidden as 404 after the MEAL duty access boundary, while a same-campus requester without ACTIVE MEAL duty receives 403.
+- Decision: The server uses one `Instant` for MEAL poll `startsAt` and `createdAt`, opens it immediately, and preserves the existing `optionIds`/`poll_response_options` response contract and #97 user-added option contract. Closing creates zero settlement/charge rows. One later poll-level request chooses exactly one requester-owned ACTIVE MEAL account and includes every responded option once. `PER_MEMBER` and `GROUP_TOTAL` use integer exact arithmetic; GROUP_TOTAL uses ceiling division and stores requested, actual, and rounding adjustment separately. Settlement/group/charge persistence is one transaction and a poll may be settled once.
+- Decision: Another MEAL duty may see charged status, counts, and calculation snapshots but never another duty's account ID/details. `/meal/charges/my-accounts` includes only MEAL charges connected to accounts owned by the requester. Existing generic admin account/charge APIs exclude MEAL data so this non-exposure boundary cannot be bypassed.
+- Impact: V8 adds MEAL enum/check support, active MEAL duty/account partial uniqueness, and normalized `meal_poll_settlements` / `meal_poll_charge_groups` tables without modifying V1-V7 or operational data. Existing COFFEE, PENALTY, and non-MEAL Poll semantics remain unchanged.
+
+### 2026-07-13 - Issue #189 Feature Docker QA Deferred To Integration
+
+- Context: The user changed the validation sequence after implementation began.
+- Decision: Do not run Docker build/up/API QA in the #189 feature worktree. Complete focused/full Gradle tests, build, asciidoctor, REST Docs, `git diff --check`, repository docs, Obsidian, and PM review in the feature branch. After #188/#189/#190 all receive PM approval, merge them only into `integration/188-190-devotion-meal-billing` created from latest `origin/develop`, then run the single isolated PostgreSQL/Redis/backend Docker health and connected HTTP QA there.
+- Impact: Docker QA absence is an explicit user-approved deferral, not a hidden omission or feature failure. No Docker command was started in the #189 session. PM approval remains required before push, PR, or merge.
 
 ## Pending Decisions
 

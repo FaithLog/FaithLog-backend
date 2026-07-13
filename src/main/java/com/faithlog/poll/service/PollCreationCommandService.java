@@ -107,6 +107,9 @@ public class PollCreationCommandService {
 		if (pollType == null) {
 			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
 		}
+		if (pollType == PollType.MEAL || command.paymentCategory() == PaymentCategory.MEAL) {
+			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "MEAL 투표는 밥 투표 API에서만 생성할 수 있습니다.");
+		}
 		SelectionType selectionType = command.selectionType() == null ? SelectionType.SINGLE : command.selectionType();
 		ChargeGenerationType chargeGenerationType = command.chargeGenerationType() == null
 			? ChargeGenerationType.NONE

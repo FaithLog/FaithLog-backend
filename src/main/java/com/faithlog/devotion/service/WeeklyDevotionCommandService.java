@@ -76,7 +76,8 @@ public class WeeklyDevotionCommandService {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		requireActiveCampusMember(command.campusId(), requester.userId());
 		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
-			.findByCampusIdAndUserIdAndWeekStartDate(command.campusId(), requester.userId(), command.weekStartDate())
+			.findByCampusIdAndUserIdAndWeekStartDateForUpdate(
+				command.campusId(), requester.userId(), command.weekStartDate())
 			.orElse(null);
 		validateNotSubmitted(weeklyRecord);
 		if (weeklyRecord == null) {

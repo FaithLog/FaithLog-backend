@@ -14,6 +14,8 @@ public interface PollResponseOptionRepository extends JpaRepository<PollResponse
 
 	List<PollResponseOption> findByResponseIdIn(Collection<Long> responseIds);
 
+	List<PollResponseOption> findByResponseIdInOrderByIdAsc(Collection<Long> responseIds);
+
 	@Modifying(flushAutomatically = true)
 	@Query("delete from PollResponseOption option where option.responseId = :responseId")
 	void deleteByResponseId(@Param("responseId") Long responseId);

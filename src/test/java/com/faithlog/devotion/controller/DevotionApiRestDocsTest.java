@@ -2,6 +2,7 @@ package com.faithlog.devotion.controller;
 
 import static org.springframework.restdocs.headers.HeaderDocumentation.headerWithName;
 import static org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders;
+import static org.springframework.restdocs.headers.HeaderDocumentation.responseHeaders;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessRequest;
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessResponse;
@@ -15,6 +16,8 @@ import static org.springframework.restdocs.request.RequestDocumentation.queryPar
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -63,6 +66,90 @@ class DevotionApiRestDocsTest {
 
 	@Autowired
 	private BillingService billingService;
+
+	@Test
+	void documents_admin_weekly_members_and_excel_export_contracts() throws Exception {
+		String managerToken = signupAndLogin("docs-admin-weekly-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-admin-weekly-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "91캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-admin-weekly-member@example.com", UserRole.USER);
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyPrerequisites(campusId, manager.id(), "123-456789-304");
+
+		mockMvc.perform(put("/api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}",
+				campusId,
+				"2026-07-13")
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "dailyChecks": [
+					    {
+					      "recordDate": "2026-07-13",
+					      "quietTimeChecked": true,
+					      "prayerChecked": true,
+					      "bibleReadingChecked": true
+					    },
+					    {
+					      "recordDate": "2026-07-18",
+					      "quietTimeChecked": true,
+					      "prayerChecked": false,
+					      "bibleReadingChecked": true
+					    }
+					  ],
+					  "saturdayLateMinutes": 7,
+					  "submit": true
+					}
+					"""))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(get(
+				"/api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/members",
+				campusId,
+				"2026-07-13")
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.activeMemberCount").value(2))
+			.andExpect(jsonPath("$.data.submittedCount").value(1))
+			.andExpect(jsonPath("$.data.missingCount").value(1))
+			.andDo(document("devotion-admin-weekly-members-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("조회할 캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("조회할 주 시작일. 월요일만 허용")
+				),
+				responseFields(apiResponseFields(adminWeeklyMembersResponseFields()))
+			));
+
+		String filename = "faithlog-devotion-%d-2026-07-13.xlsx".formatted(campusId);
+		mockMvc.perform(get(
+				"/api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/export",
+				campusId,
+				"2026-07-13")
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(content().contentType(
+				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+			))
+			.andExpect(header().string("Content-Disposition", "attachment; filename=\"" + filename + "\""))
+			.andDo(document("devotion-admin-weekly-export-success",
+				preprocessRequest(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("Excel로 내보낼 캠퍼스 ID"),
+					parameterWithName("weekStartDate").description("내보낼 주 시작일. 월요일만 허용")
+				),
+				responseHeaders(
+					headerWithName("Content-Type")
+						.description("XLSX MIME type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+					headerWithName("Content-Disposition")
+						.description("attachment와 faithlog-devotion-{campusId}-{weekStartDate}.xlsx 파일명")
+				)
+			));
+	}
 
 	@Test
 	void documents_devotion_my_monthly_summary_success() throws Exception {
@@ -669,6 +756,44 @@ class DevotionApiRestDocsTest {
 			fieldWithPath("data.dailyChecks[].quietTimeChecked").description("큐티 체크 여부"),
 			fieldWithPath("data.dailyChecks[].prayerChecked").description("기도 체크 여부"),
 			fieldWithPath("data.dailyChecks[].bibleReadingChecked").description("말씀 읽기 체크 여부")
+		};
+	}
+
+	private FieldDescriptor[] adminWeeklyMembersResponseFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("data.weekStartDate").description("주 시작일"),
+			fieldWithPath("data.weekEndDate").description("주 종료일"),
+			fieldWithPath("data.activeMemberCount").description("캠퍼스 현재 ACTIVE 멤버 수"),
+			fieldWithPath("data.submittedCount").description("제출 완료 멤버 수"),
+			fieldWithPath("data.missingCount").description("미제출 멤버 수"),
+			fieldWithPath("data.totalPenaltyAmount")
+				.description("해당 주차 실제 PENALTY 청구 중 PAID와 UNPAID 금액 합계"),
+			fieldWithPath("data.submittedMembers").description("제출 완료 멤버 목록"),
+			fieldWithPath("data.submittedMembers[].userId").description("사용자 ID"),
+			fieldWithPath("data.submittedMembers[].name").description("사용자 이름"),
+			fieldWithPath("data.submittedMembers[].email").description("사용자 이메일"),
+			fieldWithPath("data.submittedMembers[].quietTimeCount").description("주간 큐티 체크 수"),
+			fieldWithPath("data.submittedMembers[].bibleReadingCount").description("주간 성경 읽기 체크 수"),
+			fieldWithPath("data.submittedMembers[].prayerCount").description("주간 기도 체크 수"),
+			fieldWithPath("data.submittedMembers[].saturdayLateMinutes").description("토요일 지각 시간(분)"),
+			fieldWithPath("data.submittedMembers[].submittedAt").description("실제 제출 시각"),
+			fieldWithPath("data.submittedMembers[].penalty").optional()
+				.description("해당 주간 기록에 연결된 실제 PENALTY 청구. 청구가 없으면 null"),
+			fieldWithPath("data.submittedMembers[].penalty.chargeItemId").optional().description("청구 ID"),
+			fieldWithPath("data.submittedMembers[].penalty.amount").optional().description("실제 저장된 청구 금액"),
+			fieldWithPath("data.submittedMembers[].penalty.status").optional()
+				.description("실제 저장된 청구 상태"),
+			fieldWithPath("data.submittedMembers[].dailyChecks").description("월요일부터 일요일까지 일별 체크"),
+			fieldWithPath("data.submittedMembers[].dailyChecks[].id").optional()
+				.description("일별 체크 ID. 저장 row가 없으면 null"),
+			fieldWithPath("data.submittedMembers[].dailyChecks[].recordDate").description("체크 날짜"),
+			fieldWithPath("data.submittedMembers[].dailyChecks[].quietTimeChecked").description("큐티 체크 여부"),
+			fieldWithPath("data.submittedMembers[].dailyChecks[].bibleReadingChecked").description("성경 읽기 체크 여부"),
+			fieldWithPath("data.submittedMembers[].dailyChecks[].prayerChecked").description("기도 체크 여부"),
+			fieldWithPath("data.missingMembers").description("미제출 멤버 목록. 응답 하단에 별도 분리"),
+			fieldWithPath("data.missingMembers[].userId").description("미제출 사용자 ID"),
+			fieldWithPath("data.missingMembers[].name").description("미제출 사용자 이름"),
+			fieldWithPath("data.missingMembers[].email").description("미제출 사용자 이메일")
 		};
 	}
 

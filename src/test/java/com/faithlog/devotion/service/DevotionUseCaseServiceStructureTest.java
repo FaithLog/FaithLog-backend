@@ -24,6 +24,7 @@ class DevotionUseCaseServiceStructureTest {
 			"WeeklyDevotionCommandService.java", List.of(write("updateWeeklyCheck")),
 			"MyWeeklyDevotionQueryService.java", List.of(readOnly("getMyWeeklyCheck")),
 			"MissingDevotionMemberQueryService.java", List.of(readOnly("getMissingMembers")),
+			"AdminWeeklyDevotionQueryService.java", List.of(readOnly("getWeeklyMembers")),
 			"DevotionMonthlySummaryQueryService.java", List.of(readOnly("getMyMonthlySummary")),
 			"PenaltyRuleCommandService.java", List.of(
 				write("createPenaltyRule"),
@@ -83,6 +84,8 @@ class DevotionUseCaseServiceStructureTest {
 			() -> assertFalse(devotionController.contains("DevotionService")),
 			() -> assertTrue(adminDevotionController.contains("MissingDevotionMemberQueryService")),
 			() -> assertTrue(adminDevotionController.contains("missingDevotionMemberQueryService.getMissingMembers(")),
+			() -> assertTrue(adminDevotionController.contains("AdminWeeklyDevotionQueryService")),
+			() -> assertTrue(adminDevotionController.contains("adminWeeklyDevotionQueryService.getWeeklyMembers(")),
 			() -> assertFalse(adminDevotionController.contains("DevotionService")),
 			() -> assertTrue(penaltyRuleController.contains("PenaltyRuleQueryService")),
 			() -> assertTrue(penaltyRuleController.contains("penaltyRuleQueryService.listPenaltyRules(")),

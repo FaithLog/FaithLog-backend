@@ -225,6 +225,7 @@ Issue #34는 청구 기반 서비스까지만 구현하고, 실제 경건생활 
 ```text
 PENALTY
 COFFEE
+MEAL
 ```
 
 사용 가능한 `chargeSourceType`:
@@ -258,11 +259,15 @@ PAYMENT_REQUESTED
 
 사용자가 계좌이체 후 앱에서 `납부했어요`를 누르면 즉시 `PAID` 처리한다.
 
-`UNPAID -> PAID`는 사용자 납부 API에서만 가능하다.
+사용자 납부 API는 본인의 `UNPAID -> PAID`를 즉시 처리하는 기존 의미를 유지한다.
 
-관리자는 청구를 `PAID`로 변경할 수 없다.
+관리자는 기존 청구 관리 권한 범위의 `UNPAID` 청구를 `PAID`로 변경할 수 있고, `paidAt`은 서버 현재 시각을 사용한다. terminal 상태에서 `PAID`로의 전환은 409로 실패한다.
 
 관리자는 청구를 `WAIVED`, `CANCELED`로 변경할 수 있다.
+
+`PENALTY + DEVOTION_RECORD` 청구를 `UNPAID -> CANCELED`로 변경하면 같은 transaction에서 같은 campus/user의 source weekly record `submitted_at`을 null로 재오픈하고 daily checks는 보존한다. `WAIVED`, `COFFEE`, `POLL_RESPONSE`는 경건생활을 재오픈하지 않는다.
+
+재제출 벌금이 양수이면 기존 CANCELED source charge row를 같은 row로 `UNPAID` 재사용해 현재 금액과 계좌 snapshot을 갱신한다. 0원이면 CANCELED row를 유지하고 새 row를 생성하지 않는다.
 
 관리자는 잘못 처리된 `PAID`, `WAIVED`, `CANCELED` 청구를 `UNPAID`로 되돌릴 수 있다.
 
@@ -1001,6 +1006,29 @@ tags:
 10. 카드 상태 변경 권한이 없으면 최종 보고에 남긴다.
 11. 변경 파일 목록을 정리한다.
 12. 실행한 테스트와 결과를 보고한다.
+
+### 10.1 PM 코드리뷰 완료 게이트
+
+1. 개발 세션은 현재 이슈와 사용자 승인 정책이 요구하는 구현, 테스트, 빌드, 문서, Obsidian 기록, 작업 단위 커밋까지 완료한다. Docker QA의 실행 또는 통합 단계 이관 여부는 현재 대화와 `docs/decision-log.md`의 승인 결정을 따른다.
+2. 개발 세션은 push, PR 생성, merge를 수행하지 않는다.
+3. 커밋 완료 즉시 원본 PM 세션에 `origin/develop...HEAD` 전체 diff 기준 상세 코드리뷰 보고서를 보낸다.
+4. 상세 보고서에는 다음을 모두 포함한다.
+   - issue, branch, worktree, base, HEAD, clean 상태
+   - `origin/develop` 대비 전체 커밋과 diff 범위
+   - 구현 API, 권한, 트랜잭션, DB, Flyway, 의존성
+   - TDD RED 명령과 실패 원인, GREEN 결과
+   - 현재 이슈와 사용자 승인 정책이 요구한 검증 결과
+   - Docker QA의 실행 또는 통합 단계 이관 상태와 이미 관찰한 Docker 오류가 있으면 그 사실
+   - API/DTO/ErrorCode/기존 기능 회귀와 변경하지 않은 범위
+   - REST Docs와 `index.adoc`
+   - 저장소 문서와 Obsidian 기록
+   - 발견한 리스크, pending decision, 미검증 항목
+5. PM 세션은 `origin/develop...HEAD` 전체 diff를 독립 코드리뷰한다.
+6. PM finding이 있으면 개발 세션은 finding별 실패 재현 또는 근거를 확인하고 최소 수정한다. 필수 전체 검증과 작업 단위 커밋을 다시 완료한 뒤 새 상세 코드리뷰 보고서를 보낸다.
+7. 여러 feature를 하나의 통합 대상으로 묶은 경우, 대상 전체가 finding 0건이고 필수 검증을 통과한 뒤에만 PM 세션이 사용자 승인 base와 integration branch에 승인된 feature branch들을 병합한다.
+8. 통합 단계로 이관된 Docker QA의 대상, 순서, 정리 명령은 해당 작업의 사용자 승인 결정을 따른다.
+9. 개발 세션은 feature branch 또는 기본 브랜치에 직접 PR/merge하지 않는다. integration CI 실패나 충돌이 있으면 완료 처리하지 않고 원인을 수정, 재검증, 재리뷰한다.
+10. PM의 승인된 통합과 Issue 종료 또는 완료 상태가 실제 확인되어야 이슈를 최종 완료한다.
 
 ## 11. 보고 형식
 

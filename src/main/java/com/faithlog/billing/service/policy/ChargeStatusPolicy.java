@@ -11,12 +11,10 @@ public final class ChargeStatusPolicy {
 	}
 
 	public static void applyAdminStatusChange(ChargeItem chargeItem, ChargeStatus targetStatus) {
-		if (targetStatus == ChargeStatus.PAID) {
-			throw new BusinessException(ErrorCode.BILLING_ADMIN_PAID_FORBIDDEN);
-		}
-
 		try {
-			if (targetStatus == ChargeStatus.WAIVED) {
+			if (targetStatus == ChargeStatus.PAID) {
+				chargeItem.markPaid();
+			} else if (targetStatus == ChargeStatus.WAIVED) {
 				chargeItem.waive();
 			} else if (targetStatus == ChargeStatus.CANCELED) {
 				chargeItem.cancel();

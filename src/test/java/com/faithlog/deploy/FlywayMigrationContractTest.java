@@ -14,6 +14,9 @@ class FlywayMigrationContractTest {
 	private static final Path POSITIVE_CHARGE_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V7__enforce_positive_charge_amount.sql"
 	);
+	private static final Path MEAL_SETTLEMENT_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V8__add_meal_poll_settlement.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -205,5 +208,30 @@ class FlywayMigrationContractTest {
 		);
 		assertThat(sql).doesNotContain("IF NOT EXISTS");
 		assertThat(v1).doesNotContain("ck_charge_items_amount_positive");
+	}
+
+	@Test
+	void v8MigrationAddsMealDutyAccountPollAndNormalizedSettlementWithoutEditingV1ToV7() throws IOException {
+		assertThat(MEAL_SETTLEMENT_MIGRATION).exists();
+		String sql = Files.readString(MEAL_SETTLEMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"'MEAL'",
+			"meal_poll_settlements",
+			"meal_poll_charge_groups",
+			"requested_total_amount BIGINT",
+			"actual_total_amount BIGINT",
+			"rounding_adjustment BIGINT",
+			"response_count_snapshot",
+			"amount_per_member INTEGER",
+			"UNIQUE (poll_id)",
+			"UNIQUE (poll_id, option_id)",
+			"uk_campus_duty_assignments_active_coffee",
+			"uk_campus_duty_assignments_active_meal_user",
+			"uk_payment_accounts_active_meal_owner"
+		);
+		assertThat(sql).doesNotContain("DELETE FROM", "UPDATE ");
+		assertThat(Files.readString(MIGRATION)).doesNotContain("MEAL");
+		assertThat(Files.readString(POSITIVE_CHARGE_MIGRATION)).doesNotContain("MEAL");
 	}
 }

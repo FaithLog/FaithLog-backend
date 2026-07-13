@@ -61,6 +61,10 @@ public class CampusDutyAssignment {
 		return new CampusDutyAssignment(campusId, userId, DutyType.COFFEE);
 	}
 
+	public static CampusDutyAssignment assignMeal(Long campusId, Long userId) {
+		return new CampusDutyAssignment(campusId, userId, DutyType.MEAL);
+	}
+
 	@PrePersist
 	void prePersist() {
 		Instant now = Instant.now();

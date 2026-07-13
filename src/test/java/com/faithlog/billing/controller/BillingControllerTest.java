@@ -20,6 +20,7 @@ import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.ChangeCampusRoleCommand;
 import com.faithlog.campus.domain.entity.CampusMember;
@@ -28,8 +29,15 @@ import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -64,6 +72,86 @@ class BillingControllerTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Test
+	void meal_account_api_is_owned_and_visible_only_by_active_meal_duty() throws Exception {
+		String managerToken = signupAndLogin("meal-account-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("meal-account-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "189계좌캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("meal-account-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("meal-account-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), duty.id()));
+		String secondDutyToken = signupAndLogin("meal-account-duty-b@example.com", UserRole.USER);
+		User secondDuty = userRepository.findByEmail("meal-account-duty-b@example.com").orElseThrow();
+		joinCampus(secondDutyToken, campus.path("inviteCode").asText());
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), secondDuty.id()));
+
+		String created = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "내 밥 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "189-0001",
+					  "accountHolder": "밥담당"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.accountType").value("MEAL"))
+			.andExpect(jsonPath("$.data.ownerUserId").value(duty.id()))
+			.andReturn().getResponse().getContentAsString();
+		long accountId = objectMapper.readTree(created).path("data").path("id").asLong();
+		String secondCreated = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + secondDutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "B 밥 계좌",
+					  "bankName": "신한은행",
+					  "accountNumber": "189-0002",
+					  "accountHolder": "B담당"
+					}
+					"""))
+			.andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+		long secondAccountId = objectMapper.readTree(secondCreated).path("data").path("id").asLong();
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(accountId));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
+				.header("Authorization", "Bearer " + secondDutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].id").value(secondAccountId));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isForbidden());
+		mockMvc.perform(patch(
+				"/api/v1/campuses/{campusId}/meal/payment-accounts/{accountId}/deactivate",
+				campusId,
+				secondAccountId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isNotFound());
+
+		mockMvc.perform(patch(
+				"/api/v1/campuses/{campusId}/meal/payment-accounts/{accountId}/deactivate",
+				campusId,
+				accountId)
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.isActive").value(false));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/payment-accounts/me", campusId)
+				.header("Authorization", "Bearer " + secondDutyToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].id").value(secondAccountId))
+			.andExpect(jsonPath("$.data[0].isActive").value(true));
+	}
 
 	@Test
 	void payment_account_api_maps_member_response_and_admin_permissions() throws Exception {
@@ -330,6 +418,67 @@ class BillingControllerTest {
 	}
 
 	@Test
+	void generic_admin_charge_status_hides_meal_charge_but_member_can_pay_own_charge() throws Exception {
+		String managerToken = signupAndLogin("billing-meal-status-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-meal-status-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "189MEAL청구상태캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("billing-meal-status-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("billing-meal-status-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), duty.id()));
+		long accountId = objectMapper.readTree(mockMvc.perform(post(
+				"/api/v1/campuses/{campusId}/meal/payment-accounts", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "내 밥 계좌",
+					  "bankName": "국민은행",
+					  "accountNumber": "189-STATUS",
+					  "accountHolder": "밥담당"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andReturn().getResponse().getContentAsString())
+			.path("data").path("id").asLong();
+		String memberToken = signupAndLogin("billing-meal-status-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-meal-status-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		ChargeItem mealCharge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			member.id(),
+			PaymentCategory.MEAL,
+			accountId,
+			"국민은행",
+			"189-STATUS",
+			"밥담당",
+			ChargeSourceType.POLL_RESPONSE,
+			189001L,
+			"점심 메뉴",
+			null,
+			5000,
+			null
+		));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", mealCharge.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"status": "WAIVED"}
+					"""))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_ITEM_NOT_FOUND"));
+		mockMvc.perform(patch(
+				"/api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid", campusId, mealCharge.id())
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("PAID"));
+	}
+
+	@Test
 	void charge_status_api_reopens_paid_charge_and_rejects_forbidden_or_invalid_transitions() throws Exception {
 		String managerToken = signupAndLogin("billing-http-status-auth-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("billing-http-status-auth-manager@example.com").orElseThrow();
@@ -338,6 +487,11 @@ class BillingControllerTest {
 		String memberToken = signupAndLogin("billing-http-status-auth-member@example.com", UserRole.USER);
 		User member = userRepository.findByEmail("billing-http-status-auth-member@example.com").orElseThrow();
 		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String otherCampusManagerToken = signupAndLogin(
+			"billing-http-status-other-campus-manager@example.com",
+			UserRole.MANAGER
+		);
+		createCampus(otherCampusManagerToken, "56다른캠");
 		createPenaltyAccount(campusId, manager.id(), "123-456789-012");
 		ChargeItemResult paidTarget = createPenaltyCharge(campusId, member.id(), 6003L);
 		ChargeItemResult terminalTarget = createPenaltyCharge(campusId, member.id(), 6004L);
@@ -360,6 +514,18 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data.status").value("UNPAID"))
 			.andExpect(jsonPath("$.data.paidAt").doesNotExist());
 
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", paidTarget.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("PAID"))
+			.andExpect(jsonPath("$.data.paidAt").isNotEmpty());
+
 		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -368,19 +534,52 @@ class BillingControllerTest {
 					  "status": "PAID"
 					}
 					"""))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.message").value("관리자는 청구를 PAID로 변경할 수 없습니다."));
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_TRANSITION_CONFLICT"))
+			.andExpect(jsonPath("$.message").value("허용되지 않는 청구 상태 전이입니다."));
 
 		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
 				.header("Authorization", "Bearer " + memberToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "status": "CANCELED"
+					  "status": "PAID"
 					}
 					"""))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.message").value("청구 상태 변경 권한이 없습니다."));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
+				.header("Authorization", "Bearer " + otherCampusManagerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN"));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", terminalTarget.id())
+				.header("Authorization", "Bearer " + expiredAccessToken(manager))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 
 		mockMvc.perform(patch("/api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid", campusId, terminalTarget.id())
 				.header("Authorization", "Bearer " + memberToken)
@@ -943,6 +1142,24 @@ class BillingControllerTest {
 			.getResponse()
 			.getContentAsString();
 		return objectMapper.readTree(loginBody).path("data").path("accessToken").asText();
+	}
+
+	private String expiredAccessToken(User user) throws Exception {
+		Instant expiredAt = Instant.now().minusSeconds(60);
+		byte[] signingKey = MessageDigest.getInstance("SHA-256")
+			.digest("test-only-jwt-secret-for-faithlog-auth-tests".getBytes(StandardCharsets.UTF_8));
+		return Jwts.builder()
+			.subject(String.valueOf(user.id()))
+			.id(UUID.randomUUID().toString())
+			.claim("userId", user.id())
+			.claim("role", user.role().name())
+			.claim("sessionId", UUID.randomUUID().toString())
+			.claim("tokenVersion", user.tokenVersion())
+			.claim("tokenType", "ACCESS")
+			.issuedAt(Date.from(expiredAt.minusSeconds(60)))
+			.expiration(Date.from(expiredAt))
+			.signWith(Keys.hmacShaKeyFor(signingKey))
+			.compact();
 	}
 
 	private void createPenaltyAccount(Long campusId, Long managerId, String accountNumber) {

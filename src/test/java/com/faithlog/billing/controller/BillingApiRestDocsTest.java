@@ -1,5 +1,6 @@
 package com.faithlog.billing.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.restdocs.headers.HeaderDocumentation.headerWithName;
 import static org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
@@ -35,10 +36,21 @@ import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusRole;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.devotion.domain.entity.PenaltyRule;
+import com.faithlog.devotion.domain.entity.WeeklyDevotionRecord;
+import com.faithlog.devotion.domain.type.PenaltyCalculationType;
+import com.faithlog.devotion.domain.type.PenaltyRuleType;
+import com.faithlog.devotion.infrastructure.repository.DevotionDailyCheckRepository;
+import com.faithlog.devotion.infrastructure.repository.PenaltyRuleRepository;
+import com.faithlog.devotion.infrastructure.repository.WeeklyDevotionRecordRepository;
+import com.faithlog.devotion.service.DevotionService;
+import com.faithlog.devotion.service.command.DevotionDailyCheckCommand;
+import com.faithlog.devotion.service.command.UpdateWeeklyDevotionCommand;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
@@ -77,6 +89,18 @@ class BillingApiRestDocsTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private DevotionService devotionService;
+
+	@Autowired
+	private PenaltyRuleRepository penaltyRuleRepository;
+
+	@Autowired
+	private WeeklyDevotionRecordRepository weeklyRecordRepository;
+
+	@Autowired
+	private DevotionDailyCheckRepository dailyCheckRepository;
 
 	@Test
 	void documents_payment_account_create_list_and_deactivate_contracts() throws Exception {
@@ -342,7 +366,7 @@ class BillingApiRestDocsTest {
 		joinCampus(memberToken, campus.path("inviteCode").asText());
 		createPenaltyAccount(campusId, manager.id(), "123-456789-013");
 		ChargeItemResult paidTarget = createPenaltyCharge(campusId, member.id(), 7001L);
-		ChargeItemResult waiveTarget = createPenaltyCharge(campusId, member.id(), 7002L);
+		ChargeItemResult adminPaidTarget = createPenaltyCharge(campusId, member.id(), 7002L);
 
 		mockMvc.perform(patch("/api/v1/campuses/{campusId}/charges/me/{chargeItemId}/paid", campusId, paidTarget.id())
 				.header("Authorization", "Bearer " + memberToken)
@@ -370,27 +394,115 @@ class BillingApiRestDocsTest {
 				responseFields(apiResponseFields(chargeFields("data.")))
 			));
 
-		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", waiveTarget.id())
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", adminPaidTarget.id())
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "status": "WAIVED"
+					  "status": "PAID"
 					}
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.success").value(true))
-			.andExpect(jsonPath("$.data.status").value("WAIVED"))
+			.andExpect(jsonPath("$.data.status").value("PAID"))
+			.andExpect(jsonPath("$.data.paidAt").isNotEmpty())
 			.andDo(document("charge-admin-status-change-success",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
 				authHeader(),
 				pathParameters(parameterWithName("chargeItemId").description("상태를 변경할 청구 항목 ID")),
 				requestFields(
-					fieldWithPath("status").description("변경할 청구 상태. 관리자 요청은 `UNPAID`, `WAIVED`, `CANCELED`만 허용")
+					fieldWithPath("status").description("변경할 청구 상태. `PAID`는 `UNPAID`에서만 허용하며 서버 시각을 paidAt으로 저장. `UNPAID`, `WAIVED`, `CANCELED`도 기존 정책대로 지원")
 				),
 				responseFields(apiResponseFields(chargeFields("data.")))
 			));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", adminPaidTarget.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "PAID"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_TRANSITION_CONFLICT"))
+			.andExpect(jsonPath("$.message").value("허용되지 않는 청구 상태 전이입니다."))
+			.andDo(document("charge-admin-status-change-conflict",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description("이미 terminal 상태인 청구 항목 ID")),
+				requestFields(
+					fieldWithPath("status").description("`PAID`. 기존 상태가 PAID, WAIVED, CANCELED이면 409")
+				),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_devotion_penalty_cancel_and_weekly_reopen_contract() throws Exception {
+		String managerToken = signupAndLogin("docs-190-cancel-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-190-cancel-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "190취소RESTDocs캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-190-cancel-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-190-cancel-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "190-DOCS-CANCEL");
+		createPenaltyRules(campusId);
+		LocalDate weekStart = LocalDate.of(2026, 7, 6);
+		devotionService.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
+			campusId,
+			member.id(),
+			weekStart,
+			List.of(new DevotionDailyCheckCommand(weekStart, true, true, true)),
+			0,
+			true
+		));
+		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
+			.findByCampusIdAndUserIdAndWeekStartDate(campusId, member.id(), weekStart)
+			.orElseThrow();
+		ChargeItem charge = chargeItemRepository
+			.findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+				campusId,
+				member.id(),
+				PaymentCategory.PENALTY,
+				ChargeSourceType.DEVOTION_RECORD,
+				weeklyRecord.id()
+			)
+			.orElseThrow();
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "CANCELED"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.status").value("CANCELED"))
+			.andExpect(jsonPath("$.data.paidAt").doesNotExist())
+			.andDo(document("charge-admin-devotion-cancel-reopen-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description("취소할 DEVOTION_RECORD PENALTY 청구 항목 ID")),
+				requestFields(
+					fieldWithPath("status").description("`CANCELED`. UNPAID PENALTY + DEVOTION_RECORD이면 같은 transaction에서 weekly submittedAt을 null로 재오픈")
+				),
+				responseFields(apiResponseFields(chargeFields("data.")))
+			));
+
+		assertThat(weeklyRecordRepository.findById(weeklyRecord.id()))
+			.get()
+			.extracting(WeeklyDevotionRecord::submittedAt)
+			.isNull();
+		assertThat(dailyCheckRepository.findByWeeklyRecordIdOrderByRecordDateAsc(weeklyRecord.id()))
+			.hasSize(7);
 	}
 
 	@Test
@@ -434,7 +546,7 @@ class BillingApiRestDocsTest {
 				authHeader(),
 				pathParameters(parameterWithName("campusId").description("청구 목록을 조회할 캠퍼스 ID")),
 				queryParameters(
-					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY`, `COFFEE`, `MEAL`"),
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
@@ -748,6 +860,15 @@ class BillingApiRestDocsTest {
 		));
 	}
 
+	private void createPenaltyRules(Long campusId) {
+		penaltyRuleRepository.saveAllAndFlush(List.of(
+			PenaltyRule.create(campusId, PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.PRAYER, PenaltyCalculationType.MISSING_COUNT, 5, 0, 500),
+			PenaltyRule.create(campusId, PenaltyRuleType.BIBLE_READING, PenaltyCalculationType.MISSING_COUNT, 5, 0, 300),
+			PenaltyRule.create(campusId, PenaltyRuleType.SATURDAY_LATE, PenaltyCalculationType.LATE_MINUTE, 0, 1000, 100)
+		));
+	}
+
 	private ChargeItemResult createPenaltyCharge(Long campusId, Long memberId, Long sourceId) {
 		return billingService.createPenaltyCharge(new CreatePenaltyChargeCommand(
 			campusId,
@@ -811,7 +932,7 @@ class BillingApiRestDocsTest {
 			fieldWithPath(prefix + "id").description("청구 항목 ID"),
 			fieldWithPath(prefix + "campusId").description("캠퍼스 ID"),
 			fieldWithPath(prefix + "userId").description("청구 대상 사용자 ID"),
-			fieldWithPath(prefix + "paymentCategory").description("청구 유형. `PENALTY` 또는 `COFFEE`"),
+			fieldWithPath(prefix + "paymentCategory").description("청구 유형. 회원 경로는 `PENALTY`, `COFFEE`, `MEAL`을 반환할 수 있고 일반 관리자 경로는 `MEAL`을 제외"),
 			fieldWithPath(prefix + "title").description("청구 제목"),
 			fieldWithPath(prefix + "reason").optional().description("청구 사유"),
 			fieldWithPath(prefix + "amount").description("청구 금액"),
@@ -833,7 +954,7 @@ class BillingApiRestDocsTest {
 	private static FieldDescriptor[] chargeListItemFields(String prefix) {
 		return new FieldDescriptor[] {
 			fieldWithPath(prefix + "id").description("청구 항목 ID"),
-			fieldWithPath(prefix + "paymentCategory").description("청구 유형. `PENALTY` 또는 `COFFEE`"),
+			fieldWithPath(prefix + "paymentCategory").description("청구 유형. 회원 경로는 `PENALTY`, `COFFEE`, `MEAL`을 반환할 수 있고 일반 관리자 경로는 `MEAL`을 제외"),
 			fieldWithPath(prefix + "title").description("청구 제목"),
 			fieldWithPath(prefix + "reason").optional().description("청구 사유"),
 			fieldWithPath(prefix + "amount").description("청구 금액"),

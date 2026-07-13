@@ -6,6 +6,7 @@ import com.faithlog.billing.domain.entity.ChargeItem;
 import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -24,6 +26,10 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 	default Optional<ChargeItem> findChargeItemById(Long chargeItemId) {
 		return findById(chargeItemId);
 	}
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select charge from ChargeItem charge where charge.id = :chargeItemId")
+	Optional<ChargeItem> findChargeItemByIdForUpdate(@Param("chargeItemId") Long chargeItemId);
 
 	@Override
 	default Page<ChargeItem> searchCharges(ChargeSearchCriteria criteria, Pageable pageable) {
@@ -58,6 +64,9 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		if (criteria.paymentCategory() != null) {
 			predicates.add(criteriaBuilder.equal(root.get("paymentCategory"), criteria.paymentCategory()));
 		}
+		if (criteria.excludedPaymentCategory() != null) {
+			predicates.add(criteriaBuilder.notEqual(root.get("paymentCategory"), criteria.excludedPaymentCategory()));
+		}
 		if (criteria.status() != null) {
 			predicates.add(criteriaBuilder.equal(root.get("status"), criteria.status()));
 		}
@@ -85,6 +94,30 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		PaymentCategory paymentCategory,
 		ChargeSourceType sourceType,
 		Long sourceId
+	);
+
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndSourceTypeAndSourceIdInOrderByIdAsc(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		List<Long> sourceIds
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select charge from ChargeItem charge
+		where charge.campusId = :campusId
+			and charge.userId = :userId
+			and charge.paymentCategory = :paymentCategory
+			and charge.sourceType = :sourceType
+			and charge.sourceId = :sourceId
+		""")
+	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceIdForUpdate(
+		@Param("campusId") Long campusId,
+		@Param("userId") Long userId,
+		@Param("paymentCategory") PaymentCategory paymentCategory,
+		@Param("sourceType") ChargeSourceType sourceType,
+		@Param("sourceId") Long sourceId
 	);
 
 	@Modifying(flushAutomatically = true, clearAutomatically = true)

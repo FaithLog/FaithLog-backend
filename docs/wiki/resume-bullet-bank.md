@@ -1,3 +1,21 @@
+<!-- issue-work:start:resume-bullet-bank:2026-07-14-188-189-190-integration -->
+## 2026-07-14 Issues #188/#189/#190 Integration
+
+- [needs Docker evidence] 세 기능 브랜치를 merge commit으로 통합하고 경건 재제출 race를 결정적 동시성 테스트로 재현·row lock으로 해소해 449개 전체 테스트와 151개 REST Docs 스니펫을 통과했다. Docker Desktop storage 오류로 PostgreSQL/Flyway/실제 HTTP 검증은 아직 포함하지 않는다. Evidence: `docs/resume-metrics.md` 2026-07-14 integration.
+<!-- issue-work:end:resume-bullet-bank:2026-07-14-188-189-190-integration -->
+
+<!-- issue-work:start:resume-bullet-bank:2026-07-13-188 -->
+## 2026-07-13 Issue #188
+
+- [ready] 관리자 주차별 경건·실제 벌금 조회와 2-sheet XLSX export를 동일 bulk query model로 구현해 campus 격리와 N+1 회귀를 고정하고, 82개 focused·420개 전체 테스트와 REST Docs 126개 스니펫 기준으로 권한·집계·파일 계약을 검증했다. Evidence: `docs/resume-metrics.md` 2026-07-13 #188.
+<!-- issue-work:end:resume-bullet-bank:2026-07-13-188 -->
+
+<!-- issue-work:start:resume-bullet-bank:2026-07-13-189 -->
+## 2026-07-13 Issue #189
+
+- [ready] 다수 MEAL 담당자·본인 계좌·즉시 OPEN 투표와 option group별 후청구를 정규화하고 exact ceiling 산술·pessimistic lock·DB unique·단일 transaction으로 1회성 정산을 보장했으며, 429개 전체 테스트와 147개 REST Docs 계약으로 권한·격리·rollback을 검증했다. Evidence: `docs/resume-metrics.md` #189, `docs/wiki/engineering/2026-07-13-meal-duty-poll-settlement.md`.
+<!-- issue-work:end:resume-bullet-bank:2026-07-13-189 -->
+
 <!-- daily-resume-monitor:start:resume-bullet-bank:2026-06-16 -->
 ## 2026-06-16
 
