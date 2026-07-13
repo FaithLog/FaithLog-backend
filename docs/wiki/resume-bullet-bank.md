@@ -1,3 +1,9 @@
+<!-- issue-work:start:resume-bullet-bank:2026-07-14-188-189-190-integration -->
+## 2026-07-14 Issues #188/#189/#190 Integration
+
+- [needs Docker evidence] 세 기능 브랜치를 merge commit으로 통합하고 경건 재제출 race를 결정적 동시성 테스트로 재현·row lock으로 해소해 449개 전체 테스트와 151개 REST Docs 스니펫을 통과했다. Docker Desktop storage 오류로 PostgreSQL/Flyway/실제 HTTP 검증은 아직 포함하지 않는다. Evidence: `docs/resume-metrics.md` 2026-07-14 integration.
+<!-- issue-work:end:resume-bullet-bank:2026-07-14-188-189-190-integration -->
+
 <!-- issue-work:start:resume-bullet-bank:2026-07-13-188 -->
 ## 2026-07-13 Issue #188
 

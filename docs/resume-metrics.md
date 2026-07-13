@@ -13,14 +13,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-14 #190, 425 tests / 0 failures / 0 errors / 3 skipped) | 100% |
-| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.76% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 73.08% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.63% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 90.59% (2026-06-24, JaCoCo) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `rg --files src/test/java | rg '\.java$'` | 80 test files (2026-07-13 #190) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 126 snippet groups (2026-07-13 #190) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-13 #190) | 성공 |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-14 #188/#189/#190 integration, 449 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.41% (7,223 / 7,651, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
+| 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 75.77% (1,113 / 1,469, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
+| 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.70% (510 / 522, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
+| 품질 | Method coverage | `./gradlew test jacocoTestReport` | 89.79% (1,935 / 2,155, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
+| 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 85 test files (2026-07-14 integration) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 151 snippet groups (2026-07-14 integration) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-14 integration) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
@@ -28,6 +28,16 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 8 (Flyway V1-V8, 2026-07-13 #189) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-14
+
+- #188/#189/#190 통합 검증:
+  - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
+  - 통합 리뷰 RED/GREEN: 재오픈된 weekly row를 잠그지 않아 동시 0원 재제출 두 건이 모두 제출 검사를 통과할 수 있는 race를 결정적 latch 테스트로 재현했다. RED `1 test / 1 failure` 뒤 취소 재오픈과 재제출 양쪽이 같은 weekly row `PESSIMISTIC_WRITE`를 사용하도록 보강했고, 신규 회귀와 #190 전체 재제출 통합 class가 GREEN이었다. production API/DTO/ErrorCode/Flyway는 바꾸지 않았다.
+  - 비Docker 전체 검증: `449 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`가 성공했다. JaCoCo는 line 94.41%, branch 75.77%, class 97.70%, method 89.79%이며 새 성과로 과장하지 않고 통합 시점 관찰값으로만 기록한다. test source 85개, 전체 Java source/test 646개, REST Docs snippet group 151개이고 `index.adoc`이 참조한 150개 group 누락은 0개다.
+  - Docker/Flyway/HTTP 차단: Docker Desktop Linux engine이 `write .../vm/init.log: no space left on device`로 부팅되지 않았다. 측정 시 host Data volume은 228GiB 중 177GiB 사용, 7.4GiB 가용(96%), Docker Data 실사용 4.4GiB, sparse `Docker.raw` 논리 60GiB/실사용 4.3GiB, Docker log 46MiB였다. 지시대로 파일·volume·image·system·builder cache를 삭제하지 않았고 clean V1→V8, V7→V8, PostgreSQL/Redis/backend health, 실제 HTTP A/B/C/D는 실행 전 차단 상태로 남겼다.
+  - 리뷰 잔여 후보: V8 `meal_poll_charge_groups(settlement_id, id)` 조회 인덱스, MEAL 정산의 응답자별 반복 조회/저장, MEAL 청구 대상 사용자 bulk lookup, #188의 Billing projection port 경계는 성능·아키텍처·스키마 결정이 필요해 통합 세션이 임의 변경하지 않았다. PM이 별도 반영 여부를 결정해야 한다.
+  - 이력서 문장 후보: `세 기능 브랜치를 merge commit으로 통합하고 경건 재제출 race를 결정적 동시성 테스트로 재현·row lock으로 해소해 449개 전체 테스트와 151개 REST Docs 스니펫을 통과했다.` Docker 실환경 검증이 완료되기 전에는 Flyway/HTTP 성과를 포함하지 않는다.
 
 ### 2026-07-13
 

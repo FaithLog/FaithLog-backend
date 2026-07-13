@@ -225,6 +225,7 @@ Issue #34는 청구 기반 서비스까지만 구현하고, 실제 경건생활 
 ```text
 PENALTY
 COFFEE
+MEAL
 ```
 
 사용 가능한 `chargeSourceType`:

@@ -546,7 +546,7 @@ class BillingApiRestDocsTest {
 				authHeader(),
 				pathParameters(parameterWithName("campusId").description("청구 목록을 조회할 캠퍼스 ID")),
 				queryParameters(
-					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
+					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY`, `COFFEE`, `MEAL`"),
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
@@ -932,7 +932,7 @@ class BillingApiRestDocsTest {
 			fieldWithPath(prefix + "id").description("청구 항목 ID"),
 			fieldWithPath(prefix + "campusId").description("캠퍼스 ID"),
 			fieldWithPath(prefix + "userId").description("청구 대상 사용자 ID"),
-			fieldWithPath(prefix + "paymentCategory").description("청구 유형. `PENALTY` 또는 `COFFEE`"),
+			fieldWithPath(prefix + "paymentCategory").description("청구 유형. 회원 경로는 `PENALTY`, `COFFEE`, `MEAL`을 반환할 수 있고 일반 관리자 경로는 `MEAL`을 제외"),
 			fieldWithPath(prefix + "title").description("청구 제목"),
 			fieldWithPath(prefix + "reason").optional().description("청구 사유"),
 			fieldWithPath(prefix + "amount").description("청구 금액"),
@@ -954,7 +954,7 @@ class BillingApiRestDocsTest {
 	private static FieldDescriptor[] chargeListItemFields(String prefix) {
 		return new FieldDescriptor[] {
 			fieldWithPath(prefix + "id").description("청구 항목 ID"),
-			fieldWithPath(prefix + "paymentCategory").description("청구 유형. `PENALTY` 또는 `COFFEE`"),
+			fieldWithPath(prefix + "paymentCategory").description("청구 유형. 회원 경로는 `PENALTY`, `COFFEE`, `MEAL`을 반환할 수 있고 일반 관리자 경로는 `MEAL`을 제외"),
 			fieldWithPath(prefix + "title").description("청구 제목"),
 			fieldWithPath(prefix + "reason").optional().description("청구 사유"),
 			fieldWithPath(prefix + "amount").description("청구 금액"),
