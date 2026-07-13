@@ -227,6 +227,7 @@ class FlywayMigrationContractTest {
 			"UNIQUE (poll_id)",
 			"UNIQUE (poll_id, option_id)",
 			"uk_campus_duty_assignments_active_coffee",
+			"uk_campus_duty_assignments_active_meal_user",
 			"uk_payment_accounts_active_meal_owner"
 		);
 		assertThat(sql).doesNotContain("DELETE FROM", "UPDATE ");

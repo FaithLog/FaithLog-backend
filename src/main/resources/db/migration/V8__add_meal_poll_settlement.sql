@@ -12,6 +12,10 @@ CREATE UNIQUE INDEX uk_campus_duty_assignments_active_coffee
     ON campus_duty_assignments (campus_id, duty_type)
     WHERE is_active = TRUE AND duty_type = 'COFFEE';
 
+CREATE UNIQUE INDEX uk_campus_duty_assignments_active_meal_user
+    ON campus_duty_assignments (campus_id, duty_type, user_id)
+    WHERE is_active = TRUE AND duty_type = 'MEAL';
+
 ALTER TABLE payment_accounts
     DROP CONSTRAINT ck_payment_accounts_account_type,
     ADD CONSTRAINT ck_payment_accounts_account_type
