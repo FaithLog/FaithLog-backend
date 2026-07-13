@@ -30,6 +30,7 @@ import com.faithlog.poll.service.command.CreateMealPollChargesCommand;
 import com.faithlog.poll.service.result.MealPollChargeGroupResult;
 import com.faithlog.poll.service.result.MealPollSettlementResult;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -55,6 +56,7 @@ public class MealPollSettlementService {
 	private final ChargeCreationService chargeCreationService;
 	private final ChargeItemRepositoryPort chargeItemRepository;
 	private final MealChargeCalculator mealChargeCalculator;
+	private final Clock clock;
 
 	public MealPollSettlementService(
 		MealDutyAccessService mealDutyAccessService,
@@ -67,7 +69,8 @@ public class MealPollSettlementService {
 		MealPollChargeGroupRepository chargeGroupRepository,
 		ChargeCreationService chargeCreationService,
 		ChargeItemRepositoryPort chargeItemRepository,
-		MealChargeCalculator mealChargeCalculator
+		MealChargeCalculator mealChargeCalculator,
+		Clock clock
 	) {
 		this.mealDutyAccessService = mealDutyAccessService;
 		this.pollRepository = pollRepository;
@@ -80,6 +83,7 @@ public class MealPollSettlementService {
 		this.chargeCreationService = chargeCreationService;
 		this.chargeItemRepository = chargeItemRepository;
 		this.mealChargeCalculator = mealChargeCalculator;
+		this.clock = clock;
 	}
 
 	@Transactional
@@ -117,7 +121,7 @@ public class MealPollSettlementService {
 		} catch (ArithmeticException exception) {
 			throw new BusinessException(ErrorCode.MEAL_SETTLEMENT_AMOUNT_OVERFLOW);
 		}
-		Instant chargedAt = Instant.now();
+		Instant chargedAt = clock.instant();
 		MealPollSettlement settlement;
 		try {
 			settlement = settlementRepository.saveAndFlush(MealPollSettlement.create(

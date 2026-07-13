@@ -13,6 +13,7 @@ import com.faithlog.poll.service.command.CreateMealPollCommand;
 import com.faithlog.poll.service.command.CreateMealPollOptionCommand;
 import com.faithlog.poll.service.result.PollResult;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -27,24 +28,27 @@ public class MealPollService {
 	private final PollRepository pollRepository;
 	private final PollOptionRepository pollOptionRepository;
 	private final PollResultAssembler pollResultAssembler;
+	private final Clock clock;
 
 	public MealPollService(
 		MealDutyAccessService mealDutyAccessService,
 		PollRepository pollRepository,
 		PollOptionRepository pollOptionRepository,
-		PollResultAssembler pollResultAssembler
+		PollResultAssembler pollResultAssembler,
+		Clock clock
 	) {
 		this.mealDutyAccessService = mealDutyAccessService;
 		this.pollRepository = pollRepository;
 		this.pollOptionRepository = pollOptionRepository;
 		this.pollResultAssembler = pollResultAssembler;
+		this.clock = clock;
 	}
 
 	@Transactional
 	public PollResult create(CreateMealPollCommand command) {
 		mealDutyAccessService.requireActiveMealDuty(command.campusId(), command.requesterId());
 		validateCreateCommand(command);
-		Instant now = Instant.now();
+		Instant now = clock.instant();
 		if (!command.endsAt().isAfter(now)) {
 			throw new BusinessException(ErrorCode.POLL_INVALID_PERIOD);
 		}
@@ -71,7 +75,7 @@ public class MealPollService {
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}
-		poll.closeAt(Instant.now());
+		poll.closeAt(clock.instant());
 		return pollResultAssembler.toResult(poll);
 	}
 
