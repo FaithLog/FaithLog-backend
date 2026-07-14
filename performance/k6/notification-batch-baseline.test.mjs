@@ -347,29 +347,32 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 		);
 		assert.notEqual(contradictoryVerifier.status, 0, 'contradictory PostgreSQL evidence must fail');
 
-		writeFileSync(
-			join(runDir, 'postgres-after.json'),
-			`${JSON.stringify({
-				...postgresAfter,
-				tables: {
-					...postgresAfter.tables,
-					notification_logs: { n_tup_ins: 1001, n_tup_upd: 803 },
-					user_fcm_tokens: { n_tup_upd: 104 },
+		const assertPostgresOverCountFails = (tables, message) => {
+			writeFileSync(
+				join(runDir, 'postgres-after.json'),
+				`${JSON.stringify({ ...postgresAfter, tables: { ...postgresAfter.tables, ...tables } })}\n`,
+			);
+			const verifier = spawnSync(
+				process.execPath,
+				[fileURLToPath(new URL('verify-before.mjs', SCENARIO_ROOT))],
+				{
+					env: { ...process.env, MANIFEST_PATH: join(runDir, 'manifest.json'), RUN_DIR: runDir },
+					encoding: 'utf8',
 				},
-			})}\n`,
+			);
+			assert.notEqual(verifier.status, 0, message);
+		};
+		assertPostgresOverCountFails(
+			{ notification_logs: { n_tup_ins: 1002, n_tup_upd: 802 } },
+			'unexpected extra PostgreSQL notification log insert must fail',
 		);
-		const postgresOverCountVerifier = spawnSync(
-			process.execPath,
-			[fileURLToPath(new URL('verify-before.mjs', SCENARIO_ROOT))],
-			{
-				env: { ...process.env, MANIFEST_PATH: join(runDir, 'manifest.json'), RUN_DIR: runDir },
-				encoding: 'utf8',
-			},
+		assertPostgresOverCountFails(
+			{ notification_logs: { n_tup_ins: 1001, n_tup_upd: 803 } },
+			'unexpected extra PostgreSQL notification log update must fail',
 		);
-		assert.notEqual(
-			postgresOverCountVerifier.status,
-			0,
-			'unexpected extra PostgreSQL log/token updates must fail',
+		assertPostgresOverCountFails(
+			{ user_fcm_tokens: { n_tup_upd: 104 } },
+			'unexpected extra PostgreSQL token update must fail independently',
 		);
 
 		writeFileSync(join(runDir, 'postgres-after.json'), `${JSON.stringify(postgresAfter)}\n`);
