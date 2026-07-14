@@ -23,7 +23,9 @@ const files = {
 	summaryValidator: path.join(issueRoot, 'validate-k6-summary.mjs'),
 	dbCorrectnessValidator: path.join(issueRoot, 'validate-db-correctness.mjs'),
 	dbWindowValidator: path.join(issueRoot, 'validate-db-window.mjs'),
+	runtimeContinuityValidator: path.join(issueRoot, 'validate-runtime-continuity.mjs'),
 	dbCounters: path.join(issueRoot, 'collect-db-counters.sql'),
+	runtimeIdentity: path.join(issueRoot, 'collect-runtime-identity.sql'),
 	dbCorrectness: path.join(issueRoot, 'collect-correctness-evidence.sql'),
 	readme: path.join(issueRoot, 'README.md'),
 	reportsIgnore: path.join(issueRoot, 'reports/.gitignore'),
@@ -200,6 +202,8 @@ test('DB evidence is read-only and captures counters, query evidence, analyze an
 	assert.match(counterSql, /issue199:evidence=counters/);
 	assert.match(counterSql, /pg_stat_activity/);
 	assert.match(counterSql, /application_name/);
+	assert.doesNotMatch(counterSql, /application_name\s+IS\s+DISTINCT\s+FROM/i);
+	assert.match(counterSql, /boundary-snapshot-only/);
 	assert.match(counterSql, /stats_reset/);
 	assert.match(counterSql, /plannerSettings/);
 	assert.doesNotMatch(
@@ -373,8 +377,10 @@ test('DB window validator rejects missing or regressed counters and produces sem
 		const before = dbWindowFixture();
 		const after = dbWindowFixture({after: true});
 		const valid = runDbWindowValidator(temporaryDirectory, before, after, 'none', 'valid');
-		assert.equal(valid.result.status, 0, valid.result.stderr);
-		assert.equal(valid.output.adoptable, true);
+		assert.notEqual(valid.result.status, 0, 'boundary-only activity evidence must not be adoptable');
+		assert.equal(valid.output.status, 'conditional-not-adoptable');
+		assert.equal(valid.output.adoptable, false);
+		assert.equal(valid.output.externalActivityCoverage, 'boundary-snapshot-only');
 		assert.equal(valid.output.tableDeltas.users.seq_scan, 1);
 
 		const missing = structuredClone(after);
@@ -408,10 +414,19 @@ test('DB window validator blocks autoanalyze changes, external sessions, and dec
 	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-activity-'));
 	try {
 		const before = dbWindowFixture();
-		assert.equal(
-			runDbWindowValidator(temporaryDirectory, before, dbWindowFixture({after: true}), 'none', 'control').result.status,
-			0,
+		const boundaryOnly = runDbWindowValidator(
+			temporaryDirectory,
+			before,
+			dbWindowFixture({after: true}),
+			'none',
+			'control',
 		);
+		assert.notEqual(boundaryOnly.result.status, 0);
+		assert.deepEqual(boundaryOnly.output.failures, [{
+			name: 'externalActivityCoverage',
+			expected: 'continuous approved provenance or isolation',
+			actual: 'boundary-snapshot-only',
+		}]);
 		const autoanalyzed = dbWindowFixture({after: true});
 		autoanalyzed.tables[0].autoanalyze_count += 1;
 		autoanalyzed.tables[0].last_autoanalyze = '2026-07-14T00:01:00.000Z';
@@ -428,6 +443,78 @@ test('DB window validator blocks autoanalyze changes, external sessions, and dec
 		);
 	} finally {
 		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('DB window validator rejects null counters and missing identity, stability, or planner fields', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-schema-'));
+	try {
+		const before = dbWindowFixture();
+		const after = dbWindowFixture({after: true});
+		for (const snapshot of [before, after]) {
+			snapshot.database.datname = null;
+			for (const field of [
+				'xact_commit', 'xact_rollback', 'blks_read', 'blks_hit', 'tup_returned', 'tup_fetched',
+				'temp_files', 'temp_bytes', 'deadlocks',
+			]) snapshot.database[field] = null;
+			for (const table of snapshot.tables) {
+				for (const field of ['seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch']) table[field] = null;
+				for (const field of [
+					'n_live_tup', 'n_dead_tup', 'n_mod_since_analyze', 'last_analyze', 'last_autoanalyze',
+					'analyze_count', 'autoanalyze_count',
+				]) delete table[field];
+			}
+			snapshot.plannerSettings = snapshot.plannerSettings.map(({name}) => ({name}));
+		}
+		const malformed = runDbWindowValidator(temporaryDirectory, before, after, 'none', 'malformed');
+		assert.notEqual(malformed.result.status, 0);
+		assert.match(malformed.result.stderr, /database\.datname|must be numeric|schema/i);
+	} finally {
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('runtime continuity validator rejects container or PostgreSQL identity replacement', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-runtime-identity-'));
+	try {
+		const initial = runtimeIdentityFixture();
+		const before = runtimeIdentityFixture({capturedAt: '2026-07-14T00:00:10.000Z'});
+		const after = runtimeIdentityFixture({capturedAt: '2026-07-14T00:01:10.000Z'});
+		const control = runRuntimeContinuityValidator(temporaryDirectory, initial, before, after, 'control');
+		assert.equal(control.result.status, 0, control.result.stderr);
+		assert.equal(control.output.continuous, true);
+
+		const replacedContainer = structuredClone(after);
+		replacedContainer.containers.app.id = 'sha256:replacement-container';
+		replacedContainer.containers.app.imageId = 'sha256:replacement-image';
+		replacedContainer.containers.app.startedAt = '2026-07-14T00:00:30.000Z';
+		const containerResult = runRuntimeContinuityValidator(
+			temporaryDirectory, initial, before, replacedContainer, 'container-replacement',
+		);
+		assert.notEqual(containerResult.result.status, 0);
+		assert.match(containerResult.result.stderr, /runtime identity|containers\.app/i);
+
+		const replacedPostmaster = structuredClone(after);
+		replacedPostmaster.postgres.postmasterStartedAt = '2026-07-14T00:00:45.000Z';
+		const postgresResult = runRuntimeContinuityValidator(
+			temporaryDirectory, initial, before, replacedPostmaster, 'postmaster-replacement',
+		);
+		assert.notEqual(postgresResult.result.status, 0);
+		assert.match(postgresResult.result.stderr, /runtime identity|postmaster/i);
+	} finally {
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('runner blocks a container identity replacement during the measured window', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const result = harness.run({DATASET_MODES: 'empty', FAKE_RUNTIME_IDENTITY_MODE: 'replace-after'});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /runtime identity|containers\.app/i);
+		assert.ok(findLog(harness.log(), 'k6:empty:measured') >= 0);
+	} finally {
+		harness.cleanup();
 	}
 });
 
@@ -577,6 +664,7 @@ function dbWindowFixture({after = false} = {}) {
 	const increment = after ? 1 : 0;
 	return {
 		capturedAt: after ? '2026-07-14T00:01:00.000Z' : '2026-07-14T00:00:00.000Z',
+		externalActivityCoverage: 'boundary-snapshot-only',
 		externalActiveSessions: 0,
 		observerOverhead: {
 			databaseWideCountersIncludeSnapshotTransaction: true,
@@ -614,6 +702,48 @@ function dbWindowFixture({after = false} = {}) {
 	};
 }
 
+function runtimeIdentityFixture({capturedAt = '2026-07-14T00:00:00.000Z'} = {}) {
+	const container = (service) => ({
+		id: `sha256:${service}-container`,
+		imageId: `sha256:${service}-image`,
+		imageRef: `faithlog/${service}:contract`,
+		startedAt: '2026-07-13T23:00:00.000Z',
+		composeProject: 'contract-project',
+		composeService: service,
+		composeConfigHash: `sha256:${service}-config`,
+	});
+	return {
+		capturedAt,
+		containers: {
+			app: container('app'),
+			postgres: container('postgres'),
+			redis: container('redis'),
+		},
+		postgres: {
+			database: 'faithlog',
+			serverAddress: '172.18.0.2',
+			serverPort: 5432,
+			serverVersion: '17.5',
+			postmasterStartedAt: '2026-07-13T23:00:05.000Z',
+		},
+	};
+}
+
+function runRuntimeContinuityValidator(temporaryDirectory, initial, before, after, label) {
+	const initialPath = path.join(temporaryDirectory, `${label}-initial.json`);
+	const beforePath = path.join(temporaryDirectory, `${label}-before.json`);
+	const afterPath = path.join(temporaryDirectory, `${label}-after.json`);
+	const outputPath = path.join(temporaryDirectory, `${label}-output.json`);
+	fs.writeFileSync(initialPath, JSON.stringify(initial));
+	fs.writeFileSync(beforePath, JSON.stringify(before));
+	fs.writeFileSync(afterPath, JSON.stringify(after));
+	const result = runNode(files.runtimeContinuityValidator, initialPath, beforePath, afterPath, outputPath);
+	return {
+		result,
+		output: fs.existsSync(outputPath) ? JSON.parse(fs.readFileSync(outputPath, 'utf8')) : {},
+	};
+}
+
 function runDbWindowValidator(temporaryDirectory, before, after, externalActivity, label) {
 	const beforePath = path.join(temporaryDirectory, `${label}-before.json`);
 	const afterPath = path.join(temporaryDirectory, `${label}-after.json`);
@@ -634,6 +764,7 @@ function createFakeRunnerHarness() {
 	const tokenCountPath = path.join(temporaryDirectory, 'token-count');
 	const dbCounterCountPath = path.join(temporaryDirectory, 'db-counter-count');
 	const fakeClockPath = path.join(temporaryDirectory, 'clock');
+	const fakeMeasuredRanPath = path.join(temporaryDirectory, 'measured-ran');
 	const fixtureRunId = `ISSUE_199_CONTRACT_${process.pid}_${path.basename(temporaryDirectory)}`;
 	const generatedReport = path.join(issueRoot, 'reports', 'CONTRACT_DATASET', fixtureRunId);
 	const composeProject = `contract-${process.pid}-${path.basename(temporaryDirectory).replace(/[^A-Za-z0-9._-]/g, '-')}`;
@@ -689,9 +820,24 @@ exec ${shellQuote(process.execPath)} "$@"
 	const fakeDocker = path.join(fakeBin, 'docker');
 	fs.writeFileSync(fakeDocker, `#!/usr/bin/env bash
 case "$1" in
-  inspect)
-    container="\${!#}"
-    if [[ "$*" == *NetworkSettings.Ports* ]]; then
+	  inspect)
+	    container="\${!#}"
+	    if [[ "$*" == *issue199-runtime-identity* ]]; then
+	      if [[ "$container" == *postgres* ]]; then service=postgres
+	      elif [[ "$container" == *redis* ]]; then service=redis
+	      else service=app
+	      fi
+	      id="sha256:\${service}-container"
+	      image_id="sha256:\${service}-image"
+	      started_at='2026-07-13T23:00:00.000Z'
+	      if [[ "\${FAKE_RUNTIME_IDENTITY_MODE:-}" == replace-after && "$service" == app && -f "$FAKE_MEASURED_RAN_PATH" ]]; then
+	        id='sha256:replacement-container'
+	        image_id='sha256:replacement-image'
+	        started_at='2026-07-14T00:00:30.000Z'
+	      fi
+	      printf '{"id":"%s","imageId":"%s","imageRef":"faithlog/%s:contract","startedAt":"%s","composeProject":"%s","composeService":"%s","composeConfigHash":"sha256:%s-config"}\\n' \\
+	        "$id" "$image_id" "$service" "$started_at" "$FAKE_COMPOSE_PROJECT" "$service" "$service"
+	    elif [[ "$*" == *NetworkSettings.Ports* ]]; then
       printf '%s\\n' "$FAKE_APP_PORTS_JSON"
     elif [[ "$*" == *com.docker.compose.project* ]]; then
       if [[ "\${FAKE_LABEL_MODE:-}" == mismatch && "$container" == *redis* ]]; then
@@ -719,7 +865,7 @@ case "$1" in
     if [[ "$sql" == *issue199:evidence=correctness* ]]; then
       printf 'docker:db-correctness\\n' >> "$FAKE_LOG"
       printf '%s\\n' "$FAKE_DB_EVIDENCE_JSON"
-    elif [[ "$sql" == *issue199:evidence=counters* ]]; then
+	    elif [[ "$sql" == *issue199:evidence=counters* ]]; then
       printf 'docker:db-counters\\n' >> "$FAKE_LOG"
       count=0
       [[ -f "$FAKE_DB_COUNTER_COUNT_PATH" ]] && count="$(<"$FAKE_DB_COUNTER_COUNT_PATH")"
@@ -728,7 +874,10 @@ case "$1" in
       if (( count % 2 == 1 )); then printf '%s\\n' "$FAKE_DB_COUNTER_BEFORE_JSON"
       else printf '%s\\n' "$FAKE_DB_COUNTER_AFTER_JSON"
       fi
-    else
+	    elif [[ "$sql" == *issue199:evidence=runtime-identity* ]]; then
+	      printf 'docker:db-runtime-identity\\n' >> "$FAKE_LOG"
+	      printf '{"database":"faithlog","serverAddress":"172.18.0.2","serverPort":5432,"serverVersion":"17.5","postmasterStartedAt":"2026-07-13T23:00:05.000Z"}\\n'
+	    else
       printf 'docker:db-context\\n' >> "$FAKE_LOG"
       printf 'context evidence\\n'
     fi
@@ -747,10 +896,12 @@ while [[ $# -gt 0 ]]; do
   if [[ "$1" == '--summary-export' ]]; then summary_path="$2"; shift 2; else shift; fi
 done
 printf '%s\\n' "$FAKE_K6_SUMMARY_JSON" > "$summary_path"
-if [[ "$PHASE" == warmup ]]; then
+	if [[ "$PHASE" == warmup ]]; then
   clock="$(<"$FAKE_CLOCK_PATH")"
   printf '%s' "$((clock + 1901))" > "$FAKE_CLOCK_PATH"
-fi
+	else
+	  : > "$FAKE_MEASURED_RAN_PATH"
+	fi
 `);
 	const fakeDate = path.join(fakeBin, 'date');
 	fs.writeFileSync(fakeDate, `#!/usr/bin/env bash
@@ -778,7 +929,8 @@ fi
 		FAKE_LOG: fakeLog,
 		FAKE_TOKEN_COUNT_PATH: tokenCountPath,
 		FAKE_DB_COUNTER_COUNT_PATH: dbCounterCountPath,
-		FAKE_CLOCK_PATH: fakeClockPath,
+			FAKE_CLOCK_PATH: fakeClockPath,
+			FAKE_MEASURED_RAN_PATH: fakeMeasuredRanPath,
 		FAKE_EPOCH_BASE: '1783980000',
 		FAKE_COMPOSE_PROJECT: composeProject,
 		FAKE_APP_PORTS_JSON: JSON.stringify({'8080/tcp': [{HostIp: '127.0.0.1', HostPort: '28080'}]}),
