@@ -29,20 +29,29 @@ const EXPECTED_TABLES = [
 	'prayer_group_members', 'prayer_groups', 'prayer_seasons', 'prayer_submissions', 'prayer_weeks',
 	'user_fcm_tokens', 'users', 'weekly_devotion_records',
 ];
+const EXPECTED_PLANNER_SETTINGS = {
+	plan_cache_mode: 'auto', random_page_cost: '4', cpu_tuple_cost: '0.01', cpu_index_tuple_cost: '0.005',
+	effective_cache_size: '4GB', work_mem: '4MB', jit: 'on', max_parallel_workers_per_gather: '2',
+};
 
 function tableRow(relname, overrides = {}) {
 	return {
-		relname, seq_scan: 0, seq_tup_read: 0, idx_scan: 0, idx_tup_fetch: 0,
-		n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 0,
+		schemaname: 'public', relname, seq_scan: 0, seq_tup_read: 0, idx_scan: 0, idx_tup_fetch: 0,
+		n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 0, n_dead_tup: 0,
 		last_analyze: null, last_autoanalyze: null, analyze_count: 0, autoanalyze_count: 0,
+		last_vacuum: null, last_autovacuum: null, vacuum_count: 0, autovacuum_count: 0,
 		...overrides,
 	};
 }
 
-function dbSnapshot(capturedAt, overridesByTable = {}, plannerSettings = { plan_cache_mode: 'auto', random_page_cost: '4' }) {
+function dbSnapshot(capturedAt, overridesByTable = {}, plannerSettings = EXPECTED_PLANNER_SETTINGS) {
 	return {
 		capturedAt,
 		plannerSettings,
+		databaseIdentity: {
+			currentDatabase: 'faithlog', serverAddress: '172.20.0.2', serverPort: 5432,
+			postmasterStartedAt: '2026-07-14T00:00:00.000Z',
+		},
 		tables: EXPECTED_TABLES.map((name) => tableRow(name, overridesByTable[name])),
 	};
 }
@@ -180,6 +189,12 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 		assert.ok(runner.includes(message), `missing window guard ${message}`);
 	}
 	assert.match(runner, /WINDOW_STATUS_VALUE[\s\S]*fixtureWindowExitStatus/);
+	for (const marker of ['assert_runtime_continuity', 'appContainerId', 'appContainerStartedAt',
+		'dbContainerId', 'dbImageId', 'dbContainerStartedAt']) {
+		assert.match(runner, new RegExp(marker), `missing runtime continuity marker ${marker}`);
+	}
+	assert.ok((runner.match(/assert_runtime_continuity/g) || []).length >= 5,
+		'runtime identity must be checked before warmup, around measured, and before adoption');
 	assert.match(runner, /set \+e[\s\S]*docker logs[\s\S]*log_capture_status=\$\?[\s\S]*snapshot_db_tables "\$\{after_file\}"[\s\S]*after_snapshot_status=\$\?[\s\S]*set -e/);
 	assert.match(runner, /summarize-run\.mjs[\s\S]*summarize_status=\$\?[\s\S]*if \(\( summarize_status != 0 \)\)/);
 	assert.match(runner, /env -u PERF_ADMIN_EMAIL/);
@@ -205,7 +220,9 @@ test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	assert.match(sql, /pg_stat_user_tables/);
 	assert.match(sql, /seq_scan/);
 	assert.match(sql, /idx_scan/);
-	for (const marker of ['last_analyze', 'last_autoanalyze', 'analyze_count', 'autoanalyze_count', 'plannerSettings']) {
+	for (const marker of ['last_analyze', 'last_autoanalyze', 'analyze_count', 'autoanalyze_count',
+		'last_vacuum', 'last_autovacuum', 'vacuum_count', 'autovacuum_count', 'plannerSettings',
+		'databaseIdentity', 'pg_postmaster_start_time']) {
 		assert.match(sql, new RegExp(marker), `missing DB integrity marker ${marker}`);
 	}
 	assert.match(activitySql, /pg_stat_activity/);
@@ -499,12 +516,16 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(paths.resources, [
 			'2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t100MiB / 1GiB\t9.8%',
 			'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
+			'2026-07-14T00:00:02Z\tfaithlog-backend\t11.0%\t101MiB / 1GiB\t9.9%',
+			'2026-07-14T00:00:02Z\tfaithlog-postgres\t21.0%\t201MiB / 1GiB\t19.6%',
 		].join('\n'));
-		writeFileSync(paths.integrity, `${integritySample()}\n`);
+		writeFileSync(paths.integrity, `${integritySample()}\n${integritySample({ capturedAt: '2026-07-14T00:00:02.000Z' })}\n`);
 		writeFileSync(paths.metadata, JSON.stringify({
 			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196-test',
 			runtime: {
 				appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
+				measurementStartedAt: '2026-07-14T00:00:00.000Z', measurementEndedAt: '2026-07-14T00:00:02.000Z',
+				samplingIntervalSeconds: 1, samplingMaxGapSeconds: 2,
 				k6ExitStatus: 0, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
 				warmupExitStatus: 0, integritySamplerExitStatus: 0,
 				logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
@@ -701,6 +722,56 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		for (const reason of ['planner-settings-changed', 'analyze-state-changed', 'external-http-activity', 'unexpected-db-session']) {
 			assert.ok(integrityRejected.rejectionReasons.includes(reason), `missing ${reason}`);
 		}
+
+		const missingSchemaBefore = join(temporary, 'missing-schema-before.json');
+		const missingSchemaAfter = join(temporary, 'missing-schema-after.json');
+		const missingSchemaReport = join(temporary, 'missing-schema-report.json');
+		const beforeWithoutSchema = dbSnapshot('2026-07-14T00:00:00.000Z');
+		const afterWithoutSchema = dbSnapshot('2026-07-14T00:00:01.000Z');
+		delete beforeWithoutSchema.plannerSettings;
+		delete afterWithoutSchema.plannerSettings;
+		for (const row of [...beforeWithoutSchema.tables, ...afterWithoutSchema.tables]) {
+			delete row.last_analyze;
+			delete row.last_autoanalyze;
+		}
+		writeFileSync(missingSchemaBefore, JSON.stringify(beforeWithoutSchema));
+		writeFileSync(missingSchemaAfter, JSON.stringify(afterWithoutSchema));
+		const missingSchemaProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, missingSchemaBefore, missingSchemaAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, missingSchemaReport]);
+		assert.notEqual(missingSchemaProcess.status, 0, 'identically missing planner/analyze fields must reject');
+
+		const sparseMetadata = join(temporary, 'sparse-metadata.json');
+		const sparseResources = join(temporary, 'sparse-resources.tsv');
+		const sparseIntegrity = join(temporary, 'sparse-integrity.jsonl');
+		const sparseReport = join(temporary, 'sparse-report.json');
+		writeFileSync(sparseMetadata, JSON.stringify({
+			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196-test',
+			runtime: {
+				appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
+				measurementStartedAt: '2026-07-14T00:00:00.000Z', measurementEndedAt: '2026-07-14T00:10:00.000Z',
+				samplingIntervalSeconds: 1, samplingMaxGapSeconds: 2,
+				k6ExitStatus: 0, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
+				warmupExitStatus: 0, integritySamplerExitStatus: 0,
+				logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
+			},
+		}));
+		writeFileSync(sparseResources, [
+			'2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t100MiB / 1GiB\t9.8%',
+			'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
+		].join('\n'));
+		writeFileSync(sparseIntegrity, `${integritySample()}\n`);
+		const sparseProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, paths.before, paths.after, paths.sql, sparseResources, sparseIntegrity, sparseMetadata, sparseReport]);
+		assert.notEqual(sparseProcess.status, 0, 'a ten-minute window with one sample must reject');
+
+		const vacuumAfter = join(temporary, 'vacuum-after.json');
+		const vacuumReport = join(temporary, 'vacuum-report.json');
+		writeFileSync(vacuumAfter, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', {
+			polls: { autovacuum_count: 1, last_autovacuum: '2026-07-14T00:00:01.500Z' },
+		})));
+		const vacuumProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, paths.before, vacuumAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, vacuumReport]);
+		assert.notEqual(vacuumProcess.status, 0, 'vacuum/autovacuum drift must reject');
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
 	}
