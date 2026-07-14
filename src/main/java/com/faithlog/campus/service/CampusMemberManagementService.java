@@ -6,6 +6,9 @@ import com.faithlog.campus.service.command.ChangeCampusRoleCommand;
 import com.faithlog.campus.service.policy.CampusAccessPolicy;
 import com.faithlog.campus.service.policy.CampusRolePolicy;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
+import com.faithlog.campus.service.port.CampusMemberLockScope;
+import com.faithlog.campus.service.port.CampusRepositoryPort;
 import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.campus.service.port.CampusUserTokenVersionPort;
 import com.faithlog.campus.service.result.AdminCampusMemberResult;
@@ -19,15 +22,21 @@ import org.springframework.transaction.annotation.Transactional;
 public class CampusMemberManagementService {
 
 	private final CampusMemberRepositoryPort campusMemberRepository;
+	private final CampusRepositoryPort campusRepository;
+	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 	private final CampusUserTokenVersionPort userTokenVersionPort;
 	private final CampusAccessPolicy campusAccessPolicy;
 
 	public CampusMemberManagementService(
 		CampusMemberRepositoryPort campusMemberRepository,
+		CampusRepositoryPort campusRepository,
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
 		CampusUserTokenVersionPort userTokenVersionPort,
 		CampusAccessPolicy campusAccessPolicy
 	) {
 		this.campusMemberRepository = campusMemberRepository;
+		this.campusRepository = campusRepository;
+		this.dutyAssignmentRepository = dutyAssignmentRepository;
 		this.userTokenVersionPort = userTokenVersionPort;
 		this.campusAccessPolicy = campusAccessPolicy;
 	}
@@ -49,7 +58,7 @@ public class CampusMemberManagementService {
 	@Transactional
 	public void deleteCampusMember(Long campusId, Long membershipId, Long requesterId) {
 		CampusUserLookupResult requester = campusAccessPolicy.getActiveUser(requesterId);
-		CampusMember targetMember = campusMemberRepository.findByCampusIdAndId(campusId, membershipId)
+		CampusMemberLockScope targetScope = campusMemberRepository.findLockScopeByCampusIdAndId(campusId, membershipId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
 
 		if (!requester.isAdmin()) {
@@ -57,6 +66,15 @@ public class CampusMemberManagementService {
 				.findByCampusIdAndUserId(campusId, requester.userId())
 				.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN));
 			CampusRolePolicy.requireCampusManager(requesterMembership, ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN);
+		}
+		campusRepository.findByIdForUpdate(campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+		var activeDuties = dutyAssignmentRepository.findActiveByCampusIdAndUserIdForUpdate(
+			campusId, targetScope.userId());
+		CampusMember targetMember = campusMemberRepository.findByCampusIdAndIdForUpdate(campusId, membershipId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
+		if (!activeDuties.isEmpty()) {
+			throw new BusinessException(ErrorCode.CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT);
 		}
 		targetMember.deactivate();
 	}

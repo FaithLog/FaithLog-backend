@@ -17,11 +17,12 @@ import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
+import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.domain.entity.CampusDutyAssignment;
-import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
@@ -68,6 +69,9 @@ class CampusDutyAssignmentConcurrencyTest {
 
 	@MockitoSpyBean
 	private CampusMemberRepository campusMemberRepository;
+
+	@MockitoSpyBean
+	private CampusRepository campusRepository;
 
 	@Autowired
 	private TransactionTemplate transactionTemplate;
@@ -195,27 +199,22 @@ class CampusDutyAssignmentConcurrencyTest {
 		CampusMembershipResult membership = campusService.joinCampus(new JoinCampusCommand(
 			target.id(), campus.inviteCode()
 		));
-		CountDownLatch memberLoaded = new CountDownLatch(1);
+		CountDownLatch campusLocked = new CountDownLatch(1);
 		CountDownLatch allowDelete = new CountDownLatch(1);
 		doAnswer(invocation -> {
-			Object result = entityManager.createQuery("""
-				select member
-				from CampusMember member
-				where member.campusId = :campusId
-					and member.id = :membershipId
-				""", CampusMember.class)
-				.setParameter("campusId", campus.campusId())
-				.setParameter("membershipId", membership.membershipId())
-				.getResultStream()
-				.findFirst();
+			Object result = java.util.Optional.ofNullable(entityManager.find(
+				Campus.class,
+				campus.campusId(),
+				LockModeType.PESSIMISTIC_WRITE
+			));
 			if (Thread.currentThread().getName().equals("member-delete-before-assign")) {
-				memberLoaded.countDown();
+				campusLocked.countDown();
 				if (!allowDelete.await(5, TimeUnit.SECONDS)) {
 					throw new IllegalStateException("member delete release timeout");
 				}
 			}
 			return result;
-		}).when(campusMemberRepository).findByCampusIdAndId(campus.campusId(), membership.membershipId());
+		}).when(campusRepository).findByIdForUpdate(campus.campusId());
 
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
@@ -223,7 +222,7 @@ class CampusDutyAssignmentConcurrencyTest {
 				Thread.currentThread().setName("member-delete-before-assign");
 				campusService.deleteCampusMember(campus.campusId(), membership.membershipId(), manager.id());
 			});
-			assertThat(memberLoaded.await(5, TimeUnit.SECONDS)).isTrue();
+			assertThat(campusLocked.await(5, TimeUnit.SECONDS)).isTrue();
 			Future<DutyAssignmentResult> assignment = executor.submit(() -> campusService.assignCoffeeDuty(
 				new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), target.id())
 			));

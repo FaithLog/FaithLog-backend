@@ -5,6 +5,7 @@ import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.service.policy.CampusAccessPolicy;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.campus.service.port.CampusRepositoryPort;
 import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.campus.service.result.CampusMembershipResult;
@@ -18,15 +19,18 @@ public class CampusJoinService {
 
 	private final CampusRepositoryPort campusRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
+	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 	private final CampusAccessPolicy campusAccessPolicy;
 
 	public CampusJoinService(
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
 		CampusAccessPolicy campusAccessPolicy
 	) {
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
+		this.dutyAssignmentRepository = dutyAssignmentRepository;
 		this.campusAccessPolicy = campusAccessPolicy;
 	}
 
@@ -35,14 +39,21 @@ public class CampusJoinService {
 		CampusUserLookupResult requester = campusAccessPolicy.getActiveUser(command.requesterId());
 		Campus campus = campusRepository.findByInviteCode(command.inviteCode())
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_INVALID_INVITE_CODE));
+		campus = campusRepository.findByIdForUpdate(campus.id())
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+		var activeDuties = dutyAssignmentRepository.findActiveByCampusIdAndUserIdForUpdate(
+			campus.id(), requester.userId());
 
 		CampusMember existingMember = campusMemberRepository
-			.findByCampusIdAndUserId(campus.id(), requester.userId())
+			.findByCampusIdAndUserIdForUpdate(campus.id(), requester.userId())
 			.orElse(null);
 		if (existingMember != null && existingMember.isActive()) {
 			throw new BusinessException(ErrorCode.CAMPUS_ALREADY_JOINED);
 		}
 		if (existingMember != null) {
+			if (!activeDuties.isEmpty()) {
+				throw new BusinessException(ErrorCode.CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT);
+			}
 			existingMember.reactivateAsMember();
 			return CampusMembershipResult.of(campus, existingMember);
 		}

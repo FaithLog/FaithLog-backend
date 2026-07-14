@@ -58,7 +58,7 @@ public class CampusDutyAssignmentService {
 			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
 			"커피 담당자 관리 권한이 없습니다."
 		);
-		return dutyAssignmentRepository.findByCampusIdAndIsActiveTrueOrderByIdAsc(campusId)
+		return dutyAssignmentRepository.findActiveWithActiveMemberByCampusIdOrderByIdAsc(campusId)
 			.stream()
 			.map(assignment -> DutyAssignmentResult.of(
 				assignment,

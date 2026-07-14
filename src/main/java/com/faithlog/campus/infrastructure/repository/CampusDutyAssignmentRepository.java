@@ -36,7 +36,37 @@ public interface CampusDutyAssignmentRepository extends
 		@Param("userId") Long userId
 	);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select assignment
+		from CampusDutyAssignment assignment
+		where assignment.campusId = :campusId
+		  and assignment.userId = :userId
+		  and assignment.isActive = true
+		order by assignment.id asc
+		""")
+	List<CampusDutyAssignment> findActiveByCampusIdAndUserIdForUpdate(
+		@Param("campusId") Long campusId,
+		@Param("userId") Long userId
+	);
+
 	Optional<CampusDutyAssignment> findByCampusIdAndDutyTypeAndId(Long campusId, DutyType dutyType, Long id);
 
-	List<CampusDutyAssignment> findByCampusIdAndIsActiveTrueOrderByIdAsc(Long campusId);
+	@Query("""
+		select assignment
+		from CampusDutyAssignment assignment
+		where assignment.campusId = :campusId
+		  and assignment.isActive = true
+		  and exists (
+			select member.id
+			from CampusMember member
+			where member.campusId = assignment.campusId
+			  and member.userId = assignment.userId
+			  and member.status = com.faithlog.campus.domain.type.CampusMemberStatus.ACTIVE
+		  )
+		order by assignment.id asc
+		""")
+	List<CampusDutyAssignment> findActiveWithActiveMemberByCampusIdOrderByIdAsc(
+		@Param("campusId") Long campusId
+	);
 }
