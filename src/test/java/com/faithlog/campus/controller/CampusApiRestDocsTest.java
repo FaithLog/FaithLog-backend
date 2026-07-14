@@ -44,6 +44,7 @@ import org.springframework.restdocs.payload.FieldDescriptor;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -478,11 +479,13 @@ class CampusApiRestDocsTest {
 	}
 
 	@Test
+	@Transactional
 	void documents_coffee_duty_revoke_unpaid_conflict() throws Exception {
 		documentDutyRevokeUnpaidConflict(PaymentCategory.COFFEE);
 	}
 
 	@Test
+	@Transactional
 	void documents_meal_duty_revoke_unpaid_conflict() throws Exception {
 		documentDutyRevokeUnpaidConflict(PaymentCategory.MEAL);
 	}
