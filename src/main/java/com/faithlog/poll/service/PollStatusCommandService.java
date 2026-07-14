@@ -34,20 +34,23 @@ public class PollStatusCommandService {
 	@Transactional
 	public PollResult closePoll(Long campusId, Long pollId, Long requesterId) {
 		PollRepository.PollLockScope pollSnapshot = pollLookupSupport.getPollLockScopeInCampus(campusId, pollId);
-		if (pollSnapshot.getPollType() == PollType.MEAL) {
-			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
-		}
-		if (pollSnapshot.getPollType() == PollType.COFFEE) {
+		boolean coffeeOperation = CoffeeOperationClassifier.isCoffeeOperation(
+			pollSnapshot.getPollType(), pollSnapshot.getChargeGenerationType(), pollSnapshot.getPaymentCategory());
+		if (coffeeOperation) {
 			pollAccessService.requireCoffeePollOwnerForUpdate(campusId, requesterId, pollSnapshot);
+		} else if (pollSnapshot.getPollType() == PollType.MEAL) {
+			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
 		} else {
 			pollAccessService.requirePollAdmin(campusId, requesterId, pollSnapshot.getPollType());
 		}
 		Poll poll = pollLookupSupport.getPollInCampusForUpdate(campusId, pollId);
+		CoffeeOperationClassifier.requireConsistentConfiguration(
+			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory());
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}
 		poll.closeAt(Instant.now());
-		if (poll.pollType() == PollType.COFFEE) {
+		if (coffeeOperation) {
 			coffeePollSettlementService.settleClosedCoffeePoll(campusId, pollId);
 		}
 		return pollResultAssembler.toResult(poll);
