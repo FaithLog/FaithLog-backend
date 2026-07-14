@@ -1,0 +1,90 @@
+{
+  "issue": 199,
+  "status": "scenario-ready/not-measured",
+  "endpoint": {
+    "method": "GET",
+    "path": "/api/v1/admin/campuses/{campusId}/dashboard/summary",
+    "queryParameters": [
+      {
+        "name": "weekStartDate",
+        "required": false,
+        "format": "YYYY-MM-DD Monday"
+      }
+    ]
+  },
+  "authorization": {
+    "allowed": [
+      "service-admin",
+      "active-campus-minister",
+      "active-campus-elder",
+      "active-campus-leader"
+    ],
+    "denied": [
+      "plain-member",
+      "other-campus-admin",
+      "global-manager-only"
+    ],
+    "deniedCode": "ADMIN_DASHBOARD_ACCESS_FORBIDDEN"
+  },
+  "frontendEntry": {
+    "orderedSteps": [
+      "POST /api/v1/auth/login",
+      "parallel GET /api/v1/users/me + GET /api/v1/campuses/me",
+      "GET /api/v1/admin/campuses/{campusId}/dashboard/summary?weekStartDate={weekStartDate}"
+    ],
+    "productionParallelSiblings": [
+      "admin campus members",
+      "duty assignments",
+      "prayer weekly board",
+      "campus detail for invite code"
+    ],
+    "measurementIsolation": "Only dashboard summary is measured; sibling requests are documented but excluded from Issue #199 latency."
+  },
+  "dataset": {
+    "modes": [
+      "empty",
+      "small",
+      "thousand"
+    ],
+    "identifiers": [
+      "datasetId",
+      "fixtureRunId"
+    ],
+    "thousandMemberCount": 1000,
+    "fixtureDomains": [
+      "devotion",
+      "penalty",
+      "coffee",
+      "meal",
+      "poll",
+      "prayer"
+    ],
+    "seedPolicy": "reference-only"
+  },
+  "metrics": [
+    "p50",
+    "p95",
+    "p99",
+    "max",
+    "throughput",
+    "failureRate"
+  ],
+  "correctness": [
+    "member active/inactive/admin counts",
+    "devotion submitted/missing/rate",
+    "UNPAID PENALTY/COFFEE amount and member totals",
+    "OPEN and recently CLOSED poll counts",
+    "per-OPEN-poll response counts and aggregate missing count",
+    "same-campus data only and other-campus denial"
+  ],
+  "evidence": [
+    "warmup and measured k6 summaries",
+    "Docker CPU and RAM snapshots",
+    "pg_stat_database counters",
+    "pg_stat_user_tables analyze/autoanalyze counters",
+    "optional pg_stat_statements query evidence",
+    "planner settings",
+    "external activity declaration",
+    "actual Compose project/service labels"
+  ]
+}
