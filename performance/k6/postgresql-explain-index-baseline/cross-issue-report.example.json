@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "PERF_1000_EXAMPLE",
+  "fixtureRunId": "fixture-example-run-001",
+  "memberCount": 1000,
+  "issueReports": {
+    "192": "build/reports/k6/issue-192/example.json",
+    "193": "build/reports/k6/issue-193/example.json",
+    "195": "build/reports/k6/issue-195/example.json",
+    "196": "build/reports/k6/issue-196/example.json",
+    "197": "build/reports/k6/issue-197/example.json",
+    "198": "build/reports/k6/issue-198/example.json",
+    "199": "build/reports/k6/issue-199/example.json"
+  },
+  "anchors": {
+    "campus_id": 1,
+    "poll_id": 1,
+    "meal_poll_id": 2,
+    "member_user_id": 1,
+    "payment_account_id": 1,
+    "prayer_season_id": 1,
+    "prayer_week_id": 1,
+    "week_start_date": "2026-07-13",
+    "stale_before": "2026-07-14T00:00:00Z",
+    "range_start": "2025-01-01T00:00:00Z",
+    "range_end": "2026-01-01T00:00:00Z",
+    "keyword_pattern": "%PERF_%",
+    "page_size": 20,
+    "page_offset": 0
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "status": "scenario-ready-not-measured",
+  "measurementPhases": [
+    {
+      "id": "cold_like_observation",
+      "runs": 1,
+      "cacheResetPerformed": false,
+      "interpretation": "The first sequential observation is not a cold cache measurement because shared PostgreSQL and OS caches are not reset."
+    },
+    {
+      "id": "warm_cache",
+      "runsConfiguredBy": "WARM_RUNS",
+      "cacheResetPerformed": false,
+      "interpretation": "Sequential repetitions after the first observation; compare only with the same dataset, fixture run, planner snapshot, and external-activity evidence."
+    }
+  ],
+  "plannerState": {
+    "snapshots": ["before", "after"],
+    "requiredFields": [
+      "capturedAt",
+      "serverVersion",
+      "settings",
+      "lastAnalyze",
+      "lastAutoanalyze",
+      "nModSinceAnalyze",
+      "externalActivity"
+    ],
+    "autoanalyzeComparison": "Compare per-table lastAutoanalyze and nModSinceAnalyze between before and after snapshots."
+  },
+  "planMetrics": [
+    "planHash",
+    "nodeTypes",
+    "scanSummary",
+    "planRows",
+    "actualRows",
+    "loops",
+    "sharedHitBlocks",
+    "sharedReadBlocks",
+    "rowsRemoved",
+    "sortMethod",
+    "sortSpaceUsedKb",
+    "planningTimeMs",
+    "executionTimeMs"
+  ],
+  "comparisonIdentity": [
+    "datasetId",
+    "fixtureRunId",
+    "queryId",
+    "phase",
+    "planHash",
+    "composeProject",
+    "composeService",
+    "postgresContainerId"
+  ]
+}

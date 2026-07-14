@@ -2,6 +2,11 @@
 
 Issue #90 uses k6 to collect reproducible local performance numbers. Defaults target local Docker Compose only.
 
+Issue #194의 PostgreSQL 실행계획 before-baseline 준비는
+[`postgresql-explain-index-baseline/README.md`](postgresql-explain-index-baseline/README.md)를 따른다. 이 시나리오는
+#192/#193/#195/#196/#197/#198/#199 cross-issue report와 공통 1,000명 fixture를 입력받으며, 실제 DB 측정 승인이
+있기 전에는 정적 계약 테스트만 실행한다.
+
 ## Local Baseline
 
 1. Start the local stack.

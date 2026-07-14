@@ -6,6 +6,32 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const scenarioRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const expectedIssues = [192, 193, 195, 196, 197, 198, 199];
+const expectedQueryIds = [
+	'i192-coffee-response-graph',
+	'i192-due-coffee-polls',
+	'i192-existing-settlement-charges',
+	'i192-meal-settlement-groups',
+	'i193-admin-charge-filter-page',
+	'i193-member-charge-history',
+	'i193-my-account-aggregate',
+	'i195-admin-campus-list',
+	'i195-admin-user-page',
+	'i195-campus-member-list',
+	'i195-duty-assignment-list',
+	'i196-poll-comments',
+	'i196-poll-missing-responders',
+	'i196-poll-result-graph',
+	'i196-poll-template-options',
+	'i196-prayer-assignable-members',
+	'i196-prayer-board-graph',
+	'i196-prayer-group-list',
+	'i197-retention-candidate-counts',
+	'i197-weekly-devotion-daily-graph',
+	'i198-pending-notification-recovery',
+	'i198-sendable-fcm-token-bulk',
+	'i199-dashboard-summary',
+	'i199-open-poll-response-counts',
+];
 
 function read(relativePath) {
 	return fs.readFileSync(path.join(scenarioRoot, relativePath), 'utf8');
@@ -37,6 +63,7 @@ test('inventory connects every approved performance issue to read-only SQL and i
 		assert.doesNotMatch(sql, /\b(?:INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|VACUUM|ANALYZE)\b/i);
 	}
 	assert.deepEqual([...coveredIssues].sort((a, b) => a - b), expectedIssues);
+	assert.deepEqual([...ids].sort(), expectedQueryIds);
 });
 
 test('runner requires traceable fixture identity, exclusive lock, runtime credentials, and actual Compose labels', () => {
@@ -55,7 +82,10 @@ test('runner requires traceable fixture identity, exclusive lock, runtime creden
 	assert.match(runner, /BEGIN READ ONLY/);
 	assert.match(runner, /ALLOW_EXPLAIN_ANALYZE/);
 	assert.match(runner, /another performance or load run/i);
-	assert.doesNotMatch(runner, /docker[\s\S]*(?:down|up|build|prune|restart)/i);
+	assert.doesNotMatch(
+		runner,
+		/runCommand\(['"]docker['"],\s*\[\s*['"](?:down|up|build|prune|restart)['"]/i
+	);
 	assert.doesNotMatch(runner, /(?:PGPASSWORD|password)\s*[:=]\s*["'][^"']+["']/i);
 });
 

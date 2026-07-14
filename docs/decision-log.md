@@ -54,6 +54,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: PM finding 0과 backend 전체 test/build/asciidoctor/diff check 뒤 최신 API·권한·ErrorCode·프론트 UI 변경 명세를 PM 세션에 전달한다. PM은 지정된 프론트 작업 세션에 명세를 전달하며, 프론트 수정과 정적 검증이 끝나기 전에는 backend develop 병합 또는 Docker QA를 시작하지 않는다. 양쪽 준비 뒤 PM이 backend 통합, Docker Compose 서버 기동, 수정 frontend의 iOS Simulator 설치와 연결 E2E QA를 수행한다. 개발 세션은 push, PR, merge, Docker를 수행하지 않는다.
 - Decision: 통합 Docker/iOS QA 중 디스크가 부족하면 재생성 가능한 backend/frontend 프로젝트 build 산출물, 해당 프로젝트 iOS DerivedData/Expo bundle cache, Docker BuildKit builder cache 순서로 정리할 수 있다. Docker named volume, PostgreSQL/Redis 데이터, `docker volume/system prune`, 소스·문서·인증서·키·사용자 파일 삭제는 금지한다. `node_modules`와 전역 Gradle dependency cache는 앞선 정리로 부족할 때 현재 용량과 후보를 PM에 먼저 보고하며, 정리 전후 `df`/`du`와 실제 삭제 범위를 QA 보고에 기록한다.
 - Impact: 기존 관리자 범용 알림 API와 scheduler 알림은 유지하고 담당 청구 전용 application boundary/API를 추가한다. CampusDutyAssignment repository 조회는 사용자별 활성 여부를 기준으로 통일하고, active duty unique 제약은 `(campus_id, duty_type, user_id)`로 변경한다. 알림 endpoint/요청/202 응답 DTO와 DB schema는 추가 승인으로 변경되지 않으며 API, ErrorCode, Flyway, REST Docs와 프론트 연동 계약을 함께 갱신한다.
+### 2026-07-14 - Issue #194 PostgreSQL EXPLAIN Before-Baseline Scenario Scope
+
+- Context: #192/#193/#195/#196/#197/#198/#199의 공통 1,000명 성능 작업에서 index를 코드 추측으로 추가하지 않고 동일 fixture identity와 PostgreSQL 실행계획 증거를 먼저 수집해야 한다. 이번 #194 개발 세션은 실제 측정이나 schema 변경이 아니라 재현 가능한 수집 시나리오까지만 승인됐다.
+- Decision: #194는 7개 원 이슈의 핵심 read SQL inventory, `datasetId`와 `fixtureRunId`가 분리된 cross-issue report 입력, 공통 runner lock, runtime-only PostgreSQL credential, 실제 Docker Compose label 기록, read-only `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` runner와 정규화 plan hash/metric 계약을 준비한다. 첫 관찰은 cache reset이 없는 `cold_like_observation`으로 명시하고 true cold cache로 해석하지 않으며, 후속 `warm_cache`와 함께 planner settings, analyze/autoanalyze 시각·변화, external activity를 기록한다.
+- Decision: 이번 세션에서는 Docker/PostgreSQL/EXPLAIN/ANALYZE를 실행하지 않고 actual baseline 숫자나 개선 성과를 만들지 않는다. 기존 row 수정·삭제, production Java/API/권한/응답/ErrorCode/트랜잭션/Entity, DB/Flyway/index/HypoPG/extension, dependency, shared Docker lifecycle은 변경하지 않는다. 후보 predicate/order/join column은 evidence 수집 기대치로만 기록하며 index/Flyway 구현은 before evidence 보고와 별도 사용자 승인 이후다.
+- Impact: repository와 Obsidian 기록은 `scenario-ready / not-measured`로만 남긴다. 향후 실제 실행은 같은 1,000명 dataset/fixtureRunId와 7개 원 이슈 report가 준비되고 다른 부하가 없는 승인된 측정 창에서 순차 수행해야 한다.
 
 ### 2026-07-13 - Issue #190 Penalty Cancel Resubmission And Admin Paid
 
