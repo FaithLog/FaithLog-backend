@@ -36,8 +36,9 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 계약/DB: COFFEE operation 판정을 pollType/chargeGenerationType/paymentCategory의 단일 classifier로 통일하고 혼합 설정 우회를 차단했다. 사용자 승인대로 COFFEE 템플릿을 계좌 중립으로 저장하고, 실제 템플릿 기반 투표 생성에서 요청자의 active owned 계좌를 받는다. V10은 기존 COFFEE template의 `payment_account_id`만 null로 갱신하며 row 삭제나 schema 변경은 없다.
   - 동시성: 투표·템플릿·계좌·청구 상태·미납 알림 및 MEAL command가 담당 해제와 같은 duty row `PESSIMISTIC_WRITE`를 공유하고 `duty -> poll/account/charge` 순서를 사용한다. 수동/기한 마감 동시 테스트에서 잠금 전 managed Poll snapshot이 stale OPEN으로 재사용되는 추가 race를 발견해 projection으로 잠금 scope만 읽은 뒤 duty와 Poll을 순서대로 잠그도록 보강했다.
   - 알림/조회: soft-deleted owned account의 UNPAID도 알림 범위에 포함하고, transaction rollback 시 Redis daily reservation을 보상한다. dispatch는 request의 전체 recipient token을 1회 bulk 조회한다. 캠퍼스 관리자/전역 ADMIN의 COFFEE 계좌 필터 읽기는 전체 campus 범위를 유지하고 담당자 write/필터 ownership은 그대로다.
-  - 검증: 최종 전체 `481 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`를 통과했다. test source 88개, REST Docs snippet group 155개, Flyway V1-V10이다. Docker/PostgreSQL/Flyway 실제 적용은 사용자 승인 범위에 따라 실행하지 않았다.
-  - 이력서 문장 후보: `다중 COFFEE 담당 권한·미납 알림 전체 diff 리뷰에서 8개 인가/동시성/rollback/N+1 finding을 TDD로 재현하고 duty-first row lock, transaction completion 보상, recipient token bulk 조회, 계좌 중립 템플릿 V10으로 보강해 481개 전체 테스트와 REST Docs 155개 계약을 통과했다.`
+  - 자체 리뷰 추가 보완: MEAL 계좌 목록이 read-only transaction에서 duty write lock을 잡고, 계좌 비활성화 명령은 반대로 duty/account lock을 잡지 않는 누락을 RED 2건으로 재현했다. 목록은 non-locking duty 조회로 복원하고 비활성화는 `duty -> account` 잠금 순서로 통일했다. 계좌 중립 템플릿과 관리자 COFFEE 필터 범위에 어긋난 오래된 정책 문구도 실제 계약으로 정리했다.
+  - 검증: 최종 전체 `483 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`를 통과했다. test suite 83개, test source 88개, REST Docs snippet group 155개, Flyway V1-V10이다. Docker/PostgreSQL/Flyway 실제 적용은 사용자 승인 범위에 따라 실행하지 않았다.
+  - 이력서 문장 후보: `다중 COFFEE 담당 권한·미납 알림 전체 diff 리뷰에서 인가·동시성·rollback·N+1 finding을 TDD로 재현하고 duty-first row lock, transaction completion 보상, recipient token bulk 조회, 계좌 중립 템플릿 V10으로 보강해 483개 전체 테스트와 REST Docs 155개 계약을 통과했다.`
 
 - #188/#189/#190 통합 검증:
   - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
@@ -1148,6 +1149,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-07-14 | #200 자체 리뷰 알림 토큰 N+1 보완 | 성공 | 수신자 반복문 내부 FCM token 조회를 발견해 bulk lookup 구조 테스트 8 tests 중 신규 1건 RED 확인 후 다중 user ID 1회 조회로 변경, notification 전체 focused GREEN | 최종 전체 회귀 재검증 |
 | 2026-07-14 | #200 COFFEE 자동 생성 제외 RED/GREEN | 성공 | `PollAutomationServiceTest` 6 tests 중 신규 제외 계약 1건 RED 확인 후 scheduler COFFEE 필터로 6/6 GREEN. 수동 생성 COFFEE 투표의 예정 마감·정산 유지 | 전체 회귀 검증으로 확대 |
 | 2026-07-14 | #200 full regression/build/docs | 성공 | 자체 리뷰 보완 포함 최종 `./gradlew test` 466 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 153개, `git diff --check` 성공 | PM 전체 diff 리뷰 요청. Docker/PostgreSQL 실마이그레이션은 사용자 금지에 따라 미실행 |
+| 2026-07-14 | #200 PM 재리뷰 후 자체 리뷰 추가 RED/GREEN | 성공 | MEAL 계좌 read-only duty write lock과 deactivate duty/account lock 누락을 focused 8 tests 중 2 failures로 재현. 최소 수정 후 focused GREEN, 최종 `483 tests / 0 failures / 0 errors / 3 skipped`, build/asciidoctor/diff check 성공, snippet group 155개 | 최신 `origin/develop...HEAD` PM 재리뷰 요청. Docker/PostgreSQL/Flyway 실적용은 금지에 따라 미실행 |
 | 2026-06-19 | #61 TDD 실패 확인 | 실패 확인 | 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminManagementControllerTest`가 4 tests / 4 failed로 실패. 서비스 ADMIN 관리 endpoint와 role 변경 PATCH 미구현 확인 | admin application/presentation/port 계층 구현 |
 | 2026-06-19 | #61 focused admin tests | 성공 | `AdminManagementServiceTest`, `AdminManagementControllerTest`, `AdminManagementApiRestDocsTest` 성공. 사용자/캠퍼스 검색, 마지막 ADMIN 보호, 직접 멤버 추가/재활성화, REST Docs 계약 검증 | 전체 회귀 테스트로 확대 |
 | 2026-06-19 | #61 full regression/build/docs | 성공 | `./gradlew test` 성공(138 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 57개 | PM 리뷰 요청 |
@@ -1230,7 +1232,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 요청 body 없이 담당자 소유 계좌의 전체 UNPAID를 계좌·수신자별 합산하는 202 알림 API 2개를 추가하고, Asia/Seoul 일자 Redis dedupe·토큰 없음 skip·dispatch 실패 rollback/retry를 검증.
   - 알림 본문에 청구 title별 건수·금액을 최대 5종까지 표시하고 전체 합계를 유지했으며, 담당 해제와 COFFEE/MEAL 정산이 동일 배정 행 잠금을 공유해 동시 요청에서도 미납 해제 차단을 보장.
   - 자체 리뷰에서 수신자별 FCM token N+1 조회를 발견해 다중 user ID bulk query 1회로 축소하고 구조 회귀 테스트를 추가.
-  - COFFEE 투표를 scheduler 자동 생성에서 제외하되 수동 생성 투표의 예정 마감·정산을 유지하고, 전체 461 tests와 REST Docs 153개 snippet group으로 검증. Docker/실데이터 성과 수치는 측정하지 않음.
+  - COFFEE 투표를 scheduler 자동 생성에서 제외하되 수동 생성 투표의 예정 마감·정산을 유지하고, 전체 483 tests와 REST Docs 155개 snippet group으로 검증. Docker/실데이터 성과 수치는 측정하지 않음.
 
 - 2026-06-20 #38 PM 검토 보완
   - 컨트롤러 `@NotEmpty`로 빈 `optionIds`가 `GLOBAL_VALIDATION_FAILED`로 뭉개지던 경로를 제거하고, 서비스 검증에서 `POLL_RESPONSE_INVALID_SELECTION_COUNT` 계약을 반환하도록 보정.
