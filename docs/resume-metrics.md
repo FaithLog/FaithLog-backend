@@ -95,7 +95,11 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 잠금/인가: stale 복구는 requester user를 먼저 잠그고 `user -> campus -> duty -> member -> charge` 순서를 사용하며 locked charge의 UNPAID를 재검증한다. 전역 역할 변경은 최소 user ID row를 DB 공통 mutex로 사용한 뒤 requester/target 최신 역할과 마지막 ACTIVE ADMIN 수를 판단한다.
   - API/문서: `staleOnly` 오류 변환을 해당 controller로 제한해 unrelated type mismatch 계약 변경을 제거했다. COFFEE/MEAL 일반 상태 변경 권한을 실제 production과 일치시켰고 stale COFFEE 일반 관리자 403, ACTIVE MEAL service ADMIN 404, stale MEAL 성공 REST Docs를 추가했다.
   - 최종 검증: `./gradlew test` 86 suites / 548 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 12초, `./gradlew asciidoctor` 14초, REST Docs 170 groups/HTML, test source 91개, 전체 diff check 성공이다. Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 수행하지 않았다.
-
+- #196 기도조·투표 목록 before 시나리오 준비:
+  - 상태는 `scenario-ready / not-measured`다. baseline 및 개선 수치는 없으며 이력서 성과로 집계하지 않는다.
+  - primary ACTIVE 1,000명, Prayer 40조×25명·제출 800/미제출 200, Poll 응답 800/미응답 200·comments 200·templates 40×8, isolation ACTIVE 50명 계약을 fixtureRunId별 새 데이터로 고정했다.
+  - Prayer와 Poll member/admin read flow를 endpoint별·mode별로 순차 분리하고, p50/p95/p99/max/throughput/failure, CPU/RAM, SQL query/table counter, repeated SQL loop evidence와 correctness gate를 함께 수집하도록 준비했다.
+  - production 코드, API, 권한, DB/Flyway, dependency는 변경하지 않았고 Docker/DB/seed/k6도 실행하지 않았다. 실제 숫자와 개선 문장은 승인된 측정 및 전후 비교가 끝난 뒤에만 기록한다.
 - #188/#189/#190 통합 검증:
   - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
   - 통합 리뷰 RED/GREEN: 재오픈된 weekly row를 잠그지 않아 동시 0원 재제출 두 건이 모두 제출 검사를 통과할 수 있는 race를 결정적 latch 테스트로 재현했다. RED `1 test / 1 failure` 뒤 취소 재오픈과 재제출 양쪽이 같은 weekly row `PESSIMISTIC_WRITE`를 사용하도록 보강했고, 신규 회귀와 #190 전체 재제출 통합 class가 GREEN이었다. production API/DTO/ErrorCode/Flyway는 바꾸지 않았다.
