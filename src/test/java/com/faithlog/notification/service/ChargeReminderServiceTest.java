@@ -4,7 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 
 import com.faithlog.billing.domain.entity.ChargeItem;
 import com.faithlog.billing.domain.entity.PaymentAccount;
@@ -36,6 +39,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -66,7 +70,7 @@ class ChargeReminderServiceTest {
 	@Autowired
 	private PaymentAccountRepository paymentAccountRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private ChargeItemRepository chargeItemRepository;
 
 	@Autowired
@@ -173,6 +177,49 @@ class ChargeReminderServiceTest {
 		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId()))
 			.singleElement()
 			.satisfies(log -> assertThat(log.targetId()).isEqualTo(fixture.account().id()));
+	}
+
+	@Test
+	void reminder_skips_charge_query_when_requester_has_no_owned_account() {
+		User duty = userRepository.saveAndFlush(User.create(
+			"커피담당", "notification-200-no-account-duty@example.com", "encoded"));
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"200소유계좌없음캠", "분당", "알림 조회 범위", "INV-200-NO-ACCOUNT"));
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(campus.id(), duty.id()));
+		dutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(campus.id(), duty.id()));
+		clearInvocations(chargeItemRepository);
+
+		SendNotificationResult result = chargeReminderService.requestCoffeeReminders(campus.id(), duty.id());
+
+		assertThat(result.queuedCount()).isZero();
+		assertThat(result.skippedCount()).isZero();
+		verify(chargeItemRepository, never()).findByCampusIdAndPaymentCategoryAndStatus(
+			campus.id(), PaymentCategory.COFFEE, com.faithlog.billing.domain.type.ChargeStatus.UNPAID);
+	}
+
+	@Test
+	void reminder_does_not_load_campus_wide_unpaid_charges_when_requester_owns_only_some_accounts() {
+		ReminderFixture fixture = createCoffeeReminderFixture("owned-query-scope");
+		User otherDuty = userRepository.saveAndFlush(User.create(
+			"다른담당", "notification-200-owned-query-other@example.com", "encoded"));
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(fixture.campus().id(), otherDuty.id()));
+		dutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(fixture.campus().id(), otherDuty.id()));
+		PaymentAccount otherAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			fixture.campus().id(), PaymentCategory.COFFEE, "다른 계좌", "하나은행", "200-OTHER-QUERY",
+			"다른담당", otherDuty.id()));
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			fixture.campus().id(), fixture.duty().id(), PaymentCategory.COFFEE, otherAccount.id(),
+			otherAccount.bankName(), otherAccount.accountNumber(), otherAccount.accountHolder(),
+			ChargeSourceType.POLL_RESPONSE, 20999L, "다른 담당 커피", "조회 제외", 2500, null));
+		clearInvocations(chargeItemRepository);
+
+		SendNotificationResult result = chargeReminderService.requestCoffeeReminders(
+			fixture.campus().id(), fixture.duty().id());
+
+		assertThat(result.queuedCount()).isEqualTo(1);
+		verify(chargeItemRepository, never()).findByCampusIdAndPaymentCategoryAndStatus(
+			fixture.campus().id(), PaymentCategory.COFFEE,
+			com.faithlog.billing.domain.type.ChargeStatus.UNPAID);
 	}
 
 	@Test
