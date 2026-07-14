@@ -668,6 +668,10 @@ class CampusServiceTest {
 			.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
 				anyLong(), any(PaymentCategory.class), any(ChargeStatus.class), anySet()
 			);
+		verify(chargeItemRepository, never())
+			.existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
+				anyLong(), any(PaymentCategory.class), any(ChargeStatus.class), anySet()
+			);
 	}
 
 	@Test
@@ -704,8 +708,12 @@ class CampusServiceTest {
 			campus.campusId(), PaymentCategory.COFFEE, ChargeStatus.UNPAID
 		);
 		verify(chargeItemRepository)
-			.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+			.existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
 				campus.campusId(), PaymentCategory.COFFEE, ChargeStatus.UNPAID, Set.of(ownedAccount.id())
+			);
+		verify(chargeItemRepository, never())
+			.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+				anyLong(), any(PaymentCategory.class), any(ChargeStatus.class), anySet()
 			);
 	}
 
