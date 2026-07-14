@@ -72,6 +72,8 @@ test('runner keeps fixture preparation separate, holds a global load lock, and r
 	assert.match(runner, /--no-daemon/);
 	assert.match(runner, /docker stats/);
 	assert.match(runner, /redis-cli.*INFO.*commandstats/is);
+	assert.match(runner, /redis-cli.*DBSIZE/is);
+	assert.match(runner, /issue198MarkerLogsTotal/);
 	assert.match(runner, /environment\.json/);
 	assert.match(runner, /com\.docker\.compose\.project/);
 	assert.match(runner, /SPRING_DATASOURCE_URL/);
@@ -142,6 +144,8 @@ test('verification contract covers throughput, DB calls, status counts, dedupe, 
 	assert.match(summarizer, /workloadSignature/);
 	assert.match(summarizer, /businessDate/);
 	assert.match(summarizer, /postgresDatabase/);
+	assert.match(summarizer, /postgresBeforeCardinality/);
+	assert.match(summarizer, /redisDbSizeBefore/);
 	assert.match(summarizer, /evidenceTotals/);
 	assert.match(verifier, /postgresDelta/);
 	assert.match(verifier, /redisCommandCallDelta/);
@@ -248,6 +252,15 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 				notification_logs: { n_tup_ins: 1, n_tup_upd: 2 },
 				user_fcm_tokens: { n_tup_upd: 2 },
 			},
+			cardinality: {
+				userFcmTokensTotal: 2000,
+				activeTokensTotal: 1000,
+				issue198DummyTokensTotal: 901,
+				issue198ActiveDummyTokens: 901,
+				notificationLogsTotal: 10,
+				issue198MarkerLogsTotal: 2,
+			},
+			relationBytes: { userFcmTokens: 65536, notificationLogs: 32768 },
 		};
 		const postgresAfter = {
 			database: { xact_commit: 20 },
@@ -255,6 +268,15 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 				notification_logs: { n_tup_ins: 1001, n_tup_upd: 802 },
 				user_fcm_tokens: { n_tup_upd: 103 },
 			},
+			cardinality: {
+				userFcmTokensTotal: 2000,
+				activeTokensTotal: 899,
+				issue198DummyTokensTotal: 901,
+				issue198ActiveDummyTokens: 800,
+				notificationLogsTotal: 1010,
+				issue198MarkerLogsTotal: 1002,
+			},
+			relationBytes: { userFcmTokens: 69632, notificationLogs: 131072 },
 		};
 
 		for (const [name, value] of Object.entries({
@@ -266,8 +288,8 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 		})) {
 			writeFileSync(join(runDir, name), `${JSON.stringify(value)}\n`, { flag: name === 'manifest.json' ? 'wx' : 'w' });
 		}
-		writeFileSync(join(runDir, 'redis-commandstats-before.txt'), 'cmdstat_set:calls=5,usec=10\n');
-		writeFileSync(join(runDir, 'redis-commandstats-after.txt'), 'cmdstat_set:calls=2005,usec=4010\n');
+		writeFileSync(join(runDir, 'redis-commandstats-before.txt'), 'dbsize=10\ncmdstat_set:calls=5,usec=10\n');
+		writeFileSync(join(runDir, 'redis-commandstats-after.txt'), 'dbsize=1010\ncmdstat_set:calls=2006,usec=4010\n');
 		writeFileSync(
 			join(runDir, 'docker-stats.csv'),
 			'captured_at,container,cpu_percent,memory_usage,memory_percent\n'
@@ -301,7 +323,8 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 		assert.equal(summary.measuredCount, 1);
 		assert.equal(summary.totals.createdLogs, 1000);
 		assert.equal(summary.evidenceTotals.postgresDelta.tables.notification_logs.n_tup_ins, 1000);
-		assert.equal(summary.evidenceTotals.redisCommandCallDelta.set, 2000);
+		assert.equal(summary.evidenceTotals.redisCommandCallDelta.set, 2001);
+		assert.equal(summary.evidenceTotals.redisDbSizeDelta, 1000);
 		assert.equal(summary.evidenceTotals.dockerPeakByContainer['pg-198'].sampleCount, 1);
 
 		writeFileSync(
@@ -323,6 +346,21 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 			},
 		);
 		assert.notEqual(contradictoryVerifier.status, 0, 'contradictory PostgreSQL evidence must fail');
+
+		writeFileSync(join(runDir, 'postgres-after.json'), `${JSON.stringify(postgresAfter)}\n`);
+		writeFileSync(
+			join(runDir, 'redis-commandstats-after.txt'),
+			'dbsize=1011\ncmdstat_set:calls=2007,usec=4012\n',
+		);
+		const overCountVerifier = spawnSync(
+			process.execPath,
+			[fileURLToPath(new URL('verify-before.mjs', SCENARIO_ROOT))],
+			{
+				env: { ...process.env, MANIFEST_PATH: join(runDir, 'manifest.json'), RUN_DIR: runDir },
+				encoding: 'utf8',
+			},
+		);
+		assert.notEqual(overCountVerifier.status, 0, 'unexpected extra Redis evidence must fail');
 	} finally {
 		rmSync(temporaryRoot, { recursive: true, force: true });
 	}

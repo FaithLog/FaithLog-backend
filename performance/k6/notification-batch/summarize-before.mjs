@@ -64,6 +64,9 @@ const workloadSignature = (sample) => JSON.stringify({
 	javaRuntimeVersion: sample.result.javaRuntimeVersion,
 	notificationType: sample.result.notificationType,
 	retryBackoffPolicy: sample.result.retryBackoffPolicy,
+	postgresBeforeCardinality: sample.verification.evidence.postgresBeforeCardinality,
+	postgresBeforeRelationBytes: sample.verification.evidence.postgresBeforeRelationBytes,
+	redisDbSizeBefore: sample.verification.evidence.redisDbSizeBefore,
 });
 assert.equal(new Set(samples.map(workloadSignature)).size, 1,
 	'Warmup and measured samples must share one workload and runtime fingerprint');
@@ -138,11 +141,18 @@ const evidenceTotals = measured.reduce((totals, sample) => ({
 		sample.verification.evidence.redisCommandCallDelta,
 	),
 	dockerSampleCount: totals.dockerSampleCount + sample.verification.evidence.dockerSampleCount,
+	redisDbSizeDelta: totals.redisDbSizeDelta + sample.verification.evidence.redisDbSizeDelta,
 	dockerPeakByContainer: mergeDockerPeaks(
 		totals.dockerPeakByContainer,
 		sample.verification.evidence.dockerPeakByContainer,
 	),
-}), { postgresDelta: {}, redisCommandCallDelta: {}, dockerSampleCount: 0, dockerPeakByContainer: {} });
+}), {
+	postgresDelta: {},
+	redisCommandCallDelta: {},
+	redisDbSizeDelta: 0,
+	dockerSampleCount: 0,
+	dockerPeakByContainer: {},
+});
 
 const totals = measured.reduce((accumulator, sample) => {
 	const statuses = sample.result.delivery.statusCounts;

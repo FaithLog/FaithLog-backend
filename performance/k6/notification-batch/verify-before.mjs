@@ -114,8 +114,17 @@ const redisCalls = (text) => Object.fromEntries(
 		}),
 );
 
+const redisDbSize = (text) => {
+	const value = Number(text.match(/^dbsize=(\d+)$/m)?.[1]);
+	assert.ok(Number.isInteger(value) && value >= 0, 'Redis DBSIZE evidence is required');
+	return value;
+};
+
 const redisBeforeCalls = redisCalls(redisBefore);
 const redisAfterCalls = redisCalls(redisAfter);
+const redisDbSizeBefore = redisDbSize(redisBefore);
+const redisDbSizeAfter = redisDbSize(redisAfter);
+const redisDbSizeDelta = redisDbSizeAfter - redisDbSizeBefore;
 const redisCommandCallDelta = Object.fromEntries(
 	Object.entries(redisAfterCalls).map(([command, calls]) => [command, calls - (redisBeforeCalls[command] ?? 0)]),
 );
@@ -136,11 +145,46 @@ for (const row of dockerRows) {
 	dockerPeakByContainer[container] = peak;
 }
 
-const postgresDelta = numericDelta(postgresBefore, postgresAfter);
+const postgresDelta = {
+	database: numericDelta(postgresBefore.database, postgresAfter.database),
+	tables: numericDelta(postgresBefore.tables, postgresAfter.tables),
+};
 assertFiniteNonNegativeNumbers(postgresDelta, 'postgresDelta');
 assertFiniteNonNegativeNumbers(redisCommandCallDelta, 'redisCommandCallDelta');
 assert.ok(postgresDelta.tables?.notification_logs, 'notification_logs PostgreSQL evidence is required');
 assert.ok(postgresDelta.tables?.user_fcm_tokens, 'user_fcm_tokens PostgreSQL evidence is required');
+const cardinalityBefore = postgresBefore.cardinality;
+const cardinalityAfter = postgresAfter.cardinality;
+const relationBytesBefore = postgresBefore.relationBytes;
+assertFiniteNonNegativeNumbers(cardinalityBefore, 'postgresBefore.cardinality');
+assertFiniteNonNegativeNumbers(cardinalityAfter, 'postgresAfter.cardinality');
+assertFiniteNonNegativeNumbers(relationBytesBefore, 'postgresBefore.relationBytes');
+assert.equal(
+	cardinalityAfter.notificationLogsTotal - cardinalityBefore.notificationLogsTotal,
+	result.creation.logInsertCount,
+	'notification_logs total cardinality must grow by the exact request-scoped insert count',
+);
+assert.equal(
+	cardinalityAfter.issue198MarkerLogsTotal - cardinalityBefore.issue198MarkerLogsTotal,
+	result.creation.logInsertCount,
+	'Issue #198 marker log cardinality must grow by the exact insert count',
+);
+assert.equal(
+	cardinalityAfter.userFcmTokensTotal - cardinalityBefore.userFcmTokensTotal,
+	0,
+	'the measured scenario must not insert or delete FCM token rows',
+);
+assert.equal(
+	cardinalityBefore.activeTokensTotal - cardinalityAfter.activeTokensTotal,
+	result.delivery.tokenUpdateCount,
+	'active token cardinality must decrease by the exact permanent failure count',
+);
+assert.equal(
+	cardinalityBefore.issue198ActiveDummyTokens - cardinalityAfter.issue198ActiveDummyTokens,
+	result.delivery.tokenUpdateCount,
+	'active Issue #198 dummy token cardinality must decrease exactly',
+);
+assert.equal(redisDbSizeDelta, manifest.memberCount, 'one retained dedupe key per target is required');
 assert.ok(
 	postgresDelta.tables.notification_logs.n_tup_ins >= result.creation.logInsertCount,
 	'notification_logs insert evidence must cover the logical insert count',
@@ -153,9 +197,10 @@ assert.ok(
 	postgresDelta.tables.user_fcm_tokens.n_tup_upd >= result.delivery.tokenUpdateCount,
 	'user_fcm_tokens update evidence must cover permanent dummy-token deactivation',
 );
-assert.ok(
-	(redisCommandCallDelta.set ?? 0) >= manifest.memberCount * 2,
-	'Redis SET evidence must cover creation and exact dedupe replay reservations',
+assert.equal(
+	redisCommandCallDelta.set,
+	(manifest.memberCount * 2) + 1,
+	'Redis SET evidence must equal creation + replay dedupe reservations + one delivery lock',
 );
 
 const verification = {
@@ -172,7 +217,11 @@ const verification = {
 	unexpectedRequestLogCount: result.correctness.unexpectedRequestLogCount,
 	evidence: {
 		window: environment.externalEvidenceWindow,
+		postgresBeforeCardinality: cardinalityBefore,
+		postgresBeforeRelationBytes: relationBytesBefore,
 		postgresDelta,
+		redisDbSizeBefore,
+		redisDbSizeDelta,
 		redisCommandCallDelta,
 		dockerSampleCount: dockerRows.length,
 		dockerPeakByContainer,

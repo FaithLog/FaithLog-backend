@@ -140,13 +140,35 @@ snapshot_postgres() {
 				FROM pg_stat_user_tables
 				WHERE relname IN ('campus_members','user_fcm_tokens','notification_logs')
 				ORDER BY relname
-			) table_stats)
+			) table_stats),
+			'cardinality', json_build_object(
+				'userFcmTokensTotal', (SELECT count(*) FROM user_fcm_tokens),
+				'activeTokensTotal', (SELECT count(*) FROM user_fcm_tokens WHERE is_active = TRUE),
+				'issue198DummyTokensTotal', (
+					SELECT count(*) FROM user_fcm_tokens WHERE token LIKE 'PERFORMANCE_198_DUMMY:%'
+				),
+				'issue198ActiveDummyTokens', (
+					SELECT count(*) FROM user_fcm_tokens
+					WHERE is_active = TRUE AND token LIKE 'PERFORMANCE_198_DUMMY:%'
+				),
+				'notificationLogsTotal', (SELECT count(*) FROM notification_logs),
+				'issue198MarkerLogsTotal', (
+					SELECT count(*) FROM notification_logs WHERE title LIKE 'PERFORMANCE #198 %'
+				)
+			),
+			'relationBytes', json_build_object(
+				'userFcmTokens', pg_total_relation_size('user_fcm_tokens'),
+				'notificationLogs', pg_total_relation_size('notification_logs')
+			)
 		);" > "${output}"
 }
 
 snapshot_redis() {
 	local output="$1"
-	docker exec "${REDIS_CONTAINER}" redis-cli --raw INFO commandstats > "${output}"
+	local dbsize
+	dbsize="$(docker exec "${REDIS_CONTAINER}" redis-cli --raw DBSIZE)"
+	printf 'dbsize=%s\n' "${dbsize}" > "${output}"
+	docker exec "${REDIS_CONTAINER}" redis-cli --raw INFO commandstats >> "${output}"
 }
 
 sample_docker_stats() {
