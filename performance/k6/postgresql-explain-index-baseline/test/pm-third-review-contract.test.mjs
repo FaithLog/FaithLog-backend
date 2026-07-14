@@ -192,3 +192,60 @@ test('SIGTERM interrupts an approved long sampling delay so the worker preserves
 		fs.rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test('observer grace covers an in-flight sample plus the final sample before forced kill', async () => {
+	const {
+		ACTIVITY_MONITOR_GRACEFUL_TIMEOUT_MS,
+		ACTIVITY_SAMPLE_TIMEOUT_MS,
+	} = await import(moduleUrl('runtime-contract.mjs'));
+	assert.ok(ACTIVITY_MONITOR_GRACEFUL_TIMEOUT_MS > ACTIVITY_SAMPLE_TIMEOUT_MS * 2,
+		'observer grace must exceed two worst-case samples');
+	const runner = fs.readFileSync(path.join(scenarioRoot, 'run-baseline.mjs'), 'utf8');
+	assert.match(runner, /terminateChild\(monitor\.child, monitor\.exitPromise,\s*\{ gracefulTimeoutMs: ACTIVITY_MONITOR_GRACEFUL_TIMEOUT_MS \}\)/);
+
+	const { terminateChildProcess } = await import(moduleUrl('runner-safety-contract.mjs'));
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-194-monitor-slow-stop-'));
+	let worker = null;
+	try {
+		const bin = path.join(root, 'bin');
+		const output = path.join(root, 'window.json');
+		const firstSampleMarker = path.join(root, 'first-sample-marker');
+		fs.mkdirSync(bin);
+		const fakePsql = path.join(bin, 'psql');
+		fs.writeFileSync(fakePsql, `#!/bin/sh
+if ! mkdir "$FAKE_FIRST_SAMPLE_MARKER" 2>/dev/null; then sleep 1.6; fi
+printf '%s\n' '[]'
+`);
+		fs.chmodSync(fakePsql, 0o700);
+		worker = spawn(process.execPath, [
+			path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-', '1', 'faithlog',
+		], {
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_FIRST_SAMPLE_MARKER: firstSampleMarker },
+			stdio: ['pipe', 'pipe', 'pipe'],
+		});
+		const exitPromise = new Promise((resolve) => {
+			worker.once('error', (error) => resolve({ error, code: null }));
+			worker.once('exit', (code) => resolve({ error: null, code }));
+		});
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error('slow worker readiness timed out')), 3000);
+			worker.once('error', reject);
+			worker.stdout.on('data', (chunk) => {
+				if (chunk.toString().includes('ready')) {
+					clearTimeout(timer);
+					setTimeout(resolve, 100);
+				}
+			});
+		});
+		const outcome = await terminateChildProcess(worker, exitPromise, {
+			gracefulTimeoutMs: ACTIVITY_MONITOR_GRACEFUL_TIMEOUT_MS,
+		});
+		assert.equal(outcome.code, 0);
+		assert.equal(outcome.error, null);
+		assert.ok(fs.existsSync(output), 'worker must preserve its final window report before the grace expires');
+		assert.ok(JSON.parse(fs.readFileSync(output, 'utf8')).sampleCount >= 3);
+	} finally {
+		if (worker && worker.exitCode === null && worker.signalCode === null) worker.kill('SIGKILL');
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+});
