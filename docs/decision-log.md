@@ -10,6 +10,14 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-14 - Issue #200 Coffee Duty Ownership And Duty Charge Reminders
+
+- Context: 기존 COFFEE 담당은 캠퍼스별 1명만 활성화할 수 있고 새 지정이 이전 담당을 자동 해제했다. service ADMIN과 캠퍼스 관리자는 담당 여부와 무관하게 COFFEE command를 수행할 수 있었으며, 일반 `PAYMENT_UNPAID` 알림은 PENALTY/COFFEE/MEAL 미납을 캠퍼스 단위로 함께 조회했다.
+- Decision: 같은 캠퍼스에 여러 ACTIVE COFFEE 담당자를 허용하고 동일 캠퍼스·담당 유형·사용자의 ACTIVE 중복만 금지한다. 기존 COFFEE 지정 `PUT` API는 경로를 유지하되 다른 담당자를 해제하지 않는 idempotent 추가 의미로 변경한다. 관리자는 COFFEE 현황을 읽을 수 있지만 투표·템플릿·계좌·청구의 생성, 수정, 마감, 정산과 알림 발송은 ACTIVE COFFEE 담당자만 수행한다. 각 담당자는 본인이 만든 투표와 본인 소유 계좌 및 해당 계좌 청구만 변경할 수 있고, COFFEE 템플릿은 같은 캠퍼스 ACTIVE COFFEE 담당자들이 공동 관리한다.
+- Decision: COFFEE 또는 MEAL 담당자 본인 소유 계좌에 UNPAID 청구가 하나라도 있으면 담당 해제를 `409`로 거부한다. 비활성 계좌의 미납도 포함하며 PAID, WAIVED, CANCELED는 해제를 막지 않는다.
+- Decision: COFFEE/MEAL 담당 청구 알림 API는 charge ID 선택을 받지 않고 요청 담당자의 소유 계좌에 연결된 해당 category의 모든 UNPAID 청구를 조회한다. 계좌와 수신자별 미납 합계를 서버 고정 제목·본문으로 발송하고, 같은 담당 계좌·수신자·영업일의 `PAYMENT_UNPAID` 알림은 하루 1회만 생성한다. 다른 캠퍼스·category·담당자 계좌와 미납이 아닌 청구는 대상에서 제외한다.
+- Impact: 기존 관리자 범용 알림 API와 scheduler 알림은 유지하고 담당 청구 전용 application boundary/API를 추가한다. CampusDutyAssignment repository 조회는 사용자별 활성 여부를 기준으로 통일하고, active duty unique 제약은 `(campus_id, duty_type, user_id)`로 변경한다. API, ErrorCode, Flyway, REST Docs와 프론트 연동 계약을 함께 갱신한다.
+
 ### 2026-07-13 - Issue #190 Penalty Cancel Resubmission And Admin Paid
 
 - Context: 기존 관리자 청구 상태 변경은 `PAID`를 금지했고, `PENALTY + DEVOTION_RECORD` 청구 취소가 source weekly record를 재오픈하지 않아 사용자가 잘못 제출한 경건생활을 수정·재제출할 수 없었다. 기존 unique source key 때문에 CANCELED 청구가 있는 weekly record를 다시 제출하면 양수 벌금 upsert도 terminal charge 오류로 실패했다.
