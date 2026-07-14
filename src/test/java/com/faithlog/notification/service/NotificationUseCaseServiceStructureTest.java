@@ -163,6 +163,16 @@ class NotificationUseCaseServiceStructureTest {
 		);
 	}
 
+	@Test
+	void deliveryWorkerLoadsPendingRecipientTokensInOneBulkQuery() {
+		String deliveryWorker = read(SERVICE_ROOT.resolve("NotificationDeliveryWorker.java"));
+
+		assertAll(
+			() -> assertTrue(deliveryWorker.contains("findActiveSendableTokensByUserIdIn")),
+			() -> assertFalse(deliveryWorker.contains("findActiveSendableTokens(log.userId())"))
+		);
+	}
+
 	private void assertTransactional(String source, String method) {
 		assertTrue(Pattern.compile(
 			"@Transactional\\s+public\\s+[^\\n{]+\\s+" + Pattern.quote(method) + "\\s*\\("

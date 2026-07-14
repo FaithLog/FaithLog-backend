@@ -4,6 +4,9 @@ import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
 import com.faithlog.notification.service.command.SendNotificationCommand;
 import com.faithlog.notification.service.result.SendNotificationResult;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.domain.entity.CampusMember;
@@ -28,6 +31,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +40,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,7 +63,7 @@ class NotificationDeliveryWorkerTest {
 	@Autowired
 	private NotificationLogRepository notificationLogRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private UserFcmTokenRepository userFcmTokenRepository;
 
 	@Autowired
@@ -202,6 +207,40 @@ class NotificationDeliveryWorkerTest {
 		List<NotificationLog> logs = notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId());
 		assertThat(logs).extracting(NotificationLog::sendStatus).containsExactly(SendStatus.PENDING);
 		assertThat(fakeFcmSendPort.attempts("lock-held-token")).isZero();
+	}
+
+	@Test
+	void worker_loads_all_pending_recipient_tokens_in_one_bulk_query() {
+		Campus campus = saveCampus("알림일괄토큰캠");
+		User minister = saveUser("notification-worker-bulk-minister@example.com", UserRole.USER);
+		User firstTarget = saveUser("notification-worker-bulk-first@example.com", UserRole.USER);
+		User secondTarget = saveUser("notification-worker-bulk-second@example.com", UserRole.USER);
+		saveMinister(campus.id(), minister.id());
+		saveMember(campus.id(), firstTarget.id());
+		saveMember(campus.id(), secondTarget.id());
+		registerToken(firstTarget, "bulk-first-token", "bulk-first-client");
+		registerToken(secondTarget, "bulk-second-token", "bulk-second-client");
+		SendNotificationResult result = notificationService.requestNotification(new SendNotificationCommand(
+			campus.id(),
+			minister.id(),
+			NotificationType.CUSTOM,
+			List.of(firstTarget.id(), secondTarget.id()),
+			null,
+			null,
+			"일괄 알림",
+			"일괄 토큰 조회"
+		));
+		clearInvocations(userFcmTokenRepository);
+
+		worker.processRequest(result.notificationRequestId());
+
+		verify(userFcmTokenRepository).findActiveSendableTokensByUserIdIn(
+			Set.of(firstTarget.id(), secondTarget.id())
+		);
+		verify(userFcmTokenRepository, never()).findActiveSendableTokens(firstTarget.id());
+		verify(userFcmTokenRepository, never()).findActiveSendableTokens(secondTarget.id());
+		assertThat(fakeFcmSendPort.attempts("bulk-first-token")).isEqualTo(1);
+		assertThat(fakeFcmSendPort.attempts("bulk-second-token")).isEqualTo(1);
 	}
 
 	@TestConfiguration

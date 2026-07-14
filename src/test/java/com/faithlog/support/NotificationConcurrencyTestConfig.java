@@ -27,6 +27,7 @@ public class NotificationConcurrencyTestConfig {
 		private final Set<String> dedupKeys = new HashSet<>();
 		private final Set<String> lockKeys = new HashSet<>();
 		private boolean fail;
+		private boolean failLockRelease;
 
 		@Override
 		public boolean reserve(NotificationDeduplicationKey key, Duration ttl) {
@@ -55,14 +56,28 @@ public class NotificationConcurrencyTestConfig {
 		@Override
 		public void release(NotificationLockLease lease) {
 			lockKeys.remove(lease.key().value());
+			if (failLockRelease) {
+				throw new com.faithlog.notification.service.port.NotificationRedisOperationException(
+					"test lock release failure"
+				);
+			}
 		}
 
 		public void fail() {
 			this.fail = true;
 		}
 
+		public void failLockRelease() {
+			this.failLockRelease = true;
+		}
+
+		public void allowLockRelease() {
+			this.failLockRelease = false;
+		}
+
 		public void reset() {
 			this.fail = false;
+			this.failLockRelease = false;
 			this.dedupKeys.clear();
 			this.lockKeys.clear();
 		}

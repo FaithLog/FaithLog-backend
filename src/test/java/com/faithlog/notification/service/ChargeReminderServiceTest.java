@@ -22,6 +22,7 @@ import com.faithlog.notification.domain.type.DeviceType;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
 import com.faithlog.notification.service.port.NotificationDispatchPort;
+import com.faithlog.notification.service.port.NotificationRedisOperationException;
 import com.faithlog.notification.service.result.SendNotificationResult;
 import com.faithlog.support.NotificationConcurrencyTestConfig;
 import com.faithlog.user.domain.entity.User;
@@ -30,9 +31,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -68,6 +74,9 @@ class ChargeReminderServiceTest {
 
 	@Autowired
 	private NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort concurrencyPort;
+
+	@Autowired
+	private CommitFailureInvoker commitFailureInvoker;
 
 	@MockitoBean
 	private NotificationDispatchPort notificationDispatchPort;
@@ -147,5 +156,117 @@ class ChargeReminderServiceTest {
 				"밥 미납: 월요일 점심 2건 7000원, 화요일 점심 1건 5000원, 수요일 점심 1건 6000원, "
 					+ "목요일 점심 1건 7000원, 금요일 점심 1건 8000원, 외 1종 / 총 42000원입니다. 확인 후 납부해 주세요."
 			));
+	}
+
+	@Test
+	void reminder_includes_unpaid_charges_linked_to_soft_deleted_owned_account() {
+		ReminderFixture fixture = createCoffeeReminderFixture("deleted-account");
+		fixture.account().deactivate();
+		fixture.account().softDelete();
+		paymentAccountRepository.saveAndFlush(fixture.account());
+
+		SendNotificationResult result = chargeReminderService.requestCoffeeReminders(
+			fixture.campus().id(), fixture.duty().id()
+		);
+
+		assertThat(result.queuedCount()).isEqualTo(1);
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId()))
+			.singleElement()
+			.satisfies(log -> assertThat(log.targetId()).isEqualTo(fixture.account().id()));
+	}
+
+	@Test
+	void transaction_commit_failure_releases_reserved_daily_dedupe_for_retry() {
+		ReminderFixture fixture = createCoffeeReminderFixture("commit-failure");
+
+		assertThatThrownBy(() -> commitFailureInvoker.requestCoffeeReminder(
+			fixture.campus().id(), fixture.duty().id()
+		))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("test commit failure");
+		assertThat(notificationLogRepository.count()).isZero();
+
+		SendNotificationResult retried = chargeReminderService.requestCoffeeReminders(
+			fixture.campus().id(), fixture.duty().id()
+		);
+		assertThat(retried.queuedCount()).isEqualTo(1);
+		assertThat(retried.skippedCount()).isZero();
+	}
+
+	@Test
+	void manual_lock_release_failure_rolls_back_and_releases_reserved_daily_dedupe_for_retry() {
+		ReminderFixture fixture = createCoffeeReminderFixture("release-failure");
+		concurrencyPort.failLockRelease();
+
+		assertThatThrownBy(() -> chargeReminderService.requestCoffeeReminders(
+			fixture.campus().id(), fixture.duty().id()
+		))
+			.isInstanceOf(NotificationRedisOperationException.class)
+			.hasMessage("test lock release failure");
+		assertThat(notificationLogRepository.count()).isZero();
+
+		concurrencyPort.allowLockRelease();
+		SendNotificationResult retried = chargeReminderService.requestCoffeeReminders(
+			fixture.campus().id(), fixture.duty().id()
+		);
+		assertThat(retried.queuedCount()).isEqualTo(1);
+		assertThat(retried.skippedCount()).isZero();
+	}
+
+	private ReminderFixture createCoffeeReminderFixture(String suffix) {
+		User duty = userRepository.saveAndFlush(User.create(
+			"커피담당", "notification-200-" + suffix + "-duty@example.com", "encoded"));
+		User target = userRepository.saveAndFlush(User.create(
+			"대상자", "notification-200-" + suffix + "-target@example.com", "encoded"));
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"200" + suffix + "캠", "분당", "알림 트랜잭션 검증", "INV-200-" + suffix));
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(campus.id(), duty.id()));
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(campus.id(), target.id()));
+		dutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(campus.id(), duty.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.COFFEE, "알림 계좌", "하나은행", "200-" + suffix,
+			"커피담당", duty.id()
+		));
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.id(), target.id(), PaymentCategory.COFFEE, account.id(), account.bankName(), account.accountNumber(),
+			account.accountHolder(), ChargeSourceType.POLL_RESPONSE, account.id(), "커피 주문", "알림 검증", 1800, null
+		));
+		fcmTokenService.registerToken(new RegisterFcmTokenCommand(
+			target.id(), "notification-200-" + suffix + "-token", "notification-200-" + suffix + "-client",
+			DeviceType.IOS, "1.0.0"
+		));
+		return new ReminderFixture(campus, duty, account);
+	}
+
+	private record ReminderFixture(Campus campus, User duty, PaymentAccount account) {
+	}
+
+	@TestConfiguration
+	static class CommitFailureConfig {
+
+		@Bean
+		CommitFailureInvoker commitFailureInvoker(ChargeReminderService chargeReminderService) {
+			return new CommitFailureInvoker(chargeReminderService);
+		}
+	}
+
+	static class CommitFailureInvoker {
+
+		private final ChargeReminderService chargeReminderService;
+
+		CommitFailureInvoker(ChargeReminderService chargeReminderService) {
+			this.chargeReminderService = chargeReminderService;
+		}
+
+		@Transactional
+		public SendNotificationResult requestCoffeeReminder(Long campusId, Long requesterId) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void beforeCommit(boolean readOnly) {
+					throw new IllegalStateException("test commit failure");
+				}
+			});
+			return chargeReminderService.requestCoffeeReminders(campusId, requesterId);
+		}
 	}
 }
