@@ -28,6 +28,7 @@
 - `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`
 - `GET /api/v1/campuses/{campusId}/polls/{pollId}/comments`
 - target campus path에 isolation campus Poll ID를 사용한 404 격리 확인
+- primary 전용 일반 멤버가 isolation campus path와 Poll ID를 직접 조회할 때 403 격리 확인
 
 ### poll-admin
 
@@ -40,7 +41,7 @@
 ## fixture 계약
 
 - stable `datasetId`: `issue-196-prayer-poll-list-v1`
-- required immutable `fixtureRunId`: 실행마다 8~32자 새 값
+- required immutable `fixtureRunId`: 실행마다 lowercase 8~32자 새 값
 - primary campus: 캠퍼스 생성자 1명 + 생성 일반 멤버 999명 = ACTIVE 1,000명
 - isolation campus: 캠퍼스 생성자 1명 + 생성 일반 멤버 49명 = ACTIVE 50명
 - prayer: 40조 × 25명, 제출 800명, 미제출 200명
@@ -51,7 +52,7 @@
 
 Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Access/Refresh Token, DB credential은 기록하지 않는다. 실패한 fixture는 삭제/수정해 재사용하지 않고 새 `fixtureRunId`로 다시 만든다.
 
-종료 2/5/8일 Poll은 API로 현재 run의 Poll을 생성·마감한 뒤 별도 shaper가 manifest의 정확한 `id + campus_id + title`이 모두 일치하는 세 행만 보정한다. 기존 row와 다른 fixture run의 row는 수정·삭제하지 않는다.
+별도 shaper는 현재 run의 다섯 Poll을 하나의 SQL statement에서 함께 보정한다. exact ID/campus와 manifest가 아닌 `fixtureRunId`에서 파생한 title을 모두 확인하고, 하나라도 불일치하면 다섯 UPDATE 전체를 rollback한다. 0600 shape-attempt receipt와 `shapedAt`으로 재실행을 거부하며 shaping 실패 시 새 run을 사용한다. 기존 row와 다른 fixture run의 row는 수정·삭제하지 않는다.
 
 ## correctness 계약
 
@@ -59,11 +60,13 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 - Prayer target/submitted 개수, `myGroupId`, 관리자 전체 `editable`, 일반 멤버 본인 1건만 `editable`
 - primary/isolation campus 데이터 혼입 없음
 - member 3일, admin 7일 Poll visibility 및 OPEN/CLOSED/SCHEDULED 상태
+- manifest와 응답의 exact `startsAt`/`endsAt`, runner 전체 preflight 및 각 endpoint 직전·직후의 다섯 time window freshness
 - Poll detail `myResponse`, 결과 1,000/800/200, option별 response 합계
 - non-anonymous respondent 800명 노출, anonymous respondent identity 0명 노출
 - comments 200개 ID 오름차순, templates ID 오름차순/option sortOrder 오름차순
 - missing-members 200명 membership 순서
 - read 구간 DB write counter delta 0
+- correctness failure 0건 고정 gate, k6/sampler/time-window/log/after-DB-snapshot 실패 report의 `accepted=false`/`measurementStatus=rejected`, 필수 latency/throughput/table/resource evidence 및 read-path write delta rejection reason, 모든 rejected report의 runner 비정상 종료
 
 ## endpoint별 evidence 계약
 
@@ -74,9 +77,9 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 - `org.hibernate.SQL` query count와 `queriesPerRequest`
 - normalized repeated SQL과 loop/N+1 신호
 - `pg_stat_user_tables` table별 estimated row count와 scan/fetch/write counter delta
-- 실제 app image와 Compose project/service/config-hash label
+- 실제 app image tag/immutable image ID, published target port와 Compose project/service/config-hash label
 
-인증은 endpoint 측정 스냅샷 전에 수행하고 발급 token을 메모리 환경변수로만 k6에 전달한다. 따라서 login/BCrypt/JWT 쿼리를 endpoint query count에 포함하지 않는다. app scheduler를 끄고 global runner lock을 확보하지 못하면 측정을 거부한다.
+인증은 endpoint 측정 스냅샷 전에 수행하고 발급 token만 k6 환경에 전달한다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리한다. app scheduler를 끄고 고정 global runner lock을 확보하지 못하면 측정을 거부한다.
 
 ## 정적 코드에서 확인한 측정 후보
 

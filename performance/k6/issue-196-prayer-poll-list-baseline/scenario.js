@@ -7,7 +7,6 @@ const MODE = __ENV.MODE;
 const ENDPOINT = __ENV.ENDPOINT;
 const VUS = Number(__ENV.VUS);
 const DURATION = __ENV.DURATION;
-const MAX_FAILURE_RATE = Number(__ENV.MAX_FAILURE_RATE || 0.01);
 const PERF_ADMIN_EMAIL = __ENV.PERF_ADMIN_EMAIL;
 const PERF_ADMIN_PASSWORD = __ENV.PERF_ADMIN_PASSWORD;
 const PERF_MEMBER_PASSWORD = __ENV.PERF_MEMBER_PASSWORD;
@@ -41,14 +40,17 @@ export const options = {
 	},
 	summaryTrendStats: ['avg', 'min', 'med', 'p(50)', 'p(90)', 'p(95)', 'p(99)', 'max'],
 	thresholds: {
-		[`endpoint_${metricName}_failures`]: [`rate<${MAX_FAILURE_RATE}`],
+		[`endpoint_${metricName}_failures`]: ['rate==0'],
 	},
 };
 
 export function setup() {
 	guardTarget();
-	if (!PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD || !PERF_MEMBER_PASSWORD) {
-		fail('PERF_ADMIN_EMAIL, PERF_ADMIN_PASSWORD, and PERF_MEMBER_PASSWORD are runtime-only required credentials.');
+	if (!PERF_ADMIN_ACCESS_TOKEN && (!PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD)) {
+		fail('Provide PERF_ADMIN_ACCESS_TOKEN or runtime-only PERF_ADMIN_EMAIL and PERF_ADMIN_PASSWORD.');
+	}
+	if (!PERF_MEMBER_ACCESS_TOKEN && !PERF_MEMBER_PASSWORD) {
+		fail('Provide PERF_MEMBER_ACCESS_TOKEN or runtime-only PERF_MEMBER_PASSWORD.');
 	}
 	const config = endpointConfig();
 	if (config.mode !== MODE) {
@@ -70,7 +72,12 @@ export default function (tokens) {
 	endpointRequests.add(1);
 	endpointDuration.add(response.timings.duration);
 	const payload = parseJson(response);
-	const valid = config.validate(response.status, payload);
+	let valid = false;
+	try {
+		valid = config.validate(response.status, payload) === true;
+	} catch {
+		valid = false;
+	}
 	endpointFailures.add(!valid);
 	check(response, {
 		[`${ENDPOINT} status and correctness contract`]: () => valid,
@@ -135,6 +142,11 @@ function endpointConfig() {
 			mode: 'poll-member', actor: 'member',
 			path: pollDetailPath(campusId, isolationPollId),
 			validate: validatePollIsolation,
+		},
+		poll_member_isolation_campus_detail: {
+			mode: 'poll-member', actor: 'member',
+			path: pollDetailPath(manifest.isolationCampus.campusId, isolationPollId),
+			validate: validatePollIsolationMembership,
 		},
 		poll_admin_list: {
 			mode: 'poll-admin', actor: 'admin',
@@ -287,7 +299,11 @@ function validatePollList(status, payload, admin) {
 		const key = keys.find((candidate) => manifest.polls.byKey[candidate].id === poll.id);
 		const expectedStatus = key === 'open' ? 'OPEN' : 'CLOSED';
 		const expectedResponded = !admin && key === 'open';
-		return poll.status === expectedStatus && poll.responded === expectedResponded;
+		const expected = manifest.polls.byKey[key];
+		return poll.status === expectedStatus
+			&& poll.responded === expectedResponded
+			&& sameInstant(poll.startsAt, expected.startsAt)
+			&& sameInstant(poll.endsAt, expected.endsAt);
 	});
 }
 
@@ -298,6 +314,8 @@ function validatePollDetail(status, payload, key, expectMyResponse) {
 		&& data.id === expected.id
 		&& data.campusId === manifest.primaryCampus.campusId
 		&& data.status === (key === 'open' ? 'OPEN' : 'CLOSED')
+		&& sameInstant(data.startsAt, expected.startsAt)
+		&& sameInstant(data.endsAt, expected.endsAt)
 		&& sameIds(data.options.map((option) => option.id), expected.optionIds)
 		&& assertAscending(data.options, (option) => [option.sortOrder, option.id])
 		&& (expectMyResponse
@@ -310,6 +328,9 @@ function validatePollResults(status, payload, key, anonymous) {
 	const expected = manifest.polls.byKey[key];
 	if (!data || data.pollId !== expected.id
 		|| data.campusId !== manifest.primaryCampus.campusId
+		|| data.status !== (key === 'open' ? 'OPEN' : 'CLOSED')
+		|| !sameInstant(data.startsAt, expected.startsAt)
+		|| !sameInstant(data.endsAt, expected.endsAt)
 		|| data.targetMemberCount !== 1000
 		|| data.respondedCount !== 800
 		|| data.notRespondedCount !== 200
@@ -376,6 +397,12 @@ function validatePollIsolation(status, payload) {
 		&& payload.code === 'POLL_NOT_FOUND';
 }
 
+function validatePollIsolationMembership(status, payload) {
+	return status === 403
+		&& payload.success === false
+		&& payload.code === 'POLL_ACCESS_FORBIDDEN';
+}
+
 function successData(status, payload) {
 	return status === 200 && payload.success === true ? payload.data : null;
 }
@@ -408,6 +435,12 @@ function compareKeys(left, right) {
 
 function sameIds(actual, expected) {
 	return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
+}
+
+function sameInstant(actual, expected) {
+	return Number.isFinite(Date.parse(actual))
+		&& Number.isFinite(Date.parse(expected))
+		&& Date.parse(actual) === Date.parse(expected);
 }
 
 function login(email, password) {

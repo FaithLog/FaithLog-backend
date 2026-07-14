@@ -11,7 +11,6 @@ REPORT_ROOT="${REPORT_ROOT:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RU
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 VUS="${VUS:?VUS must be explicitly approved and supplied}"
 DURATION="${DURATION:?DURATION must be explicitly approved and supplied}"
-MAX_FAILURE_RATE="${MAX_FAILURE_RATE:-0.01}"
 PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL:?PERF_ADMIN_EMAIL is required at runtime}"
 PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?PERF_ADMIN_PASSWORD is required at runtime}"
 PERF_MEMBER_PASSWORD="${PERF_MEMBER_PASSWORD:?PERF_MEMBER_PASSWORD is required at runtime}"
@@ -20,17 +19,22 @@ PERF_DB_NAME="${PERF_DB_NAME:?PERF_DB_NAME is required at runtime}"
 PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?PERF_DB_PASSWORD is required at runtime}"
 APP_CONTAINER="${APP_CONTAINER:-faithlog-backend}"
 DB_CONTAINER="${DB_CONTAINER:-faithlog-postgres}"
-EXPECTED_APP_IMAGE="${EXPECTED_APP_IMAGE:-faithlog-latest}"
-PERF_GLOBAL_LOCK="${PERF_GLOBAL_LOCK:-/tmp/faithlog-performance-global.lock}"
+EXPECTED_APP_IMAGE="faithlog-latest"
+PERF_GLOBAL_LOCK="/tmp/faithlog-performance-global.lock"
 SQL_LOG_MARKER="org.hibernate.SQL"
 REQUESTED_MODE="${1:-all}"
 MODE_SEQUENCE=(prayer poll-member poll-admin)
+
+if [[ ! "${FIXTURE_RUN_ID}" =~ ^[a-z0-9][a-z0-9_-]{7,31}$ ]]; then
+	echo "FIXTURE_RUN_ID must be 8-32 lowercase characters." >&2
+	exit 1
+fi
 
 for command in node k6 docker; do
 	command -v "${command}" >/dev/null || { echo "Missing command: ${command}" >&2; exit 1; }
 done
 [[ -f "${FIXTURE_MANIFEST}" ]] || { echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2; exit 1; }
-[[ "${BASE_URL}" =~ ^https?://(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal|faithlog-backend|app)(:[0-9]+)?$ ]] \
+[[ "${BASE_URL}" =~ ^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?$ ]] \
 	|| { echo "Issue #196 baseline is local-Docker-only." >&2; exit 1; }
 
 if ! mkdir "${PERF_GLOBAL_LOCK}" 2>/dev/null; then
@@ -60,6 +64,27 @@ shaped_at="$(manifest_value shapedAt)"
 [[ "${dataset_id}" == "issue-196-prayer-poll-list-v1" ]] || { echo "Unexpected datasetId=${dataset_id}." >&2; exit 1; }
 [[ "${shaped_at}" != "null" ]] || { echo "Fixture has not been shaped." >&2; exit 1; }
 
+assert_fixture_windows() {
+	node -e '
+	const fs = require("node:fs");
+	const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+	const now = Date.now();
+	const poll = manifest.polls.byKey;
+	const instant = (value) => {
+		const parsed = Date.parse(value);
+		if (!Number.isFinite(parsed)) throw new Error(`Invalid manifest instant: ${value}`);
+		return parsed;
+	};
+	if (!(instant(poll.open.startsAt) <= now && now < instant(poll.open.endsAt))) throw new Error("OPEN fixture window is stale.");
+	if (!(instant(poll.closed_member_visible.endsAt) <= now && now <= instant(poll.closed_member_visible.endsAt) + 3 * 86400000)) throw new Error("Member visibility fixture window is stale.");
+	if (!(instant(poll.closed_admin_only.endsAt) <= now && now <= instant(poll.closed_admin_only.endsAt) + 7 * 86400000)) throw new Error("Admin visibility fixture window is stale.");
+	if (!(now > instant(poll.closed_expired.endsAt) + 7 * 86400000)) throw new Error("Expired fixture is not beyond the admin window.");
+	if (!(now < instant(poll.scheduled_future.startsAt))) throw new Error("Scheduled fixture is no longer in the future.");
+' "${FIXTURE_MANIFEST}"
+}
+
+assert_fixture_windows
+
 label() {
 	docker inspect --format "{{ index .Config.Labels \"$2\" }}" "$1"
 }
@@ -71,6 +96,18 @@ db_service="$(label "${DB_CONTAINER}" com.docker.compose.service)"
 app_config_hash="$(label "${APP_CONTAINER}" com.docker.compose.config-hash)"
 db_config_hash="$(label "${DB_CONTAINER}" com.docker.compose.config-hash)"
 app_image="$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")"
+app_image_id="$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")"
+seed_project="$(manifest_value composeRuntime.composeProject)"
+seed_app_hash="$(manifest_value composeRuntime.appConfigHash)"
+seed_db_hash="$(manifest_value composeRuntime.dbConfigHash)"
+seed_app_image_id="$(manifest_value composeRuntime.appImageId)"
+seed_target_port="$(manifest_value composeRuntime.targetPort)"
+base_target_port="$(BASE_URL_VALUE="${BASE_URL}" node -e '
+	const url = new URL(process.env.BASE_URL_VALUE);
+	if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) process.exit(2);
+	process.stdout.write(url.port || "80");
+')"
+published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
 
 [[ -n "${compose_project}" && "${compose_project}" == "${db_project}" ]] \
 	|| { echo "App/Postgres Compose project labels are missing or different." >&2; exit 1; }
@@ -80,6 +117,14 @@ app_image="$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")"
 	|| { echo "Compose config-hash labels must be present on app and PostgreSQL." >&2; exit 1; }
 [[ "${app_image}" == "${EXPECTED_APP_IMAGE}" || "${app_image}" == "${EXPECTED_APP_IMAGE}:"* ]] \
 	|| { echo "Expected app image ${EXPECTED_APP_IMAGE}, actual ${app_image}." >&2; exit 1; }
+[[ "${compose_project}" == "${seed_project}" && "${app_config_hash}" == "${seed_app_hash}" && "${db_config_hash}" == "${seed_db_hash}" ]] \
+	|| { echo "Current Compose identity differs from the seed manifest." >&2; exit 1; }
+[[ "${app_image_id}" == "${seed_app_image_id}" ]] \
+	|| { echo "Current immutable app image differs from the seed manifest." >&2; exit 1; }
+[[ "${base_target_port}" == "${seed_target_port}" ]] \
+	|| { echo "BASE_URL port ${base_target_port} differs from the seed target port ${seed_target_port}." >&2; exit 1; }
+grep -Eq "(^|:|\\])${seed_target_port}$" <<<"${published_ports}" \
+	|| { echo "The attested app container no longer publishes target port ${seed_target_port}." >&2; exit 1; }
 
 app_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${APP_CONTAINER}")"
 grep -q '^LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG$' <<<"${app_environment}" \
@@ -104,7 +149,7 @@ login_token() {
 
 snapshot_db_tables() {
 	local output="$1"
-	docker exec -e PGPASSWORD="${PERF_DB_PASSWORD}" "${DB_CONTAINER}" \
+	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD "${DB_CONTAINER}" \
 		psql -X -v ON_ERROR_STOP=1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At -f - \
 		< "${DB_STATS_SQL}" > "${output}"
 }
@@ -114,7 +159,7 @@ sample_resources() {
 	local output="$2"
 	while kill -0 "${k6_pid}" 2>/dev/null; do
 		local captured_at
-		captured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		captured_at="$(rfc3339_now)"
 		docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' \
 			"${APP_CONTAINER}" "${DB_CONTAINER}" \
 			| while IFS= read -r sample; do printf '%s\t%s\n' "${captured_at}" "${sample}"; done \
@@ -123,13 +168,17 @@ sample_resources() {
 	done
 }
 
+rfc3339_now() {
+	node -e 'process.stdout.write(new Date().toISOString())'
+}
+
 endpoints_for_mode() {
 	case "$1" in
 		prayer)
 			echo "prayer_current_season prayer_groups prayer_assignable prayer_weekly_board_admin prayer_weekly_board_member"
 			;;
 		poll-member)
-			echo "poll_member_list poll_member_detail poll_member_results poll_member_comments poll_member_cross_campus_detail"
+			echo "poll_member_list poll_member_detail poll_member_results poll_member_comments poll_member_cross_campus_detail poll_member_isolation_campus_detail"
 			;;
 		poll-admin)
 			echo "poll_admin_list poll_admin_detail poll_admin_results poll_admin_comments poll_admin_missing_members poll_admin_template_list poll_admin_template_detail poll_admin_cross_campus_detail"
@@ -158,48 +207,64 @@ run_endpoint() {
 	local log_until
 	local k6_pid
 	local sampler_pid
+	local k6_status
+	local sampler_status
+	local fixture_window_status
+	local log_capture_status
+	local after_snapshot_status
+	local summarize_status
 
 	mkdir -p "${endpoint_dir}"
+	assert_fixture_windows
 	admin_token="$(login_token "${PERF_ADMIN_EMAIL}" "${PERF_ADMIN_PASSWORD}")"
 	member_token="$(login_token "${member_email}" "${PERF_MEMBER_PASSWORD}")"
 	snapshot_db_tables "${before_file}"
-	log_since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	log_since="$(rfc3339_now)"
 	: > "${resource_file}"
 
+	env -u PERF_ADMIN_EMAIL -u PERF_ADMIN_PASSWORD -u PERF_MEMBER_PASSWORD \
+	-u PERF_DB_USER -u PERF_DB_NAME -u PERF_DB_PASSWORD \
 	BASE_URL="${BASE_URL}" \
 	MODE="${mode}" \
 	ENDPOINT="${endpoint}" \
 	VUS="${VUS}" \
 	DURATION="${DURATION}" \
-	MAX_FAILURE_RATE="${MAX_FAILURE_RATE}" \
 	FIXTURE_MANIFEST="${FIXTURE_MANIFEST}" \
-	PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL}" \
-	PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD}" \
-	PERF_MEMBER_PASSWORD="${PERF_MEMBER_PASSWORD}" \
 	PERF_ADMIN_ACCESS_TOKEN="${admin_token}" \
 	PERF_MEMBER_ACCESS_TOKEN="${member_token}" \
 		k6 run --summary-export "${summary_file}" "${SCENARIO_FILE}" &
 	k6_pid=$!
 	sample_resources "${k6_pid}" "${resource_file}" &
 	sampler_pid=$!
-	if ! wait "${k6_pid}"; then
-		wait "${sampler_pid}" || true
-		echo "k6 failed for ${mode}/${endpoint}." >&2
-		exit 1
-	fi
-	wait "${sampler_pid}" || true
-	log_until="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	set +e
+	wait "${k6_pid}"
+	k6_status=$?
+	set -e
+	set +e
+	wait "${sampler_pid}"
+	sampler_status=$?
+	set -e
+	log_until="$(rfc3339_now)"
+	set +e
+	assert_fixture_windows
+	fixture_window_status=$?
 	docker logs --since "${log_since}" --until "${log_until}" "${APP_CONTAINER}" > "${sql_log_file}" 2>&1
-	grep -q "${SQL_LOG_MARKER}" "${sql_log_file}" \
-		|| { echo "No org.hibernate.SQL evidence captured for ${endpoint}." >&2; exit 1; }
+	log_capture_status=$?
 	snapshot_db_tables "${after_file}"
+	after_snapshot_status=$?
+	set -e
 
 	MODE_VALUE="${mode}" ENDPOINT_VALUE="${endpoint}" DATASET_VALUE="${dataset_id}" \
 	FIXTURE_VALUE="${FIXTURE_RUN_ID}" PROJECT_VALUE="${compose_project}" \
 	APP_SERVICE_VALUE="${app_service}" DB_SERVICE_VALUE="${db_service}" \
 	APP_HASH_VALUE="${app_config_hash}" DB_HASH_VALUE="${db_config_hash}" \
 	APP_IMAGE_VALUE="${app_image}" EXPECTED_IMAGE_VALUE="${EXPECTED_APP_IMAGE}" \
+	APP_IMAGE_ID_VALUE="${app_image_id}" TARGET_PORT_VALUE="${seed_target_port}" \
 	APP_CONTAINER_VALUE="${APP_CONTAINER}" DB_CONTAINER_VALUE="${DB_CONTAINER}" \
+	K6_STATUS_VALUE="${k6_status}" SAMPLER_STATUS_VALUE="${sampler_status}" \
+	WINDOW_STATUS_VALUE="${fixture_window_status}" \
+	LOG_STATUS_VALUE="${log_capture_status}" AFTER_DB_STATUS_VALUE="${after_snapshot_status}" \
+	STARTED_AT_VALUE="${log_since}" ENDED_AT_VALUE="${log_until}" \
 	VUS_VALUE="${VUS}" DURATION_VALUE="${DURATION}" \
 	node -e '
 		const fs = require("node:fs");
@@ -216,9 +281,18 @@ run_endpoint() {
 				appConfigHash: process.env.APP_HASH_VALUE,
 				dbConfigHash: process.env.DB_HASH_VALUE,
 				appImage: process.env.APP_IMAGE_VALUE,
+				appImageId: process.env.APP_IMAGE_ID_VALUE,
 				expectedAppImage: process.env.EXPECTED_IMAGE_VALUE,
+				targetPort: process.env.TARGET_PORT_VALUE,
 				appContainer: process.env.APP_CONTAINER_VALUE,
 				dbContainer: process.env.DB_CONTAINER_VALUE,
+				k6ExitStatus: Number(process.env.K6_STATUS_VALUE),
+				resourceSamplerExitStatus: Number(process.env.SAMPLER_STATUS_VALUE),
+				fixtureWindowExitStatus: Number(process.env.WINDOW_STATUS_VALUE),
+				logCaptureExitStatus: Number(process.env.LOG_STATUS_VALUE),
+				afterDbSnapshotExitStatus: Number(process.env.AFTER_DB_STATUS_VALUE),
+				measurementStartedAt: process.env.STARTED_AT_VALUE,
+				measurementEndedAt: process.env.ENDED_AT_VALUE,
 				vus: Number(process.env.VUS_VALUE),
 				duration: process.env.DURATION_VALUE,
 			},
@@ -226,9 +300,36 @@ run_endpoint() {
 		fs.writeFileSync(process.argv[1], `${JSON.stringify(metadata, null, 2)}\n`);
 	' "${metadata_file}"
 
+	set +e
 	node "${ROOT_DIR}/summarize-run.mjs" \
 		"${endpoint}" "${summary_file}" "${before_file}" "${after_file}" \
 		"${sql_log_file}" "${resource_file}" "${metadata_file}" "${report_file}"
+	summarize_status=$?
+	set -e
+	if (( summarize_status != 0 )); then
+		echo "Evidence summarization rejected ${mode}/${endpoint}; see ${report_file}." >&2
+		return "${summarize_status}"
+	fi
+	if (( k6_status != 0 )); then
+		echo "k6 failed for ${mode}/${endpoint}; failure evidence was preserved in ${endpoint_dir}." >&2
+		return "${k6_status}"
+	fi
+	if (( sampler_status != 0 )); then
+		echo "Resource sampler failed for ${mode}/${endpoint}; report was rejected." >&2
+		return "${sampler_status}"
+	fi
+	if (( fixture_window_status != 0 )); then
+		echo "Fixture visibility windows crossed a boundary during ${mode}/${endpoint}; report was rejected." >&2
+		return "${fixture_window_status}"
+	fi
+	if (( log_capture_status != 0 )); then
+		echo "Docker log capture failed for ${mode}/${endpoint}; report was rejected." >&2
+		return "${log_capture_status}"
+	fi
+	if (( after_snapshot_status != 0 )); then
+		echo "After-run DB snapshot failed for ${mode}/${endpoint}; report was rejected." >&2
+		return "${after_snapshot_status}"
+	fi
 }
 
 if [[ "${REQUESTED_MODE}" == "all" ]]; then

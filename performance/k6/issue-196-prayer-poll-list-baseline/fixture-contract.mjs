@@ -45,6 +45,7 @@ export const MODE_ENDPOINTS = Object.freeze({
 		'poll_member_results',
 		'poll_member_comments',
 		'poll_member_cross_campus_detail',
+		'poll_member_isolation_campus_detail',
 	]),
 	'poll-admin': Object.freeze([
 		'poll_admin_list',
@@ -59,14 +60,22 @@ export const MODE_ENDPOINTS = Object.freeze({
 });
 
 export function validateFixtureRunId(value) {
-	if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9_-]{7,31}$/i.test(value)) {
-		throw new Error('FIXTURE_RUN_ID must be 8-32 characters using letters, numbers, underscore, or hyphen.');
+	if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9_-]{7,31}$/.test(value)) {
+		throw new Error('FIXTURE_RUN_ID must be 8-32 lowercase characters using letters, numbers, underscore, or hyphen.');
 	}
 	return value;
 }
 
 export function currentMonday(now = new Date()) {
-	const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+	const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+		timeZone: 'Asia/Seoul',
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+	}).formatToParts(now)
+		.filter((part) => part.type !== 'literal')
+		.map((part) => [part.type, part.value]));
+	const date = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)));
 	const day = date.getUTCDay() || 7;
 	date.setUTCDate(date.getUTCDate() - day + 1);
 	return date.toISOString().slice(0, 10);

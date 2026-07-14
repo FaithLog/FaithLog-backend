@@ -9,9 +9,11 @@ Status: `scenario-ready / not-measured`
 - Local Docker only. Remote URLs are rejected by both seed and k6 scripts.
 - The stable `datasetId` is `issue-196-prayer-poll-list-v1`; every preparation requires a new immutable `fixtureRunId`.
 - The fixture creates new campuses and new rows. It never deletes fixture data and never updates/deletes rows that existed before the current `fixtureRunId`.
-- `shape-fixture.sh` changes only three Poll rows created by the current run, guarded by the exact `id + campus_id + title` recorded in its manifest. It exists only to reproduce 2-day, 5-day, and 8-day visibility windows.
+- `shape-fixture.sh` atomically shapes all five Poll rows created by the current run. It verifies exact IDs/campus plus deterministic run titles, rejects an already-shaped manifest, and rolls back all five updates if any ownership check misses.
+- A 0600 `shape-attempted` receipt makes shaping one-shot even if the process stops after the database statement but before manifest persistence. Any shaping failure requires a new `fixtureRunId`.
 - Passwords, DB credentials, and Access Tokens are runtime-only. The manifest records IDs and generated test emails, but not credentials or tokens.
 - The shared lock `/tmp/faithlog-performance-global.lock` blocks parallel seed, shaping, and load runs. The runner also refuses to start while another k6 process exists.
+- The lock path and approved `faithlog-latest` tag are fixed, not caller-overridable. Seed records the immutable app image ID and published target port; shaping and baseline require the same image ID, Compose project/service/config-hash labels, and `BASE_URL` port before touching the fixture or measuring it.
 - The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
 - Reports are written under ignored `build/reports/k6/issue-196/{fixtureRunId}/`.
 
@@ -46,7 +48,7 @@ The top-level runner starts a separate k6 process for every endpoint. It complet
 | `prayer` | `prayer_assignable` | `GET /api/v1/admin/prayer-seasons/{seasonId}/members/assignable` |
 | `prayer` | `prayer_weekly_board_admin` | `GET /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}` with service admin |
 | `prayer` | `prayer_weekly_board_member` | same API with a normal ACTIVE member |
-| `poll-member` | list/detail/results/comments/isolation | member credentials and the common Poll APIs |
+| `poll-member` | list/detail/results/comments/isolation | member credentials, primary-path foreign Poll 404, and direct isolation-campus 403 |
 | `poll-admin` | list/detail/results/comments/isolation | service admin credentials and the common Poll APIs |
 | `poll-admin` | missing members | `GET /api/v1/admin/campuses/{campusId}/polls/{pollId}/missing-members` |
 | `poll-admin` | template list/detail | `GET /api/v1/admin/campuses/{campusId}/poll-templates[/{templateId}]` |
@@ -61,7 +63,10 @@ Every load response is checked, not merely timed.
 - Poll results: target/responded/not-responded counts, option order, response count sum, non-anonymous 800 respondents, anonymous zero respondent identities.
 - Comments/templates/missing members: exact count and stable order.
 - Cross-campus Poll ID through the primary campus path: `404 POLL_NOT_FOUND`.
+- A primary-only member querying the isolation campus and its Poll directly: `403 POLL_ACCESS_FORBIDDEN`.
+- Exact `startsAt`/`endsAt` values match the atomically shaped manifest. The runner checks all five windows at global preflight and immediately before and after every endpoint phase; crossing a boundary rejects that endpoint report.
 - Read measurement must produce zero `n_tup_ins + n_tup_upd + n_tup_del` delta. A non-zero write delta fails report generation.
+- Any response correctness failure uses an immutable zero-failure threshold. A non-zero k6, resource-sampler, fixture-window, log-capture, or after-DB-snapshot status writes a report marked `accepted: false` and `measurementStatus: rejected`; missing or malformed latency/throughput/table/resource evidence and any read-path write delta are listed in `rejectionReasons`. Every rejected report stops the sequential runner with a non-zero status.
 
 ## Measurement evidence
 
@@ -74,13 +79,13 @@ Each endpoint report includes:
 - Hibernate SQL log query count and `queriesPerRequest`;
 - repeated normalized SQL patterns as loop/N+1 evidence;
 - per-table PostgreSQL estimated row counts plus `seq_scan`, `seq_tup_read`, `idx_scan`, `idx_tup_fetch`, and write-counter deltas;
-- actual Docker image and Compose `project`, `service`, and `config-hash` labels.
+- actual Docker image tag and immutable image ID, published target port, and Compose `project`, `service`, and `config-hash` labels.
 
 Query logs and PostgreSQL counters are container-wide. The fixed global lock, disabled scheduler, endpoint-per-process execution, and prohibition on other traffic are part of the evidence contract. If any of those conditions are not satisfied, do not treat the report as an Issue #196 baseline.
 
 ## Runtime preparation (do not run in this development session)
 
-The PM-approved measurement session must start the existing `faithlog-latest` stack externally. The runner will only verify and record it. The application container must already have:
+The PM-approved measurement session must start the existing `faithlog-latest` stack externally. Seed and runner use read-only Docker inspection to verify it; neither changes its lifecycle. The application container must already have:
 
 ```text
 LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG
@@ -100,7 +105,7 @@ PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \
 node performance/k6/issue-196-prayer-poll-list-baseline/seed-fixture.mjs
 ```
 
-The seed is create-only and intentionally has no cleanup path. If it fails partway, keep the evidence and use a new `fixtureRunId`; do not modify or delete the partial rows without separate user approval.
+The seed is create-only and intentionally has no cleanup path. `fixtureRunId` is lowercase-only to prevent case-folded email collisions. If it fails partway, keep the evidence and use a new `fixtureRunId`; do not modify or delete the partial rows without separate user approval.
 
 ### 2. Shape only current-run Poll windows
 
@@ -120,7 +125,6 @@ bash performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 FIXTURE_RUN_ID=i196-20260714-a \
 VUS='<approved-vus>' \
 DURATION='<approved-duration>' \
-EXPECTED_APP_IMAGE=faithlog-latest \
 PERF_ADMIN_EMAIL='<runtime-admin-email>' \
 PERF_ADMIN_PASSWORD='<runtime-admin-password>' \
 PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \

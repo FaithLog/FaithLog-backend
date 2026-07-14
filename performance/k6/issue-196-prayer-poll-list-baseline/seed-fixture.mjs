@@ -1,5 +1,6 @@
 import { mkdirSync, rmdirSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { FIXTURE_CONTRACT, currentMonday, validateFixtureRunId } from './fixture-contract.mjs';
 
 const BASE_URL = (process.env.BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
@@ -11,7 +12,10 @@ const MEMBER_PASSWORD = required('PERF_MEMBER_PASSWORD');
 const WEEK_START_DATE = process.env.PERF_WEEK_START_DATE || currentMonday();
 const REPORT_ROOT = resolve(process.env.REPORT_ROOT || 'build/reports/k6/issue-196');
 const MANIFEST_PATH = resolve(process.env.FIXTURE_MANIFEST || `${REPORT_ROOT}/${FIXTURE_RUN_ID}/fixture-manifest.json`);
-const GLOBAL_LOCK = resolve(process.env.PERF_GLOBAL_LOCK || '/tmp/faithlog-performance-global.lock');
+const GLOBAL_LOCK = '/tmp/faithlog-performance-global.lock';
+const APP_CONTAINER = process.env.APP_CONTAINER || 'faithlog-backend';
+const DB_CONTAINER = process.env.DB_CONTAINER || 'faithlog-postgres';
+const EXPECTED_APP_IMAGE = 'faithlog-latest';
 
 guardLocalTarget();
 guardDatasetIdentity();
@@ -19,12 +23,13 @@ validateMonday(WEEK_START_DATE);
 acquireGlobalLock();
 
 try {
+	const composeRuntime = verifyComposeRuntime();
 	if (existsSync(MANIFEST_PATH)) {
 		throw new Error(`Manifest already exists for FIXTURE_RUN_ID=${FIXTURE_RUN_ID}. Use a new fixtureRunId; existing rows are never reused or cleaned up.`);
 	}
 
 	const initialAdminSession = await login(ADMIN_EMAIL, ADMIN_PASSWORD);
-	const adminToken = initialAdminSession.accessToken;
+	let adminToken = initialAdminSession.accessToken;
 	const primaryCampus = await createCampus(adminToken, 'PRIMARY');
 	const isolationCampus = await createCampus(adminToken, 'ISOLATION');
 
@@ -39,6 +44,7 @@ try {
 		'i'
 	);
 	const refreshedAdminSession = await login(ADMIN_EMAIL, ADMIN_PASSWORD);
+	adminToken = refreshedAdminSession.accessToken;
 	const adminUserId = refreshedAdminSession.user.id;
 	const primaryMembers = [
 		creatorMember(refreshedAdminSession, primaryCampus.campusId, adminUserId),
@@ -68,12 +74,14 @@ try {
 		'ISOLATION'
 	);
 
+	adminToken = (await login(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
 	const polls = await createPollFixture(
 		adminToken,
 		primaryCampus.campusId,
 		primaryMembers,
 		generatedPrimaryMembers
 	);
+	adminToken = (await login(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
 	const isolationPoll = await createPoll(
 		adminToken,
 		isolationCampus.campusId,
@@ -87,16 +95,17 @@ try {
 		fixtureRunId: FIXTURE_RUN_ID,
 		fixtureRunIdImmutable: true,
 		createdAt: new Date().toISOString(),
+		composeRuntime,
 		shapedAt: null,
 		weekStartDate: WEEK_START_DATE,
 		primaryCampus: {
-			...primaryCampus,
+			campusId: primaryCampus.campusId,
 			activeMemberCount: primaryMembers.length,
 			memberActor: generatedPrimaryMembers[0],
 			members: primaryMembers,
 		},
 		isolationCampus: {
-			...isolationCampus,
+			campusId: isolationCampus.campusId,
 			activeMemberCount: isolationMembers.length,
 			members: isolationMembers,
 		},
@@ -197,11 +206,12 @@ async function createPrayerFixture(adminToken, campusId, members, groupCount, me
 }
 
 async function createPollFixture(adminToken, campusId, activeMembers, responseCandidates) {
+	let currentAdminToken = adminToken;
 	const byKey = {};
 	for (const visibilityCase of FIXTURE_CONTRACT.polls.visibilityCases) {
 		const window = visibilityCase.key === 'scheduled_future' ? futureWindow() : currentWindow();
 		byKey[visibilityCase.key] = await createPoll(
-			adminToken,
+			currentAdminToken,
 			campusId,
 			visibilityCase.key,
 			visibilityCase.key === 'closed_admin_only',
@@ -234,8 +244,9 @@ async function createPollFixture(adminToken, campusId, activeMembers, responseCa
 		}
 	}
 
+	currentAdminToken = (await login(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
 	for (const key of ['closed_member_visible', 'closed_admin_only', 'closed_expired']) {
-		const closed = await request('PATCH', `/api/v1/admin/campuses/${campusId}/polls/${byKey[key].id}/close`, undefined, adminToken, [200]);
+		const closed = await request('PATCH', `/api/v1/admin/campuses/${campusId}/polls/${byKey[key].id}/close`, undefined, currentAdminToken, [200]);
 		byKey[key] = {
 			...byKey[key],
 			status: closed.status,
@@ -262,7 +273,7 @@ async function createPollFixture(adminToken, campusId, activeMembers, responseCa
 				priceAmount: 0,
 				sortOrder: optionIndex + 1,
 			})),
-		}, adminToken, [201]);
+		}, currentAdminToken, [201]);
 		templates.push({
 			id: template.id,
 			optionIds: template.options.map((option) => option.id),
@@ -304,6 +315,8 @@ async function createPoll(adminToken, campusId, key, anonymous, window) {
 		title: poll.title,
 		status: poll.status,
 		anonymous: poll.isAnonymous,
+		startsAt: poll.startsAt,
+		endsAt: poll.endsAt,
 		optionIds: poll.options.map((option) => option.id),
 	};
 }
@@ -330,7 +343,8 @@ async function request(method, path, body, token, expectedStatuses) {
 		payload = {};
 	}
 	if (!expectedStatuses.includes(response.status) || payload.success === false) {
-		throw new Error(`${method} ${path} failed: status=${response.status} body=${text.slice(0, 1000)}`);
+		const safeBody = path === '/api/v1/auth/login' ? '<redacted>' : text.slice(0, 1000);
+		throw new Error(`${method} ${path} failed: status=${response.status} body=${safeBody}`);
 	}
 	return payload.data;
 }
@@ -366,7 +380,7 @@ function creatorMember(session, campusId, userId) {
 	}
 	return {
 		userId,
-		email: ADMIN_EMAIL,
+		email: null,
 		membershipId: membership.campusMemberId,
 		ordinal: 0,
 		creator: true,
@@ -374,7 +388,7 @@ function creatorMember(session, campusId, userId) {
 }
 
 function guardLocalTarget() {
-	if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal|faithlog-backend|app)(?::\d+)?$/.test(BASE_URL)) {
+	if (!/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(BASE_URL)) {
 		throw new Error('Issue #196 fixture creation is local-Docker-only; remote targets are blocked.');
 	}
 }
@@ -383,6 +397,34 @@ function guardDatasetIdentity() {
 	if (DATASET_ID !== FIXTURE_CONTRACT.datasetId) {
 		throw new Error(`DATASET_ID must remain ${FIXTURE_CONTRACT.datasetId}; use FIXTURE_RUN_ID for each run.`);
 	}
+}
+
+function verifyComposeRuntime() {
+	const appProject = dockerLabel(APP_CONTAINER, 'com.docker.compose.project');
+	const dbProject = dockerLabel(DB_CONTAINER, 'com.docker.compose.project');
+	const appService = dockerLabel(APP_CONTAINER, 'com.docker.compose.service');
+	const dbService = dockerLabel(DB_CONTAINER, 'com.docker.compose.service');
+	const appConfigHash = dockerLabel(APP_CONTAINER, 'com.docker.compose.config-hash');
+	const dbConfigHash = dockerLabel(DB_CONTAINER, 'com.docker.compose.config-hash');
+	const appImage = dockerInspect(APP_CONTAINER, '{{.Config.Image}}');
+	const appImageId = dockerInspect(APP_CONTAINER, '{{.Image}}');
+	const publishedPorts = execFileSync('docker', ['port', APP_CONTAINER, '8080/tcp'], { encoding: 'utf8' }).trim();
+	const targetPort = new URL(BASE_URL).port || '80';
+	if (!appProject || appProject !== dbProject || appService !== 'app' || dbService !== 'postgres'
+		|| !appConfigHash || !dbConfigHash
+		|| !(appImage === EXPECTED_APP_IMAGE || appImage.startsWith(`${EXPECTED_APP_IMAGE}:`))
+		|| !publishedPorts.split(/\r?\n/).some((binding) => binding.endsWith(`:${targetPort}`))) {
+		throw new Error('Seed requires the approved app/PostgreSQL Compose project, service/config-hash labels, and app image.');
+	}
+	return { composeProject: appProject, appService, dbService, appConfigHash, dbConfigHash, appImage, appImageId, targetPort };
+}
+
+function dockerLabel(container, label) {
+	return dockerInspect(container, `{{ index .Config.Labels "${label}" }}`);
+}
+
+function dockerInspect(container, format) {
+	return execFileSync('docker', ['inspect', '--format', format, container], { encoding: 'utf8' }).trim();
 }
 
 function validateMonday(value) {

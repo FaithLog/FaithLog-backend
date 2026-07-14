@@ -7,19 +7,25 @@ if (![endpoint, summaryPath, beforePath, afterPath, sqlLogPath, resourcePath, me
 }
 
 const TOOL_STATUS = 'scenario-ready';
-const summary = readJson(summaryPath);
-const before = readJson(beforePath);
-const after = readJson(afterPath);
 const metadata = readJson(metadataPath);
-const sqlLog = readFileSync(sqlLogPath, 'utf8');
-const metricName = endpoint.replace(/-/g, '_');
-const durationValues = metricValues(summary, `endpoint_${metricName}_duration`);
-const requestValues = metricValues(summary, `endpoint_${metricName}_requests`);
-const failureValues = metricValues(summary, `endpoint_${metricName}_failures`);
-const queryLines = extractSql(sqlLog);
-if (queryLines.length === 0) {
-	throw new Error('No org.hibernate.SQL statements were captured. Start the app externally with SQL DEBUG logging before measuring.');
+const k6ExitStatus = Number(metadata.runtime?.k6ExitStatus);
+const resourceSamplerExitStatus = Number(metadata.runtime?.resourceSamplerExitStatus);
+const fixtureWindowExitStatus = Number(metadata.runtime?.fixtureWindowExitStatus);
+const logCaptureExitStatus = Number(metadata.runtime?.logCaptureExitStatus);
+const afterDbSnapshotExitStatus = Number(metadata.runtime?.afterDbSnapshotExitStatus);
+if (![k6ExitStatus, resourceSamplerExitStatus, fixtureWindowExitStatus, logCaptureExitStatus, afterDbSnapshotExitStatus].every(Number.isInteger)) {
+	throw new Error('Runtime metadata must contain integer k6, sampler, window, log, and DB snapshot exit statuses.');
 }
+const summary = readJsonOptional(summaryPath);
+const before = readJsonOptional(beforePath);
+const after = readJsonOptional(afterPath);
+const sqlLog = readTextOptional(sqlLogPath);
+const resourceText = readTextOptional(resourcePath);
+const metricName = endpoint.replace(/-/g, '_');
+const durationValues = metricValues(summary || {}, `endpoint_${metricName}_duration`);
+const requestValues = metricValues(summary || {}, `endpoint_${metricName}_requests`);
+const failureValues = metricValues(summary || {}, `endpoint_${metricName}_failures`);
+const queryLines = extractSql(sqlLog || '');
 
 const repeatedSqlMap = new Map();
 for (const query of queryLines) {
@@ -31,22 +37,58 @@ const repeatedSql = [...repeatedSqlMap.entries()]
 	.filter((entry) => entry.count > 1)
 	.sort((left, right) => right.count - left.count || left.sql.localeCompare(right.sql));
 
-const requestCount = Number(requestValues.count || 0);
+const requestCount = strictNumber(requestValues.count) ?? 0;
 const queryCount = queryLines.length;
-const tableCounterDelta = diffTableCounters(before.tables || [], after.tables || []);
-const resources = summarizeResources(readFileSync(resourcePath, 'utf8'));
+const failureRate = strictNumber(failureValues.rate);
+const latency = {
+	p50Ms: strictNumber(durationValues['p(50)']),
+	p95Ms: strictNumber(durationValues['p(95)']),
+	p99Ms: strictNumber(durationValues['p(99)']),
+	maxMs: strictNumber(durationValues.max),
+};
+const throughputPerSecond = strictNumber(requestValues.rate);
+const rejectionReasons = [];
+if (k6ExitStatus !== 0) rejectionReasons.push(`k6-exit-${k6ExitStatus}`);
+if (resourceSamplerExitStatus !== 0) rejectionReasons.push(`resource-sampler-exit-${resourceSamplerExitStatus}`);
+if (fixtureWindowExitStatus !== 0) rejectionReasons.push('fixture-window-crossed');
+if (logCaptureExitStatus !== 0) rejectionReasons.push(`log-capture-exit-${logCaptureExitStatus}`);
+if (afterDbSnapshotExitStatus !== 0) rejectionReasons.push(`after-db-snapshot-exit-${afterDbSnapshotExitStatus}`);
+if (!summary) rejectionReasons.push('missing-k6-summary');
+if (!before || !after) rejectionReasons.push('missing-db-snapshot');
+if (queryLines.length === 0) rejectionReasons.push('missing-sql-evidence');
+if (resourceText === null) rejectionReasons.push('missing-resource-evidence');
+if (requestCount === 0) rejectionReasons.push('zero-http-requests');
+if (!Number.isFinite(failureRate)) rejectionReasons.push('missing-correctness-rate');
+else if (failureRate !== 0) rejectionReasons.push('correctness-failure');
+if (!Object.values(latency).every(Number.isFinite)) rejectionReasons.push('missing-latency-metrics');
+if (!Number.isFinite(throughputPerSecond)) rejectionReasons.push('missing-throughput');
+if (!validTableEvidence(before?.tables, after?.tables)) rejectionReasons.push('invalid-db-table-snapshot');
+const tableCounterDelta = diffTableCounters(before?.tables || [], after?.tables || []);
+const resources = summarizeResources(resourceText || '');
 const capturedContainers = new Set(resources.map((resource) => resource.container));
 for (const container of [metadata.runtime?.appContainer, metadata.runtime?.dbContainer]) {
 	if (!container || !capturedContainers.has(container)) {
-		throw new Error(`Missing CPU/RAM samples for expected container: ${container || 'undefined'}`);
+		rejectionReasons.push(`missing-resource-samples:${container || 'undefined'}`);
 	}
 }
 const writeCounters = tableCounterDelta.reduce((sum, table) => (
 	sum + table.n_tup_ins + table.n_tup_upd + table.n_tup_del
 ), 0);
+if (writeCounters !== 0) rejectionReasons.push(`write-counter-delta:${writeCounters}`);
+const accepted = k6ExitStatus === 0
+	&& resourceSamplerExitStatus === 0
+	&& fixtureWindowExitStatus === 0
+	&& logCaptureExitStatus === 0
+	&& afterDbSnapshotExitStatus === 0
+	&& requestCount > 0
+	&& Number.isFinite(failureRate)
+	&& failureRate === 0
+	&& rejectionReasons.length === 0;
 
 const report = {
-	measurementStatus: 'measured',
+	accepted,
+	measurementStatus: accepted ? 'measured' : 'rejected',
+	rejectionReasons,
 	toolPreparationStatus: TOOL_STATUS,
 	endpoint,
 	mode: metadata.mode,
@@ -55,13 +97,13 @@ const report = {
 	runtime: metadata.runtime,
 	resources,
 	http: {
-		p50Ms: durationValues['p(50)'] ?? durationValues.med ?? null,
-		p95Ms: durationValues['p(95)'] ?? null,
-		p99Ms: durationValues['p(99)'] ?? null,
-		maxMs: durationValues.max ?? null,
-		throughputPerSecond: requestValues.rate ?? null,
+		p50Ms: Number.isFinite(latency.p50Ms) ? latency.p50Ms : null,
+		p95Ms: Number.isFinite(latency.p95Ms) ? latency.p95Ms : null,
+		p99Ms: Number.isFinite(latency.p99Ms) ? latency.p99Ms : null,
+		maxMs: Number.isFinite(latency.maxMs) ? latency.maxMs : null,
+		throughputPerSecond: Number.isFinite(throughputPerSecond) ? throughputPerSecond : null,
 		requestCount,
-		failureRate: failureValues.rate ?? null,
+		failureRate: Number.isFinite(failureRate) ? failureRate : null,
 	},
 	db: {
 		queryCount,
@@ -78,12 +120,29 @@ const report = {
 
 mkdirSync(dirname(resolve(outputPath)), { recursive: true });
 writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
-if (writeCounters !== 0) {
-	throw new Error(`Read baseline changed table write counters (${writeCounters}). Check fixture status synchronization before accepting the run.`);
+if (!accepted) {
+	console.error(`Endpoint evidence was rejected (${rejectionReasons.join(', ')}); rejected report was preserved.`);
+	process.exitCode = 2;
 }
 
 function readJson(path) {
 	return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function readJsonOptional(path) {
+	try {
+		return readJson(path);
+	} catch {
+		return null;
+	}
+}
+
+function readTextOptional(path) {
+	try {
+		return readFileSync(path, 'utf8');
+	} catch {
+		return null;
+	}
 }
 
 function metricValues(k6Summary, name) {
@@ -122,6 +181,23 @@ function diffTableCounters(beforeTables, afterTables) {
 		}
 		return delta;
 	}).filter((table) => counters.some((counter) => table[counter] !== 0));
+}
+
+function validTableEvidence(beforeTables, afterTables) {
+	const counters = ['seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch', 'n_tup_ins', 'n_tup_upd', 'n_tup_del', 'n_live_tup'];
+	if (!Array.isArray(beforeTables) || !Array.isArray(afterTables) || beforeTables.length === 0 || beforeTables.length !== afterTables.length) {
+		return false;
+	}
+	const validRows = (tables) => tables.every((table) => typeof table.relname === 'string' && table.relname.length > 0
+		&& counters.every((counter) => strictNumber(table[counter]) !== null));
+	if (!validRows(beforeTables) || !validRows(afterTables)) return false;
+	const beforeNames = beforeTables.map((table) => table.relname).sort();
+	const afterNames = afterTables.map((table) => table.relname).sort();
+	return beforeNames.every((name, index) => name === afterNames[index]);
+}
+
+function strictNumber(value) {
+	return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function summarizeResources(tsv) {
