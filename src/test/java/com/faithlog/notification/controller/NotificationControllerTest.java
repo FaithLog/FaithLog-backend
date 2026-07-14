@@ -35,9 +35,11 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -173,6 +175,8 @@ class NotificationControllerTest {
 	}
 
 	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	@DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
 	void coffee_charge_reminder_sends_all_owned_unpaid_total_once_per_account_and_recipient_daily() throws Exception {
 		String dutyToken = signupAndLogin("notification-200-coffee-duty@example.com", UserRole.USER);
 		User duty = userRepository.findByEmail("notification-200-coffee-duty@example.com").orElseThrow();
