@@ -256,7 +256,7 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
-	void v10MigrationMakesExistingCoffeeTemplatesAccountNeutralWithoutDeletingData() throws IOException {
+	void v10MigrationMakesValidCoffeeTemplatesAccountNeutralAndQuarantinesLegacyMixedRows() throws IOException {
 		assertThat(COFFEE_TEMPLATE_ACCOUNT_MIGRATION).exists();
 		String sql = Files.readString(COFFEE_TEMPLATE_ACCOUNT_MIGRATION);
 
@@ -264,7 +264,13 @@ class FlywayMigrationContractTest {
 			"UPDATE poll_templates",
 			"SET payment_account_id = NULL",
 			"WHERE poll_type = 'COFFEE'",
-			"AND payment_account_id IS NOT NULL"
+			"AND payment_account_id IS NOT NULL",
+			"SET is_active = FALSE",
+			"auto_create_enabled = FALSE",
+			"poll_type = 'COFFEE'",
+			"charge_generation_type = 'OPTION_PRICE'",
+			"payment_category = 'COFFEE'",
+			"AND NOT ("
 		);
 		assertThat(sql).doesNotContain("DELETE FROM", "DROP ", "ALTER TABLE");
 	}
