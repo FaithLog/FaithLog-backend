@@ -9,6 +9,7 @@ import com.faithlog.notification.domain.entity.UserFcmToken;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import java.util.List;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -86,13 +87,18 @@ public class NotificationDeliveryWorker {
 
 		boolean sent = false;
 		String lastFailureReason = null;
-		for (PendingFcmToken token : tokens) {
+		for (Iterator<PendingFcmToken> iterator = tokens.iterator(); iterator.hasNext();) {
+			PendingFcmToken token = iterator.next();
 			try {
 				sendWithRetry(token, log);
 				sent = true;
 			} catch (FcmSendException exception) {
 				lastFailureReason = exception.getMessage();
-				recordTokenFailure(token.id(), lastFailureReason, exception.failureType() == FcmSendFailureType.PERMANENT);
+				boolean permanent = exception.failureType() == FcmSendFailureType.PERMANENT;
+				recordTokenFailure(token.id(), lastFailureReason, permanent);
+				if (permanent) {
+					iterator.remove();
+				}
 			} catch (RuntimeException exception) {
 				lastFailureReason = exception.getMessage();
 				recordTokenFailure(token.id(), lastFailureReason, false);
