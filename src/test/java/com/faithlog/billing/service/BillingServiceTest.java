@@ -324,6 +324,36 @@ class BillingServiceTest {
 	}
 
 	@Test
+	void coffee_account_commands_reject_campus_manager_and_service_admin_without_active_coffee_duty() {
+		User manager = saveUser("billing-200-manager@example.com", UserRole.MANAGER);
+		User admin = saveUser("billing-200-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "200커피계좌전용권한캠");
+
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "관리자 커피 계좌", "하나은행",
+			"200-MANAGER", "관리자", manager.id()
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN)
+			);
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), admin.id(), PaymentCategory.COFFEE, "서비스 관리자 커피 계좌", "국민은행",
+			"200-ADMIN", "서비스관리자", admin.id()
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN)
+			);
+
+		PaymentAccount ownedAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "기존 관리자 계좌", "신한은행", "200-EXISTING", "관리자", manager.id()
+		));
+		assertThatThrownBy(() -> billingService.deactivatePaymentAccount(ownedAccount.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN)
+			);
+	}
+
+	@Test
 	void coffee_accounts_keep_active_scope_per_owner_and_do_not_reconnect_existing_charges() {
 		User minister = saveUser("billing-coffee-owner-minister@example.com", UserRole.MANAGER);
 		User elder = saveUser("billing-coffee-owner-elder@example.com", UserRole.USER);

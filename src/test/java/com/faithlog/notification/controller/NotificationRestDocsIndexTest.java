@@ -17,5 +17,7 @@ class NotificationRestDocsIndexTest {
 		assertThat(index).contains("include::{snippets}/notification-deactivate-fcm-token/http-request.adoc[]");
 		assertThat(index).contains("include::{snippets}/notification-send-admin-notification/http-request.adoc[]");
 		assertThat(index).contains("include::{snippets}/notification-list-notification-logs/http-request.adoc[]");
+		assertThat(index).contains("include::{snippets}/notification-send-coffee-charge-reminders/http-request.adoc[]");
+		assertThat(index).contains("include::{snippets}/notification-send-meal-charge-reminders/http-request.adoc[]");
 	}
 }

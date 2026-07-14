@@ -10,12 +10,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.entity.CampusDutyAssignment;
+import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.notification.service.FcmTokenService;
 import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
 import com.faithlog.notification.domain.type.DeviceType;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.entity.PaymentAccount;
+import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.support.NotificationConcurrencyTestConfig;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
@@ -57,6 +65,15 @@ class NotificationControllerTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private CampusDutyAssignmentRepository campusDutyAssignmentRepository;
+
+	@Autowired
+	private PaymentAccountRepository paymentAccountRepository;
+
+	@Autowired
+	private ChargeItemRepository chargeItemRepository;
 
 	@Autowired
 	private NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
@@ -153,6 +170,90 @@ class NotificationControllerTest {
 			.andExpect(jsonPath("$.code").value("NOTIFICATION_REDIS_UNAVAILABLE"));
 
 		assertThat(notificationLogRepository.count()).isZero();
+	}
+
+	@Test
+	void coffee_charge_reminder_sends_all_owned_unpaid_total_once_per_account_and_recipient_daily() throws Exception {
+		String dutyToken = signupAndLogin("notification-200-coffee-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("notification-200-coffee-duty@example.com").orElseThrow();
+		User target = saveUser("notification-200-coffee-target@example.com", UserRole.USER);
+		Campus campus = saveCampus("알림200커피캠");
+		saveMember(campus.id(), duty.id());
+		saveMember(campus.id(), target.id());
+		campusDutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(campus.id(), duty.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.COFFEE, "담당자 커피 계좌", "하나은행", "200-COFFEE", "커피담당", duty.id()
+		));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20011L, 1800));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20012L, 2200));
+		registerToken(target, "notification-200-coffee-token", "notification-200-coffee-client");
+
+		String firstBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/coffee/charge-reminders", campus.id())
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isAccepted())
+			.andExpect(jsonPath("$.data.notificationRequestId").isString())
+			.andExpect(jsonPath("$.data.queuedCount").value(1))
+			.andExpect(jsonPath("$.data.skippedCount").value(0))
+			.andReturn().getResponse().getContentAsString();
+		String requestId = objectMapper.readTree(firstBody).path("data").path("notificationRequestId").asText();
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(java.util.UUID.fromString(requestId)))
+			.singleElement()
+			.satisfies(log -> {
+				assertThat(log.title()).isEqualTo("커피 미납 청구 안내");
+				assertThat(log.body()).isEqualTo("커피 미납 금액은 총 4000원입니다. 확인 후 납부해 주세요.");
+				assertThat(log.userId()).isEqualTo(target.id());
+			});
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/coffee/charge-reminders", campus.id())
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isAccepted())
+			.andExpect(jsonPath("$.data.queuedCount").value(0))
+			.andExpect(jsonPath("$.data.skippedCount").value(1));
+		assertThat(notificationLogRepository.count()).isEqualTo(1);
+	}
+
+	@Test
+	void meal_charge_reminder_uses_meal_scope_and_non_duty_manager_is_forbidden() throws Exception {
+		String dutyToken = signupAndLogin("notification-200-meal-duty@example.com", UserRole.USER);
+		String managerToken = signupAndLogin("notification-200-manager@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("notification-200-meal-duty@example.com").orElseThrow();
+		User manager = userRepository.findByEmail("notification-200-manager@example.com").orElseThrow();
+		User target = saveUser("notification-200-meal-target@example.com", UserRole.USER);
+		Campus campus = saveCampus("알림200밥캠");
+		saveMember(campus.id(), duty.id());
+		saveMinister(campus.id(), manager.id());
+		saveMember(campus.id(), target.id());
+		campusDutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignMeal(campus.id(), duty.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.MEAL, "담당자 밥 계좌", "국민은행", "200-MEAL", "밥담당", duty.id()
+		));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20021L, 7000));
+		registerToken(target, "notification-200-meal-token", "notification-200-meal-client");
+
+		String responseBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/charge-reminders", campus.id())
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isAccepted())
+			.andExpect(jsonPath("$.data.queuedCount").value(1))
+			.andExpect(jsonPath("$.data.skippedCount").value(0))
+			.andReturn().getResponse().getContentAsString();
+		String requestId = objectMapper.readTree(responseBody).path("data").path("notificationRequestId").asText();
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(java.util.UUID.fromString(requestId)))
+			.singleElement()
+			.satisfies(log -> {
+				assertThat(log.title()).isEqualTo("밥 미납 청구 안내");
+				assertThat(log.body()).isEqualTo("밥 미납 금액은 총 7000원입니다. 확인 후 납부해 주세요.");
+			});
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/charge-reminders", campus.id())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isForbidden());
+	}
+
+	private ChargeItem charge(Long campusId, Long userId, PaymentAccount account, Long sourceId, int amount) {
+		return ChargeItem.create(
+			campusId, userId, account.accountType(), account.id(), account.bankName(), account.accountNumber(),
+			account.accountHolder(), ChargeSourceType.POLL_RESPONSE, sourceId, "미납 청구", "미납", amount, null
+		);
 	}
 
 	private JsonNode sendCustomNotification(String accessToken, Long campusId, Long targetUserId) throws Exception {
