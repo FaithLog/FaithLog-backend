@@ -40,6 +40,13 @@ public interface ChargeItemRepositoryPort {
 		Set<Long> paymentAccountIds
 	);
 
+	boolean existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
+	);
+
 	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
 		Long campusId,
 		Long userId,

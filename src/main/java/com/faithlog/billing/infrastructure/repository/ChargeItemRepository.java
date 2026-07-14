@@ -106,6 +106,13 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		Set<Long> paymentAccountIds
 	);
 
+	boolean existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
+	);
+
 	List<ChargeItem> findByCampusIdAndStatus(Long campusId, ChargeStatus status);
 
 	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(

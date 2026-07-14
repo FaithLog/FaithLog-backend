@@ -207,11 +207,8 @@ public class CampusDutyAssignmentService {
 			return;
 		}
 		boolean hasUnpaidCharge = chargeItemRepository
-			.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
-				assignment.campusId(), paymentCategory, ChargeStatus.UNPAID, ownedAccountIds)
-			.stream()
-			.findAny()
-			.isPresent();
+			.existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
+				assignment.campusId(), paymentCategory, ChargeStatus.UNPAID, ownedAccountIds);
 		if (hasUnpaidCharge) {
 			throw new BusinessException(errorCode);
 		}
