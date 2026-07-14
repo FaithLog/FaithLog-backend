@@ -17,6 +17,7 @@ const REQUIRED_FILES = [
 	'db-activity.sql',
 	'activity-sample.mjs',
 	'token-lifetime.mjs',
+	'validate-published-target.mjs',
 	'summarize-run.mjs',
 	'README.md',
 ];
@@ -306,6 +307,106 @@ test('seed, shape, and direct scenario require every approved target identity be
 	}
 });
 
+test('published target validator requires one address-family-compatible numeric loopback binding', () => {
+	const validator = join(ROOT, 'validate-published-target.mjs');
+	for (const [baseUrl, bindings] of [
+		['http://127.0.0.1:18080', ['0.0.0.0:18080', '[::]:18080']],
+		['http://127.0.0.1:18080', ['127.0.0.1:18080']],
+		['http://[::1]:18080', ['[::]:18080', '0.0.0.0:18080']],
+	]) {
+		const valid = spawnSync(process.execPath, [validator, baseUrl, ...bindings], { encoding: 'utf8' });
+		assert.equal(valid.status, 0, `${baseUrl} should bind to ${bindings.join(', ')}: ${valid.stderr}`);
+		const parsed = JSON.parse(valid.stdout);
+		assert.equal(parsed.hostPort, 18080);
+		assert.equal(parsed.compatibleBindingCount, 1);
+	}
+	for (const [baseUrl, bindings] of [
+		['http://localhost:18080', ['0.0.0.0:18080']],
+		['http://127.0.0.1:18080', ['127.0.0.2:18080']],
+		['http://127.0.0.1:18080', ['[::]:18080']],
+		['http://127.0.0.1:18080', ['0.0.0.0:18080', '127.0.0.1:18080']],
+		['http://127.0.0.1:18080/path', ['0.0.0.0:18080']],
+	]) {
+		const invalid = spawnSync(process.execPath, [validator, baseUrl, ...bindings], { encoding: 'utf8' });
+		assert.notEqual(invalid.status, 0, `${baseUrl} must reject ${bindings.join(', ')}`);
+	}
+	for (const entrypoint of ['seed-fixture.mjs', 'shape-fixture.sh', 'run-baseline.sh']) {
+		assert.match(read(entrypoint), /validate-published-target\.mjs/, `${entrypoint} must use the shared binding validator`);
+	}
+});
+
+test('seed and shape reject a same-name post-lock runtime replacement before API or mutation SQL', () => {
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-post-lock-'));
+	const project = `faithlog-post-lock-${process.pid}`;
+	try {
+		const bin = join(temporary, 'bin');
+		mkdirSync(bin);
+		const calls = join(temporary, 'calls.log');
+		const makeDocker = (marker) => [
+			'#!/usr/bin/env bash',
+			`if [[ "$1" == port ]]; then touch "${marker}"; echo 0.0.0.0:18080; exit 0; fi`,
+			`if [[ "$1" == exec ]]; then if [[ "$*" == *"UPDATE polls"* ]]; then echo shape-sql >> "${calls}"; echo '{}'; else if [[ -f "${marker}" ]]; then printf '%s\\n' '{"currentDatabase":"faithlog","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:01.000Z"}'; else printf '%s\\n' '{"currentDatabase":"faithlog","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:00.000Z"}'; fi; fi; exit 0; fi`,
+			'case "$*" in',
+			`*com.docker.compose.project*) echo "${project}" ;;`,
+			'*com.docker.compose.service*approved-app*) echo app ;;',
+			'*com.docker.compose.service*approved-db*) echo postgres ;;',
+			'*com.docker.compose.config-hash*approved-app*) echo app-hash ;;',
+			'*com.docker.compose.config-hash*approved-db*) echo db-hash ;;',
+			'*"{{.Config.Image}}"*) echo approved-image ;;',
+			`*"{{.Id}}"*approved-app*) if [[ -f "${marker}" ]]; then echo app-B; else echo app-A; fi ;;`,
+			`*"{{.Id}}"*approved-db*) if [[ -f "${marker}" ]]; then echo db-B; else echo db-A; fi ;;`,
+			'*"{{.Image}}"*approved-app*) echo sha256:app ;;',
+			'*"{{.Image}}"*approved-db*) echo sha256:db ;;',
+			`*"{{.State.StartedAt}}"*) if [[ -f "${marker}" ]]; then echo 2026-07-14T00:00:01.000Z; else echo 2026-07-14T00:00:00.000Z; fi ;;`,
+			'*) exit 98 ;;', 'esac', '',
+		].join('\n');
+		const preload = join(temporary, 'preload.cjs');
+		writeFileSync(preload, `const fs=require('node:fs'); global.fetch=async()=>{fs.appendFileSync(${JSON.stringify(calls)},'seed-api\\n'); return {status:500,text:async()=>'{"success":false}'};};\n`);
+		const commonEnv = {
+			...process.env, PATH: `${bin}:${process.env.PATH}`, BASE_URL: 'http://127.0.0.1:18080',
+			APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db', EXPECTED_APP_SERVICE: 'app',
+			EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'approved-image',
+			PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
+		};
+
+		const seedMarker = join(temporary, 'seed-port-seen');
+		writeFileSync(join(bin, 'docker'), makeDocker(seedMarker));
+		chmodSync(join(bin, 'docker'), 0o755);
+		const seed = spawnSync(process.execPath, [join(ROOT, 'seed-fixture.mjs')], {
+			env: { ...commonEnv, NODE_OPTIONS: `--require=${preload}`, FIXTURE_RUN_ID: `i196seed${process.pid}`.slice(0, 32),
+				FIXTURE_MANIFEST: join(temporary, 'seed-manifest.json'), PERF_ADMIN_EMAIL: 'admin@example.test',
+				PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret' }, encoding: 'utf8',
+		});
+		assert.notEqual(seed.status, 0);
+		assert.match(seed.stderr, /runtime identity changed after project lock/i);
+		assert.equal(existsSync(calls) ? readFileSync(calls, 'utf8').includes('seed-api') : false, false);
+
+		rmSync(calls, { force: true });
+		const shapeMarker = join(temporary, 'shape-port-seen');
+		writeFileSync(join(bin, 'docker'), makeDocker(shapeMarker));
+		chmodSync(join(bin, 'docker'), 0o755);
+		const fixtureRunId = `i196shape${process.pid}`.slice(0, 32);
+		const manifest = join(temporary, 'shape-manifest.json');
+		writeFileSync(manifest, JSON.stringify({
+			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId, shapedAt: null,
+			composeRuntime: { composeProject: project, appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:app', targetPort: '18080' },
+			primaryCampus: { campusId: 1 }, polls: { byKey: {
+				open: { id: 1 }, closed_member_visible: { id: 2 }, closed_admin_only: { id: 3 }, closed_expired: { id: 4 }, scheduled_future: { id: 5 },
+			} },
+		}));
+		const shape = spawnSync('bash', [join(ROOT, 'shape-fixture.sh')], {
+			env: { ...commonEnv, FIXTURE_RUN_ID: fixtureRunId, FIXTURE_MANIFEST: manifest }, encoding: 'utf8',
+		});
+		assert.notEqual(shape.status, 0);
+		assert.match(shape.stderr, /runtime identity changed after project lock/i);
+		assert.equal(existsSync(calls) ? readFileSync(calls, 'utf8').includes('shape-sql') : false, false);
+		assert.equal(existsSync(`${manifest}.shape-attempted`), false);
+	} finally {
+		rmSync(`/tmp/faithlog-performance-${project}.lock`, { recursive: true, force: true });
+		rmSync(temporary, { recursive: true, force: true });
+	}
+});
+
 test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	const runner = read('run-baseline.sh');
 	const sql = read('db-table-stats.sql');
@@ -514,6 +615,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const k6Count = join(temporary, 'k6-count');
 		const dbCount = join(temporary, 'db-count');
 		const identityCount = join(temporary, 'identity-count');
+		const postLockMarker = join(temporary, 'post-lock-port-seen');
 		const before = join(temporary, 'before.json');
 		const after = join(temporary, 'after.json');
 		const manifest = join(temporary, 'fixture.json');
@@ -534,7 +636,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		}));
 		writeFileSync(join(bin, 'docker'), [
 			'#!/usr/bin/env bash',
-			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_REPLACE_RUNTIME:-0}'}" == 1 && "$count" -gt 1 ]]; then echo app-container-replaced; else echo app-container-id; fi; exit 0; fi`,
+			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 && -f "${postLockMarker}" ]]; then echo app-container-post-lock-replaced; elif [[ "${'${FAKE_REPLACE_RUNTIME:-0}'}" == 1 && "$count" -gt 1 ]]; then echo app-container-replaced; else echo app-container-id; fi; exit 0; fi`,
 			'if [[ "$1" == exec ]]; then',
 			`  if [[ -z "${'${PGPASSWORD+x}'}" || -n "${'${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_PASSWORD+x}${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]]; then echo db-scope-bad >> "${calls}"; fi`,
 			`  echo db-collector >> "${calls}"`,
@@ -554,7 +656,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			'*"{{.Id}}"*faithlog-postgres*) echo db-container-id ;;',
 			'*"{{.State.StartedAt}}"*) echo 2026-07-14T00:00:00.000Z ;;',
 			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
-			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
+			`*"port faithlog-backend 8080/tcp"*) [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 ]] && touch "${postLockMarker}"; echo 0.0.0.0:18080 ;;`,
 			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
 			'*"stats --no-stream"*) printf "faithlog-backend\\t10.0%%\\t100MiB / 1GiB\\t9.8%%\\nfaithlog-postgres\\t20.0%%\\t200MiB / 1GiB\\t19.5%%\\n" ;;',
 			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
@@ -632,6 +734,28 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const replacementCalls = readFileSync(calls, 'utf8').trim().split(/\r?\n/).slice(callCountBeforeReplacement);
 		assert.equal(replacementCalls.some((line) => line === 'warmup-k6' || line === 'measured-k6' || line === 'login'), false,
 			'runtime replacement must block login and both k6 phases');
+
+		for (const stateFile of [k6Count, dbCount, identityCount, postLockMarker]) rmSync(stateFile, { force: true });
+		const callCountBeforePostLock = readFileSync(calls, 'utf8').trim().split(/\r?\n/).length;
+		const postLockExecutionRunId = `execpostlock${process.pid}`.slice(0, 32);
+		const postLockResult = spawnSync('bash', [runner, 'prayer'], {
+			env: {
+				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId,
+				EXECUTION_RUN_ID: postLockExecutionRunId, FIXTURE_MANIFEST: manifest,
+				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
+				MEASURED_VUS: '1', MEASURED_DURATION: '1s', APP_CONTAINER: 'faithlog-backend',
+				DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app', EXPECTED_DB_SERVICE: 'postgres',
+				EXPECTED_APP_IMAGE: 'faithlog-latest', SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
+				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
+				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret', FAKE_POST_LOCK_REPLACE: '1',
+			},
+			encoding: 'utf8', timeout: 60000,
+		});
+		assert.notEqual(postLockResult.status, 0, 'post-lock replacement must fail before the new runtime becomes the baseline');
+		assert.match(postLockResult.stderr, /runtime identity changed after project lock/i);
+		const postLockCalls = readFileSync(calls, 'utf8').trim().split(/\r?\n/).slice(callCountBeforePostLock);
+		assert.equal(postLockCalls.some((line) => line === 'warmup-k6' || line === 'measured-k6' || line === 'login'), false,
+			'post-lock replacement must block login and k6');
 	} finally {
 		rmSync(reportBase, { recursive: true, force: true });
 		rmSync(temporary, { recursive: true, force: true });
@@ -698,6 +822,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		assert.equal(report.db.tableCounterDelta[0].estimatedRowsAfter, '1000');
 		assert.equal(report.nPlusOneEvidence.loopSignal[0].count, 4);
 		assert.equal(report.resources.length, 2);
+		assert.equal(report.resources.find((entry) => entry.container === 'faithlog-backend').maxObservedMemoryBytes, '105906176');
 		const approvedSamplingMetadata = join(temporary, 'metadata-approved-sampling.json');
 		const approvedSamplingReport = join(temporary, 'approved-sampling-report.json');
 		const approvedSampling = JSON.parse(readFileSync(paths.metadata, 'utf8'));
@@ -735,6 +860,27 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			const resourceResult = JSON.parse(readFileSync(resourceReport, 'utf8'));
 			assert.equal(resourceResult.measurementStatus, 'rejected');
 			assert.ok(resourceResult.rejectionReasons.includes(expectedReason), `${name} must add ${expectedReason}`);
+		}
+		for (const [name, memoryUsage, memoryPercent] of [
+			['malformed-memory', 'not-a-size / 0B', '50%'],
+			['zero-limit', '100MiB / 0B', '50%'],
+			['used-over-limit', '2GiB / 1GiB', '50%'],
+			['percent-over-100', '100MiB / 1GiB', '999%'],
+		]) {
+			const malformedResource = join(temporary, `${name}.tsv`);
+			const malformedResourceReport = join(temporary, `${name}-report.json`);
+			writeFileSync(malformedResource, [
+				`2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t${memoryUsage}\t${memoryPercent}`,
+				'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
+				'2026-07-14T00:00:02Z\tfaithlog-backend\t11.0%\t101MiB / 1GiB\t9.9%',
+				'2026-07-14T00:00:02Z\tfaithlog-postgres\t21.0%\t201MiB / 1GiB\t19.6%',
+			].join('\n'));
+			const malformedResourceProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+				paths.summary, paths.before, paths.after, paths.sql, malformedResource, paths.integrity, paths.metadata, malformedResourceReport]);
+			assert.notEqual(malformedResourceProcess.status, 0);
+			const malformedResourceResult = JSON.parse(readFileSync(malformedResourceReport, 'utf8'));
+			assert.equal(malformedResourceResult.measurementStatus, 'rejected');
+			assert.ok(malformedResourceResult.rejectionReasons.includes('invalid-resource-sample'), `${name} must reject`);
 		}
 		const unconfirmedMetadata = join(temporary, 'metadata-unconfirmed-window.json');
 		const unconfirmedReport = join(temporary, 'unconfirmed-window-report.json');
