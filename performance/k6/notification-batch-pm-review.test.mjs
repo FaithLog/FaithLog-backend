@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
 	chmodSync,
+	copyFileSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -12,7 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 
 const SCENARIO_ROOT = new URL('./notification-batch/', import.meta.url);
@@ -112,6 +113,7 @@ function validRunArtifacts(fixtureRunId, sampleKind = 'measured') {
 		warmupScope: 'external-postgres-redis-cache-only',
 		externalEvidenceWindow: 'gradle-spring-harness-lifecycle',
 		dockerStatsSampleIntervalSeconds: 60,
+		dockerStatsMaxGapMilliseconds: 60000,
 		sharedStack: false,
 		externalFcm: false,
 	};
@@ -200,6 +202,7 @@ function validRunArtifacts(fixtureRunId, sampleKind = 'measured') {
 		workloadStartedAt: '2026-07-14T00:01:10.000Z',
 		workloadFinishedAt: '2026-07-14T00:01:50.000Z',
 		dockerStatsSampleIntervalSeconds: 60,
+		dockerStatsMaxGapMilliseconds: 60000,
 	};
 	const dockerStats = [
 		'captured_at,container_name,container_id,cpu_percent,memory_usage,memory_percent',
@@ -254,6 +257,20 @@ function assertFails(result, message) {
 	assert.notEqual(result.status, 0, `${message}\nstdout=${result.stdout}\nstderr=${result.stderr}`);
 }
 
+function writeEvidenceArtifacts(runDir, artifacts) {
+	for (const [name, value] of Object.entries({
+		'postgres-before.json': artifacts.postgresBefore,
+		'postgres-after.json': artifacts.postgresAfter,
+		'redis-before.json': artifacts.redisBefore,
+		'redis-after.json': artifacts.redisAfter,
+		'evidence-window.json': artifacts.evidenceWindow,
+		'environment.json': artifacts.environment,
+	})) {
+		writeFileSync(join(runDir, name), `${JSON.stringify(value)}\n`);
+	}
+	writeFileSync(join(runDir, 'docker-stats.csv'), artifacts.dockerStats);
+}
+
 test('summarizer requires approved exact warmup/measured counts and refuses one measured sample', () => {
 	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-count-gate-'));
 	try {
@@ -294,6 +311,28 @@ test('summarizer requires approved exact warmup/measured counts and refuses one 
 			EXPECTED_MEASURED_SAMPLES: '2',
 			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
 		}), 'warmup sample count below the approved exact count must fail');
+
+		const secondWarmup = writeRun(root, 'warmup-2', 'warmup');
+		writeFileSync(runDirsFile,
+			`${warmup.runDir}\n${secondWarmup.runDir}\n${oneMeasured.runDir}\n${secondMeasured.runDir}\n`);
+		assertFails(runNode('summarize-before.mjs', {
+			RUN_DIRS_FILE: runDirsFile,
+			OUTPUT_PATH: outputPath,
+			EXPECTED_WARMUP_SAMPLES: '1',
+			EXPECTED_MEASURED_SAMPLES: '2',
+			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
+		}), 'warmup sample count above the approved exact count must fail');
+
+		const thirdMeasured = writeRun(root, 'measured-3');
+		writeFileSync(runDirsFile,
+			`${warmup.runDir}\n${oneMeasured.runDir}\n${secondMeasured.runDir}\n${thirdMeasured.runDir}\n`);
+		assertFails(runNode('summarize-before.mjs', {
+			RUN_DIRS_FILE: runDirsFile,
+			OUTPUT_PATH: outputPath,
+			EXPECTED_WARMUP_SAMPLES: '1',
+			EXPECTED_MEASURED_SAMPLES: '2',
+			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
+		}), 'measured sample count above the approved exact count must fail');
 		assert.equal(existsSync(outputPath), false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -311,16 +350,25 @@ test('summarizer validates exact sample kinds and stays disabled until cumulativ
 		const runDirsFile = join(root, 'runs.txt');
 		const outputPath = join(root, 'summary', 'baseline-summary.json');
 		writeFileSync(runDirsFile, `${runs.join('\n')}\n`);
-		const result = runNode('summarize-before.mjs', {
+		for (const strategy of ['snapshot-restore', 'fixture-only-cleanup']) {
+			const result = runNode('summarize-before.mjs', {
+				RUN_DIRS_FILE: runDirsFile,
+				OUTPUT_PATH: outputPath,
+				EXPECTED_WARMUP_SAMPLES: '1',
+				EXPECTED_MEASURED_SAMPLES: '2',
+				CUMULATIVE_STATE_STRATEGY: strategy,
+			});
+			assertFails(result, `${strategy} must keep aggregation disabled until implementation`);
+			assert.match(result.stderr, /cumulative-state|snapshot|cleanup|not implemented/i);
+			assert.equal(existsSync(outputPath), false);
+		}
+		assertFails(runNode('summarize-before.mjs', {
 			RUN_DIRS_FILE: runDirsFile,
 			OUTPUT_PATH: outputPath,
 			EXPECTED_WARMUP_SAMPLES: '1',
 			EXPECTED_MEASURED_SAMPLES: '2',
-			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
-		});
-		assertFails(result, 'unimplemented cumulative-state strategy must keep aggregation disabled');
-		assert.match(result.stderr, /cumulative-state|snapshot|cleanup|not implemented/i);
-		assert.equal(existsSync(outputPath), false);
+			CUMULATIVE_STATE_STRATEGY: 'unapproved-reset',
+		}), 'unknown cumulative-state strategy must fail');
 
 		const duplicate = writeRun(root, 'duplicate-directory').runDir;
 		for (const file of ['manifest.json', 'scenario-result.json']) {
@@ -362,10 +410,12 @@ test('summarizer validates exact sample kinds and stays disabled until cumulativ
 
 test('fixture preparation and runner honor the canonical Compose-project lock before SQL or Gradle', () => {
 	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-project-lock-'));
+	const syntheticRepository = join(root, 'repository');
+	const syntheticScenario = join(syntheticRepository, 'performance/k6/notification-batch');
 	const project = `faithlog-perf-198-lock-${process.pid}-${Date.now()}`;
 	const projectLock = `/tmp/faithlog-performance-${project}.lock`;
 	const fixtureRunId = `lock-${process.pid}-${Date.now()}`;
-	const reportRoot = join(REPOSITORY_ROOT, 'build/reports/k6/notification-batch');
+	const reportRoot = join(syntheticRepository, 'build/reports/k6/notification-batch');
 	const fixtureDir = join(reportRoot, 'fixtures', fixtureRunId);
 	const runId = `lock-run-${process.pid}-${Date.now()}`;
 	try {
@@ -373,13 +423,22 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 		mkdirSync(projectLock);
 		const binDir = join(root, 'bin');
 		mkdirSync(binDir);
+		mkdirSync(syntheticScenario, { recursive: true });
+		for (const name of ['guard-runtime.sh', 'prepare-fixtures.sh', 'prepare-fixtures.sql', 'run-before.sh']) {
+			copyFileSync(scenarioPath(name), join(syntheticScenario, name));
+		}
 		const tracePath = join(root, 'docker.trace');
+		const gradleTracePath = join(root, 'gradle.trace');
 		const dockerPath = join(binDir, 'docker');
 		writeFileSync(dockerPath, `#!/usr/bin/env bash\nset -eu\nprintf '%s\\n' "$*" >> "$TRACE_PATH"\ncase "$*" in\n  *com.docker.compose.project*) printf '%s\\n' "$FAKE_PROJECT" ;;\n  *5432/tcp*) printf '15432\\n' ;;\n  *6379/tcp*) printf '16379\\n' ;;\n  *'{{.Image}}'*) printf 'sha256:synthetic\\n' ;;\n  *) exit 91 ;;\nesac\n`);
 		chmodSync(dockerPath, 0o755);
 		const gitPath = join(binDir, 'git');
 		writeFileSync(gitPath, `#!/usr/bin/env bash\ncase "$*" in\n  *status*) exit 0 ;;\n  *rev-parse*) printf 'synthetic-commit\\n' ;;\n  *) exit 92 ;;\nesac\n`);
 		chmodSync(gitPath, 0o755);
+		const gradlePath = join(syntheticRepository, 'gradlew');
+		writeFileSync(gradlePath,
+			`#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "$GRADLE_TRACE_PATH"\nexit 93\n`);
+		chmodSync(gradlePath, 0o755);
 		mkdirSync(fixtureDir, { recursive: true });
 		const manifestPath = join(fixtureDir, 'manifest.json');
 		writeFileSync(manifestPath, `${JSON.stringify({
@@ -391,6 +450,7 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 			...process.env,
 			PATH: `${binDir}:${process.env.PATH}`,
 			TRACE_PATH: tracePath,
+			GRADLE_TRACE_PATH: gradleTracePath,
 			FAKE_PROJECT: project,
 			ALLOW_NOTIFICATION_BATCH_BASELINE: 'true',
 			PERF_SPRING_PROFILE: 'local',
@@ -410,18 +470,19 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 			PERF_BUSINESS_DATE: '2026-07-14',
 			PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS: '60',
 		};
-		const prepare = spawnSync('bash', [scenarioPath('prepare-fixtures.sh')], {
+		const prepare = spawnSync('bash', [join(syntheticScenario, 'prepare-fixtures.sh')], {
 			env: commonEnv, encoding: 'utf8',
 		});
 		assertFails(prepare, 'fixture preparation must fail on the canonical project lock');
 		assert.doesNotMatch(readFileSync(tracePath, 'utf8'), /exec.*psql/);
 
 		writeFileSync(tracePath, '');
-		const runner = spawnSync('bash', [scenarioPath('run-before.sh')], {
+		const runner = spawnSync('bash', [join(syntheticScenario, 'run-before.sh')], {
 			env: { ...commonEnv, MANIFEST_PATH: manifestPath, RUN_ID: runId }, encoding: 'utf8',
 		});
 		assertFails(runner, 'runner must fail on the canonical project lock');
 		assert.doesNotMatch(readFileSync(tracePath, 'utf8'), /exec.*(psql|redis-cli)/);
+		assert.equal(existsSync(gradleTracePath), false, 'Gradle invocation count must be exactly zero');
 		assert.equal(existsSync(join(reportRoot, 'runs', runId)), false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -473,11 +534,178 @@ test('runtime continuity rejects same-name container replacement before verifica
 		const valid = runNode('assert-runtime-continuity.mjs', { RUN_DIR: root });
 		assert.equal(valid.status, 0, valid.stderr);
 
-		const replaced = identity('2026-07-14T00:02:01Z', 1);
-		replaced.postgres.container.id = 'replacement-id-same-name';
-		writeFileSync(join(root, 'runtime-identity-final.json'), `${JSON.stringify(replaced)}\n`);
-		assertFails(runNode('assert-runtime-continuity.mjs', { RUN_DIR: root }),
-			'same-name container replacement must fail continuity');
+		const writeValidPhases = () => {
+			for (const [phase, capturedAt, uptime] of phases) {
+				writeFileSync(join(root, `runtime-identity-${phase}.json`),
+					`${JSON.stringify(identity(capturedAt, uptime))}\n`);
+			}
+		};
+		const mutations = [];
+		for (const phase of ['before', 'after', 'final']) {
+			for (const side of ['postgres', 'redis']) {
+				for (const field of [
+					'name', 'id', 'imageId', 'startedAt', 'composeProject', 'composeService', 'composeConfigHash',
+				]) {
+					mutations.push({
+						name: `${phase} ${side} container ${field}`,
+						phase,
+						mutate: (value) => { value[side].container[field] = `replacement-${field}`; },
+					});
+				}
+			}
+			for (const field of ['database', 'address', 'port', 'postmasterStartTime']) {
+				mutations.push({
+					name: `${phase} PostgreSQL server ${field}`,
+					phase,
+					mutate: (value) => { value.postgres.server[field] = field === 'port' ? 15432 : `replacement-${field}`; },
+				});
+			}
+			for (const [field, replacement] of [['runId', 'replacement-run'], ['port', 16379]]) {
+				mutations.push({
+					name: `${phase} Redis server ${field}`,
+					phase,
+					mutate: (value) => { value.redis.server[field] = replacement; },
+				});
+			}
+		}
+		for (const mutation of mutations) {
+			writeValidPhases();
+			const phaseIndex = phases.findIndex(([phase]) => phase === mutation.phase);
+			const [, capturedAt, uptime] = phases[phaseIndex];
+			const changed = identity(capturedAt, uptime);
+			mutation.mutate(changed);
+			writeFileSync(join(root, `runtime-identity-${mutation.phase}.json`), `${JSON.stringify(changed)}\n`);
+			assertFails(runNode('assert-runtime-continuity.mjs', { RUN_DIR: root }),
+				`${mutation.name} change must fail continuity`);
+		}
+		for (const phase of ['before', 'after', 'final']) {
+			writeValidPhases();
+			const phaseIndex = phases.findIndex(([name]) => name === phase);
+			const [, capturedAt] = phases[phaseIndex];
+			const restarted = identity(capturedAt, 1);
+			writeFileSync(join(root, `runtime-identity-${phase}.json`), `${JSON.stringify(restarted)}\n`);
+			assertFails(runNode('assert-runtime-continuity.mjs', { RUN_DIR: root }),
+				`${phase} Redis uptime reset must fail continuity`);
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('post-lock runtime truth rejects a guard-to-lock replacement before SQL or workload', () => {
+	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-post-lock-race-'));
+	const project = `faithlog-perf-198-race-${process.pid}-${Date.now()}`;
+	const projectLock = `/tmp/faithlog-performance-${project}.lock`;
+	try {
+		const runner = readFileSync(scenarioPath('run-before.sh'), 'utf8');
+		const prepare = readFileSync(scenarioPath('prepare-fixtures.sh'), 'utf8');
+		for (const script of [runner, prepare]) {
+			assert.ok(script.indexOf('acquire_notification_batch_locks')
+				< script.indexOf('verify_notification_batch_runtime_after_lock'));
+		}
+		assert.match(runner, /runtime-identity-locked\.json/);
+
+		const binDir = join(root, 'bin');
+		mkdirSync(binDir);
+		const tracePath = join(root, 'docker.trace');
+		const projectCountPath = join(root, 'project.count');
+		const dockerPath = join(binDir, 'docker');
+		writeFileSync(dockerPath, `#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$TRACE_PATH"
+case "$*" in
+  *com.docker.compose.project*)
+    count=0; [[ -f "$PROJECT_COUNT_PATH" ]] && count="$(<"$PROJECT_COUNT_PATH")"
+    count=$((count + 1)); printf '%s' "$count" > "$PROJECT_COUNT_PATH"
+    if (( count <= 2 )); then printf '%s\\n' "$FAKE_PROJECT"; else printf 'replacement-project\\n'; fi ;;
+  *'{{.Id}}'*) printf 'container-id\\n' ;;
+  *'{{.Image}}'*) printf 'sha256:synthetic\\n' ;;
+  *'{{.State.StartedAt}}'*) printf '2026-07-14T00:00:00Z\\n' ;;
+  *com.docker.compose.service*) printf 'synthetic-service\\n' ;;
+  *com.docker.compose.config-hash*) printf 'synthetic-config\\n' ;;
+  *5432/tcp*) printf '15432\\n' ;;
+  *6379/tcp*) printf '16379\\n' ;;
+  *) exit 91 ;;
+esac
+`);
+		chmodSync(dockerPath, 0o755);
+		const command = `
+source "${scenarioPath('guard-runtime.sh')}"
+trap release_notification_batch_locks EXIT
+guard_notification_batch_runtime
+acquire_notification_batch_locks
+verify_notification_batch_runtime_after_lock "${join(root, 'runtime-identity-locked.json')}"
+`;
+		const result = spawnSync('bash', ['-c', command], {
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH}`,
+				TRACE_PATH: tracePath,
+				PROJECT_COUNT_PATH: projectCountPath,
+				FAKE_PROJECT: project,
+				ALLOW_NOTIFICATION_BATCH_BASELINE: 'true',
+				PERF_SPRING_PROFILE: 'local',
+				PERF_FCM_ADAPTER: 'fake',
+				PERF_EXPECTED_COMPOSE_PROJECT: project,
+				POSTGRES_CONTAINER: 'pg-198',
+				REDIS_CONTAINER: 'redis-198',
+				POSTGRES_USER: 'faithlog',
+				POSTGRES_DB: 'faithlog',
+			},
+			encoding: 'utf8',
+		});
+		assertFails(result, 'same-name replacement after preliminary discovery must fail post-lock validation');
+		assert.doesNotMatch(readFileSync(tracePath, 'utf8'), /exec.*(psql|redis-cli)/);
+	} finally {
+		if (existsSync(projectLock)) rmdirSync(projectLock);
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('dummy-token classification uses an exact prefix and sampling is immutable fail-closed', () => {
+	const sql = readFileSync(scenarioPath('prepare-fixtures.sql'), 'utf8');
+	const runner = readFileSync(scenarioPath('run-before.sh'), 'utf8');
+	assert.doesNotMatch(sql, /LIKE\s+'PERFORMANCE_198_DUMMY:/i);
+	assert.doesNotMatch(runner, /LIKE\s+'PERFORMANCE_198_DUMMY:/i);
+	assert.match(sql, /starts_with\(token\.token,\s*'PERFORMANCE_198_DUMMY:'\)/i);
+	assert.match(sql, /starts_with\(token\.client_instance_id,\s*'PERFORMANCE_198_DUMMY:'\s*\|\|\s*config\.fixture_run_id\s*\|\|\s*':'\)/i);
+	assert.match(runner, /docker stats[\s\S]*PERF_POSTGRES_CONTAINER_ID/);
+	assert.match(runner, /docker stats[\s\S]*PERF_REDIS_CONTAINER_ID/);
+	assert.doesNotMatch(runner, /cmdstat_set[\s\S]{0,120}\?\?\s*["']0["']/);
+	assert.match(runner, /Redis evidence missing cmdstat_set/);
+});
+
+test('runner lifecycle cleans its sampler marker and both locks on TERM', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-signal-cleanup-'));
+	const marker = join(root, 'sampling.marker');
+	const globalLock = join(root, 'global.lock');
+	const projectLock = join(root, 'project.lock');
+	const ready = join(root, 'ready');
+	try {
+		const command = `
+source "${scenarioPath('guard-runtime.sh')}"
+source "${scenarioPath('runner-lifecycle.sh')}"
+PERF_GLOBAL_LOCK_DIR="${globalLock}"
+PERF_PROJECT_LOCK_DIR="${projectLock}"
+SAMPLER_MARKER="${marker}"
+mkdir "$PERF_GLOBAL_LOCK_DIR" "$PERF_PROJECT_LOCK_DIR"
+touch "$SAMPLER_MARKER"
+sleep 30 & SAMPLER_PID=$!
+install_notification_batch_runner_traps
+touch "${ready}"
+while :; do sleep 1; done
+`;
+		const child = spawn('bash', ['-c', command], { stdio: 'ignore' });
+		for (let attempt = 0; attempt < 50 && !existsSync(ready); attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		assert.equal(existsSync(ready), true, 'synthetic runner must reach its signal wait');
+		child.kill('SIGTERM');
+		const status = await new Promise((resolve) => child.once('close', resolve));
+		assert.equal(status, 143);
+		assert.equal(existsSync(marker), false);
+		assert.equal(existsSync(globalLock), false);
+		assert.equal(existsSync(projectLock), false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -492,56 +720,60 @@ test('verifier requires exact PostgreSQL Redis and two-container lifecycle evide
 		});
 		assert.equal(verify().status, 0, verify().stderr);
 
-		const writePostgres = (value) => writeFileSync(
-			join(runDir, 'postgres-after.json'), `${JSON.stringify(value)}\n`,
-		);
-		const missing = structuredClone(artifacts.postgresAfter);
-		delete missing.database.xact_rollback;
-		writePostgres(missing);
-		assertFails(verify(), 'missing PostgreSQL counter must fail');
-
-		const nullValue = structuredClone(artifacts.postgresAfter);
-		nullValue.database.blks_read = null;
-		writePostgres(nullValue);
-		assertFails(verify(), 'null PostgreSQL counter must fail');
-
-		const stringValue = structuredClone(artifacts.postgresAfter);
-		stringValue.tables.campus_members.seq_scan = '1';
-		writePostgres(stringValue);
-		assertFails(verify(), 'string PostgreSQL counter must fail');
-
-		writePostgres(artifacts.postgresAfter);
-		const writeRedis = (name, value) => writeFileSync(
-			join(runDir, name), `${JSON.stringify(value)}\n`,
-		);
-		const missingRedis = structuredClone(artifacts.redisBefore);
-		delete missingRedis.runId;
-		writeRedis('redis-before.json', missingRedis);
-		assertFails(verify(), 'missing Redis identity must fail');
-
-		writeRedis('redis-before.json', artifacts.redisBefore);
-		const nullRedis = structuredClone(artifacts.redisAfter);
-		nullRedis.dbSize = null;
-		writeRedis('redis-after.json', nullRedis);
-		assertFails(verify(), 'null Redis evidence must fail');
-
-		const stringRedis = structuredClone(artifacts.redisAfter);
-		stringRedis.commands.set = '2006';
-		writeRedis('redis-after.json', stringRedis);
-		assertFails(verify(), 'string Redis counter must fail');
-
-		writeRedis('redis-after.json', artifacts.redisAfter);
-		writeFileSync(
-			join(runDir, 'docker-stats.csv'),
-			artifacts.dockerStats.replace('redis-198,redis-id-198', 'other-redis,other-id'),
-		);
-		assertFails(verify(), 'mixed-container Docker evidence must fail');
-
-		writeFileSync(
-			join(runDir, 'docker-stats.csv'),
-			artifacts.dockerStats.split('\n').slice(0, 3).join('\n') + '\n',
-		);
-		assertFails(verify(), 'one Docker sample instant must fail');
+		const cases = [
+			['missing PostgreSQL counter', (value) => { delete value.postgresAfter.database.xact_rollback; }],
+			['null PostgreSQL counter', (value) => { value.postgresAfter.database.blks_read = null; }],
+			['string PostgreSQL counter', (value) => { value.postgresAfter.tables.campus_members.seq_scan = '1'; }],
+			['extra PostgreSQL schema key', (value) => { value.postgresAfter.unapproved = 1; }],
+			['wrong PostgreSQL current database', (value) => { value.postgresAfter.currentDatabase = 'other'; }],
+			['changed PostgreSQL stats_reset', (value) => {
+				value.postgresAfter.statsReset = '2026-07-14T00:00:01.000Z';
+			}],
+			['reversed PostgreSQL capturedAt', (value) => {
+				value.postgresAfter.capturedAt = '2026-07-14T00:00:59.000Z';
+			}],
+			['missing required PostgreSQL table', (value) => { delete value.postgresAfter.tables.campus_members; }],
+			['extra PostgreSQL table', (value) => {
+				value.postgresAfter.tables.unapproved_table = structuredClone(value.postgresAfter.tables.campus_members);
+			}],
+			['decreasing PostgreSQL database counter', (value) => { value.postgresAfter.database.xact_commit = 9; }],
+			['decreasing PostgreSQL table counter', (value) => {
+				value.postgresAfter.tables.user_fcm_tokens.n_tup_upd = 1;
+			}],
+			['missing Redis identity', (value) => { delete value.redisBefore.runId; }],
+			['null Redis evidence', (value) => { value.redisAfter.dbSize = null; }],
+			['string Redis counter', (value) => { value.redisAfter.commands.set = '2006'; }],
+			['extra Redis schema key', (value) => { value.redisAfter.unapproved = true; }],
+			['changed Redis run_id', (value) => { value.redisAfter.runId = 'replacement-run'; }],
+			['reversed Redis capturedAt', (value) => {
+				value.redisAfter.capturedAt = '2026-07-14T00:00:59.000Z';
+			}],
+			['decreasing Redis uptime', (value) => { value.redisAfter.uptimeSeconds = 99; }],
+			['decreasing Redis DBSIZE', (value) => { value.redisAfter.dbSize = 9; }],
+			['decreasing Redis command counter', (value) => { value.redisAfter.commands.set = 4; }],
+			['mixed Docker container', (value) => {
+				value.dockerStats = value.dockerStats.replace('redis-198,redis-id-198', 'other-redis,other-id');
+			}],
+			['one Docker sample instant', (value) => {
+				value.dockerStats = value.dockerStats.split('\n').slice(0, 3).join('\n') + '\n';
+			}],
+			['Docker sampling starts after workload', (value) => {
+				value.evidenceWindow.workloadStartedAt = '2026-07-13T23:59:59.000Z';
+			}],
+			['Docker sampling finishes before workload', (value) => {
+				value.evidenceWindow.workloadFinishedAt = '2026-07-14T00:02:01.000Z';
+			}],
+			['Docker sample gap exceeds approved maximum', (value) => {
+				value.environment.dockerStatsMaxGapMilliseconds = 10000;
+				value.evidenceWindow.dockerStatsMaxGapMilliseconds = 10000;
+			}],
+		];
+		for (const [name, mutate] of cases) {
+			const value = structuredClone(artifacts);
+			mutate(value);
+			writeEvidenceArtifacts(runDir, value);
+			assertFails(verify(), `${name} must fail`);
+		}
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
