@@ -12,18 +12,22 @@ const MEMBER_PASSWORD = required('PERF_MEMBER_PASSWORD');
 const WEEK_START_DATE = process.env.PERF_WEEK_START_DATE || currentMonday();
 const REPORT_ROOT = resolve(process.env.REPORT_ROOT || 'build/reports/k6/issue-196');
 const MANIFEST_PATH = resolve(process.env.FIXTURE_MANIFEST || `${REPORT_ROOT}/${FIXTURE_RUN_ID}/fixture-manifest.json`);
-const GLOBAL_LOCK = '/tmp/faithlog-performance-global.lock';
 const APP_CONTAINER = process.env.APP_CONTAINER || 'faithlog-backend';
 const DB_CONTAINER = process.env.DB_CONTAINER || 'faithlog-postgres';
 const EXPECTED_APP_IMAGE = 'faithlog-latest';
 
+for (const name of ['PERF_ACCESS_TOKEN', 'PERF_ADMIN_ACCESS_TOKEN', 'PERF_MEMBER_ACCESS_TOKEN']) {
+	delete process.env[name];
+}
+
 guardLocalTarget();
 guardDatasetIdentity();
 validateMonday(WEEK_START_DATE);
-acquireGlobalLock();
+const composeRuntime = verifyComposeRuntime();
+const projectLock = `/tmp/faithlog-performance-${composeRuntime.composeProject}.lock`;
+acquireProjectLock(projectLock);
 
 try {
-	const composeRuntime = verifyComposeRuntime();
 	if (existsSync(MANIFEST_PATH)) {
 		throw new Error(`Manifest already exists for FIXTURE_RUN_ID=${FIXTURE_RUN_ID}. Use a new fixtureRunId; existing rows are never reused or cleaned up.`);
 	}
@@ -125,7 +129,7 @@ try {
 	console.log(`Scenario fixture created. manifest=${MANIFEST_PATH}`);
 	console.log('No password or access token was written to the manifest. Run shape-fixture.sh before baseline measurement.');
 } finally {
-	releaseGlobalLock();
+	releaseProjectLock(projectLock);
 }
 
 async function createCampus(adminToken, scope) {
@@ -408,13 +412,16 @@ function verifyComposeRuntime() {
 	const dbConfigHash = dockerLabel(DB_CONTAINER, 'com.docker.compose.config-hash');
 	const appImage = dockerInspect(APP_CONTAINER, '{{.Config.Image}}');
 	const appImageId = dockerInspect(APP_CONTAINER, '{{.Image}}');
-	const publishedPorts = execFileSync('docker', ['port', APP_CONTAINER, '8080/tcp'], { encoding: 'utf8' }).trim();
+	const publishedPorts = execFileSync('docker', ['port', APP_CONTAINER, '8080/tcp'], { encoding: 'utf8', env: sanitizedChildEnv() }).trim();
 	const targetPort = new URL(BASE_URL).port || '80';
 	if (!appProject || appProject !== dbProject || appService !== 'app' || dbService !== 'postgres'
 		|| !appConfigHash || !dbConfigHash
 		|| !(appImage === EXPECTED_APP_IMAGE || appImage.startsWith(`${EXPECTED_APP_IMAGE}:`))
 		|| !publishedPorts.split(/\r?\n/).some((binding) => binding.endsWith(`:${targetPort}`))) {
 		throw new Error('Seed requires the approved app/PostgreSQL Compose project, service/config-hash labels, and app image.');
+	}
+	if (!/^[a-z0-9][a-z0-9_-]*$/.test(appProject)) {
+		throw new Error('Compose project label cannot be represented by the canonical project lock path.');
 	}
 	return { composeProject: appProject, appService, dbService, appConfigHash, dbConfigHash, appImage, appImageId, targetPort };
 }
@@ -424,7 +431,12 @@ function dockerLabel(container, label) {
 }
 
 function dockerInspect(container, format) {
-	return execFileSync('docker', ['inspect', '--format', format, container], { encoding: 'utf8' }).trim();
+	return execFileSync('docker', ['inspect', '--format', format, container], { encoding: 'utf8', env: sanitizedChildEnv() }).trim();
+}
+
+function sanitizedChildEnv() {
+	const blocked = /^(PERF_ADMIN_EMAIL|PERF_ADMIN_PASSWORD|PERF_MEMBER_PASSWORD|PERF_DB_USER|PERF_DB_NAME|PERF_DB_PASSWORD|PERF_ACCESS_TOKEN|PERF_ADMIN_ACCESS_TOKEN|PERF_MEMBER_ACCESS_TOKEN)$/;
+	return Object.fromEntries(Object.entries(process.env).filter(([name]) => !blocked.test(name)));
 }
 
 function validateMonday(value) {
@@ -434,17 +446,17 @@ function validateMonday(value) {
 	}
 }
 
-function acquireGlobalLock() {
+function acquireProjectLock(lockPath) {
 	try {
-		mkdirSync(GLOBAL_LOCK);
+		mkdirSync(lockPath);
 	} catch {
-		throw new Error(`Another performance seed or load run owns ${GLOBAL_LOCK}. Parallel execution is forbidden.`);
+		throw new Error(`Another performance seed or load run owns ${lockPath}. Parallel execution is forbidden.`);
 	}
 }
 
-function releaseGlobalLock() {
+function releaseProjectLock(lockPath) {
 	try {
-		rmdirSync(GLOBAL_LOCK);
+		rmdirSync(lockPath);
 	} catch {
 		// The lock is an empty directory owned by this process. A missing lock needs no cleanup.
 	}

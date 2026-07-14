@@ -42,6 +42,7 @@
 
 - stable `datasetId`: `issue-196-prayer-poll-list-v1`
 - required immutable `fixtureRunId`: 실행마다 lowercase 8~32자 새 값
+- required immutable `executionRunId`: 측정 실행마다 lowercase 8~32자 새 값이며 기존 report 디렉터리 재사용·삭제·덮어쓰기 금지
 - primary campus: 캠퍼스 생성자 1명 + 생성 일반 멤버 999명 = ACTIVE 1,000명
 - isolation campus: 캠퍼스 생성자 1명 + 생성 일반 멤버 49명 = ACTIVE 50명
 - prayer: 40조 × 25명, 제출 800명, 미제출 200명
@@ -65,21 +66,24 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 - non-anonymous respondent 800명 노출, anonymous respondent identity 0명 노출
 - comments 200개 ID 오름차순, templates ID 오름차순/option sortOrder 오름차순
 - missing-members 200명 membership 순서
-- read 구간 DB write counter delta 0
-- correctness failure 0건 고정 gate, k6/sampler/time-window/log/after-DB-snapshot 실패 report의 `accepted=false`/`measurementStatus=rejected`, 필수 latency/throughput/table/resource evidence 및 read-path write delta rejection reason, 모든 rejected report의 runner 비정상 종료
+- DB before/after의 exact required table set, timestamp 증가, planner 설정과 analyze/autoanalyze 상태 불변, 각 cumulative counter의 finite/nonnegative/monotonic 및 table별 `n_tup_ins/upd/del` delta 개별 exact 0
+- correctness failure 0건 고정 gate, warmup/k6/resource/activity sampler/time-window/log/after-DB-snapshot 실패 report의 `accepted=false`/`measurementStatus=rejected`, 필수 latency/throughput/table/resource/activity evidence 및 read-path write delta rejection reason, 모든 rejected report의 runner 비정상 종료
 
 ## endpoint별 evidence 계약
 
-- k6 custom Trend: p50/p95/p99/max
-- custom Counter: 요청 수와 초당 throughput
-- custom Rate: 실패율
+- endpoint exact k6 custom Trend: direct k6 v2와 `values` shape를 모두 지원하는 finite/nonnegative `p50 <= p95 <= p99 <= max`
+- endpoint exact custom Counter: positive 요청 수와 positive 초당 throughput
+- endpoint exact custom Rate: 실패율 exact 0
 - application/PostgreSQL container CPU/RAM sample
 - `org.hibernate.SQL` query count와 `queriesPerRequest`
 - normalized repeated SQL과 loop/N+1 신호
-- `pg_stat_user_tables` table별 estimated row count와 scan/fetch/write counter delta
+- `pg_stat_user_tables` exact table set별 estimated row count와 monotonic scan/fetch 및 table/counter별 zero write delta
+- measured window 전후 planner/analyze 상태와 실행 중 `pg_stat_activity`/host port client sample; 현재 observer PID, attested app-container client address, measured k6 PID와 Docker proxy만 제외하고 같은 이름의 다른 k6/JDBC session을 포함한 외부 DB/HTTP activity 또는 autoanalyze/planner 변화 시 non-adoptable
 - 실제 app image tag/immutable image ID, published target port와 Compose project/service/config-hash label
 
-인증은 endpoint 측정 스냅샷 전에 수행하고 발급 token만 k6 환경에 전달한다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리한다. app scheduler를 끄고 고정 global runner lock을 확보하지 못하면 측정을 거부한다.
+각 endpoint는 explicit `WARMUP_VUS/WARMUP_DURATION`의 별도 k6 process를 먼저 끝내고 성공한 경우에만 explicit `MEASURED_VUS/MEASURED_DURATION` process를 시작한다. measured 직전에 token을 다시 발급하고 JWT `exp`가 phase duration과 safety margin을 덮는지 raw token 저장·출력 없이 검증한다. DB/log/resource/activity evidence window는 warmup 뒤에만 연다. caller의 stale token env는 시작 시 제거하고 login/DB child에만 필요한 credential을 inline 전달하며 k6에는 새 token만 전달한다. Docker metadata/summarizer 등 다른 child에는 credential/token을 상속하지 않는다.
+
+실제 app/DB Compose label 일치를 확인한 뒤 seed/shaper/runner 모두 `/tmp/faithlog-performance-{actualComposeProject}.lock`을 사용한다. caller lock override는 없다. mode도 runtime 필수이며 `all`은 명시했을 때만 전체 19 endpoint로 확장된다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리하고 app scheduler를 끈다.
 
 ## 정적 코드에서 확인한 측정 후보
 
@@ -96,7 +100,14 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 ## 후속 게이트
 
 1. PM 승인 측정 세션에서 `faithlog-latest`와 실제 Compose label을 확인한다.
-2. seed → fixture-owned time shaping → endpoint 순차 k6를 실행한다.
+2. 새 `fixtureRunId`로 seed → fixture-owned time shaping → 새 `executionRunId`와 explicit mode의 warmup/측정 endpoint 순차 k6를 실행한다.
 3. endpoint별 raw/report 파일과 dataset/fixture/runtime 조건을 함께 기록한다.
 4. baseline evidence를 PM에 보고한다.
 5. PM 승인 전 production N+1 수정, schema/index 변경, 성과 수치 작성은 하지 않는다.
+
+## TDD와 정적 검증
+
+- 최초 scenario 계약: production 변경 전 `7 tests / 7 failures` RED 후 1차 `8 tests / 0 failures` GREEN
+- PM finding 재현: test-only commit에서 `10 tests / 3 pass / 7 fail` RED
+- 최종 계약: lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 다른 k6 PID, reversed percentile, existing report 보존 fake evidence를 포함한 `12 tests / 0 failures` GREEN
+- Node/Bash syntax와 `git diff --check`를 수행한다. 이 검증은 실제 seed/k6/Docker/DB를 실행하지 않는다.

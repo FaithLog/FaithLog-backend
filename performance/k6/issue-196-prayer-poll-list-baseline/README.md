@@ -12,10 +12,10 @@ Status: `scenario-ready / not-measured`
 - `shape-fixture.sh` atomically shapes all five Poll rows created by the current run. It verifies exact IDs/campus plus deterministic run titles, rejects an already-shaped manifest, and rolls back all five updates if any ownership check misses.
 - A 0600 `shape-attempted` receipt makes shaping one-shot even if the process stops after the database statement but before manifest persistence. Any shaping failure requires a new `fixtureRunId`.
 - Passwords, DB credentials, and Access Tokens are runtime-only. The manifest records IDs and generated test emails, but not credentials or tokens.
-- The shared lock `/tmp/faithlog-performance-global.lock` blocks parallel seed, shaping, and load runs. The runner also refuses to start while another k6 process exists.
-- The lock path and approved `faithlog-latest` tag are fixed, not caller-overridable. Seed records the immutable app image ID and published target port; shaping and baseline require the same image ID, Compose project/service/config-hash labels, and `BASE_URL` port before touching the fixture or measuring it.
+- After app/DB label attestation, seed, shaping, and load all acquire the same canonical `/tmp/faithlog-performance-{actualComposeProject}.lock`. The path has no caller override, and the runner also refuses to start while another k6 process exists.
+- The approved `faithlog-latest` tag is fixed, not caller-overridable. Seed records the immutable app image ID and published target port; shaping and baseline require the same image ID, Compose project/service/config-hash labels, and `BASE_URL` port before touching the fixture or measuring it.
 - The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
-- Reports are written under ignored `build/reports/k6/issue-196/{fixtureRunId}/`.
+- Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory, and an existing path is never deleted, reused, or overwritten.
 
 ## Fixture contract
 
@@ -65,23 +65,24 @@ Every load response is checked, not merely timed.
 - Cross-campus Poll ID through the primary campus path: `404 POLL_NOT_FOUND`.
 - A primary-only member querying the isolation campus and its Poll directly: `403 POLL_ACCESS_FORBIDDEN`.
 - Exact `startsAt`/`endsAt` values match the atomically shaped manifest. The runner checks all five windows at global preflight and immediately before and after every endpoint phase; crossing a boundary rejects that endpoint report.
-- Read measurement must produce zero `n_tup_ins + n_tup_upd + n_tup_del` delta. A non-zero write delta fails report generation.
-- Any response correctness failure uses an immutable zero-failure threshold. A non-zero k6, resource-sampler, fixture-window, log-capture, or after-DB-snapshot status writes a report marked `accepted: false` and `measurementStatus: rejected`; missing or malformed latency/throughput/table/resource evidence and any read-path write delta are listed in `rejectionReasons`. Every rejected report stops the sequential runner with a non-zero status.
+- DB snapshots must contain the exact required table set, increasing `capturedAt`, stable planner settings and analyze/autoanalyze state, and finite nonnegative cumulative counters. Every cumulative counter must be monotonic, and every table's `n_tup_ins`, `n_tup_upd`, and `n_tup_del` delta must individually equal zero; cross-table or cross-counter cancellation cannot pass.
+- Any response correctness failure uses an immutable zero-failure threshold. A non-zero warmup, k6, resource-sampler, activity-sampler, fixture-window, log-capture, or after-DB-snapshot status writes or preserves non-adoptable evidence; missing or malformed latency/throughput/table/resource/activity evidence and any read-path write delta are listed in `rejectionReasons`. Every rejected report stops the sequential runner with a non-zero status.
 
 ## Measurement evidence
 
 Each endpoint report includes:
 
-- custom k6 Trend: p50, p95, p99, max;
-- custom request Counter: count and throughput/second;
-- custom failure Rate;
+- exact endpoint custom k6 Trend: finite nonnegative `p50 <= p95 <= p99 <= max`, accepting both k6 v2 direct and `values` summary shapes;
+- exact endpoint custom request Counter: positive count and positive throughput/second;
+- exact endpoint custom failure Rate equal to zero;
 - application/PostgreSQL container CPU and RAM samples;
 - Hibernate SQL log query count and `queriesPerRequest`;
 - repeated normalized SQL patterns as loop/N+1 evidence;
-- per-table PostgreSQL estimated row counts plus `seq_scan`, `seq_tup_read`, `idx_scan`, `idx_tup_fetch`, and write-counter deltas;
+- per-table PostgreSQL estimated row counts plus monotonic `seq_scan`, `seq_tup_read`, `idx_scan`, `idx_tup_fetch`, and individually zero write-counter deltas;
+- before/after planner and analyze/autoanalyze state plus measured-window DB activity and host-port client samples; only the current observer PID, attested app-container client address, measured k6 PID, and Docker proxy processes are excluded, while any other same-name or different session/client makes the report non-adoptable;
 - actual Docker image tag and immutable image ID, published target port, and Compose `project`, `service`, and `config-hash` labels.
 
-Query logs and PostgreSQL counters are container-wide. The fixed global lock, disabled scheduler, endpoint-per-process execution, and prohibition on other traffic are part of the evidence contract. If any of those conditions are not satisfied, do not treat the report as an Issue #196 baseline.
+Query logs and PostgreSQL counters are container-wide. The attested project-scoped canonical lock, runtime activity evidence, disabled scheduler, endpoint-per-process execution, and prohibition on other traffic are part of the evidence contract. If any of those conditions are not satisfied, do not treat the report as an Issue #196 baseline.
 
 ## Runtime preparation (do not run in this development session)
 
@@ -119,12 +120,15 @@ bash performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 
 ### 3. Run endpoint phases sequentially
 
-`VUS` and `DURATION` have no hidden default. The approved measurement session must provide them explicitly.
+Warmup and measured VUS/duration have no hidden defaults. The approved measurement session must provide all four values, a new `executionRunId`, and an explicit mode. Every endpoint finishes warmup before measured DB/log/resource/activity evidence begins. Warmup failure starts no measured phase. Fresh tokens are issued for each phase and their JWT `exp` must cover that phase plus a fixed safety margin; raw tokens are neither printed nor persisted.
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
-VUS='<approved-vus>' \
-DURATION='<approved-duration>' \
+EXECUTION_RUN_ID=i196-exec-20260714-a \
+WARMUP_VUS='<approved-warmup-vus>' \
+WARMUP_DURATION='<approved-warmup-duration>' \
+MEASURED_VUS='<approved-measured-vus>' \
+MEASURED_DURATION='<approved-measured-duration>' \
 PERF_ADMIN_EMAIL='<runtime-admin-email>' \
 PERF_ADMIN_PASSWORD='<runtime-admin-password>' \
 PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \
@@ -134,7 +138,7 @@ PERF_DB_PASSWORD='<runtime-db-password>' \
 bash performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh all
 ```
 
-Use `prayer`, `poll-member`, or `poll-admin` instead of `all` only when the PM explicitly wants a partial rerun. Partial reports must not be presented as a complete baseline.
+The mode argument is required. Pass `all` explicitly for the complete sequential scope, or `prayer`, `poll-member`, or `poll-admin` only when the PM explicitly wants that partial scope. Partial reports must not be presented as a complete baseline.
 
 ## Static verification
 
@@ -145,6 +149,8 @@ node --test performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract
 node --check performance/k6/issue-196-prayer-poll-list-baseline/fixture-contract.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/seed-fixture.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/scenario.js
+node --check performance/k6/issue-196-prayer-poll-list-baseline/token-lifetime.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/activity-sample.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh

@@ -11,7 +11,9 @@ EXPECTED_APP_IMAGE="faithlog-latest"
 PERF_DB_USER="${PERF_DB_USER:?PERF_DB_USER is required at runtime}"
 PERF_DB_NAME="${PERF_DB_NAME:?PERF_DB_NAME is required at runtime}"
 PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?PERF_DB_PASSWORD is required at runtime}"
-PERF_GLOBAL_LOCK="/tmp/faithlog-performance-global.lock"
+
+export -n PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD
+unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN
 
 if [[ ! "${FIXTURE_RUN_ID}" =~ ^[a-z0-9][a-z0-9_-]{7,31}$ ]]; then
 	echo "Invalid FIXTURE_RUN_ID." >&2
@@ -22,12 +24,6 @@ if [[ ! -f "${FIXTURE_MANIFEST}" ]]; then
 	echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2
 	exit 1
 fi
-
-if ! mkdir "${PERF_GLOBAL_LOCK}" 2>/dev/null; then
-	echo "Another performance seed or load run owns ${PERF_GLOBAL_LOCK}." >&2
-	exit 1
-fi
-trap 'rmdir "${PERF_GLOBAL_LOCK}" 2>/dev/null || true' EXIT
 
 json_value() {
 	node -e '
@@ -80,11 +76,22 @@ if [[ -z "${compose_project}" || "${compose_project}" != "${db_project}" \
 	echo "Refusing to shape: Compose project/service/config-hash or app image attestation failed." >&2
 	exit 1
 fi
+if [[ ! "${compose_project}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+	echo "Compose project label cannot be represented by the canonical lock path." >&2
+	exit 1
+fi
 if [[ "${compose_project}" != "${seed_project}" || "${app_hash}" != "${seed_app_hash}" \
 	|| "${db_hash}" != "${seed_db_hash}" || "${app_image_id}" != "${seed_app_image_id}" ]]; then
 	echo "Refusing to shape: current Compose identity differs from the seed manifest." >&2
 	exit 1
 fi
+
+PERF_PROJECT_LOCK="/tmp/faithlog-performance-${compose_project}.lock"
+if ! mkdir "${PERF_PROJECT_LOCK}" 2>/dev/null; then
+	echo "Another seed or load run owns ${PERF_PROJECT_LOCK}." >&2
+	exit 1
+fi
+trap 'rmdir "${PERF_PROJECT_LOCK}" 2>/dev/null || true' EXIT
 
 shape_attempt="${FIXTURE_MANIFEST}.shape-attempted"
 SHAPE_ATTEMPT="${shape_attempt}" node -e '

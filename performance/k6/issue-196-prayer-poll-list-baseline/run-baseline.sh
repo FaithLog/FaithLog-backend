@@ -5,12 +5,16 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${ROOT_DIR}/../../.." && pwd)"
 SCENARIO_FILE="${ROOT_DIR}/scenario.js"
 DB_STATS_SQL="${ROOT_DIR}/db-table-stats.sql"
+DB_ACTIVITY_SQL="${ROOT_DIR}/db-activity.sql"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
+EXECUTION_RUN_ID="${EXECUTION_RUN_ID:?EXECUTION_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
-REPORT_ROOT="${REPORT_ROOT:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}}"
+REPORT_ROOT="${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/${EXECUTION_RUN_ID}"
 BASE_URL="${BASE_URL:-http://localhost:8080}"
-VUS="${VUS:?VUS must be explicitly approved and supplied}"
-DURATION="${DURATION:?DURATION must be explicitly approved and supplied}"
+WARMUP_VUS="${WARMUP_VUS:?WARMUP_VUS must be explicitly approved and supplied}"
+WARMUP_DURATION="${WARMUP_DURATION:?WARMUP_DURATION must be explicitly approved and supplied}"
+MEASURED_VUS="${MEASURED_VUS:?MEASURED_VUS must be explicitly approved and supplied}"
+MEASURED_DURATION="${MEASURED_DURATION:?MEASURED_DURATION must be explicitly approved and supplied}"
 PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL:?PERF_ADMIN_EMAIL is required at runtime}"
 PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?PERF_ADMIN_PASSWORD is required at runtime}"
 PERF_MEMBER_PASSWORD="${PERF_MEMBER_PASSWORD:?PERF_MEMBER_PASSWORD is required at runtime}"
@@ -20,33 +24,29 @@ PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?PERF_DB_PASSWORD is required at runtime}"
 APP_CONTAINER="${APP_CONTAINER:-faithlog-backend}"
 DB_CONTAINER="${DB_CONTAINER:-faithlog-postgres}"
 EXPECTED_APP_IMAGE="faithlog-latest"
-PERF_GLOBAL_LOCK="/tmp/faithlog-performance-global.lock"
 SQL_LOG_MARKER="org.hibernate.SQL"
-REQUESTED_MODE="${1:-all}"
+REQUESTED_MODE="${1:?Mode is required: all, prayer, poll-member, or poll-admin}"
 MODE_SEQUENCE=(prayer poll-member poll-admin)
+
+export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD
+unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN
 
 if [[ ! "${FIXTURE_RUN_ID}" =~ ^[a-z0-9][a-z0-9_-]{7,31}$ ]]; then
 	echo "FIXTURE_RUN_ID must be 8-32 lowercase characters." >&2
 	exit 1
 fi
 
-for command in node k6 docker; do
+if [[ ! "${EXECUTION_RUN_ID}" =~ ^[a-z0-9][a-z0-9_-]{7,31}$ ]]; then
+	echo "EXECUTION_RUN_ID must be 8-32 lowercase characters." >&2
+	exit 1
+fi
+
+for command in node k6 docker lsof; do
 	command -v "${command}" >/dev/null || { echo "Missing command: ${command}" >&2; exit 1; }
 done
 [[ -f "${FIXTURE_MANIFEST}" ]] || { echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2; exit 1; }
 [[ "${BASE_URL}" =~ ^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?$ ]] \
 	|| { echo "Issue #196 baseline is local-Docker-only." >&2; exit 1; }
-
-if ! mkdir "${PERF_GLOBAL_LOCK}" 2>/dev/null; then
-	echo "Another performance seed or load run owns ${PERF_GLOBAL_LOCK}. Parallel load is forbidden." >&2
-	exit 1
-fi
-trap 'rmdir "${PERF_GLOBAL_LOCK}" 2>/dev/null || true' EXIT
-
-if pgrep -f '[k]6 run' >/dev/null 2>&1; then
-	echo "Another k6 process is running outside the global lock. Refusing parallel load." >&2
-	exit 1
-fi
 
 manifest_value() {
 	node -e '
@@ -108,9 +108,14 @@ base_target_port="$(BASE_URL_VALUE="${BASE_URL}" node -e '
 	process.stdout.write(url.port || "80");
 ')"
 published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
+app_client_addrs="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' "${APP_CONTAINER}")"
+app_client_addrs="${app_client_addrs//$'\n'/,}"
+app_client_addrs="${app_client_addrs%,}"
 
 [[ -n "${compose_project}" && "${compose_project}" == "${db_project}" ]] \
 	|| { echo "App/Postgres Compose project labels are missing or different." >&2; exit 1; }
+[[ "${compose_project}" =~ ^[a-z0-9][a-z0-9_-]*$ ]] \
+	|| { echo "Compose project label cannot be represented by the canonical lock path." >&2; exit 1; }
 [[ "${app_service}" == "app" && "${db_service}" == "postgres" ]] \
 	|| { echo "Unexpected Compose service labels: app=${app_service}, db=${db_service}." >&2; exit 1; }
 [[ -n "${app_config_hash}" && -n "${db_config_hash}" ]] \
@@ -125,6 +130,27 @@ published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
 	|| { echo "BASE_URL port ${base_target_port} differs from the seed target port ${seed_target_port}." >&2; exit 1; }
 grep -Eq "(^|:|\\])${seed_target_port}$" <<<"${published_ports}" \
 	|| { echo "The attested app container no longer publishes target port ${seed_target_port}." >&2; exit 1; }
+[[ "${app_client_addrs}" =~ ^[0-9a-fA-F:.]+(,[0-9a-fA-F:.]+)*$ ]] \
+	|| { echo "Attested app container network addresses are missing or invalid." >&2; exit 1; }
+
+PERF_PROJECT_LOCK="/tmp/faithlog-performance-${compose_project}.lock"
+if ! mkdir "${PERF_PROJECT_LOCK}" 2>/dev/null; then
+	echo "Another seed or load run owns ${PERF_PROJECT_LOCK}. Parallel execution is forbidden." >&2
+	exit 1
+fi
+trap 'rmdir "${PERF_PROJECT_LOCK}" 2>/dev/null || true' EXIT
+
+if pgrep -f '[k]6 run' >/dev/null 2>&1; then
+	echo "Another k6 process is running outside the canonical project lock." >&2
+	exit 1
+fi
+
+mkdir -p "$(dirname "${REPORT_ROOT}")"
+if [[ -e "${REPORT_ROOT}" ]]; then
+	echo "Report directory already exists. Refusing to overwrite: ${REPORT_ROOT}" >&2
+	exit 1
+fi
+mkdir "${REPORT_ROOT}"
 
 app_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${APP_CONTAINER}")"
 grep -q '^LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG$' <<<"${app_environment}" \
@@ -154,6 +180,10 @@ snapshot_db_tables() {
 		< "${DB_STATS_SQL}" > "${output}"
 }
 
+validate_token_lifetime() {
+	PERF_ACCESS_TOKEN="$1" PHASE_DURATION="$2" node "${ROOT_DIR}/token-lifetime.mjs"
+}
+
 sample_resources() {
 	local k6_pid="$1"
 	local output="$2"
@@ -164,6 +194,29 @@ sample_resources() {
 			"${APP_CONTAINER}" "${DB_CONTAINER}" \
 			| while IFS= read -r sample; do printf '%s\t%s\n' "${captured_at}" "${sample}"; done \
 			>> "${output}"
+		sleep 1
+	done
+}
+
+sample_runtime_integrity() {
+	local k6_pid="$1"
+	local output="$2"
+	while kill -0 "${k6_pid}" 2>/dev/null; do
+		local lsof_text
+		local lsof_status
+		local db_activity
+		set +e
+		lsof_text="$(lsof -nP -iTCP:"${seed_target_port}" -sTCP:ESTABLISHED -Fpc)"
+		lsof_status=$?
+		set -e
+		if (( lsof_status > 1 )); then
+			return "${lsof_status}"
+		fi
+		db_activity="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
+			psql -X -v ON_ERROR_STOP=1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
+			-v app_client_addrs="${app_client_addrs}" -f - < "${DB_ACTIVITY_SQL}")"
+		LSOF_TEXT="${lsof_text}" DB_ACTIVITY_JSON="${db_activity}" K6_PID="${k6_pid}" \
+			node "${ROOT_DIR}/activity-sample.mjs" >> "${output}"
 		sleep 1
 	done
 }
@@ -194,41 +247,76 @@ run_endpoint() {
 	local mode="$1"
 	local endpoint="$2"
 	local endpoint_dir="${REPORT_ROOT}/${mode}/${endpoint}"
+	local warmup_summary_file="${endpoint_dir}/warmup-k6-summary.json"
 	local summary_file="${endpoint_dir}/k6-summary.json"
 	local before_file="${endpoint_dir}/db-before.json"
 	local after_file="${endpoint_dir}/db-after.json"
 	local sql_log_file="${endpoint_dir}/hibernate-sql.log"
 	local resource_file="${endpoint_dir}/resource-samples.tsv"
+	local integrity_file="${endpoint_dir}/runtime-integrity.jsonl"
 	local metadata_file="${endpoint_dir}/runtime-metadata.json"
 	local report_file="${endpoint_dir}/report.json"
 	local admin_token
 	local member_token
+	local warmup_status
 	local log_since
 	local log_until
 	local k6_pid
 	local sampler_pid
+	local integrity_pid
 	local k6_status
 	local sampler_status
+	local integrity_status
 	local fixture_window_status
 	local log_capture_status
 	local after_snapshot_status
 	local summarize_status
 
-	mkdir -p "${endpoint_dir}"
+	mkdir -p "$(dirname "${endpoint_dir}")"
+	if ! mkdir "${endpoint_dir}"; then
+		echo "Endpoint report directory exists. Refusing to overwrite: ${endpoint_dir}" >&2
+		return 1
+	fi
 	assert_fixture_windows
+
 	admin_token="$(login_token "${PERF_ADMIN_EMAIL}" "${PERF_ADMIN_PASSWORD}")"
 	member_token="$(login_token "${member_email}" "${PERF_MEMBER_PASSWORD}")"
+	validate_token_lifetime "${admin_token}" "${WARMUP_DURATION}"
+	validate_token_lifetime "${member_token}" "${WARMUP_DURATION}"
+	set +e
+	env -u PERF_ADMIN_EMAIL -u PERF_ADMIN_PASSWORD -u PERF_MEMBER_PASSWORD \
+	-u PERF_DB_USER -u PERF_DB_NAME -u PERF_DB_PASSWORD \
+	BASE_URL="${BASE_URL}" MODE="${mode}" ENDPOINT="${endpoint}" \
+	VUS="${WARMUP_VUS}" DURATION="${WARMUP_DURATION}" FIXTURE_MANIFEST="${FIXTURE_MANIFEST}" \
+	PERF_ADMIN_ACCESS_TOKEN="${admin_token}" PERF_MEMBER_ACCESS_TOKEN="${member_token}" \
+		k6 run --summary-export "${warmup_summary_file}" "${SCENARIO_FILE}"
+	warmup_status=$?
+	set -e
+	admin_token=''
+	member_token=''
+	if (( warmup_status != 0 )); then
+		echo "Warmup failed for ${mode}/${endpoint}; measured phase was not started." >&2
+		return "${warmup_status}"
+	fi
+	assert_fixture_windows
+
+	admin_token="$(login_token "${PERF_ADMIN_EMAIL}" "${PERF_ADMIN_PASSWORD}")"
+	member_token="$(login_token "${member_email}" "${PERF_MEMBER_PASSWORD}")"
+	validate_token_lifetime "${admin_token}" "${MEASURED_DURATION}"
+	validate_token_lifetime "${member_token}" "${MEASURED_DURATION}"
 	snapshot_db_tables "${before_file}"
 	log_since="$(rfc3339_now)"
 	: > "${resource_file}"
+	: > "${integrity_file}"
 
+	# measured phase: only this k6 process is inside the DB/log/resource evidence window.
 	env -u PERF_ADMIN_EMAIL -u PERF_ADMIN_PASSWORD -u PERF_MEMBER_PASSWORD \
 	-u PERF_DB_USER -u PERF_DB_NAME -u PERF_DB_PASSWORD \
 	BASE_URL="${BASE_URL}" \
 	MODE="${mode}" \
 	ENDPOINT="${endpoint}" \
-	VUS="${VUS}" \
-	DURATION="${DURATION}" \
+	VUS="${MEASURED_VUS}" \
+	DURATION="${MEASURED_DURATION}" \
 	FIXTURE_MANIFEST="${FIXTURE_MANIFEST}" \
 	PERF_ADMIN_ACCESS_TOKEN="${admin_token}" \
 	PERF_MEMBER_ACCESS_TOKEN="${member_token}" \
@@ -236,6 +324,8 @@ run_endpoint() {
 	k6_pid=$!
 	sample_resources "${k6_pid}" "${resource_file}" &
 	sampler_pid=$!
+	sample_runtime_integrity "${k6_pid}" "${integrity_file}" &
+	integrity_pid=$!
 	set +e
 	wait "${k6_pid}"
 	k6_status=$?
@@ -243,6 +333,10 @@ run_endpoint() {
 	set +e
 	wait "${sampler_pid}"
 	sampler_status=$?
+	set -e
+	set +e
+	wait "${integrity_pid}"
+	integrity_status=$?
 	set -e
 	log_until="$(rfc3339_now)"
 	set +e
@@ -255,17 +349,19 @@ run_endpoint() {
 	set -e
 
 	MODE_VALUE="${mode}" ENDPOINT_VALUE="${endpoint}" DATASET_VALUE="${dataset_id}" \
-	FIXTURE_VALUE="${FIXTURE_RUN_ID}" PROJECT_VALUE="${compose_project}" \
+	FIXTURE_VALUE="${FIXTURE_RUN_ID}" EXECUTION_VALUE="${EXECUTION_RUN_ID}" PROJECT_VALUE="${compose_project}" \
 	APP_SERVICE_VALUE="${app_service}" DB_SERVICE_VALUE="${db_service}" \
 	APP_HASH_VALUE="${app_config_hash}" DB_HASH_VALUE="${db_config_hash}" \
 	APP_IMAGE_VALUE="${app_image}" EXPECTED_IMAGE_VALUE="${EXPECTED_APP_IMAGE}" \
 	APP_IMAGE_ID_VALUE="${app_image_id}" TARGET_PORT_VALUE="${seed_target_port}" \
 	APP_CONTAINER_VALUE="${APP_CONTAINER}" DB_CONTAINER_VALUE="${DB_CONTAINER}" \
 	K6_STATUS_VALUE="${k6_status}" SAMPLER_STATUS_VALUE="${sampler_status}" \
+	INTEGRITY_STATUS_VALUE="${integrity_status}" WARMUP_STATUS_VALUE="${warmup_status}" \
 	WINDOW_STATUS_VALUE="${fixture_window_status}" \
 	LOG_STATUS_VALUE="${log_capture_status}" AFTER_DB_STATUS_VALUE="${after_snapshot_status}" \
 	STARTED_AT_VALUE="${log_since}" ENDED_AT_VALUE="${log_until}" \
-	VUS_VALUE="${VUS}" DURATION_VALUE="${DURATION}" \
+	WARMUP_VUS_VALUE="${WARMUP_VUS}" WARMUP_DURATION_VALUE="${WARMUP_DURATION}" \
+	VUS_VALUE="${MEASURED_VUS}" DURATION_VALUE="${MEASURED_DURATION}" \
 	node -e '
 		const fs = require("node:fs");
 		const metadata = {
@@ -274,6 +370,7 @@ run_endpoint() {
 			endpoint: process.env.ENDPOINT_VALUE,
 			datasetId: process.env.DATASET_VALUE,
 			fixtureRunId: process.env.FIXTURE_VALUE,
+			executionRunId: process.env.EXECUTION_VALUE,
 			runtime: {
 				composeProject: process.env.PROJECT_VALUE,
 				appServiceLabel: process.env.APP_SERVICE_VALUE,
@@ -288,11 +385,15 @@ run_endpoint() {
 				dbContainer: process.env.DB_CONTAINER_VALUE,
 				k6ExitStatus: Number(process.env.K6_STATUS_VALUE),
 				resourceSamplerExitStatus: Number(process.env.SAMPLER_STATUS_VALUE),
+				integritySamplerExitStatus: Number(process.env.INTEGRITY_STATUS_VALUE),
+				warmupExitStatus: Number(process.env.WARMUP_STATUS_VALUE),
 				fixtureWindowExitStatus: Number(process.env.WINDOW_STATUS_VALUE),
 				logCaptureExitStatus: Number(process.env.LOG_STATUS_VALUE),
 				afterDbSnapshotExitStatus: Number(process.env.AFTER_DB_STATUS_VALUE),
 				measurementStartedAt: process.env.STARTED_AT_VALUE,
 				measurementEndedAt: process.env.ENDED_AT_VALUE,
+				warmupVus: Number(process.env.WARMUP_VUS_VALUE),
+				warmupDuration: process.env.WARMUP_DURATION_VALUE,
 				vus: Number(process.env.VUS_VALUE),
 				duration: process.env.DURATION_VALUE,
 			},
@@ -303,7 +404,7 @@ run_endpoint() {
 	set +e
 	node "${ROOT_DIR}/summarize-run.mjs" \
 		"${endpoint}" "${summary_file}" "${before_file}" "${after_file}" \
-		"${sql_log_file}" "${resource_file}" "${metadata_file}" "${report_file}"
+		"${sql_log_file}" "${resource_file}" "${integrity_file}" "${metadata_file}" "${report_file}"
 	summarize_status=$?
 	set -e
 	if (( summarize_status != 0 )); then
@@ -317,6 +418,10 @@ run_endpoint() {
 	if (( sampler_status != 0 )); then
 		echo "Resource sampler failed for ${mode}/${endpoint}; report was rejected." >&2
 		return "${sampler_status}"
+	fi
+	if (( integrity_status != 0 )); then
+		echo "Runtime integrity sampler failed for ${mode}/${endpoint}; report was rejected." >&2
+		return "${integrity_status}"
 	fi
 	if (( fixture_window_status != 0 )); then
 		echo "Fixture visibility windows crossed a boundary during ${mode}/${endpoint}; report was rejected." >&2
@@ -347,4 +452,4 @@ for mode in "${modes[@]}"; do
 	done
 done
 
-echo "Issue #196 baseline finished sequentially: prayer -> poll-member -> poll-admin. Reports: ${REPORT_ROOT}"
+echo "Issue #196 baseline finished requested mode=${REQUESTED_MODE}. Reports: ${REPORT_ROOT}"

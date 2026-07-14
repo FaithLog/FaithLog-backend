@@ -199,6 +199,7 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	const runner = read('run-baseline.sh');
 	const sql = read('db-table-stats.sql');
+	const activitySql = read('db-activity.sql');
 	const summarizer = read('summarize-run.mjs');
 
 	assert.match(sql, /pg_stat_user_tables/);
@@ -207,10 +208,23 @@ test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	for (const marker of ['last_analyze', 'last_autoanalyze', 'analyze_count', 'autoanalyze_count', 'plannerSettings']) {
 		assert.match(sql, new RegExp(marker), `missing DB integrity marker ${marker}`);
 	}
-	assert.match(read('db-activity.sql'), /pg_stat_activity/);
-	assert.match(read('db-activity.sql'), /faithlog_issue196_observer/);
+	assert.match(activitySql, /pg_stat_activity/);
+	assert.match(activitySql, /pid <> pg_backend_pid\(\)/);
+	assert.match(activitySql, /client_addr = any\(string_to_array\(:'app_client_addrs'/);
+	assert.doesNotMatch(activitySql, /application_name[^\n]*faithlog_issue196_observer/);
 	assert.match(runner, /activity-sample\.mjs/);
 	assert.match(runner, /lsof/);
+	const activity = spawnSync(process.execPath, [join(ROOT, 'activity-sample.mjs')], {
+		env: {
+			...process.env, DB_ACTIVITY_JSON: '{"unexpectedSessions":[]}', K6_PID: '100',
+			LSOF_TEXT: 'p100\nck6\np200\nck6\np300\ncChrome\n',
+		},
+		encoding: 'utf8',
+	});
+	assert.equal(activity.status, 0);
+	assert.deepEqual(JSON.parse(activity.stdout).unexpectedHttpClients, [
+		{ pid: 200, command: 'k6' }, { pid: 300, command: 'Chrome' },
+	]);
 	assert.doesNotMatch(sql, /\b(?:insert|update|delete|truncate|alter|drop|create)\b/i);
 	assert.match(runner, /org\.hibernate\.SQL/);
 	assert.match(runner, /docker\s+logs/);
@@ -254,6 +268,7 @@ test('project-scoped lock blocks a fake same-project runner before login, DB, or
 			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
 			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
 			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
+			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
 			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
 			`*) echo "docker:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
@@ -278,6 +293,182 @@ test('project-scoped lock blocks a fake same-project runner before login, DB, or
 		assert.equal(existsSync(calls) ? readFileSync(calls, 'utf8') : '', '');
 	} finally {
 		rmSync(canonicalLock, { recursive: true, force: true });
+		rmSync(temporary, { recursive: true, force: true });
+	}
+});
+
+test('warmup failure blocks measured evidence and keeps credentials out of unrelated children', () => {
+	const runner = join(ROOT, 'run-baseline.sh');
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-warmup-'));
+	const project = `faithlog-warmup-${process.pid}`;
+	const fixtureRunId = `i196warm${process.pid}`.slice(0, 32);
+	const executionRunId = `execwarm${process.pid}`.slice(0, 32);
+	const reportBase = join(ROOT, '../../..', 'build/reports/k6/issue-196', fixtureRunId);
+	try {
+		const bin = join(temporary, 'bin');
+		mkdirSync(bin);
+		const calls = join(temporary, 'calls.log');
+		const manifest = join(temporary, 'fixture.json');
+		const now = Date.now();
+		writeFileSync(manifest, JSON.stringify({
+			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId, shapedAt: new Date(now).toISOString(),
+			primaryCampus: { memberActor: { email: 'member@example.test' } },
+			composeRuntime: { composeProject: project, appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:contract', targetPort: '18080' },
+			polls: { byKey: {
+				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
+				closed_member_visible: { endsAt: new Date(now - 2 * 86400000).toISOString() },
+				closed_admin_only: { endsAt: new Date(now - 5 * 86400000).toISOString() },
+				closed_expired: { endsAt: new Date(now - 8 * 86400000).toISOString() },
+				scheduled_future: { startsAt: new Date(now + 2 * 86400000).toISOString() },
+			} },
+		}));
+		writeFileSync(join(bin, 'docker'), [
+			'#!/usr/bin/env bash',
+			'if [[ -n "${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}" ]]; then echo docker-credential-leak >> "' + calls + '"; fi',
+			'case "$*" in',
+			`*com.docker.compose.project*) echo "${project}" ;;`,
+			'*com.docker.compose.service*faithlog-backend*) echo app ;;',
+			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
+			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
+			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
+			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
+			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
+			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
+			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
+		].join('\n'));
+		writeFileSync(join(bin, 'node'), [
+			'#!/usr/bin/env bash',
+			'if [[ -n "${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}" ]]; then echo node-credential-leak >> "' + calls + '"; fi',
+			`if [[ "$*" == *"await fetch"* ]]; then echo login >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
+			`exec "${process.execPath}" "$@"`, '',
+		].join('\n'));
+		writeFileSync(join(bin, 'k6'), [
+			'#!/usr/bin/env bash',
+			'if [[ -n "${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}" ]]; then echo k6-credential-leak >> "' + calls + '"; fi',
+			'if [[ -z "${PERF_ADMIN_ACCESS_TOKEN:-}" || -z "${PERF_MEMBER_ACCESS_TOKEN:-}" ]]; then echo k6-token-missing >> "' + calls + '"; fi',
+			`echo warmup-k6 >> "${calls}"`, 'exit 42', '',
+		].join('\n'));
+		for (const command of ['docker', 'k6', 'node']) chmodSync(join(bin, command), 0o755);
+		const result = spawnSync('bash', [runner, 'prayer'], {
+			env: {
+				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
+				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://localhost:18080',
+				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
+				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
+				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
+				PERF_ACCESS_TOKEN: 'stale-token', PERF_ADMIN_ACCESS_TOKEN: 'stale-admin-token', PERF_MEMBER_ACCESS_TOKEN: 'stale-member-token',
+			},
+		});
+		assert.notEqual(result.status, 0);
+		const observed = readFileSync(calls, 'utf8').trim().split(/\r?\n/);
+		assert.equal(observed.filter((line) => line === 'warmup-k6').length, 1, 'measured k6 must not start');
+		assert.equal(observed.filter((line) => line === 'login').length, 2, 'only warmup tokens are issued');
+		assert.equal(observed.some((line) => line.includes('credential-leak') || line.includes('token-missing') || line.startsWith('docker-unexpected')), false);
+		assert.equal(existsSync(join(reportBase, executionRunId, 'prayer', 'prayer_current_season', 'db-before.json')), false);
+	} finally {
+		rmSync(reportBase, { recursive: true, force: true });
+		rmSync(temporary, { recursive: true, force: true });
+	}
+});
+
+test('fake orchestration scopes tokens and DB credentials to their required children', () => {
+	const runner = join(ROOT, 'run-baseline.sh');
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-scope-'));
+	const project = `faithlog-scope-${process.pid}`;
+	const fixtureRunId = `i196scope${process.pid}`.slice(0, 32);
+	const executionRunId = `execscope${process.pid}`.slice(0, 32);
+	const reportBase = join(ROOT, '../../..', 'build/reports/k6/issue-196', fixtureRunId);
+	try {
+		const bin = join(temporary, 'bin');
+		mkdirSync(bin);
+		const calls = join(temporary, 'calls.log');
+		const k6Count = join(temporary, 'k6-count');
+		const dbCount = join(temporary, 'db-count');
+		const before = join(temporary, 'before.json');
+		const after = join(temporary, 'after.json');
+		const manifest = join(temporary, 'fixture.json');
+		const now = Date.now();
+		writeFileSync(before, JSON.stringify(dbSnapshot(new Date(now - 1000).toISOString())));
+		writeFileSync(after, JSON.stringify(dbSnapshot(new Date(now + 1000).toISOString(), { users: { seq_scan: 1, seq_tup_read: 1000 } })));
+		writeFileSync(manifest, JSON.stringify({
+			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId, shapedAt: new Date(now).toISOString(),
+			primaryCampus: { memberActor: { email: 'member@example.test' } },
+			composeRuntime: { composeProject: project, appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:contract', targetPort: '18080' },
+			polls: { byKey: {
+				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
+				closed_member_visible: { endsAt: new Date(now - 2 * 86400000).toISOString() },
+				closed_admin_only: { endsAt: new Date(now - 5 * 86400000).toISOString() },
+				closed_expired: { endsAt: new Date(now - 8 * 86400000).toISOString() },
+				scheduled_future: { startsAt: new Date(now + 2 * 86400000).toISOString() },
+			} },
+		}));
+		writeFileSync(join(bin, 'docker'), [
+			'#!/usr/bin/env bash',
+			'if [[ "$1" == exec ]]; then',
+			`  if [[ -z "${'${PGPASSWORD+x}'}" || -n "${'${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_PASSWORD+x}${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]]; then echo db-scope-bad >> "${calls}"; fi`,
+			`  echo db-collector >> "${calls}"`,
+			`  if [[ "$*" == *faithlog_issue196_observer* ]]; then printf '%s\\n' '{"capturedAt":"2026-07-14T00:00:00Z","unexpectedSessions":[]}'; exit 0; fi`,
+			`  count=$(cat "${dbCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${dbCount}"`,
+			`  if (( count == 1 )); then cat "${before}"; else cat "${after}"; fi`,
+			'  exit 0', 'fi',
+			`if [[ -n "${'${PGPASSWORD+x}${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]]; then echo docker-scope-bad >> "${calls}"; fi`,
+			'case "$*" in',
+			`*com.docker.compose.project*) echo "${project}" ;;`,
+			'*com.docker.compose.service*faithlog-backend*) echo app ;;',
+			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
+			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
+			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
+			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
+			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
+			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
+			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			'*"stats --no-stream"*) printf "faithlog-backend\\t10.0%%\\t100MiB / 1GiB\\t9.8%%\\nfaithlog-postgres\\t20.0%%\\t200MiB / 1GiB\\t19.5%%\\n" ;;',
+			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
+			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
+		].join('\n'));
+		writeFileSync(join(bin, 'node'), [
+			'#!/usr/bin/env bash',
+			`if [[ -n "${'${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}'}" ]]; then echo node-scope-bad >> "${calls}"; fi`,
+			`if [[ "$*" == *"await fetch"* ]]; then echo login >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
+			`if [[ "$*" == *"const metadata"* ]]; then [[ -n "${'${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]] && echo metadata-scope-bad >> "${calls}"; echo metadata-child >> "${calls}"; fi`,
+			`if [[ "$*" == *"summarize-run.mjs"* ]]; then [[ -n "${'${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]] && echo summarizer-scope-bad >> "${calls}"; echo summarizer-child >> "${calls}"; fi`,
+			`exec "${process.execPath}" "$@"`, '',
+		].join('\n'));
+		writeFileSync(join(bin, 'k6'), [
+			'#!/usr/bin/env bash',
+			`if [[ -n "${'${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}'}" ]]; then echo k6-scope-bad >> "${calls}"; fi`,
+			`if [[ -z "${'${PERF_ADMIN_ACCESS_TOKEN:-}'}" || -z "${'${PERF_MEMBER_ACCESS_TOKEN:-}'}" ]]; then echo k6-token-missing >> "${calls}"; fi`,
+			`count=$(cat "${k6Count}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${k6Count}"`,
+			'summary=""; while (( $# > 0 )); do if [[ "$1" == --summary-export ]]; then summary="$2"; shift 2; else shift; fi; done',
+			'mkdir -p "$(dirname "${summary}")"',
+			`if (( count == 3 )); then echo second-warmup-stop >> "${calls}"; exit 42; fi`,
+			`if (( count == 1 )); then printf '%s\\n' '{}' > "${'${summary}'}"; echo warmup-k6 >> "${calls}"; exit 0; fi`,
+			`printf '%s\\n' '{"metrics":{"endpoint_prayer_current_season_duration":{"values":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4}},"endpoint_prayer_current_season_requests":{"values":{"count":1,"rate":1}},"endpoint_prayer_current_season_failures":{"values":{"rate":0}}}}' > "${'${summary}'}"`,
+			`sleep 2; echo measured-k6 >> "${calls}"; exit 0`, '',
+		].join('\n'));
+		for (const command of ['docker', 'k6', 'node']) chmodSync(join(bin, command), 0o755);
+		const result = spawnSync('bash', [runner, 'prayer'], {
+			env: {
+				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
+				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://localhost:18080',
+				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
+				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
+				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
+				PERF_ACCESS_TOKEN: 'stale-token', PERF_ADMIN_ACCESS_TOKEN: 'stale-admin-token', PERF_MEMBER_ACCESS_TOKEN: 'stale-member-token',
+			},
+			timeout: 60000,
+		});
+		assert.notEqual(result.status, 0, 'the fake second endpoint warmup must stop the runner');
+		const observed = readFileSync(calls, 'utf8').trim().split(/\r?\n/);
+		for (const marker of ['warmup-k6', 'measured-k6', 'db-collector', 'metadata-child', 'summarizer-child', 'second-warmup-stop']) {
+			assert.ok(observed.includes(marker), `missing fake orchestration marker ${marker}; stdout=${result.stdout}; stderr=${result.stderr}; observed=${observed.join(',')}`);
+		}
+		assert.equal(observed.some((line) => line.endsWith('scope-bad') || line === 'k6-token-missing' || line.startsWith('docker-unexpected')), false);
+		const report = JSON.parse(readFileSync(join(reportBase, executionRunId, 'prayer', 'prayer_current_season', 'report.json'), 'utf8'));
+		assert.equal(report.accepted, true);
+	} finally {
+		rmSync(reportBase, { recursive: true, force: true });
 		rmSync(temporary, { recursive: true, force: true });
 	}
 });
@@ -315,6 +506,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			runtime: {
 				appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
 				k6ExitStatus: 0, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
+				warmupExitStatus: 0, integritySamplerExitStatus: 0,
 				logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
 			},
 		}));
@@ -340,6 +532,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			runtime: {
 				appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
 				k6ExitStatus: 99, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
+				warmupExitStatus: 0, integritySamplerExitStatus: 0,
 				logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
 			},
 		}));
@@ -357,6 +550,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			runtime: {
 				appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
 				k6ExitStatus: 97, resourceSamplerExitStatus: 98, fixtureWindowExitStatus: 1,
+				warmupExitStatus: 0, integritySamplerExitStatus: 94,
 				logCaptureExitStatus: 96, afterDbSnapshotExitStatus: 95,
 			},
 		}));
@@ -440,6 +634,30 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		assert.notEqual(zeroProcess.status, 0);
 		assert.ok(JSON.parse(readFileSync(zeroReport, 'utf8')).rejectionReasons.includes('non-positive-throughput'));
 
+		for (const [shape, metric] of [
+			['values', (values) => ({ values })],
+			['direct', (values) => values],
+		]) {
+			const invertedSummary = join(temporary, `inverted-${shape}-summary.json`);
+			const invertedReport = join(temporary, `inverted-${shape}-report.json`);
+			writeFileSync(invertedSummary, JSON.stringify({ metrics: {
+				endpoint_poll_member_list_duration: metric({ 'p(50)': 100, 'p(95)': 50, 'p(99)': 10, max: 1 }),
+				endpoint_poll_member_list_requests: metric({ count: 2, rate: 1 }),
+				endpoint_poll_member_list_failures: metric({ rate: 0 }),
+			} }));
+			const invertedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+				invertedSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, invertedReport]);
+			assert.notEqual(invertedProcess.status, 0);
+			assert.ok(JSON.parse(readFileSync(invertedReport, 'utf8')).rejectionReasons.includes('invalid-latency-order'));
+		}
+
+		const existingReport = join(temporary, 'existing-report.json');
+		writeFileSync(existingReport, 'preserve-existing-evidence\n');
+		const overwriteProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, existingReport]);
+		assert.notEqual(overwriteProcess.status, 0);
+		assert.equal(readFileSync(existingReport, 'utf8'), 'preserve-existing-evidence\n');
+
 		const counterBefore = join(temporary, 'counter-before.json');
 		const counterAfter = join(temporary, 'counter-after.json');
 		const counterReport = join(temporary, 'counter-report.json');
@@ -519,7 +737,10 @@ test('fixture preparation is create-only outside rows owned by the current fixtu
 	assert.doesNotMatch(shaper, /PERF_(?:GLOBAL|PROJECT)_LOCK:-/);
 	assert.doesNotMatch(shaper, /EXPECTED_APP_IMAGE:-/);
 	assert.match(shaper, /export -n PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD/);
+	assert.match(shaper, /unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN/);
 	assert.match(read('run-baseline.sh'), /export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD/);
+	assert.match(read('run-baseline.sh'), /unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN/);
+	assert.match(seed, /delete process\.env\[name\]/);
 	assert.doesNotMatch(shaper, /docker exec -e PGPASSWORD=/);
 	assert.doesNotMatch(shaper, /\bdelete\s+from\b/i);
 	assert.doesNotMatch(shaper, /\btruncate\b/i);
