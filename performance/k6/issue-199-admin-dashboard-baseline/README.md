@@ -58,8 +58,9 @@ FaithLog frontend `develop`의 `aba1ab07bcb54c1df85ecf53238f4cb0484c2df3`에서 
 
 실행 대상은 PM/frontend가 공유하는 `faithlog-latest`뿐이다. `input-manifest`의 `runtimeTarget`은 승인된 app/PostgreSQL/Redis service label과 app container port를 기록한다.
 
-- `BASE_URL`과 `APP_CONTAINER`에는 default가 없으며 실행 시 명시한다.
-- `BASE_URL`은 address family를 숨기는 `localhost`가 아니라 `127.0.0.1` 또는 `[::1]` numeric loopback을 사용한다. runner는 app의 실제 published port/address family를 inspect하고 `BASE_URL`과 exact 결속한다.
+- `BASE_URL`, `APP_CONTAINER`, `POSTGRES_CONTAINER`, `REDIS_CONTAINER`에는 default가 없으며 사용자가 승인한 실제 target을 실행 시 모두 명시한다.
+- `BASE_URL`은 address family를 숨기는 `localhost`가 아니라 `127.0.0.1` 또는 `[::1]` numeric loopback을 사용한다. runner는 app의 실제 published port 중 선택한 address family와 호환되는 binding이 정확히 하나인지 검사하고 host port를 exact 결속한다. IPv4/IPv6 dual-stack 두 행은 선택 family에 하나씩이면 허용한다.
+- `CONTAINER_ALIAS`는 report에 stack의 사람이 읽는 별칭을 남기는 optional evidence-only 값이다. Docker inspect/stats, credential bootstrap, lock 또는 target 선택에는 사용하지 않는다.
 - container alias를 실제 Compose identity로 간주하지 않는다. credential bootstrap 전에 세 container의 project/service label을 읽고, project 3개가 같으며 service 3개가 manifest의 승인값과 exact match인지 검증한다. label/port가 비었거나 다르면 즉시 중단한다.
 - 공통 Compose-project lock 획득 뒤 최초 immutable identity에서 app published port/address family와 project/service를 다시 검증해, 최초 mutable label/port 확인과 lock 사이의 교체를 차단한다. 각 mode measured 직전과 직후에는 app/PostgreSQL/Redis의 container ID, image ID/ref, `StartedAt`, Compose project/service/config hash와 app published ports를 기록하고 최초 identity와 exact 비교한다. PostgreSQL database/address/port/version와 `pg_postmaster_start_time()`도 함께 비교해 mode 사이 또는 measured 중 재생성·재시작을 차단한다.
 
@@ -69,6 +70,8 @@ FaithLog frontend `develop`의 `aba1ab07bcb54c1df85ecf53238f4cb0484c2df3`에서 
 INPUT_MANIFEST=/absolute/path/to/issue-199-input-manifest.json \
 BASE_URL=http://127.0.0.1:<approved-published-port> \
 APP_CONTAINER=<approved-app-container> \
+POSTGRES_CONTAINER=<approved-postgres-container> \
+REDIS_CONTAINER=<approved-redis-container> \
 DATASET_MODES=<approved-comma-separated-modes> \
 PERF_ADMIN_EMAIL=runtime-only@example.com \
 PERF_ADMIN_PASSWORD=runtime-only-secret \
@@ -116,13 +119,12 @@ warmup과 measured 모두 `admin_dashboard_failure_rate == 0`, request count가 
 Docker:
 
 - app/PostgreSQL/Redis의 `docker stats --no-stream --no-trunc` CPU/RAM 전후 snapshot
-- `validate-docker-resources.mjs`가 before/after 각각 dataset mode와 boundary, 정확히 3개 component, full container ID와 name을 해당 runtime identity와 exact match한다. CPU percentage와 memory usage/limit/percentage는 finite non-negative로 검증하고 malformed JSON, 누락/중복/다른 container, mixed mode/boundary를 `contaminated`/non-zero로 차단한다.
+- `validate-docker-resources.mjs`가 before/after 각각 dataset mode와 boundary, 정확히 3개 component, full container ID와 name을 해당 runtime identity와 exact match한다. CPU percentage는 multi-core 환경의 100% 초과를 허용하면서 finite/non-negative만 강제한다. RAM은 finite/non-negative이면서 safe numeric range, positive limit, `used <= limit`, `0 <= MemPerc <= 100`을 강제한다. malformed JSON, 누락/중복/다른 container, mixed mode/boundary와 모순된 RAM을 `contaminated`/non-zero로 차단한다.
 - 이 값은 두 경계 시점의 snapshot일 뿐 continuous sampling이나 peak CPU/RAM이라고 주장하지 않는다.
 
 PostgreSQL read-only evidence:
 
 - `collect-db-counters.sql`: app table을 조회하지 않는 `pg_stat_database`, `pg_stat_user_tables`, `pg_settings`, `pg_stat_activity` machine snapshot. 모든 사전 검증/bootstrap 뒤 마지막 DB invocation과 measured 뒤 첫 DB invocation으로 실행한다. observer는 `pid <> pg_backend_pid()`로 현재 snapshot connection만 제외하므로 같은 `faithlog-issue199-observer` application name을 사용한 다른 session도 외부 활동으로 집계한다. coverage는 `boundary-snapshot-only`로 기록한다.
-- `validate-db-window.mjs`: database identity, 모든 numeric counter, required table stability field, planner `name/setting/source`와 `plannerContext`를 엄격한 schema로 검증하고 null/빈 문자열/누락/배열/객체를 숫자 0으로 허용하지 않는다. PostgreSQL 누적 counter는 decimal string으로 수집하고 BigInt로 delta를 계산해 `Number.MAX_SAFE_INTEGER` 이후에도 정밀도를 잃지 않는다. required table/planner set exact, `capturedAt` 순서, `stats_reset`, counter monotonicity와 table별 delta, analyze/autoanalyze/vacuum/autovacuum/observer-session planner 불변, 경계 시점 외부 active session 0, `EXTERNAL_ACTIVITY=none`, observer metadata도 검증한다. vacuum 계열은 required 11개 table의 `last_vacuum`, `last_autovacuum`, `vacuum_count`, `autovacuum_count`를 strict schema/exact stability로 검사한다. drift는 boundary-only 조건과 별개로 `contaminated`/non-zero다. 오염·malformed evidence는 contaminated/non-zero이고, 깨끗한 경계 snapshot도 중간 요청을 증명하지 못하므로 `conditional-not-adoptable`/non-zero다.
 - `collect-runtime-identity.sql` + `validate-runtime-continuity.mjs`: container immutable identity와 PostgreSQL postmaster identity를 최초/mode pre/mode post에 exact 비교한다. container 또는 DB 재생성·재시작, malformed/missing identity evidence는 non-zero다.
 - `collect-correctness-evidence.sql`: dashboard 관련 exact aggregate를 한 줄 JSON으로 만들며 pure counter window 밖에서만 실행한다.
 - `validate-db-correctness.mjs`: summary 전체와 OPEN poll별 실제 `pollId/responseCount` 집합을 manifest와 exact 비교하고, DB-derived aggregate `missingResponseCount`도 함께 고정한다.

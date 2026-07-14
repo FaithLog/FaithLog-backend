@@ -18,8 +18,8 @@ PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?Set the runtime-only PostgreSQL password.}
 PERF_DB_NAME="${PERF_DB_NAME:?Set the runtime-only PostgreSQL database.}"
 export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_DB_USER PERF_DB_PASSWORD PERF_DB_NAME
 APP_CONTAINER="${APP_CONTAINER:?Set the exact app container serving BASE_URL.}"
-POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-faithlog-latest-postgres}"
-REDIS_CONTAINER="${REDIS_CONTAINER:-faithlog-latest-redis}"
+POSTGRES_CONTAINER="${POSTGRES_CONTAINER:?Set the exact approved PostgreSQL container.}"
+REDIS_CONTAINER="${REDIS_CONTAINER:?Set the exact approved Redis container.}"
 CONTAINER_ALIAS="${CONTAINER_ALIAS:-faithlog-latest}"
 LOCK_DIR=""
 REPORT_ROOT="$ISSUE_ROOT/reports"

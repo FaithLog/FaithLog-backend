@@ -49,8 +49,10 @@ try {
 		const cpuPercent = percent(row.stats.CPUPerc, `${expected.component}.CPUPerc`);
 		const memoryPercent = percent(row.stats.MemPerc, `${expected.component}.MemPerc`);
 		const {usedBytes, limitBytes} = memoryUsage(row.stats.MemUsage, `${expected.component}.MemUsage`);
-		assert.ok(limitBytes === 0 || usedBytes <= limitBytes,
+		assert.ok(limitBytes > 0, `${expected.component}.MemUsage limit bytes must be positive.`);
+		assert.ok(usedBytes <= limitBytes,
 			`${expected.component}.MemUsage used bytes must not exceed the limit.`);
+		assert.ok(memoryPercent <= 100, `${expected.component}.MemPerc must be at most 100%.`);
 		resourcesByComponent.set(expected.component, {
 			component: expected.component,
 			containerId: row.stats.ID,
@@ -116,7 +118,8 @@ function bytes(value, unit, label) {
 		KiB: 2 ** 10, MiB: 2 ** 20, GiB: 2 ** 30, TiB: 2 ** 40, PiB: 2 ** 50,
 	};
 	const parsed = Number(value) * multipliers[unit];
-	assert.ok(Number.isFinite(parsed) && parsed >= 0, `${label} must be finite and non-negative.`);
+	assert.ok(Number.isFinite(parsed) && parsed >= 0 && parsed <= Number.MAX_SAFE_INTEGER,
+		`${label} must be finite, non-negative, and within the safe numeric range.`);
 	return parsed;
 }
 

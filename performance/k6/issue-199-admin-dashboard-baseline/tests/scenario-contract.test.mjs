@@ -153,6 +153,10 @@ test('runner separates warmup and measured phases, serializes modes, records act
 	assert.match(source, /BASE_URL="\$\{BASE_URL:\?/);
 	assert.match(source, /DATASET_MODES="\$\{DATASET_MODES:\?/);
 	assert.match(source, /APP_CONTAINER="\$\{APP_CONTAINER:\?/);
+	assert.match(source, /POSTGRES_CONTAINER="\$\{POSTGRES_CONTAINER:\?/);
+	assert.match(source, /REDIS_CONTAINER="\$\{REDIS_CONTAINER:\?/);
+	assert.doesNotMatch(source, /POSTGRES_CONTAINER="\$\{POSTGRES_CONTAINER:-/);
+	assert.doesNotMatch(source, /REDIS_CONTAINER="\$\{REDIS_CONTAINER:-/);
 	assert.doesNotMatch(tokenSource, /BASE_URL\s*=.*\|\|/);
 	assert.doesNotMatch(tokenSource, /DATASET_MODES\s*=.*\|\|/);
 	assert.match(source, /\/tmp\/faithlog-performance-\$\{COMPOSE_PROJECT\}\.lock/);
@@ -391,6 +395,36 @@ test('runtime target validator rejects localhost against a wildcard family bindi
 	assert.match(result.stderr, /numeric loopback|address family|HostIp/i);
 });
 
+test('runtime target validator selects exactly one compatible family from dual-stack bindings', () => {
+	const dualStack = JSON.stringify({'8080/tcp': [
+		{HostIp: '0.0.0.0', HostPort: '28080'},
+		{HostIp: '::', HostPort: '28080'},
+	]});
+	assert.equal(runNode(files.runtimeTargetValidator, 'http://127.0.0.1:28080', '8080', dualStack).status, 0);
+	assert.equal(runNode(files.runtimeTargetValidator, 'http://[::1]:28080', '8080', dualStack).status, 0);
+
+	const duplicateIpv4 = JSON.stringify({'8080/tcp': [
+		{HostIp: '0.0.0.0', HostPort: '28080'},
+		{HostIp: '127.0.0.1', HostPort: '28080'},
+		{HostIp: '::', HostPort: '28080'},
+	]});
+	assert.notEqual(
+		runNode(files.runtimeTargetValidator, 'http://127.0.0.1:28080', '8080', duplicateIpv4).status,
+		0,
+	);
+	const ipv6Only = JSON.stringify({'8080/tcp': [{HostIp: '::', HostPort: '28080'}]});
+	assert.notEqual(runNode(files.runtimeTargetValidator, 'http://127.0.0.1:28080', '8080', ipv6Only).status, 0);
+	const wrongIpv4Port = JSON.stringify({'8080/tcp': [
+		{HostIp: '0.0.0.0', HostPort: '28081'},
+		{HostIp: '::', HostPort: '28080'},
+	]});
+	assert.notEqual(
+		runNode(files.runtimeTargetValidator, 'http://127.0.0.1:28080', '8080', wrongIpv4Port).status,
+		0,
+	);
+	assert.notEqual(runNode(files.runtimeTargetValidator, 'http://127.0.0.1:28080', '9090', dualStack).status, 0);
+});
+
 test('runner revalidates post-lock immutable endpoint identity before measured traffic', () => {
 	const harness = createFakeRunnerHarness();
 	try {
@@ -592,6 +626,15 @@ test('Docker resource validator exact-binds mode, boundary, component identity, 
 			'valid-after',
 		);
 		assert.equal(validAfter.result.status, 0, validAfter.result.stderr);
+		const multicoreCpu = dockerResourceFixture();
+		multicoreCpu[0].stats.CPUPerc = '250.50%';
+		assert.equal(
+			runDockerResourceValidator(
+				temporaryDirectory, multicoreCpu, identity, 'small', 'before', 'multicore-cpu',
+			).result.status,
+			0,
+			'multi-core CPU percentages above 100 must remain valid',
+		);
 
 		for (const [label, mutate] of [
 			['malformed', () => ['not-json']],
@@ -601,6 +644,9 @@ test('Docker resource validator exact-binds mode, boundary, component identity, 
 			['wrong-id', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, ID: 'sha256:other'}} : row)],
 			['negative-cpu', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, CPUPerc: '-1%'}} : row)],
 			['nan-memory', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, MemUsage: 'NaNMiB / 1GiB'}} : row)],
+			['zero-limit', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, MemUsage: '0B / 0B', MemPerc: '0%'}} : row)],
+			['over-100-memory', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, MemPerc: '150%'}} : row)],
+			['unsafe-memory', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, MemUsage: '9PB / 10PB'}} : row)],
 		]) {
 			const invalid = runDockerResourceValidator(
 				temporaryDirectory, mutate(dockerResourceFixture()), identity, 'small', 'before', label,
@@ -612,6 +658,24 @@ test('Docker resource validator exact-binds mode, boundary, component identity, 
 	} finally {
 		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
 	}
+});
+
+test('runner requires explicit PostgreSQL and Redis containers before inspect or credential bootstrap', () => {
+	for (const variable of ['POSTGRES_CONTAINER', 'REDIS_CONTAINER']) {
+		const harness = createFakeRunnerHarness();
+		try {
+			const result = harness.run({DATASET_MODES: 'empty', [variable]: undefined});
+			assert.notEqual(result.status, 0, `${variable} must be runtime-required`);
+			assert.match(result.stderr, new RegExp(variable));
+			assert.equal(findLog(harness.log(), 'docker:inspect'), -1);
+			assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
+		} finally {
+			harness.cleanup();
+		}
+	}
+	const source = read(files.runner);
+	assert.match(source, /CONTAINER_ALIAS="\$\{CONTAINER_ALIAS:-faithlog-latest\}"/);
+	assert.doesNotMatch(source, /docker (?:inspect|stats)[^\n]*\$CONTAINER_ALIAS/);
 });
 
 test('runner blocks malformed or mixed-mode Docker resource evidence before adoption', () => {
@@ -1113,6 +1177,7 @@ exec ${shellQuote(process.execPath)} "$@"
 	fs.writeFileSync(fakeDocker, `#!/usr/bin/env bash
 case "$1" in
 	  inspect)
+	    printf 'docker:inspect:%s\\n' "\${!#}" >> "$FAKE_LOG"
 	    container="\${!#}"
 	    if [[ "$*" == *issue199-runtime-identity* ]]; then
 	      if [[ "$container" == *postgres* ]]; then service=postgres
@@ -1255,6 +1320,8 @@ fi
 		INPUT_MANIFEST: manifestPath,
 		BASE_URL: 'http://127.0.0.1:28080',
 		APP_CONTAINER: 'faithlog-latest-app',
+		POSTGRES_CONTAINER: 'faithlog-latest-postgres',
+		REDIS_CONTAINER: 'faithlog-latest-redis',
 		WARMUP_VUS: '1',
 		WARMUP_DURATION: '1s',
 		MEASURED_VUS: '1',
@@ -1273,9 +1340,13 @@ fi
 		generatedReport,
 		tokenCountPath,
 		run(environment = {}) {
+			const childEnvironment = {...baseEnvironment, ...environment};
+			for (const [name, value] of Object.entries(childEnvironment)) {
+				if (value === undefined) delete childEnvironment[name];
+			}
 			return spawnSync('bash', [files.runner], {
 				encoding: 'utf8',
-				env: {...baseEnvironment, ...environment},
+				env: childEnvironment,
 			});
 		},
 		log() {

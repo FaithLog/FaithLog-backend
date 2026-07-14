@@ -14,8 +14,9 @@
     ]
   },
   "runtimeTarget": {
-    "baseUrlAndAppContainerRequired": true,
-    "publishedPortMustMatch": "numeric loopback address family and port, revalidated from post-lock immutable identity",
+    "runtimeRequired": ["BASE_URL", "APP_CONTAINER", "POSTGRES_CONTAINER", "REDIS_CONTAINER"],
+    "containerAlias": "optional evidence-only; never used for target selection",
+    "publishedPortMustMatch": "exactly one binding compatible with the selected numeric loopback address family and exact port; a valid IPv4/IPv6 dual-stack pair is allowed; revalidated from post-lock immutable identity",
     "serviceLabelsFromManifestMustMatch": ["app", "postgres", "redis"],
     "continuityIdentity": ["containerId", "containerName", "imageId", "imageRef", "startedAt", "composeConfigHash", "appPublishedPorts", "postgresPostmasterStartedAt"]
   },
@@ -89,7 +90,7 @@
     "requiredLatencyStatistics": "finite non-negative p50 <= p95 <= p99 <= max",
     "latencyThreshold": "not-user-approved",
     "dbWindow": "strict database/table/observer-session-planner schema; required sets exact; precision-safe decimal counter deltas; stable stats_reset/analyze/autoanalyze/vacuum/autovacuum/observer planner; boundary snapshots contain no external activity",
-    "dockerResources": "before/after exact mode, boundary, app/postgres/redis full container ID and name, finite non-negative CPU and RAM; boundary snapshots only, never continuous or peak",
+    "dockerResources": "before/after exact mode, boundary, app/postgres/redis full container ID and name; CPU finite non-negative with multi-core values above 100 allowed; RAM safe finite non-negative, positive limit, used <= limit, 0 <= percent <= 100; boundary snapshots only, never continuous or peak",
     "externalActivityCoverage": "boundary-snapshot-only",
     "externalActivityAdoption": "non-adoptable until user-approved continuous provenance or isolation exists"
   },
