@@ -318,9 +318,6 @@ public class AdminChargeQueryService {
 				return null;
 			}
 			PaymentAccount account = getAccountInCampus(campusId, paymentAccountId);
-			if (!requester.isAdmin()) {
-				requireOwnedCoffeeAccountForFilter(account, requester.userId());
-			}
 			return Set.of(account.id());
 		}
 		if (!isActiveCoffeeDuty(campusId, requester.userId())) {
@@ -431,12 +428,6 @@ public class AdminChargeQueryService {
 			throw forbidden();
 		}
 		if (!requesterId.equals(account.ownerUserId())) {
-			throw forbidden();
-		}
-	}
-
-	private void requireOwnedCoffeeAccountForFilter(PaymentAccount account, Long requesterId) {
-		if (account.accountType() == PaymentCategory.COFFEE && !requesterId.equals(account.ownerUserId())) {
 			throw forbidden();
 		}
 	}

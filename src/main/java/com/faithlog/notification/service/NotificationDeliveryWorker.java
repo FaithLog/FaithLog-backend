@@ -9,7 +9,10 @@ import com.faithlog.notification.domain.entity.UserFcmToken;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -54,19 +57,28 @@ public class NotificationDeliveryWorker {
 		notificationLockService.acquireScheduledLock(NotificationLockKey.dispatch(pendingLogs.get(0).campusId(), requestId))
 			.ifPresent(lease -> {
 				try {
-					pendingLogs.forEach(this::processLog);
+					Set<Long> pendingUserIds = pendingLogs.stream()
+						.map(PendingNotificationLog::userId)
+						.collect(Collectors.toSet());
+					Map<Long, List<PendingFcmToken>> tokensByUserId = transactionTemplate.execute(status ->
+						userFcmTokenRepository.findActiveSendableTokensByUserIdIn(pendingUserIds)
+							.stream()
+							.collect(Collectors.groupingBy(
+								UserFcmToken::userId,
+								Collectors.mapping(PendingFcmToken::from, Collectors.toList())
+							))
+					);
+					pendingLogs.forEach(log -> processLog(
+						log,
+						tokensByUserId == null ? List.of() : tokensByUserId.getOrDefault(log.userId(), List.of())
+					));
 				} finally {
 					notificationLockService.release(lease);
 				}
 			});
 	}
 
-	private void processLog(PendingNotificationLog log) {
-		List<PendingFcmToken> tokens = transactionTemplate.execute(status -> userFcmTokenRepository
-			.findActiveSendableTokens(log.userId())
-			.stream()
-			.map(PendingFcmToken::from)
-			.toList());
+	private void processLog(PendingNotificationLog log, List<PendingFcmToken> tokens) {
 		if (tokens.isEmpty()) {
 			markLogSkipped(log.id(), "NO_ACTIVE_FCM_TOKEN");
 			return;

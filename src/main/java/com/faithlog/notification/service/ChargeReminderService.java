@@ -32,6 +32,8 @@ import java.util.Comparator;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class ChargeReminderService {
@@ -90,7 +92,7 @@ public class ChargeReminderService {
 		PaymentCategory paymentCategory,
 		DutyType dutyType
 	) {
-		requireActiveDuty(campusId, requesterId, dutyType);
+		requireActiveDutyForUpdate(campusId, requesterId, dutyType);
 		NotificationLockLease lease = notificationLockService.acquireManualLock(
 			NotificationLockKey.chargeReminder(campusId, requesterId, paymentCategory.name())
 		);
@@ -107,7 +109,7 @@ public class ChargeReminderService {
 		PaymentCategory paymentCategory
 	) {
 		List<PaymentAccount> accounts = paymentAccountRepository
-			.findByCampusIdAndOwnerUserIdAndAccountTypeAndDeletedAtIsNullOrderByIdAsc(
+			.findByCampusIdAndOwnerUserIdAndAccountTypeOrderByIdAsc(
 				campusId, requesterId, paymentCategory);
 		Map<Long, PaymentAccount> accountsById = accounts.stream()
 			.collect(Collectors.toMap(PaymentAccount::id, account -> account));
@@ -171,24 +173,40 @@ public class ChargeReminderService {
 					queuedCount++;
 				}
 			}
+			registerRollbackRelease(reservations);
 			if (queuedCount > 0) {
 				notificationDispatchPort.dispatch(requestId);
 			}
 			return new SendNotificationResult(requestId, queuedCount, skippedCount);
 		} catch (RuntimeException exception) {
 			reservations.forEach(notificationDeduplicationService::releaseRequiredNotification);
+			reservations.clear();
 			throw exception;
 		}
 	}
 
-	private void requireActiveDuty(Long campusId, Long requesterId, DutyType dutyType) {
+	private void registerRollbackRelease(List<NotificationDeduplicationCommand> reservations) {
+		if (reservations.isEmpty() || !TransactionSynchronizationManager.isSynchronizationActive()) {
+			return;
+		}
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCompletion(int status) {
+				if (status != STATUS_COMMITTED) {
+					reservations.forEach(notificationDeduplicationService::releaseRequiredNotification);
+				}
+			}
+		});
+	}
+
+	private void requireActiveDutyForUpdate(Long campusId, Long requesterId, DutyType dutyType) {
 		ErrorCode errorCode = dutyType == DutyType.COFFEE
 			? ErrorCode.NOTIFICATION_COFFEE_CHARGE_REMINDER_FORBIDDEN
 			: ErrorCode.NOTIFICATION_MEAL_CHARGE_REMINDER_FORBIDDEN;
 		campusMemberRepository.findByCampusIdAndUserId(campusId, requesterId)
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(errorCode));
-		if (dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+		if (dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
 			campusId, dutyType, requesterId).isEmpty()) {
 			throw new BusinessException(errorCode);
 		}
