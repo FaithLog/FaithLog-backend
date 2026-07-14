@@ -18,8 +18,11 @@ const files = {
 	dbEvidence: path.join(issueRoot, 'collect-db-evidence.sql'),
 	verifier: path.join(issueRoot, 'verify-summary.mjs'),
 	runtimeToken: path.join(issueRoot, 'prepare-runtime-token.mjs'),
+	runtimeTargetValidator: path.join(issueRoot, 'validate-runtime-target.mjs'),
+	tokenLifetimeValidator: path.join(issueRoot, 'validate-token-lifetime.mjs'),
 	summaryValidator: path.join(issueRoot, 'validate-k6-summary.mjs'),
 	dbCorrectnessValidator: path.join(issueRoot, 'validate-db-correctness.mjs'),
+	dbWindowValidator: path.join(issueRoot, 'validate-db-window.mjs'),
 	dbCounters: path.join(issueRoot, 'collect-db-counters.sql'),
 	dbCorrectness: path.join(issueRoot, 'collect-correctness-evidence.sql'),
 	readme: path.join(issueRoot, 'README.md'),
@@ -72,6 +75,11 @@ test('manifest separates empty, small, and 1000-member modes and references shar
 
 	assert.equal(manifest.issue, 199);
 	assert.equal(manifest.datasetId, 'PERFORMANCE_SHARED_1000_EXAMPLE');
+	assert.deepEqual(manifest.runtimeTarget, {
+		app: {service: 'app', containerPort: 8080},
+		postgres: {service: 'postgres'},
+		redis: {service: 'redis'},
+	});
 	for (const mode of contract.dataset.modes) {
 		assert.ok(manifest.modes[mode], `missing dataset mode: ${mode}`);
 		assert.equal(manifest.modes[mode].mode, mode);
@@ -134,14 +142,23 @@ test('scenario exposes required latency, throughput, failure, and exact correctn
 
 test('runner separates warmup and measured phases, serializes modes, records actual Compose labels and resources', () => {
 	const source = read(files.runner);
+	const tokenSource = read(files.runtimeToken);
 
+	assert.match(source, /BASE_URL="\$\{BASE_URL:\?/);
+	assert.match(source, /DATASET_MODES="\$\{DATASET_MODES:\?/);
+	assert.match(source, /APP_CONTAINER="\$\{APP_CONTAINER:\?/);
+	assert.doesNotMatch(tokenSource, /BASE_URL\s*=.*\|\|/);
+	assert.doesNotMatch(tokenSource, /DATASET_MODES\s*=.*\|\|/);
 	assert.match(source, /\/tmp\/faithlog-performance-\$\{COMPOSE_PROJECT\}\.lock/);
 	assert.match(source, /APP_PROJECT.*POSTGRES_PROJECT.*REDIS_PROJECT/s);
 	assert.match(source, /Compose project labels do not match/);
 	assert.match(source, /mkdir "\$LOCK_DIR"/);
 	assert.match(source, /trap cleanup EXIT/);
 	assert.match(source, /rmdir "\$LOCK_DIR"/);
-	assert.match(source, /DATASET_MODES:-empty,small,thousand/);
+	assert.match(source, /validate-runtime-target\.mjs/);
+	assert.match(source, /validate-token-lifetime\.mjs/);
+	assert.match(source, /validate-db-window\.mjs/);
+	assert.match(source, /Report directory already exists/);
 	assert.match(source, /PHASE=warmup/);
 	assert.match(source, /PHASE=measured/);
 	assert.ok(source.indexOf('PHASE=warmup') < source.indexOf('PHASE=measured'));
@@ -181,6 +198,10 @@ test('DB evidence is read-only and captures counters, query evidence, analyze an
 	assert.match(sql, /missing_response_count/);
 	assert.doesNotMatch(sql, /\b(?:INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE|VACUUM|ANALYZE)\b/i);
 	assert.match(counterSql, /issue199:evidence=counters/);
+	assert.match(counterSql, /pg_stat_activity/);
+	assert.match(counterSql, /application_name/);
+	assert.match(counterSql, /stats_reset/);
+	assert.match(counterSql, /plannerSettings/);
 	assert.doesNotMatch(
 		counterSql,
 		/\b(?:FROM|JOIN)\s+(?:users|campuses|campus_members|weekly_devotion_records|charge_items|polls|poll_responses)\b/i,
@@ -276,16 +297,18 @@ test('runner fake execution refreshes the token per mode and keeps bootstrap out
 		const result = harness.run({DATASET_MODES: 'empty,small'});
 		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 		const log = harness.log();
-		assert.equal(Number(fs.readFileSync(harness.tokenCountPath, 'utf8')), 2);
-		for (const [mode, token, counterOccurrence] of [
-			['empty', 'contract-runtime-token-1', 1],
-			['small', 'contract-runtime-token-2', 3],
+		assert.equal(Number(fs.readFileSync(harness.tokenCountPath, 'utf8')), 4);
+		for (const [mode, counterOccurrence] of [
+			['empty', 1],
+			['small', 3],
 		]) {
-			const tokenIndex = findLog(log, `token:${mode}:`);
-			const measuredIndex = findLog(log, `k6:${mode}:measured:${token}`);
+			const warmupTokenIndex = findLog(log, `token:${mode}:warmup:`);
+			const measuredTokenIndex = findLog(log, `token:${mode}:measured:`);
+			const measuredIndex = findLog(log, `k6:${mode}:measured`);
 			const preCounterIndex = findNthLog(log, 'docker:db-counters', counterOccurrence);
 			const postCounterIndex = findNthLog(log, 'docker:db-counters', counterOccurrence + 1);
-			assert.ok(tokenIndex >= 0 && tokenIndex < preCounterIndex);
+			assert.ok(warmupTokenIndex >= 0 && warmupTokenIndex < measuredTokenIndex);
+			assert.ok(measuredTokenIndex < preCounterIndex);
 			assert.ok(preCounterIndex < measuredIndex && measuredIndex < postCounterIndex);
 			assert.equal(
 				log.slice(preCounterIndex + 1, postCounterIndex).filter((line) => line.startsWith('docker:db-')).length,
@@ -293,7 +316,134 @@ test('runner fake execution refreshes the token per mode and keeps bootstrap out
 				`${mode}: no correctness/context DB query may run inside the measured counter window`,
 			);
 		}
-		assert.match(log.find((line) => line.startsWith('token:small:')), /:1901$/);
+		assert.match(log.find((line) => line.startsWith('token:small:warmup:')), /:1901$/);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('runner binds BASE_URL to the inspected app published port before credential bootstrap', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const result = harness.run({
+			DATASET_MODES: 'empty',
+			FAKE_APP_PORTS_JSON: JSON.stringify({'8080/tcp': [{HostIp: '127.0.0.1', HostPort: '28081'}]}),
+		});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /published port|BASE_URL/i);
+		assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('runner rejects an app, postgres, or redis service-label mismatch before credential bootstrap', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const result = harness.run({DATASET_MODES: 'empty', FAKE_SERVICE_MODE: 'mismatch'});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /Compose service labels do not match/);
+		assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('runner blocks a measured phase when the fresh JWT cannot cover duration plus approved safety', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const result = harness.run({
+			DATASET_MODES: 'empty',
+			MEASURED_DURATION: '60s',
+			TOKEN_EXPIRY_SAFETY_SECONDS: '10',
+			FAKE_MEASURED_TOKEN_TTL_SECONDS: '30',
+		});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /token.*lifetime|expire/i);
+		assert.equal(findLog(harness.log(), 'k6:empty:measured'), -1);
+		assert.match(harness.log().find((line) => line.startsWith('token:empty:measured:')), /:1901$/);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('DB window validator rejects missing or regressed counters and produces semantic deltas', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-window-'));
+	try {
+		const before = dbWindowFixture();
+		const after = dbWindowFixture({after: true});
+		const valid = runDbWindowValidator(temporaryDirectory, before, after, 'none', 'valid');
+		assert.equal(valid.result.status, 0, valid.result.stderr);
+		assert.equal(valid.output.adoptable, true);
+		assert.equal(valid.output.tableDeltas.users.seq_scan, 1);
+
+		const missing = structuredClone(after);
+		missing.tables.pop();
+		assert.notEqual(runDbWindowValidator(temporaryDirectory, before, missing, 'none', 'missing').result.status, 0);
+
+		const regressed = structuredClone(after);
+		regressed.tables[0].seq_scan = before.tables[0].seq_scan - 1;
+		assert.notEqual(runDbWindowValidator(temporaryDirectory, before, regressed, 'none', 'regressed').result.status, 0);
+
+		const reset = structuredClone(after);
+		reset.database.stats_reset = '2026-07-14T01:00:00.000Z';
+		assert.notEqual(runDbWindowValidator(temporaryDirectory, before, reset, 'none', 'reset').result.status, 0);
+	} finally {
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('DB window validator blocks autoanalyze changes, external sessions, and declared external requests', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-activity-'));
+	try {
+		const before = dbWindowFixture();
+		assert.equal(
+			runDbWindowValidator(temporaryDirectory, before, dbWindowFixture({after: true}), 'none', 'control').result.status,
+			0,
+		);
+		const autoanalyzed = dbWindowFixture({after: true});
+		autoanalyzed.tables[0].autoanalyze_count += 1;
+		autoanalyzed.tables[0].last_autoanalyze = '2026-07-14T00:01:00.000Z';
+		assert.notEqual(runDbWindowValidator(temporaryDirectory, before, autoanalyzed, 'none', 'autoanalyze').result.status, 0);
+
+		const externalSession = dbWindowFixture({after: true});
+		externalSession.externalActiveSessions = 1;
+		assert.notEqual(runDbWindowValidator(temporaryDirectory, before, externalSession, 'none', 'session').result.status, 0);
+
+		const declaredRequest = dbWindowFixture({after: true});
+		assert.notEqual(
+			runDbWindowValidator(temporaryDirectory, before, declaredRequest, 'frontend-request', 'request').result.status,
+			0,
+		);
+	} finally {
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('runner refuses an existing mode report directory instead of mixing stale evidence', () => {
+	const harness = createFakeRunnerHarness();
+	fs.mkdirSync(path.join(harness.generatedReport, 'empty'), {recursive: true});
+	fs.writeFileSync(path.join(harness.generatedReport, 'empty', 'stale.json'), '{}');
+	try {
+		const result = harness.run({DATASET_MODES: 'empty'});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /Report directory already exists/);
+		assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('runner requires an explicit unique allowlisted DATASET_MODES selection', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const missing = harness.run({DATASET_MODES: ''});
+		assert.notEqual(missing.status, 0);
+		assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
+		const duplicated = harness.run({DATASET_MODES: 'empty,empty'});
+		assert.notEqual(duplicated.status, 0);
+		assert.match(duplicated.stderr, /duplicate dataset mode/i);
+		assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
 	} finally {
 		harness.cleanup();
 	}
@@ -401,11 +551,77 @@ function findNthLog(log, fragment, occurrence) {
 	return -1;
 }
 
+const requiredDbTables = [
+	'users', 'campuses', 'campus_members', 'weekly_devotion_records', 'devotion_daily_checks',
+	'payment_accounts', 'charge_items', 'polls', 'poll_responses', 'meal_poll_settlements', 'prayer_submissions',
+];
+
+const requiredPlannerSettings = [
+	'enable_bitmapscan', 'enable_hashagg', 'enable_hashjoin', 'enable_indexonlyscan', 'enable_indexscan',
+	'enable_material', 'enable_mergejoin', 'enable_nestloop', 'enable_seqscan', 'jit', 'plan_cache_mode',
+	'random_page_cost', 'work_mem',
+];
+
+function dbWindowFixture({after = false} = {}) {
+	const increment = after ? 1 : 0;
+	return {
+		capturedAt: after ? '2026-07-14T00:01:00.000Z' : '2026-07-14T00:00:00.000Z',
+		externalActiveSessions: 0,
+		observerOverhead: {
+			databaseWideCountersIncludeSnapshotTransaction: true,
+			databaseWideDeltaIsExactQueryCount: false,
+			appTableCountersReadApplicationTables: false,
+		},
+		database: {
+			datname: 'faithlog',
+			stats_reset: '2026-07-13T00:00:00.000Z',
+			xact_commit: 10 + increment,
+			xact_rollback: 0,
+			blks_read: 1,
+			blks_hit: 100 + increment,
+			tup_returned: 1000 + increment,
+			tup_fetched: 100 + increment,
+			temp_files: 0,
+			temp_bytes: 0,
+			deadlocks: 0,
+		},
+		tables: requiredDbTables.map((relname, index) => ({
+			relname,
+			seq_scan: index + 10 + increment,
+			seq_tup_read: index + 100 + increment,
+			idx_scan: index + 20 + increment,
+			idx_tup_fetch: index + 30 + increment,
+			n_live_tup: index + 1000,
+			n_dead_tup: 0,
+			n_mod_since_analyze: 0,
+			last_analyze: null,
+			last_autoanalyze: null,
+			analyze_count: 0,
+			autoanalyze_count: 0,
+		})),
+		plannerSettings: requiredPlannerSettings.map((name) => ({name, setting: 'contract-value', source: 'default'})),
+	};
+}
+
+function runDbWindowValidator(temporaryDirectory, before, after, externalActivity, label) {
+	const beforePath = path.join(temporaryDirectory, `${label}-before.json`);
+	const afterPath = path.join(temporaryDirectory, `${label}-after.json`);
+	const outputPath = path.join(temporaryDirectory, `${label}-output.json`);
+	fs.writeFileSync(beforePath, JSON.stringify(before));
+	fs.writeFileSync(afterPath, JSON.stringify(after));
+	const result = runNode(files.dbWindowValidator, beforePath, afterPath, externalActivity, outputPath);
+	return {
+		result,
+		output: fs.existsSync(outputPath) ? JSON.parse(fs.readFileSync(outputPath, 'utf8')) : {},
+	};
+}
+
 function createFakeRunnerHarness() {
 	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-runner-'));
 	const fakeBin = path.join(temporaryDirectory, 'bin');
 	const fakeLog = path.join(temporaryDirectory, 'commands.log');
 	const tokenCountPath = path.join(temporaryDirectory, 'token-count');
+	const dbCounterCountPath = path.join(temporaryDirectory, 'db-counter-count');
 	const fakeClockPath = path.join(temporaryDirectory, 'clock');
 	const fixtureRunId = `ISSUE_199_CONTRACT_${process.pid}_${path.basename(temporaryDirectory)}`;
 	const generatedReport = path.join(issueRoot, 'reports', 'CONTRACT_DATASET', fixtureRunId);
@@ -425,7 +641,16 @@ function createFakeRunnerHarness() {
 		};
 	}
 	const manifestPath = path.join(temporaryDirectory, 'manifest.json');
-	fs.writeFileSync(manifestPath, JSON.stringify({issue: 199, datasetId: 'CONTRACT_DATASET', modes}));
+	fs.writeFileSync(manifestPath, JSON.stringify({
+		issue: 199,
+		datasetId: 'CONTRACT_DATASET',
+		runtimeTarget: {
+			app: {service: 'app', containerPort: 8080},
+			postgres: {service: 'postgres'},
+			redis: {service: 'redis'},
+		},
+		modes,
+	}));
 
 	const fakeNode = path.join(fakeBin, 'node');
 	fs.writeFileSync(fakeNode, `#!/usr/bin/env bash
@@ -437,8 +662,13 @@ case "$1" in
     count=$((count + 1))
     printf '%s' "$count" > "$FAKE_TOKEN_COUNT_PATH"
     clock="$(<"$FAKE_CLOCK_PATH")"
-    printf 'token:%s:%s:%s\\n' "$DATASET_MODES" "$count" "$clock" >> "$FAKE_LOG"
-    printf 'contract-runtime-token-%s\\n' "$count"
+    purpose="\${TOKEN_PURPOSE:-warmup}"
+    ttl=1800
+    if [[ "$purpose" == measured ]]; then ttl="\${FAKE_MEASURED_TOKEN_TTL_SECONDS:-1800}"; fi
+    exp=$((FAKE_EPOCH_BASE + clock + ttl))
+    payload="$(${shellQuote(process.execPath)} -e 'process.stdout.write(Buffer.from(JSON.stringify({exp:Number(process.argv[1])})).toString("base64url"))' "$exp")"
+    printf 'token:%s:%s:%s:%s\\n' "$DATASET_MODES" "$purpose" "$count" "$clock" >> "$FAKE_LOG"
+    printf 'e30.%s.contract-signature\\n' "$payload"
     exit 0
     ;;
   *verify-summary.mjs) printf '{"status":"api-correctness-verified"}\\n'; exit 0 ;;
@@ -450,13 +680,21 @@ exec ${shellQuote(process.execPath)} "$@"
 case "$1" in
   inspect)
     container="\${!#}"
-    if [[ "$*" == *com.docker.compose.project* ]]; then
+    if [[ "$*" == *NetworkSettings.Ports* ]]; then
+      printf '%s\\n' "$FAKE_APP_PORTS_JSON"
+    elif [[ "$*" == *com.docker.compose.project* ]]; then
       if [[ "\${FAKE_LABEL_MODE:-}" == mismatch && "$container" == *redis* ]]; then
         printf '%s-other\\n' "$FAKE_COMPOSE_PROJECT"
       else
         printf '%s\\n' "$FAKE_COMPOSE_PROJECT"
       fi
-    elif [[ "$*" == *com.docker.compose.service* ]]; then printf '%s-service\\n' "$container";
+    elif [[ "$*" == *com.docker.compose.service* ]]; then
+      if [[ "$container" == *postgres* ]]; then service=postgres
+      elif [[ "$container" == *redis* ]]; then service=redis
+      else service=app
+      fi
+      if [[ "\${FAKE_SERVICE_MODE:-}" == mismatch && "$service" == redis ]]; then service=wrong-redis; fi
+      printf '%s\\n' "$service"
     fi
     exit 0
     ;;
@@ -472,7 +710,13 @@ case "$1" in
       printf '%s\\n' "$FAKE_DB_EVIDENCE_JSON"
     elif [[ "$sql" == *issue199:evidence=counters* ]]; then
       printf 'docker:db-counters\\n' >> "$FAKE_LOG"
-      printf '{"kind":"counter-snapshot"}\\n'
+      count=0
+      [[ -f "$FAKE_DB_COUNTER_COUNT_PATH" ]] && count="$(<"$FAKE_DB_COUNTER_COUNT_PATH")"
+      count=$((count + 1))
+      printf '%s' "$count" > "$FAKE_DB_COUNTER_COUNT_PATH"
+      if (( count % 2 == 1 )); then printf '%s\\n' "$FAKE_DB_COUNTER_BEFORE_JSON"
+      else printf '%s\\n' "$FAKE_DB_COUNTER_AFTER_JSON"
+      fi
     else
       printf 'docker:db-context\\n' >> "$FAKE_LOG"
       printf 'context evidence\\n'
@@ -484,7 +728,7 @@ exit 1
 `);
 	const fakeK6 = path.join(fakeBin, 'k6');
 	fs.writeFileSync(fakeK6, `#!/usr/bin/env bash
-printf 'k6:%s:%s:%s\\n' "$DATASET_MODE" "$PHASE" "$PERF_ACCESS_TOKEN" >> "$FAKE_LOG"
+printf 'k6:%s:%s\\n' "$DATASET_MODE" "$PHASE" >> "$FAKE_LOG"
 [[ -n "$PERF_ACCESS_TOKEN" ]]
 [[ -z "\${PERF_ADMIN_PASSWORD:-}" ]]
 [[ -z "\${PERF_DB_PASSWORD:-}" ]]
@@ -492,12 +736,21 @@ while [[ $# -gt 0 ]]; do
   if [[ "$1" == '--summary-export' ]]; then summary_path="$2"; shift 2; else shift; fi
 done
 printf '%s\\n' "$FAKE_K6_SUMMARY_JSON" > "$summary_path"
-if [[ "$PHASE" == measured ]]; then
+if [[ "$PHASE" == warmup ]]; then
   clock="$(<"$FAKE_CLOCK_PATH")"
   printf '%s' "$((clock + 1901))" > "$FAKE_CLOCK_PATH"
 fi
 `);
-	for (const executable of [fakeNode, fakeDocker, fakeK6]) {
+	const fakeDate = path.join(fakeBin, 'date');
+	fs.writeFileSync(fakeDate, `#!/usr/bin/env bash
+if [[ "$1" == '+%s' ]]; then
+  clock="$(<"$FAKE_CLOCK_PATH")"
+  printf '%s\\n' "$((FAKE_EPOCH_BASE + clock))"
+else
+  exec /bin/date "$@"
+fi
+`);
+	for (const executable of [fakeNode, fakeDocker, fakeK6, fakeDate]) {
 		fs.chmodSync(executable, 0o755);
 	}
 
@@ -513,16 +766,24 @@ fi
 		PATH: `${fakeBin}:${process.env.PATH}`,
 		FAKE_LOG: fakeLog,
 		FAKE_TOKEN_COUNT_PATH: tokenCountPath,
+		FAKE_DB_COUNTER_COUNT_PATH: dbCounterCountPath,
 		FAKE_CLOCK_PATH: fakeClockPath,
+		FAKE_EPOCH_BASE: '1783980000',
 		FAKE_COMPOSE_PROJECT: composeProject,
+		FAKE_APP_PORTS_JSON: JSON.stringify({'8080/tcp': [{HostIp: '127.0.0.1', HostPort: '28080'}]}),
 		FAKE_DB_EVIDENCE_JSON: JSON.stringify(expectedFixture()),
+		FAKE_DB_COUNTER_BEFORE_JSON: JSON.stringify(dbWindowFixture()),
+		FAKE_DB_COUNTER_AFTER_JSON: JSON.stringify(dbWindowFixture({after: true})),
 		FAKE_K6_SUMMARY_JSON: JSON.stringify(summary),
 		INPUT_MANIFEST: manifestPath,
+		BASE_URL: 'http://127.0.0.1:28080',
+		APP_CONTAINER: 'faithlog-latest-app',
 		WARMUP_VUS: '1',
 		WARMUP_DURATION: '1s',
 		MEASURED_VUS: '1',
 		MEASURED_DURATION: '1s',
-		EXTERNAL_ACTIVITY: 'contract-test-none',
+		TOKEN_EXPIRY_SAFETY_SECONDS: '10',
+		EXTERNAL_ACTIVITY: 'none',
 		PERF_ADMIN_EMAIL: 'runtime-only@example.com',
 		PERF_ADMIN_PASSWORD: 'runtime-only-secret',
 		PERF_DB_USER: 'runtime-only-db-user',
@@ -532,6 +793,7 @@ fi
 
 	return {
 		composeProject,
+		generatedReport,
 		tokenCountPath,
 		run(environment = {}) {
 			return spawnSync('bash', [files.runner], {
