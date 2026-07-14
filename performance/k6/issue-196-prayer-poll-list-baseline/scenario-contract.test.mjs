@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -14,9 +14,48 @@ const REQUIRED_FILES = [
 	'scenario.js',
 	'run-baseline.sh',
 	'db-table-stats.sql',
+	'db-activity.sql',
+	'activity-sample.mjs',
+	'token-lifetime.mjs',
 	'summarize-run.mjs',
 	'README.md',
 ];
+
+const EXPECTED_TABLES = [
+	'campus_duty_assignments', 'campus_members', 'campuses', 'charge_items', 'coffee_brands',
+	'coffee_menu_catalog', 'devotion_daily_checks', 'meal_poll_charge_groups', 'meal_poll_settlements',
+	'notification_logs', 'payment_accounts', 'penalty_rules', 'poll_comments', 'poll_options',
+	'poll_response_options', 'poll_responses', 'poll_template_options', 'poll_templates', 'polls',
+	'prayer_group_members', 'prayer_groups', 'prayer_seasons', 'prayer_submissions', 'prayer_weeks',
+	'user_fcm_tokens', 'users', 'weekly_devotion_records',
+];
+
+function tableRow(relname, overrides = {}) {
+	return {
+		relname, seq_scan: 0, seq_tup_read: 0, idx_scan: 0, idx_tup_fetch: 0,
+		n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 0,
+		last_analyze: null, last_autoanalyze: null, analyze_count: 0, autoanalyze_count: 0,
+		...overrides,
+	};
+}
+
+function dbSnapshot(capturedAt, overridesByTable = {}, plannerSettings = { plan_cache_mode: 'auto', random_page_cost: '4' }) {
+	return {
+		capturedAt,
+		plannerSettings,
+		tables: EXPECTED_TABLES.map((name) => tableRow(name, overridesByTable[name])),
+	};
+}
+
+function integritySample(overrides = {}) {
+	return JSON.stringify({
+		capturedAt: '2026-07-14T00:00:01.500Z',
+		observerApplicationName: 'faithlog_issue196_observer',
+		unexpectedDbSessions: [],
+		unexpectedHttpClients: [],
+		...overrides,
+	});
+}
 
 function read(name) {
 	const path = join(ROOT, name);
@@ -119,8 +158,8 @@ test('correctness checks lock count, ordering, editable, myGroup, isolation, and
 
 test('runner serializes endpoint phases and records runtime evidence without Docker lifecycle mutations', () => {
 	const runner = read('run-baseline.sh');
-	assert.match(runner, /faithlog-performance-global\.lock/);
-	assert.doesNotMatch(runner, /PERF_GLOBAL_LOCK:-/);
+	assert.match(runner, /faithlog-performance-\$\{compose_project\}\.lock/);
+	assert.doesNotMatch(runner, /faithlog-performance-global\.lock|PERF_(?:GLOBAL|PROJECT)_LOCK:-/);
 	assert.doesNotMatch(runner, /EXPECTED_APP_IMAGE:-/);
 	assert.match(runner, /prayer[\s\S]*poll-member[\s\S]*poll-admin/);
 	assert.match(runner, /ENDPOINT=/);
@@ -144,6 +183,15 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 	assert.match(runner, /set \+e[\s\S]*docker logs[\s\S]*log_capture_status=\$\?[\s\S]*snapshot_db_tables "\$\{after_file\}"[\s\S]*after_snapshot_status=\$\?[\s\S]*set -e/);
 	assert.match(runner, /summarize-run\.mjs[\s\S]*summarize_status=\$\?[\s\S]*if \(\( summarize_status != 0 \)\)/);
 	assert.match(runner, /env -u PERF_ADMIN_EMAIL/);
+	for (const name of ['WARMUP_VUS', 'WARMUP_DURATION', 'MEASURED_VUS', 'MEASURED_DURATION', 'EXECUTION_RUN_ID']) {
+		assert.match(runner, new RegExp(`${name}=.*:\\?`), `${name} must be runtime-required`);
+	}
+	assert.doesNotMatch(runner, /REQUESTED_MODE="\$\{1:-all\}"/);
+	assert.match(runner, /REQUESTED_MODE="\$\{1:\?/);
+	assert.match(runner, /warmup[\s\S]*k6 run[\s\S]*snapshot_db_tables "\$\{before_file\}"[\s\S]*measured[\s\S]*k6 run/);
+	assert.match(runner, /if \(\( warmup_status != 0 \)\)[\s\S]*return/);
+	assert.match(runner, /EXECUTION_RUN_ID[\s\S]*REPORT_ROOT/);
+	assert.match(runner, /Report directory already exists|Refusing to overwrite/);
 	assert.doesNotMatch(runner, /docker\s+compose\s+(?:up|down|build)|docker\s+(?:system|builder|image|volume)\s+prune/);
 	assert.doesNotMatch(runner, /(?:^|\s)(?:source|\.)\s+\.env(?:\s|$)/m);
 });
@@ -156,6 +204,13 @@ test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	assert.match(sql, /pg_stat_user_tables/);
 	assert.match(sql, /seq_scan/);
 	assert.match(sql, /idx_scan/);
+	for (const marker of ['last_analyze', 'last_autoanalyze', 'analyze_count', 'autoanalyze_count', 'plannerSettings']) {
+		assert.match(sql, new RegExp(marker), `missing DB integrity marker ${marker}`);
+	}
+	assert.match(read('db-activity.sql'), /pg_stat_activity/);
+	assert.match(read('db-activity.sql'), /faithlog_issue196_observer/);
+	assert.match(runner, /activity-sample\.mjs/);
+	assert.match(runner, /lsof/);
 	assert.doesNotMatch(sql, /\b(?:insert|update|delete|truncate|alter|drop|create)\b/i);
 	assert.match(runner, /org\.hibernate\.SQL/);
 	assert.match(runner, /docker\s+logs/);
@@ -163,26 +218,98 @@ test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	assert.match(summarizer, /repeatedSql/);
 	assert.match(summarizer, /tableCounterDelta/);
 	assert.match(summarizer, /scenario-ready/);
+	for (const marker of ['counter-regression', 'write-counter-delta', 'snapshot-time-order', 'planner-settings-changed',
+		'analyze-state-changed', 'external-http-activity', 'unexpected-db-session']) {
+		assert.match(summarizer, new RegExp(marker), `missing rejection reason ${marker}`);
+	}
+});
+
+test('project-scoped lock blocks a fake same-project runner before login, DB, or k6', () => {
+	const runner = join(ROOT, 'run-baseline.sh');
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-lock-'));
+	const project = `faithlog-contract-${process.pid}`;
+	const canonicalLock = `/tmp/faithlog-performance-${project}.lock`;
+	try {
+		const bin = join(temporary, 'bin');
+		mkdirSync(bin);
+		const calls = join(temporary, 'dangerous.log');
+		const manifest = join(temporary, 'fixture.json');
+		const now = Date.now();
+		writeFileSync(manifest, JSON.stringify({
+			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196lock', shapedAt: new Date(now).toISOString(),
+			primaryCampus: { memberActor: { email: 'member@example.test' } },
+			composeRuntime: { composeProject: project, appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:contract', targetPort: '18080' },
+			polls: { byKey: {
+				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
+				closed_member_visible: { endsAt: new Date(now - 2 * 86400000).toISOString() },
+				closed_admin_only: { endsAt: new Date(now - 5 * 86400000).toISOString() },
+				closed_expired: { endsAt: new Date(now - 8 * 86400000).toISOString() },
+				scheduled_future: { startsAt: new Date(now + 2 * 86400000).toISOString() },
+			} },
+		}));
+		writeFileSync(join(bin, 'docker'), [
+			'#!/usr/bin/env bash', 'case "$*" in',
+			`*com.docker.compose.project*) echo "${project}" ;;`,
+			'*com.docker.compose.service*faithlog-backend*) echo app ;;',
+			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
+			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
+			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
+			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
+			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
+			`*) echo "docker:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
+		].join('\n'));
+		writeFileSync(join(bin, 'k6'), ['#!/usr/bin/env bash', `echo "k6:$*" >> "${calls}"`, 'exit 89', ''].join('\n'));
+		writeFileSync(join(bin, 'node'), [
+			'#!/usr/bin/env bash', `if [[ "$*" == *"await fetch"* ]]; then echo login >> "${calls}"; exit 90; fi`,
+			`exec "${process.execPath}" "$@"`, '',
+		].join('\n'));
+		for (const command of ['docker', 'k6', 'node']) chmodSync(join(bin, command), 0o755);
+		mkdirSync(canonicalLock);
+		const result = spawnSync('bash', [runner, 'prayer'], {
+			env: {
+				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: 'i196lock', EXECUTION_RUN_ID: 'exec-lock',
+				FIXTURE_MANIFEST: manifest, REPORT_ROOT: join(temporary, 'reports'), BASE_URL: 'http://localhost:18080',
+				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s', VUS: '1', DURATION: '1s',
+				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
+				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'secret',
+			},
+		});
+		assert.notEqual(result.status, 0);
+		assert.equal(existsSync(calls) ? readFileSync(calls, 'utf8') : '', '');
+	} finally {
+		rmSync(canonicalLock, { recursive: true, force: true });
+		rmSync(temporary, { recursive: true, force: true });
+	}
+});
+
+test('token lifetime gate rejects a fake clock that cannot cover the phase', async () => {
+	const modulePath = join(ROOT, 'token-lifetime.mjs');
+	assert.equal(existsSync(modulePath), true, 'missing token-lifetime.mjs');
+	const { assertTokenLifetime } = await import(`${pathToFileURL(modulePath).href}?test=${Date.now()}`);
+	const token = (exp) => `${Buffer.from('{}').toString('base64url')}.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.signature`;
+	assert.doesNotThrow(() => assertTokenLifetime(token(1400), '5m', 1000, 60));
+	assert.throws(() => assertTokenLifetime(token(1300), '5m', 1000, 60), /remaining lifetime/i);
 });
 
 test('summarizer materializes endpoint latency, throughput, SQL loop, table, and resource evidence', () => {
 	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-contract-'));
 	try {
 		const endpoint = 'poll_member_list';
-		const paths = Object.fromEntries(['summary', 'before', 'after', 'sql', 'resources', 'metadata', 'report']
+		const paths = Object.fromEntries(['summary', 'before', 'after', 'sql', 'resources', 'integrity', 'metadata', 'report']
 			.map((name) => [name, join(temporary, `${name}.${name === 'sql' || name === 'resources' ? 'txt' : 'json'}`)]));
 		writeFileSync(paths.summary, JSON.stringify({ metrics: {
 			endpoint_poll_member_list_duration: { values: { 'p(50)': 10, 'p(95)': 20, 'p(99)': 30, max: 40 } },
 			endpoint_poll_member_list_requests: { values: { count: 2, rate: 1.5 } },
 			endpoint_poll_member_list_failures: { values: { rate: 0 } },
 		} }));
-		writeFileSync(paths.before, JSON.stringify({ tables: [{ relname: 'users', seq_scan: 0, seq_tup_read: 0, idx_scan: 0, idx_tup_fetch: 0, n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 1000 }] }));
-		writeFileSync(paths.after, JSON.stringify({ tables: [{ relname: 'users', seq_scan: 4, seq_tup_read: 4000, idx_scan: 0, idx_tup_fetch: 0, n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 1000 }] }));
+		writeFileSync(paths.before, JSON.stringify(dbSnapshot('2026-07-14T00:00:01.000Z', { users: { n_live_tup: 1000 } })));
+		writeFileSync(paths.after, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', { users: { seq_scan: 4, seq_tup_read: 4000, n_live_tup: 1000 } })));
 		writeFileSync(paths.sql, Array.from({ length: 4 }, (_, index) => `INFO org.hibernate.SQL: select * from users where id=${index + 1}`).join('\n'));
 		writeFileSync(paths.resources, [
 			'2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t100MiB / 1GiB\t9.8%',
 			'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
 		].join('\n'));
+		writeFileSync(paths.integrity, `${integritySample()}\n`);
 		writeFileSync(paths.metadata, JSON.stringify({
 			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196-test',
 			runtime: {
@@ -193,7 +320,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		}));
 
 		execFileSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.metadata, paths.report]);
+			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, paths.report]);
 		const report = JSON.parse(readFileSync(paths.report, 'utf8'));
 		assert.deepEqual(report.http, {
 			p50Ms: 10, p95Ms: 20, p99Ms: 30, maxMs: 40,
@@ -217,7 +344,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			},
 		}));
 		const failedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, paths.resources, failedMetadata, failedReport]);
+			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, failedMetadata, failedReport]);
 		assert.notEqual(failedProcess.status, 0);
 		const failed = JSON.parse(readFileSync(failedReport, 'utf8'));
 		assert.equal(failed.accepted, false);
@@ -235,7 +362,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		}));
 		const samplerFailedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			join(temporary, 'missing-summary.json'), paths.before, paths.after, paths.sql,
-			join(temporary, 'missing-resources.tsv'), samplerFailedMetadata, samplerFailedReport]);
+			join(temporary, 'missing-resources.tsv'), paths.integrity, samplerFailedMetadata, samplerFailedReport]);
 		assert.notEqual(samplerFailedProcess.status, 0);
 		const samplerFailed = JSON.parse(readFileSync(samplerFailedReport, 'utf8'));
 		assert.equal(samplerFailed.accepted, false);
@@ -253,10 +380,10 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			endpoint_poll_member_list_requests: { values: { count: 2, rate: '' } },
 			endpoint_poll_member_list_failures: { values: { rate: null } },
 		} }));
-		writeFileSync(malformedBefore, JSON.stringify({ tables: [{ relname: 'users', seq_scan: null, seq_tup_read: 0, idx_scan: 0, idx_tup_fetch: 0, n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 1000 }] }));
-		writeFileSync(malformedAfter, JSON.stringify({ tables: [{ relname: 'users', seq_scan: '', seq_tup_read: 0, idx_scan: 0, idx_tup_fetch: 0, n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 1000 }] }));
+		writeFileSync(malformedBefore, JSON.stringify(dbSnapshot('2026-07-14T00:00:01.000Z', { users: { seq_scan: null } })));
+		writeFileSync(malformedAfter, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', { users: { seq_scan: '' } })));
 		const malformedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			malformedSummary, malformedBefore, malformedAfter, paths.sql, paths.resources, paths.metadata, malformedReport]);
+			malformedSummary, malformedBefore, malformedAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, malformedReport]);
 		assert.notEqual(malformedProcess.status, 0);
 		const malformed = JSON.parse(readFileSync(malformedReport, 'utf8'));
 		assert.equal(malformed.accepted, false);
@@ -271,7 +398,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(malformedDb, '{not-json');
 		const missingArtifactProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			join(temporary, 'absent-summary.json'), malformedDb, join(temporary, 'absent-after.json'),
-			emptySql, paths.resources, paths.metadata, missingArtifactReport]);
+			emptySql, paths.resources, paths.integrity, paths.metadata, missingArtifactReport]);
 		assert.notEqual(missingArtifactProcess.status, 0);
 		const missingArtifact = JSON.parse(readFileSync(missingArtifactReport, 'utf8'));
 		assert.equal(missingArtifact.accepted, false);
@@ -281,14 +408,81 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 
 		const rejectedAfter = join(temporary, 'after-with-write.json');
 		const rejectedReport = join(temporary, 'rejected-report.json');
-		writeFileSync(rejectedAfter, JSON.stringify({ tables: [{ relname: 'users', seq_scan: 4, seq_tup_read: 4000, idx_scan: 0, idx_tup_fetch: 0, n_tup_ins: 0, n_tup_upd: 1, n_tup_del: 0, n_live_tup: 1000 }] }));
+		writeFileSync(rejectedAfter, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', { users: { seq_scan: 4, seq_tup_read: 4000, n_tup_upd: 1, n_live_tup: 1000 } })));
 		const rejected = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, rejectedAfter, paths.sql, paths.resources, paths.metadata, rejectedReport]);
+			paths.summary, paths.before, rejectedAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, rejectedReport]);
 		assert.notEqual(rejected.status, 0);
 		assert.equal(existsSync(rejectedReport), true, 'a read run with writes must preserve a rejected report');
 		const writeRejected = JSON.parse(readFileSync(rejectedReport, 'utf8'));
 		assert.equal(writeRejected.accepted, false);
 		assert.ok(writeRejected.rejectionReasons.some((reason) => reason.startsWith('write-counter-delta:')));
+
+		const directSummary = join(temporary, 'direct-summary.json');
+		const directReport = join(temporary, 'direct-report.json');
+		writeFileSync(directSummary, JSON.stringify({ metrics: {
+			endpoint_poll_member_list_duration: { 'p(50)': 10, 'p(95)': 20, 'p(99)': 30, max: 40 },
+			endpoint_poll_member_list_requests: { count: 2, rate: 1.5 },
+			endpoint_poll_member_list_failures: { rate: 0 },
+		} }));
+		execFileSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			directSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, directReport]);
+		assert.equal(JSON.parse(readFileSync(directReport, 'utf8')).accepted, true);
+
+		const zeroSummary = join(temporary, 'zero-summary.json');
+		const zeroReport = join(temporary, 'zero-report.json');
+		writeFileSync(zeroSummary, JSON.stringify({ metrics: {
+			endpoint_poll_member_list_duration: { values: { 'p(50)': 0, 'p(95)': 0, 'p(99)': 0, max: 0 } },
+			endpoint_poll_member_list_requests: { values: { count: 1, rate: 0 } },
+			endpoint_poll_member_list_failures: { values: { rate: 0 } },
+		} }));
+		const zeroProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			zeroSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, zeroReport]);
+		assert.notEqual(zeroProcess.status, 0);
+		assert.ok(JSON.parse(readFileSync(zeroReport, 'utf8')).rejectionReasons.includes('non-positive-throughput'));
+
+		const counterBefore = join(temporary, 'counter-before.json');
+		const counterAfter = join(temporary, 'counter-after.json');
+		const counterReport = join(temporary, 'counter-report.json');
+		writeFileSync(counterBefore, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', {
+			users: { seq_scan: 5 }, campuses: { n_tup_upd: 1 },
+		})));
+		writeFileSync(counterAfter, JSON.stringify(dbSnapshot('2026-07-14T00:00:01.000Z', {
+			users: { seq_scan: 4, n_tup_ins: 1 }, campuses: { n_tup_upd: 0 },
+		})));
+		const counterProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, counterBefore, counterAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, counterReport]);
+		assert.notEqual(counterProcess.status, 0);
+		const counterRejected = JSON.parse(readFileSync(counterReport, 'utf8'));
+		assert.ok(counterRejected.rejectionReasons.includes('snapshot-time-order'));
+		assert.ok(counterRejected.rejectionReasons.includes('counter-regression'));
+		assert.ok(counterRejected.rejectionReasons.some((reason) => reason.startsWith('write-counter-delta:')));
+		const missingTableAfter = join(temporary, 'missing-table-after.json');
+		const missingTableReport = join(temporary, 'missing-table-report.json');
+		const missingTableSnapshot = dbSnapshot('2026-07-14T00:00:02.000Z');
+		missingTableSnapshot.tables.pop();
+		writeFileSync(missingTableAfter, JSON.stringify(missingTableSnapshot));
+		const missingTableProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, paths.before, missingTableAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, missingTableReport]);
+		assert.notEqual(missingTableProcess.status, 0);
+		assert.ok(JSON.parse(readFileSync(missingTableReport, 'utf8')).rejectionReasons.includes('required-table-set-mismatch'));
+
+		const analysisAfter = join(temporary, 'analysis-after.json');
+		const externalIntegrity = join(temporary, 'external-integrity.jsonl');
+		const integrityReport = join(temporary, 'integrity-rejected-report.json');
+		writeFileSync(analysisAfter, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', {
+			polls: { autoanalyze_count: 1, last_autoanalyze: '2026-07-14T00:00:01.700Z' },
+		}, { plan_cache_mode: 'force_generic_plan', random_page_cost: '4' })));
+		writeFileSync(externalIntegrity, `${integritySample({
+			unexpectedDbSessions: [{ pid: 999, applicationName: 'psql' }],
+			unexpectedHttpClients: [{ pid: 998, command: 'Chrome' }],
+		})}\n`);
+		const integrityProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, paths.before, analysisAfter, paths.sql, paths.resources, externalIntegrity, paths.metadata, integrityReport]);
+		assert.notEqual(integrityProcess.status, 0);
+		const integrityRejected = JSON.parse(readFileSync(integrityReport, 'utf8'));
+		for (const reason of ['planner-settings-changed', 'analyze-state-changed', 'external-http-activity', 'unexpected-db-session']) {
+			assert.ok(integrityRejected.rejectionReasons.includes(reason), `missing ${reason}`);
+		}
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
 	}
@@ -306,8 +500,10 @@ test('fixture preparation is create-only outside rows owned by the current fixtu
 	assert.match(seed, /docker['"], \['inspect'/);
 	assert.match(seed, /adminToken = \(await login\(ADMIN_EMAIL, ADMIN_PASSWORD\)\)\.accessToken;[\s\S]*const isolationPoll/);
 	assert.match(seed, /appImageId/);
+	assert.match(seed, /sanitizedChildEnv/);
+	assert.match(seed, /faithlog-performance-\$\{composeRuntime\.composeProject\}\.lock/);
 	assert.doesNotMatch(seed, /\/api\/v1\/admin\/campuses\/\$\{campusId\}\/members/);
-	assert.doesNotMatch(seed, /process\.env\.PERF_GLOBAL_LOCK/);
+	assert.doesNotMatch(seed, /process\.env\.PERF_(?:GLOBAL|PROJECT)_LOCK/);
 	assert.doesNotMatch(seed, /process\.env\.EXPECTED_APP_IMAGE/);
 	assert.doesNotMatch(seed, /email:\s*ADMIN_EMAIL/);
 	assert.doesNotMatch(seed, /\.\.\.(?:primary|isolation)Campus/);
@@ -319,8 +515,11 @@ test('fixture preparation is create-only outside rows owned by the current fixtu
 	assert.match(shaper, /shape-attempted/);
 	assert.match(shaper, /composeRuntime\.composeProject/);
 	assert.match(shaper, /composeRuntime\.appImageId/);
-	assert.doesNotMatch(shaper, /PERF_GLOBAL_LOCK:-/);
+	assert.match(shaper, /faithlog-performance-\$\{compose_project\}\.lock/);
+	assert.doesNotMatch(shaper, /PERF_(?:GLOBAL|PROJECT)_LOCK:-/);
 	assert.doesNotMatch(shaper, /EXPECTED_APP_IMAGE:-/);
+	assert.match(shaper, /export -n PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD/);
+	assert.match(read('run-baseline.sh'), /export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD/);
 	assert.doesNotMatch(shaper, /docker exec -e PGPASSWORD=/);
 	assert.doesNotMatch(shaper, /\bdelete\s+from\b/i);
 	assert.doesNotMatch(shaper, /\btruncate\b/i);
