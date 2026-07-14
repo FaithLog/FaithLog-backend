@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -241,6 +242,29 @@ class NotificationDeliveryWorkerTest {
 		verify(userFcmTokenRepository, never()).findActiveSendableTokens(secondTarget.id());
 		assertThat(fakeFcmSendPort.attempts("bulk-first-token")).isEqualTo(1);
 		assertThat(fakeFcmSendPort.attempts("bulk-second-token")).isEqualTo(1);
+	}
+
+	@Test
+	void worker_does_not_reuse_a_permanently_failed_token_for_later_logs_in_the_same_request() {
+		Campus campus = saveCampus("알림영구실패스냅샷캠");
+		User target = saveUser("notification-worker-snapshot-target@example.com", UserRole.USER);
+		saveMember(campus.id(), target.id());
+		registerToken(target, "snapshot-permanent-token", "snapshot-permanent-client");
+		fakeFcmSendPort.failPermanent("snapshot-permanent-token");
+		UUID requestId = UUID.randomUUID();
+		notificationLogRepository.saveAndFlush(NotificationLog.pending(
+			requestId, target.id(), campus.id(), NotificationType.PAYMENT_UNPAID,
+			null, 20001L, "첫 계좌 미납", "첫 계좌 본문"));
+		notificationLogRepository.saveAndFlush(NotificationLog.pending(
+			requestId, target.id(), campus.id(), NotificationType.PAYMENT_UNPAID,
+			null, 20002L, "둘째 계좌 미납", "둘째 계좌 본문"));
+
+		worker.processRequest(requestId);
+
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(requestId))
+			.extracting(NotificationLog::sendStatus)
+			.containsExactly(SendStatus.FAILED, SendStatus.SKIPPED);
+		assertThat(fakeFcmSendPort.attempts("snapshot-permanent-token")).isEqualTo(1);
 	}
 
 	@TestConfiguration
