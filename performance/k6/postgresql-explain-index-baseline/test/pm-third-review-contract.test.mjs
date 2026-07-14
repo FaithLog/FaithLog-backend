@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -112,4 +114,81 @@ test('activity sampling interval has no default and must be an explicit positive
 	assert.match(runner, /activity-monitor-worker\.mjs'\),\s*outputPath,\s*measuredApplicationName,\s*String\(activitySampleIntervalMs\)/s);
 	assert.match(runner, /activitySampleIntervalMs,/);
 	assert.doesNotMatch(worker, /delay\(50\)/);
+});
+
+test('instance-wide activity SQL treats visibility-restricted NULL state as contamination', () => {
+	const worker = fs.readFileSync(path.join(scenarioRoot, 'activity-monitor-worker.mjs'), 'utf8');
+	const runner = fs.readFileSync(path.join(scenarioRoot, 'run-baseline.mjs'), 'utf8');
+	for (const source of [worker, runner]) {
+		assert.match(source, /state\s+IS\s+DISTINCT\s+FROM\s+'idle'/i);
+		assert.doesNotMatch(source, /state\s*<>\s*'idle'/i);
+	}
+});
+
+test('DB identity capture is bracketed by immutable container inspections at start and finish', () => {
+	const runner = fs.readFileSync(path.join(scenarioRoot, 'run-baseline.mjs'), 'utf8');
+	const afterLockInspect = runner.indexOf('composeIdentityAfterLock = inspectComposeIdentity(');
+	const databaseBefore = runner.indexOf('databaseIdentity = captureDatabaseIdentity()');
+	const afterDatabaseInspect = runner.indexOf('composeIdentityAfterDatabaseIdentity = inspectComposeIdentity(');
+	const bindingContinuity = runner.indexOf('validateComposeIdentityContinuity(composeIdentityAfterLock, composeIdentityAfterDatabaseIdentity)');
+	const schemaBefore = runner.indexOf('schemaBefore = captureSchemaState(');
+	assert.ok(afterLockInspect < databaseBefore && databaseBefore < afterDatabaseInspect
+		&& afterDatabaseInspect < bindingContinuity && bindingContinuity < schemaBefore,
+		'container replacement around the initial DB identity capture must fail before schema/anchor/EXPLAIN');
+
+	const plannerAfter = runner.indexOf('const after = capturePlannerState(');
+	const schemaAfter = runner.indexOf('const schemaAfter = captureSchemaState(');
+	const databaseAfter = runner.indexOf('const databaseIdentityAfter = captureDatabaseIdentity()');
+	const finalInspect = runner.indexOf('composeIdentityAfterMeasurement = inspectComposeIdentity(');
+	const finalContinuity = runner.indexOf('validateComposeIdentityContinuity(composeIdentityAfterDatabaseIdentity, composeIdentityAfterMeasurement)');
+	assert.ok(plannerAfter < schemaAfter && schemaAfter < databaseAfter && databaseAfter < finalInspect
+		&& finalInspect < finalContinuity,
+		'the last immutable inspect must bracket all after-state planner/schema/database captures');
+});
+
+test('SIGTERM interrupts an approved long sampling delay so the worker preserves its final report', async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-194-monitor-stop-'));
+	let worker = null;
+	try {
+		const bin = path.join(root, 'bin');
+		const output = path.join(root, 'window.json');
+		fs.mkdirSync(bin);
+		const fakePsql = path.join(bin, 'psql');
+		fs.writeFileSync(fakePsql, "#!/bin/sh\nprintf '%s\\n' '[]'\n");
+		fs.chmodSync(fakePsql, 0o700);
+		worker = spawn(process.execPath, [
+			path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-', '60000', 'faithlog',
+		], {
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, stdio: ['pipe', 'pipe', 'pipe'],
+		});
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error('long-interval worker readiness timed out')), 1000);
+			worker.once('error', reject);
+			worker.stdout.on('data', (chunk) => {
+				if (chunk.toString().includes('ready')) {
+					clearTimeout(timer);
+					worker.kill('SIGTERM');
+					resolve();
+				}
+			});
+		});
+		const outcome = await new Promise((resolve) => {
+			let timedOut = false;
+			const timer = setTimeout(() => {
+				timedOut = true;
+				worker.kill('SIGKILL');
+			}, 750);
+			worker.once('exit', (code, signal) => {
+				clearTimeout(timer);
+				resolve({ timedOut, code, signal });
+			});
+		});
+		assert.deepEqual(outcome, { timedOut: false, code: 0, signal: null });
+		const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+		assert.equal(report.activitySampleIntervalMs, 60000);
+		assert.ok(report.sampleCount >= 2);
+	} finally {
+		if (worker && worker.exitCode === null && worker.signalCode === null) worker.kill('SIGKILL');
+		fs.rmSync(root, { recursive: true, force: true });
+	}
 });
