@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.faithlog.notification.service.NotificationDeliveryWorker;
 import com.faithlog.notification.domain.entity.NotificationLog;
@@ -90,6 +91,21 @@ class PendingNotificationRecoveryServiceTest {
 		notificationConcurrencyPort.fail();
 
 		int handled = pendingNotificationRecoveryService.reprocessStalePendingLogs(Instant.parse("2026-06-22T02:00:00Z"));
+
+		assertThat(handled).isZero();
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(requestId))
+			.extracting(NotificationLog::sendStatus)
+			.containsOnly(SendStatus.PENDING);
+	}
+
+	@Test
+	void reprocessPendingLogs_keeps_pending_when_dispatch_worker_lock_is_still_owned() {
+		UUID requestId = UUID.randomUUID();
+		savePendingLog(requestId, 1L, 1L, Instant.parse("2026-06-22T01:49:59Z"));
+		when(notificationDeliveryWorker.tryProcessRequest(requestId)).thenReturn(false);
+
+		int handled = pendingNotificationRecoveryService.reprocessStalePendingLogs(
+			Instant.parse("2026-06-22T02:00:00Z"));
 
 		assertThat(handled).isZero();
 		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(requestId))

@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class NotificationDeduplicationServiceTest {
@@ -63,6 +64,18 @@ class NotificationDeduplicationServiceTest {
 		));
 
 		assertThat(reserved).isFalse();
+	}
+
+	@Test
+	void required_reservation_release_uses_the_owner_token() {
+		NotificationDeduplicationCommand command = new NotificationDeduplicationCommand(
+			NotificationType.PAYMENT_UNPAID, 1L, "account:10", 20L, LocalDate.of(2026, 7, 15));
+
+		var reservation = service.reserveDailyRequiredNotification(command);
+
+		assertThat(reservation).isPresent();
+		service.releaseRequiredNotification(reservation.orElseThrow());
+		assertThat(port.lastReleasedOwnerToken()).isEqualTo(reservation.orElseThrow().ownerToken());
 	}
 
 	private static class FakeNotificationDeduplicationPort implements NotificationDeduplicationPort {

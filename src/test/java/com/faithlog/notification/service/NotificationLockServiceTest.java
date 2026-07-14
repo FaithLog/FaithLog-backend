@@ -43,6 +43,16 @@ class NotificationLockServiceTest {
 	}
 
 	@Test
+	void renewScheduledLock_extends_only_the_owned_lease() {
+		NotificationLockLease lease = service.acquireScheduledLock(
+			new NotificationLockKey("dispatch", 1L, "request:1")).orElseThrow();
+
+		assertThat(service.renewScheduledLock(lease)).isTrue();
+		assertThat(port.lastRenewedOwnerToken()).isEqualTo(lease.ownerToken());
+		assertThat(port.lastTtl()).isEqualTo(Duration.ofMinutes(10));
+	}
+
+	@Test
 	void acquireScheduledLock_fails_closed_when_redis_fails() {
 		port.fail = true;
 
