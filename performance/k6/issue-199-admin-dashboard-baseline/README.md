@@ -29,7 +29,7 @@ FaithLog frontend `develop`의 `aba1ab07bcb54c1df85ecf53238f4cb0484c2df3`에서 
 2. `src/auth/session.ts`의 `establishSession`이 `GET /api/v1/users/me`와 `GET /api/v1/campuses/me`를 `Promise.all`로 병렬 호출한다.
 3. `src/admin/AdminScreen.tsx`의 초기 `loadAdmin`은 dashboard summary, campus members, duty assignments, prayer board를 병렬 호출하고 campus detail 기반 invite code 조회도 시작한다.
 
-#199는 집계 endpoint의 before 비용을 독립 측정해야 한다. `prepare-runtime-token.mjs`가 1~2번 순서를 재현하고 Access Token을 report/file이 아닌 runner의 shell memory에만 반환한다. 이후 warmup/measured k6 setup은 HTTP 요청 없이 이 토큰을 받아, iteration에서 3번 fan-out 중 dashboard summary 하나만 호출한다. members/duty/prayer/invite 호출은 실제 프론트 동작 근거로 문서화하지만 #199 latency와 DB counter를 오염시키지 않도록 측정 부하에서 제외한다.
+#199는 집계 endpoint의 before 비용을 독립 측정해야 한다. `prepare-runtime-token.mjs`가 각 dataset mode 시작 시 1~2번 순서를 재현하고 fresh Access Token을 report/file이 아닌 runner의 shell memory에만 반환한다. 이후 해당 mode의 warmup/measured k6 setup은 HTTP 요청 없이 이 토큰을 받아, iteration에서 3번 fan-out 중 dashboard summary 하나만 호출한다. members/duty/prayer/invite 호출은 실제 프론트 동작 근거로 문서화하지만 #199 latency와 DB counter를 오염시키지 않도록 측정 부하에서 제외한다.
 
 ## 입력 manifest와 dataset mode
 
@@ -58,7 +58,7 @@ FaithLog frontend `develop`의 `aba1ab07bcb54c1df85ecf53238f4cb0484c2df3`에서 
 
 - backend 기본 주소: `http://127.0.0.1:28080`
 - 기본 container alias: `faithlog-latest-app`, `faithlog-latest-postgres`, `faithlog-latest-redis`
-- alias를 실제 Compose project name으로 간주하지 않는다. runner가 각 container의 `com.docker.compose.project`와 `com.docker.compose.service` label을 읽어 environment report에 기록한다.
+- alias를 실제 Compose project name으로 간주하지 않는다. runner가 credential bootstrap 전에 각 container의 `com.docker.compose.project`와 `com.docker.compose.service` label을 읽고, app/PostgreSQL/Redis project가 모두 같은지 검증한 뒤 environment report에 기록한다. label이 비었거나 project가 다르면 즉시 중단한다.
 
 부하 강도와 시간은 이 시나리오가 결정하지 않는다. 사용자가 승인한 값을 실행 시 명시해야 한다.
 
@@ -77,9 +77,9 @@ EXTERNAL_ACTIVITY='none; frontend QA stopped; no deploy or manual DB work' \
 performance/k6/issue-199-admin-dashboard-baseline/run-baseline.sh
 ```
 
-credential과 Access Token은 runtime memory에서만 사용한다. login credential은 토큰 발급 직후 runner environment에서 unset하고, 토큰은 각 검증/k6 process에만 전달한 뒤 종료 trap에서 제거한다. manifest, README, report, log, git에는 저장하지 않는다.
+credential과 Access Token은 runtime memory에서만 사용한다. login credential은 child process에 상시 export하지 않고 각 mode의 bootstrap process에만 전달한다. mode마다 login → users/me·campuses/me로 fresh token을 발급하고, 해당 mode의 검증/k6 process에만 전달한 뒤 mode 종료 즉시 shell variable을 비운다. manifest, README, report, log, git에는 저장하지 않는다.
 
-runner는 global directory lock `/tmp/faithlog-performance-runner.lock`을 잡고 `empty -> small -> thousand`를 순차 실행한다. 다른 성능 baseline, frontend QA, 수동 부하, 배포, DB 유지보수와 병렬 실행을 금지한다. shared Docker lifecycle의 `up`, `build`, `restart`, `down`, `rm`, prune을 호출하지 않는다.
+runner는 검증된 실제 Compose project label을 안전한 path segment로 제한하고 `/tmp/faithlog-performance-${project}.lock` directory를 원자 획득한 뒤 `empty -> small -> thousand`를 순차 실행한다. #193/#195를 포함해 같은 Compose project를 쓰는 다른 성능 baseline이 lock을 보유하면 credential/bootstrap/DB/k6 전에 실패한다. 다른 성능 baseline, frontend QA, 수동 부하, 배포, DB 유지보수와 병렬 실행을 금지한다. shared Docker lifecycle의 `up`, `build`, `restart`, `down`, `rm`, prune을 호출하지 않는다.
 
 각 mode는 다음 순서로 분리된다.
 
@@ -110,14 +110,16 @@ Docker:
 
 PostgreSQL read-only evidence:
 
-- `collect-db-counters.sql`: app table을 조회하지 않는 `pg_stat_database`와 `pg_stat_user_tables` pure snapshot. 모든 사전 검증 뒤 마지막 DB invocation과 measured 뒤 첫 DB invocation으로 실행한다.
+- `collect-db-counters.sql`: app table을 조회하지 않는 `pg_stat_database`와 `pg_stat_user_tables` pure snapshot. 모든 사전 검증 뒤 마지막 DB invocation과 measured 뒤 첫 DB invocation으로 실행한다. report JSON의 `observerOverhead`가 해석 경계를 함께 기록한다.
 - `collect-correctness-evidence.sql`: dashboard 관련 exact aggregate를 한 줄 JSON으로 만들며 pure counter window 밖에서만 실행한다.
 - `validate-db-correctness.mjs`: summary 전체와 OPEN poll별 실제 `pollId/responseCount` 집합을 manifest와 exact 비교하고, DB-derived aggregate `missingResponseCount`도 함께 고정한다.
 - `collect-db-evidence.sql`: row count, analyze/autoanalyze, planner/query context를 pure counter window 밖에서 기록한다.
 - `pg_settings` planner state
 - 설치된 경우 `pg_stat_statements`; 없으면 unavailable 상태를 명시
 
-따라서 pre/post pure DB counter 사이에는 measured dashboard summary 요청만 존재한다. login, users/me, campuses/me, isolation/API correctness, fixture aggregate/context SQL은 모두 pre snapshot 전에 끝나거나 post snapshot 뒤에 시작한다.
+따라서 application table 접근 관점에서 pre/post pure DB counter 사이에는 measured dashboard summary 요청만 존재한다. login, users/me, campuses/me, isolation/API correctness, fixture aggregate/context SQL은 모두 pre snapshot 전에 끝나거나 post snapshot 뒤에 시작한다.
+
+단, `pg_stat_database`의 database-wide `xact_*`/tuple delta에는 counter snapshot observer 자체의 read-only transaction/tuple overhead가 포함될 수 있다. 그러므로 이 delta를 dashboard의 exact query count로 해석하지 않는다. 반면 `pg_stat_user_tables` app-table counter는 snapshot이 통계 view만 읽고 application table을 직접 접근하지 않으므로 measured window의 app-table scan/index 변화와 구분해 해석한다. 각 `db-counters-*.json`에는 `databaseWideCountersIncludeSnapshotTransaction=true`, `databaseWideDeltaIsExactQueryCount=false`, `appTableCountersReadApplicationTables=false`를 기록한다.
 
 ## report 경로
 

@@ -52,6 +52,11 @@ table_counters AS (
 )
 SELECT jsonb_build_object(
     'capturedAt', now(),
+    'observerOverhead', jsonb_build_object(
+        'databaseWideCountersIncludeSnapshotTransaction', true,
+        'databaseWideDeltaIsExactQueryCount', false,
+        'appTableCountersReadApplicationTables', false
+    ),
     'database', (SELECT to_jsonb(database_counters) FROM database_counters),
     'tables', COALESCE(
         (SELECT jsonb_agg(to_jsonb(table_counters) ORDER BY relname) FROM table_counters),

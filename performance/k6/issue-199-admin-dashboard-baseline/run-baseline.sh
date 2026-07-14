@@ -15,14 +15,21 @@ PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?Set the runtime-only campus manager 
 PERF_DB_USER="${PERF_DB_USER:?Set the runtime-only PostgreSQL user.}"
 PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?Set the runtime-only PostgreSQL password.}"
 PERF_DB_NAME="${PERF_DB_NAME:?Set the runtime-only PostgreSQL database.}"
-export -n PERF_DB_USER PERF_DB_PASSWORD PERF_DB_NAME
+export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_DB_USER PERF_DB_PASSWORD PERF_DB_NAME
 APP_CONTAINER="${APP_CONTAINER:-faithlog-latest-app}"
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-faithlog-latest-postgres}"
 REDIS_CONTAINER="${REDIS_CONTAINER:-faithlog-latest-redis}"
 CONTAINER_ALIAS="${CONTAINER_ALIAS:-faithlog-latest}"
-LOCK_DIR="/tmp/faithlog-performance-runner.lock"
+LOCK_DIR=""
 REPORT_ROOT="$ISSUE_ROOT/reports"
 RUNTIME_ACCESS_TOKEN=""
+APP_PROJECT=""
+APP_SERVICE=""
+POSTGRES_PROJECT=""
+POSTGRES_SERVICE=""
+REDIS_PROJECT=""
+REDIS_SERVICE=""
+COMPOSE_PROJECT=""
 
 for command_name in node k6 docker; do
 	command -v "$command_name" >/dev/null || {
@@ -31,16 +38,13 @@ for command_name in node k6 docker; do
 	}
 done
 
-if ! mkdir "$LOCK_DIR"; then
-	echo "Another performance, frontend QA, or load run may be active: $LOCK_DIR" >&2
-	exit 1
-fi
 cleanup() {
 	RUNTIME_ACCESS_TOKEN=""
 	unset RUNTIME_ACCESS_TOKEN PERF_ACCESS_TOKEN PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD
-	rmdir "$LOCK_DIR"
+	if [[ -n "$LOCK_DIR" ]]; then
+		rmdir "$LOCK_DIR"
+	fi
 }
-trap cleanup EXIT
 
 case "$BASE_URL" in
 	http://127.0.0.1:*|http://localhost:*|http://host.docker.internal:*) ;;
@@ -50,23 +54,39 @@ case "$BASE_URL" in
 		;;
 esac
 
-for container in "$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER"; do
-	docker inspect "$container" >/dev/null
+APP_PROJECT="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$APP_CONTAINER")"
+APP_SERVICE="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$APP_CONTAINER")"
+POSTGRES_PROJECT="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$POSTGRES_CONTAINER")"
+POSTGRES_SERVICE="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$POSTGRES_CONTAINER")"
+REDIS_PROJECT="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$REDIS_CONTAINER")"
+REDIS_SERVICE="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$REDIS_CONTAINER")"
+
+for label_value in \
+	"$APP_PROJECT" "$APP_SERVICE" \
+	"$POSTGRES_PROJECT" "$POSTGRES_SERVICE" \
+	"$REDIS_PROJECT" "$REDIS_SERVICE"; do
+	if [[ -z "$label_value" ]]; then
+		echo "Required Compose project/service label is empty." >&2
+		exit 1
+	fi
 done
 
-RUNTIME_ACCESS_TOKEN="$(
-	INPUT_MANIFEST="$INPUT_MANIFEST" \
-	DATASET_MODES="$DATASET_MODES" \
-	BASE_URL="$BASE_URL" \
-	PERF_ADMIN_EMAIL="$PERF_ADMIN_EMAIL" \
-	PERF_ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD" \
-	node "$ISSUE_ROOT/prepare-runtime-token.mjs"
-)"
-if [[ -z "$RUNTIME_ACCESS_TOKEN" ]]; then
-	echo "Runtime access token preparation returned an empty value." >&2
+if [[ "$APP_PROJECT" != "$POSTGRES_PROJECT" || "$APP_PROJECT" != "$REDIS_PROJECT" ]]; then
+	echo "Compose project labels do not match: app=$APP_PROJECT postgres=$POSTGRES_PROJECT redis=$REDIS_PROJECT" >&2
 	exit 1
 fi
-unset PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD
+
+COMPOSE_PROJECT="$APP_PROJECT"
+if [[ ! "$COMPOSE_PROJECT" =~ ^[A-Za-z0-9._-]+$ ]]; then
+	echo "Unsafe Compose project label for shared runner lock: $COMPOSE_PROJECT" >&2
+	exit 1
+fi
+LOCK_DIR="/tmp/faithlog-performance-${COMPOSE_PROJECT}.lock"
+if ! mkdir "$LOCK_DIR"; then
+	echo "Another performance, frontend QA, or load run may be active: $LOCK_DIR" >&2
+	exit 1
+fi
+trap cleanup EXIT
 
 manifest_value() {
 	local mode="$1"
@@ -95,27 +115,21 @@ record_environment() {
 	local dataset_id="$2"
 	local fixture_run_id="$3"
 	local mode="$4"
-	local app_project app_service postgres_project postgres_service redis_project redis_service
-	app_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$APP_CONTAINER")"
-	app_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$APP_CONTAINER")"
-	postgres_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$POSTGRES_CONTAINER")"
-	postgres_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$POSTGRES_CONTAINER")"
-	redis_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$REDIS_CONTAINER")"
-	redis_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$REDIS_CONTAINER")"
 
 	DATASET_ID="$dataset_id" \
 	FIXTURE_RUN_ID="$fixture_run_id" \
 	DATASET_MODE="$mode" \
 	CONTAINER_ALIAS="$CONTAINER_ALIAS" \
 	APP_CONTAINER="$APP_CONTAINER" \
-	APP_PROJECT="$app_project" \
-	APP_SERVICE="$app_service" \
+	APP_PROJECT="$APP_PROJECT" \
+	APP_SERVICE="$APP_SERVICE" \
 	POSTGRES_CONTAINER="$POSTGRES_CONTAINER" \
-	POSTGRES_PROJECT="$postgres_project" \
-	POSTGRES_SERVICE="$postgres_service" \
+	POSTGRES_PROJECT="$POSTGRES_PROJECT" \
+	POSTGRES_SERVICE="$POSTGRES_SERVICE" \
 	REDIS_CONTAINER="$REDIS_CONTAINER" \
-	REDIS_PROJECT="$redis_project" \
-	REDIS_SERVICE="$redis_service" \
+	REDIS_PROJECT="$REDIS_PROJECT" \
+	REDIS_SERVICE="$REDIS_SERVICE" \
+	RUNNER_LOCK="$LOCK_DIR" \
 	EXTERNAL_ACTIVITY="$EXTERNAL_ACTIVITY" \
 	node -e '
 		const report = {
@@ -129,6 +143,7 @@ record_environment() {
 				postgres: {container: process.env.POSTGRES_CONTAINER, project: process.env.POSTGRES_PROJECT, service: process.env.POSTGRES_SERVICE},
 				redis: {container: process.env.REDIS_CONTAINER, project: process.env.REDIS_PROJECT, service: process.env.REDIS_SERVICE},
 			},
+			runnerLock: process.env.RUNNER_LOCK,
 			externalActivity: process.env.EXTERNAL_ACTIVITY,
 			cacheResetPerformed: false,
 			coldInterpretation: "First observation only; shared Docker and database caches are not reset.",
@@ -237,6 +252,18 @@ for raw_mode in "${modes[@]}"; do
 	mkdir -p "$mode_report_dir/warmup" "$mode_report_dir/measured"
 
 	record_environment "$mode_report_dir" "$dataset_id" "$fixture_run_id" "$mode"
+	RUNTIME_ACCESS_TOKEN="$(
+		INPUT_MANIFEST="$INPUT_MANIFEST" \
+		DATASET_MODES="$mode" \
+		BASE_URL="$BASE_URL" \
+		PERF_ADMIN_EMAIL="$PERF_ADMIN_EMAIL" \
+		PERF_ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD" \
+		node "$ISSUE_ROOT/prepare-runtime-token.mjs"
+	)"
+	if [[ -z "$RUNTIME_ACCESS_TOKEN" ]]; then
+		echo "Runtime access token preparation returned an empty value for mode: $mode" >&2
+		exit 1
+	fi
 	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-before.json"
 	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-before.json"
 	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-before.json"
@@ -265,4 +292,6 @@ for raw_mode in "${modes[@]}"; do
 	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-after.json"
 	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-after.json"
 	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-after.json"
+	RUNTIME_ACCESS_TOKEN=""
+	unset PERF_ACCESS_TOKEN
 done
