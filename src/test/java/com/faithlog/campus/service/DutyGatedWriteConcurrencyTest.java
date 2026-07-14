@@ -137,6 +137,72 @@ class DutyGatedWriteConcurrencyTest {
 	}
 
 	@Test
+	void concurrent_coffee_account_delete_revalidates_deleted_state_after_duty_lock() throws Exception {
+		User manager = saveUser("duty-account-delete-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "200계좌삭제최신상태캠");
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), manager.id(), manager.id()));
+		Long accountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "삭제 계좌", "하나은행",
+			"200-DELETE-ACCOUNT", "담당자", manager.id())).id();
+		billingService.deactivatePaymentAccount(accountId, manager.id());
+		CountDownLatch firstHasDutyLock = new CountDownLatch(1);
+		CountDownLatch secondReachedDutyLock = new CountDownLatch(1);
+		CountDownLatch allowFirstDelete = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			if (Thread.currentThread().getName().equals("second-account-delete")) {
+				secondReachedDutyLock.countDown();
+			}
+			Object result = entityManager.createQuery("""
+				select assignment
+				from CampusDutyAssignment assignment
+				where assignment.campusId = :campusId
+					and assignment.dutyType = :dutyType
+					and assignment.userId = :userId
+					and assignment.isActive = true
+				""", CampusDutyAssignment.class)
+				.setParameter("campusId", campus.campusId())
+				.setParameter("dutyType", DutyType.COFFEE)
+				.setParameter("userId", manager.id())
+				.setLockMode(LockModeType.PESSIMISTIC_WRITE)
+				.getResultStream()
+				.findFirst();
+			if (Thread.currentThread().getName().equals("first-account-delete")) {
+				firstHasDutyLock.countDown();
+				if (!allowFirstDelete.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("Timed out while coordinating account delete.");
+				}
+			}
+			return result;
+		}).when(dutyAssignmentRepository)
+			.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+				campus.campusId(), DutyType.COFFEE, manager.id());
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> first = executor.submit(() -> {
+				Thread.currentThread().setName("first-account-delete");
+				billingService.deletePaymentAccount(campus.campusId(), accountId, manager.id());
+			});
+			assertThat(firstHasDutyLock.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> second = executor.submit(() -> {
+				Thread.currentThread().setName("second-account-delete");
+				billingService.deletePaymentAccount(campus.campusId(), accountId, manager.id());
+			});
+			assertThat(secondReachedDutyLock.await(5, TimeUnit.SECONDS)).isTrue();
+
+			allowFirstDelete.countDown();
+			first.get(5, TimeUnit.SECONDS);
+			assertThatThrownBy(() -> second.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(BusinessException.class)
+				.satisfies(exception -> assertThat(((BusinessException) exception.getCause()).errorCode())
+					.isEqualTo(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
+		} finally {
+			allowFirstDelete.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
 	void meal_account_deactivate_holds_duty_lock_until_commit_before_revoke() throws Exception {
 		User manager = saveUser("duty-write-meal-account-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "200밥계좌명령동시성캠");
