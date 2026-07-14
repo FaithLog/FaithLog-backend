@@ -1231,7 +1231,7 @@ class PollServiceTest {
 	}
 
 	@Test
-	void coffee_poll_and_template_require_requester_owned_active_coffee_account() {
+	void coffee_poll_requires_requester_owned_active_account_while_template_stays_account_neutral() {
 		User manager = saveUser("poll-114-account-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-114-account-duty@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "114커피계좌검증캠");
