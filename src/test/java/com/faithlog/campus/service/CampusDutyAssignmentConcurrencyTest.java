@@ -347,7 +347,7 @@ class CampusDutyAssignmentConcurrencyTest {
 			Future<?> roleChange = executor.submit(() -> {
 				Thread.currentThread().setName("member-role-change");
 				campusService.changeCampusRole(new ChangeCampusRoleCommand(
-					manager.id(), campus.campusId(), membership.membershipId(), CampusRole.ELDER
+					campus.campusId(), membership.membershipId(), manager.id(), CampusRole.ELDER
 				));
 			});
 			assertThat(roleChanged.await(5, TimeUnit.SECONDS)).isTrue();
