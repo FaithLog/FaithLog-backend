@@ -12,6 +12,8 @@ import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.poll.service.command.CreatePollCommand;
 import com.faithlog.poll.service.command.CreatePollTemplateCommand;
 import com.faithlog.poll.service.command.CreatePollTemplateOptionCommand;
@@ -89,6 +91,9 @@ class PollAutomationServiceTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
 	private InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
@@ -323,6 +328,46 @@ class PollAutomationServiceTest {
 		assertThat(pollRepository.findById(valid.id())).get()
 			.extracting(Poll::status)
 			.isEqualTo(PollStatus.CLOSED);
+	}
+
+	@Test
+	void closeDueCoffeePolls_skips_inactive_member_with_stale_duty_without_blocking_later_valid_poll() {
+		User manager = saveUser("batch-close-inactive-manager@example.com", UserRole.MANAGER);
+		User staleDuty = saveUser("batch-close-inactive-duty@example.com", UserRole.USER);
+		User validDuty = saveUser("batch-close-valid-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200비활성담당자동마감캠");
+		joinCampus(campus, staleDuty);
+		joinCampus(campus, validDuty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), staleDuty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), validDuty.id()));
+		Long staleAccountId = createCoffeeAccount(campus.campusId(), staleDuty.id(), staleDuty.id());
+		Long validAccountId = createCoffeeAccount(campus.campusId(), validDuty.id(), validDuty.id());
+		Instant startsAt = Instant.now().minusSeconds(3600);
+		Instant endsAt = Instant.now().minusSeconds(60);
+		Poll stale = Poll.create(
+			campus.campusId(), null, "비활성 담당자 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, staleAccountId,
+			startsAt, endsAt, staleDuty.id());
+		stale.open();
+		pollRepository.saveAndFlush(stale);
+		Poll valid = Poll.create(
+			campus.campusId(), null, "정상 담당자 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, validAccountId,
+			startsAt, endsAt, validDuty.id());
+		valid.open();
+		pollRepository.saveAndFlush(valid);
+		CampusMember staleMembership = campusMemberRepository
+			.findByCampusIdAndUserId(campus.campusId(), staleDuty.id()).orElseThrow();
+		staleMembership.deactivate();
+		campusMemberRepository.flush();
+
+		int closed = pollAutomationService.closeDueCoffeePolls(Instant.now());
+
+		assertThat(closed).isEqualTo(1);
+		assertThat(pollRepository.findById(stale.id())).get()
+			.extracting(Poll::status).isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(valid.id())).get()
+			.extracting(Poll::status).isEqualTo(PollStatus.CLOSED);
 	}
 
 	private PollTemplateResult createTemplate(Long campusId, Long managerId, String title, boolean autoCreateEnabled) {

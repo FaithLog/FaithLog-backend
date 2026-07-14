@@ -1673,6 +1673,28 @@ class PollServiceTest {
 	}
 
 	@Test
+	void inactive_campus_member_with_stale_coffee_duty_cannot_manage_poll_from_list_or_detail() {
+		User manager = saveUser("poll-200-inactive-duty-manager@example.com", UserRole.MANAGER);
+		User serviceAdmin = saveUser("poll-200-inactive-duty-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "200비활성커피담당관리권한캠");
+		joinCampus(campus, serviceAdmin);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), manager.id(), serviceAdmin.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), serviceAdmin.id(), serviceAdmin.id());
+		PollResult poll = createOpenCoffeePoll(
+			campus.campusId(), serviceAdmin.id(), accountId, "비활성 멤버의 커피 투표");
+		deactivateMembership(campus.campusId(), serviceAdmin.id());
+		campusMemberRepository.flush();
+
+		assertThat(pollService.listPolls(campus.campusId(), serviceAdmin.id()))
+			.filteredOn(item -> item.id().equals(poll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), serviceAdmin.id()).manageableByMe())
+			.isFalse();
+	}
+
+	@Test
 	void legacy_mixed_coffee_poll_close_fails_closed_for_manager_and_active_owner_duty() {
 		User manager = saveUser("poll-200-legacy-close-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-200-legacy-close-duty@example.com", UserRole.USER);
@@ -2718,6 +2740,28 @@ class PollServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
 			);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
+	@Test
+	void settle_closed_coffee_poll_rejects_creator_with_inactive_membership_even_if_duty_row_is_active() {
+		User manager = saveUser("coffee-inactive-member-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("coffee-inactive-member-target@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200비활성담당정산캠");
+		joinCampus(campus, member);
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult poll = createOpenCoffeePoll(
+			campus.campusId(), manager.id(), accountId, "비활성 담당자 정산 대상");
+		pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(), poll.id(), member.id(), List.of(poll.options().get(0).id()), null));
+		closePoll(poll.id());
+		deactivateMembership(campus.campusId(), manager.id());
+		campusMemberRepository.flush();
+
+		assertThatThrownBy(() -> coffeePollSettlementService.settleClosedCoffeePoll(
+			campus.campusId(), poll.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_COFFEE_DUTY_MISSING));
 		assertThat(chargesForCampus(campus.campusId())).isEmpty();
 	}
 
