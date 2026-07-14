@@ -69,14 +69,24 @@ public class PollTemplateCommandService {
 
 	@Transactional
 	public PollTemplateResult updateTemplate(UpdatePollTemplateCommand command) {
-		PollTemplate template = pollTemplateRepository.findById(command.templateId())
+		PollTemplateRepository.PollTemplateLockScope scope = pollTemplateRepository.findLockScopeById(command.templateId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
-		requireSameCampusScope(template, command.campusId());
+		requireSameCampusScope(scope.getCampusId(), command.campusId());
 		requirePersistedTemplateManageAccess(
 			command.campusId(),
 			command.requesterId(),
-			template
+			scope.getPollType(),
+			scope.getChargeGenerationType(),
+			scope.getPaymentCategory()
 		);
+		PollTemplate template = pollTemplateRepository.findByIdForUpdate(command.templateId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
+		requireSameCampusScope(template, command.campusId());
+		CoffeeOperationClassifier.requireConsistentConfiguration(
+			template.pollType(), template.chargeGenerationType(), template.paymentCategory());
+		if (!template.isActive()) {
+			throw new BusinessException(ErrorCode.POLL_TEMPLATE_INACTIVE);
+		}
 		requireTemplateManageAccess(
 			command.campusId(), command.requesterId(), template.pollType(),
 			command.chargeGenerationType(), command.paymentCategory());
@@ -106,21 +116,30 @@ public class PollTemplateCommandService {
 
 	@Transactional
 	public PollTemplateResult deactivateTemplate(Long campusId, Long templateId, Long requesterId) {
-		PollTemplate template = pollTemplateRepository.findById(templateId)
+		PollTemplateRepository.PollTemplateLockScope scope = pollTemplateRepository.findLockScopeById(templateId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
-		requireSameCampusScope(template, campusId);
+		requireSameCampusScope(scope.getCampusId(), campusId);
 		if (CoffeeOperationClassifier.isCoffeeOperation(
-			template.pollType(), template.chargeGenerationType(), template.paymentCategory())) {
+			scope.getPollType(), scope.getChargeGenerationType(), scope.getPaymentCategory())) {
 			pollAccessService.requireCoffeeTemplateManagerForUpdate(campusId, requesterId);
 		} else {
 			pollAccessService.requireTemplateManager(campusId, requesterId);
 		}
+		PollTemplate template = pollTemplateRepository.findByIdForUpdate(templateId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
+		requireSameCampusScope(template, campusId);
+		CoffeeOperationClassifier.requireConsistentConfiguration(
+			template.pollType(), template.chargeGenerationType(), template.paymentCategory());
 		template.deactivate();
 		return toResult(template);
 	}
 
 	private void requireSameCampusScope(PollTemplate template, Long campusId) {
-		if (!template.campusId().equals(campusId)) {
+		requireSameCampusScope(template.campusId(), campusId);
+	}
+
+	private void requireSameCampusScope(Long persistedCampusId, Long campusId) {
+		if (!persistedCampusId.equals(campusId)) {
 			throw new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND);
 		}
 	}
@@ -148,10 +167,12 @@ public class PollTemplateCommandService {
 	private void requirePersistedTemplateManageAccess(
 		Long campusId,
 		Long requesterId,
-		PollTemplate template
+		PollType pollType,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory
 	) {
 		if (CoffeeOperationClassifier.isCoffeeOperation(
-			template.pollType(), template.chargeGenerationType(), template.paymentCategory())) {
+			pollType, chargeGenerationType, paymentCategory)) {
 			pollAccessService.requireCoffeeTemplateManagerForUpdate(campusId, requesterId);
 			return;
 		}

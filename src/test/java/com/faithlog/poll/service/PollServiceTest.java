@@ -83,6 +83,7 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -2750,7 +2751,7 @@ class PollServiceTest {
 					throw new IllegalStateException("Timed out while coordinating template update.");
 				}
 			}
-			return invocation.callRealMethod();
+			return Optional.ofNullable(entityManager.find(CoffeeMenuCatalog.class, menuId));
 		}).when(coffeeMenuCatalogRepository).findById(menuId);
 	}
 
@@ -2767,7 +2768,14 @@ class PollServiceTest {
 					throw new IllegalStateException("Timed out while coordinating template create.");
 				}
 			}
-			return invocation.callRealMethod();
+			return entityManager.createQuery("""
+				select templateOption
+				from PollTemplateOption templateOption
+				where templateOption.templateId = :templateId
+				order by templateOption.sortOrder asc
+				""", PollTemplateOption.class)
+				.setParameter("templateId", templateId)
+				.getResultList();
 		}).when(pollTemplateOptionRepository).findByTemplateIdOrderBySortOrderAsc(templateId);
 	}
 

@@ -73,7 +73,16 @@ public class PollCreationCommandService {
 	}
 
 	private PollResult createFromTemplate(CreatePollCommand command) {
-		PollTemplate template = pollTemplateRepository.findById(command.templateId())
+		PollTemplateRepository.PollTemplateLockScope scope = pollTemplateRepository.findLockScopeById(command.templateId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
+		if (!scope.getCampusId().equals(command.campusId())) {
+			throw new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND);
+		}
+		pollAccessService.requirePollCreatorForUpdate(
+			command.campusId(), command.requesterId(), scope.getPollType(),
+			scope.getChargeGenerationType(), scope.getPaymentCategory()
+		);
+		PollTemplate template = pollTemplateRepository.findByIdForUpdate(command.templateId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
 		if (!template.campusId().equals(command.campusId())) {
 			throw new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND);
@@ -81,10 +90,6 @@ public class PollCreationCommandService {
 		if (!template.isActive()) {
 			throw new BusinessException(ErrorCode.POLL_TEMPLATE_INACTIVE);
 		}
-		pollAccessService.requirePollCreatorForUpdate(
-			command.campusId(), command.requesterId(), template.pollType(),
-			template.chargeGenerationType(), template.paymentCategory()
-		);
 		CoffeeOperationClassifier.requireConsistentConfiguration(
 			template.pollType(), template.chargeGenerationType(), template.paymentCategory());
 		List<PollTemplateOption> templateOptions = pollTemplateOptionRepository.findByTemplateIdOrderBySortOrderAsc(template.id());
