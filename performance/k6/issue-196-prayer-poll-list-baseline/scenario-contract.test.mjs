@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -135,6 +137,46 @@ test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	assert.match(summarizer, /scenario-ready/);
 });
 
+test('summarizer materializes endpoint latency, throughput, SQL loop, table, and resource evidence', () => {
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-contract-'));
+	try {
+		const endpoint = 'poll_member_list';
+		const paths = Object.fromEntries(['summary', 'before', 'after', 'sql', 'resources', 'metadata', 'report']
+			.map((name) => [name, join(temporary, `${name}.${name === 'sql' || name === 'resources' ? 'txt' : 'json'}`)]));
+		writeFileSync(paths.summary, JSON.stringify({ metrics: {
+			endpoint_poll_member_list_duration: { values: { 'p(50)': 10, 'p(95)': 20, 'p(99)': 30, max: 40 } },
+			endpoint_poll_member_list_requests: { values: { count: 2, rate: 1.5 } },
+			endpoint_poll_member_list_failures: { values: { rate: 0 } },
+		} }));
+		writeFileSync(paths.before, JSON.stringify({ tables: [{ relname: 'users', seq_scan: 0, seq_tup_read: 0, idx_scan: 0, idx_tup_fetch: 0, n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 1000 }] }));
+		writeFileSync(paths.after, JSON.stringify({ tables: [{ relname: 'users', seq_scan: 4, seq_tup_read: 4000, idx_scan: 0, idx_tup_fetch: 0, n_tup_ins: 0, n_tup_upd: 0, n_tup_del: 0, n_live_tup: 1000 }] }));
+		writeFileSync(paths.sql, Array.from({ length: 4 }, (_, index) => `INFO org.hibernate.SQL: select * from users where id=${index + 1}`).join('\n'));
+		writeFileSync(paths.resources, [
+			'2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t100MiB / 1GiB\t9.8%',
+			'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
+		].join('\n'));
+		writeFileSync(paths.metadata, JSON.stringify({
+			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196-test',
+			runtime: { appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres' },
+		}));
+
+		execFileSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.metadata, paths.report]);
+		const report = JSON.parse(readFileSync(paths.report, 'utf8'));
+		assert.deepEqual(report.http, {
+			p50Ms: 10, p95Ms: 20, p99Ms: 30, maxMs: 40,
+			throughputPerSecond: 1.5, requestCount: 2, failureRate: 0,
+		});
+		assert.equal(report.db.queryCount, 4);
+		assert.equal(report.db.queriesPerRequest, 2);
+		assert.equal(report.db.tableCounterDelta[0].estimatedRowsAfter, 1000);
+		assert.equal(report.nPlusOneEvidence.loopSignal[0].count, 4);
+		assert.equal(report.resources.length, 2);
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
+});
+
 test('fixture preparation is create-only outside rows owned by the current fixtureRunId', () => {
 	const seed = read('seed-fixture.mjs');
 	const shaper = read('shape-fixture.sh');
@@ -142,6 +184,9 @@ test('fixture preparation is create-only outside rows owned by the current fixtu
 	assert.match(seed, /FIXTURE_RUN_ID/);
 	assert.match(seed, /DATASET_ID/);
 	assert.match(seed, /manifest/);
+	assert.match(seed, /request\('POST', '\/api\/v1\/auth\/signup'/);
+	assert.match(seed, /request\('POST', '\/api\/v1\/campuses\/join'/);
+	assert.doesNotMatch(seed, /\/api\/v1\/admin\/campuses\/\$\{campusId\}\/members/);
 	assert.doesNotMatch(seed, /method:\s*['\"]DELETE['\"]/);
 	assert.doesNotMatch(seed, /\bdelete\s+from\b/i);
 	assert.match(shaper, /fixture_run_id/);
