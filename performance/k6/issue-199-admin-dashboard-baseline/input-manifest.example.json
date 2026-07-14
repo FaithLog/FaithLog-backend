@@ -3,6 +3,11 @@
   "issue": 199,
   "exampleOnly": true,
   "datasetId": "PERFORMANCE_SHARED_1000_EXAMPLE",
+  "runtimeTarget": {
+    "app": {"service": "app", "containerPort": 8080},
+    "postgres": {"service": "postgres"},
+    "redis": {"service": "redis"}
+  },
   "modes": {
     "empty": {
       "mode": "empty",

@@ -388,6 +388,17 @@ test('DB window validator rejects missing or regressed counters and produces sem
 		const reset = structuredClone(after);
 		reset.database.stats_reset = '2026-07-14T01:00:00.000Z';
 		assert.notEqual(runDbWindowValidator(temporaryDirectory, before, reset, 'none', 'reset').result.status, 0);
+
+		const outOfOrder = structuredClone(after);
+		outOfOrder.capturedAt = before.capturedAt;
+		assert.notEqual(runDbWindowValidator(temporaryDirectory, before, outOfOrder, 'none', 'time').result.status, 0);
+
+		const wrongObserverPolicy = structuredClone(after);
+		wrongObserverPolicy.observerOverhead.databaseWideDeltaIsExactQueryCount = true;
+		assert.notEqual(
+			runDbWindowValidator(temporaryDirectory, before, wrongObserverPolicy, 'none', 'observer').result.status,
+			0,
+		);
 	} finally {
 		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
 	}

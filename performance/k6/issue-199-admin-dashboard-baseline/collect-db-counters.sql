@@ -9,6 +9,7 @@ BEGIN TRANSACTION READ ONLY;
 WITH database_counters AS (
     SELECT
         datname,
+        stats_reset,
         xact_commit,
         xact_rollback,
         blks_read,
@@ -49,9 +50,38 @@ table_counters AS (
         'meal_poll_settlements',
         'prayer_submissions'
     )
+),
+planner_settings AS (
+    SELECT name, setting, source
+    FROM pg_settings
+    WHERE name IN (
+        'enable_bitmapscan',
+        'enable_hashagg',
+        'enable_hashjoin',
+        'enable_indexonlyscan',
+        'enable_indexscan',
+        'enable_material',
+        'enable_mergejoin',
+        'enable_nestloop',
+        'enable_seqscan',
+        'jit',
+        'plan_cache_mode',
+        'random_page_cost',
+        'work_mem'
+    )
+),
+external_activity AS (
+    SELECT COUNT(*) AS active_sessions
+    FROM pg_stat_activity
+    WHERE datname = current_database()
+      AND pid <> pg_backend_pid()
+      AND backend_type = 'client backend'
+      AND state IS DISTINCT FROM 'idle'
+      AND application_name IS DISTINCT FROM 'faithlog-issue199-observer'
 )
 SELECT jsonb_build_object(
     'capturedAt', now(),
+    'externalActiveSessions', (SELECT active_sessions FROM external_activity),
     'observerOverhead', jsonb_build_object(
         'databaseWideCountersIncludeSnapshotTransaction', true,
         'databaseWideDeltaIsExactQueryCount', false,
@@ -60,6 +90,10 @@ SELECT jsonb_build_object(
     'database', (SELECT to_jsonb(database_counters) FROM database_counters),
     'tables', COALESCE(
         (SELECT jsonb_agg(to_jsonb(table_counters) ORDER BY relname) FROM table_counters),
+        '[]'::jsonb
+    ),
+    'plannerSettings', COALESCE(
+        (SELECT jsonb_agg(to_jsonb(planner_settings) ORDER BY name) FROM planner_settings),
         '[]'::jsonb
     )
 )

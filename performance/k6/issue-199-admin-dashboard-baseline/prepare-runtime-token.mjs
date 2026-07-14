@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:28080').replace(/\/$/, '');
+const BASE_URL = process.env.BASE_URL?.replace(/\/$/, '');
 const INPUT_MANIFEST = process.env.INPUT_MANIFEST;
-const DATASET_MODES = (process.env.DATASET_MODES || 'empty,small,thousand')
-	.split(',')
-	.map((mode) => mode.trim())
-	.filter(Boolean);
+const DATASET_MODES_SOURCE = process.env.DATASET_MODES;
+const DATASET_MODES = DATASET_MODES_SOURCE
+	? DATASET_MODES_SOURCE.split(',').map((mode) => mode.trim()).filter(Boolean)
+	: [];
 const PERF_ADMIN_EMAIL = process.env.PERF_ADMIN_EMAIL;
 const PERF_ADMIN_PASSWORD = process.env.PERF_ADMIN_PASSWORD;
 
-if (!INPUT_MANIFEST || !PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD) {
-	throw new Error('INPUT_MANIFEST, PERF_ADMIN_EMAIL, and PERF_ADMIN_PASSWORD are required at runtime.');
+if (!BASE_URL || !INPUT_MANIFEST || DATASET_MODES.length === 0 || !PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD) {
+	throw new Error('BASE_URL, INPUT_MANIFEST, DATASET_MODES, PERF_ADMIN_EMAIL, and PERF_ADMIN_PASSWORD are required at runtime.');
 }
 if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]|host\.docker\.internal)(?::\d+)?$/.test(BASE_URL)) {
 	throw new Error('Issue #199 runtime token preparation is restricted to the local faithlog-latest target.');

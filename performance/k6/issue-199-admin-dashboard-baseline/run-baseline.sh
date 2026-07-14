@@ -3,12 +3,13 @@ set -euo pipefail
 
 ISSUE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT_MANIFEST="$(node -e 'const path = require("node:path"); console.log(path.resolve(process.argv[1]));' "${INPUT_MANIFEST:?Set INPUT_MANIFEST to an approved Issue #199 input manifest.}")"
-BASE_URL="${BASE_URL:-http://127.0.0.1:28080}"
-DATASET_MODES="${DATASET_MODES:-empty,small,thousand}"
+BASE_URL="${BASE_URL:?Set the approved BASE_URL bound to APP_CONTAINER.}"
+DATASET_MODES="${DATASET_MODES:?Set the user-approved dataset modes explicitly.}"
 WARMUP_VUS="${WARMUP_VUS:?Set the user-approved warmup VUS.}"
 WARMUP_DURATION="${WARMUP_DURATION:?Set the user-approved warmup duration.}"
 MEASURED_VUS="${MEASURED_VUS:?Set the user-approved measured VUS.}"
 MEASURED_DURATION="${MEASURED_DURATION:?Set the user-approved measured duration.}"
+TOKEN_EXPIRY_SAFETY_SECONDS="${TOKEN_EXPIRY_SAFETY_SECONDS:?Set the approved measured-token expiry safety seconds.}"
 EXTERNAL_ACTIVITY="${EXTERNAL_ACTIVITY:?Describe frontend QA, other load, deploy, maintenance, and manual DB activity during the run.}"
 PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL:?Set the runtime-only campus manager email.}"
 PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?Set the runtime-only campus manager password.}"
@@ -16,7 +17,7 @@ PERF_DB_USER="${PERF_DB_USER:?Set the runtime-only PostgreSQL user.}"
 PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?Set the runtime-only PostgreSQL password.}"
 PERF_DB_NAME="${PERF_DB_NAME:?Set the runtime-only PostgreSQL database.}"
 export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_DB_USER PERF_DB_PASSWORD PERF_DB_NAME
-APP_CONTAINER="${APP_CONTAINER:-faithlog-latest-app}"
+APP_CONTAINER="${APP_CONTAINER:?Set the exact app container serving BASE_URL.}"
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-faithlog-latest-postgres}"
 REDIS_CONTAINER="${REDIS_CONTAINER:-faithlog-latest-redis}"
 CONTAINER_ALIAS="${CONTAINER_ALIAS:-faithlog-latest}"
@@ -30,13 +31,20 @@ POSTGRES_SERVICE=""
 REDIS_PROJECT=""
 REDIS_SERVICE=""
 COMPOSE_PROJECT=""
+ENDPOINT_IDENTITY=""
 
-for command_name in node k6 docker; do
+for command_name in node k6 docker date; do
 	command -v "$command_name" >/dev/null || {
 		echo "Required command is missing: $command_name" >&2
 		exit 1
 	}
 done
+
+node "$ISSUE_ROOT/validate-run-input.mjs" "$INPUT_MANIFEST" "$DATASET_MODES" >/dev/null
+if [[ "$EXTERNAL_ACTIVITY" != "none" ]]; then
+	echo "EXTERNAL_ACTIVITY must be exactly 'none' for an adoptable baseline." >&2
+	exit 1
+fi
 
 cleanup() {
 	RUNTIME_ACCESS_TOKEN=""
@@ -47,12 +55,29 @@ cleanup() {
 }
 
 case "$BASE_URL" in
-	http://127.0.0.1:*|http://localhost:*|http://host.docker.internal:*) ;;
+	http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*) ;;
 	*)
 		echo "Issue #199 runner is restricted to the local shared stack." >&2
 		exit 1
 		;;
 esac
+
+manifest_root_value() {
+	local component="$1"
+	local field="$2"
+	node -e '
+		const fs = require("node:fs");
+		const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+		const value = manifest.runtimeTarget?.[process.argv[2]]?.[process.argv[3]];
+		if (value === undefined || value === null || value === "") throw new Error(`Missing runtime target: ${process.argv[2]}.${process.argv[3]}`);
+		process.stdout.write(String(value));
+	' "$INPUT_MANIFEST" "$component" "$field"
+}
+
+EXPECTED_APP_SERVICE="$(manifest_root_value app service)"
+EXPECTED_APP_CONTAINER_PORT="$(manifest_root_value app containerPort)"
+EXPECTED_POSTGRES_SERVICE="$(manifest_root_value postgres service)"
+EXPECTED_REDIS_SERVICE="$(manifest_root_value redis service)"
 
 APP_PROJECT="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$APP_CONTAINER")"
 APP_SERVICE="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$APP_CONTAINER")"
@@ -60,6 +85,7 @@ POSTGRES_PROJECT="$(docker inspect --format '{{ index .Config.Labels "com.docker
 POSTGRES_SERVICE="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$POSTGRES_CONTAINER")"
 REDIS_PROJECT="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$REDIS_CONTAINER")"
 REDIS_SERVICE="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$REDIS_CONTAINER")"
+APP_PUBLISHED_PORTS="$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$APP_CONTAINER")"
 
 for label_value in \
 	"$APP_PROJECT" "$APP_SERVICE" \
@@ -75,6 +101,18 @@ if [[ "$APP_PROJECT" != "$POSTGRES_PROJECT" || "$APP_PROJECT" != "$REDIS_PROJECT
 	echo "Compose project labels do not match: app=$APP_PROJECT postgres=$POSTGRES_PROJECT redis=$REDIS_PROJECT" >&2
 	exit 1
 fi
+
+if [[ "$APP_SERVICE" != "$EXPECTED_APP_SERVICE" \
+	|| "$POSTGRES_SERVICE" != "$EXPECTED_POSTGRES_SERVICE" \
+	|| "$REDIS_SERVICE" != "$EXPECTED_REDIS_SERVICE" ]]; then
+	echo "Compose service labels do not match approved manifest: app=$APP_SERVICE postgres=$POSTGRES_SERVICE redis=$REDIS_SERVICE" >&2
+	exit 1
+fi
+
+ENDPOINT_IDENTITY="$(
+	node "$ISSUE_ROOT/validate-runtime-target.mjs" \
+		"$BASE_URL" "$EXPECTED_APP_CONTAINER_PORT" "$APP_PUBLISHED_PORTS"
+)"
 
 COMPOSE_PROJECT="$APP_PROJECT"
 if [[ ! "$COMPOSE_PROJECT" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -129,6 +167,7 @@ record_environment() {
 	REDIS_CONTAINER="$REDIS_CONTAINER" \
 	REDIS_PROJECT="$REDIS_PROJECT" \
 	REDIS_SERVICE="$REDIS_SERVICE" \
+	ENDPOINT_IDENTITY="$ENDPOINT_IDENTITY" \
 	RUNNER_LOCK="$LOCK_DIR" \
 	EXTERNAL_ACTIVITY="$EXTERNAL_ACTIVITY" \
 	node -e '
@@ -143,6 +182,7 @@ record_environment() {
 				postgres: {container: process.env.POSTGRES_CONTAINER, project: process.env.POSTGRES_PROJECT, service: process.env.POSTGRES_SERVICE},
 				redis: {container: process.env.REDIS_CONTAINER, project: process.env.REDIS_PROJECT, service: process.env.REDIS_SERVICE},
 			},
+			endpointIdentity: JSON.parse(process.env.ENDPOINT_IDENTITY),
 			runnerLock: process.env.RUNNER_LOCK,
 			externalActivity: process.env.EXTERNAL_ACTIVITY,
 			cacheResetPerformed: false,
@@ -159,6 +199,7 @@ collect_db_evidence() {
 	local output_file="$4"
 	docker exec -i \
 		-e PGPASSWORD="$PERF_DB_PASSWORD" \
+		-e PGAPPNAME=faithlog-issue199-observer \
 		"$POSTGRES_CONTAINER" \
 		psql -X -v ON_ERROR_STOP=1 \
 		-U "$PERF_DB_USER" \
@@ -175,6 +216,7 @@ collect_db_machine_evidence() {
 	local output_file="$4"
 	docker exec -i \
 		-e PGPASSWORD="$PERF_DB_PASSWORD" \
+		-e PGAPPNAME=faithlog-issue199-observer \
 		"$POSTGRES_CONTAINER" \
 		psql -X -qAt -v ON_ERROR_STOP=1 \
 		-U "$PERF_DB_USER" \
@@ -194,6 +236,37 @@ collect_db_correctness() {
 
 collect_db_counters() {
 	collect_db_machine_evidence "$1" "$2" "$ISSUE_ROOT/collect-db-counters.sql" "$3"
+}
+
+validate_db_window() {
+	local before_file="$1"
+	local after_file="$2"
+	local output_file="$3"
+	node "$ISSUE_ROOT/validate-db-window.mjs" \
+		"$before_file" "$after_file" "$EXTERNAL_ACTIVITY" "$output_file"
+}
+
+prepare_runtime_token() {
+	local mode="$1"
+	local purpose="$2"
+	RUNTIME_ACCESS_TOKEN="$(
+		INPUT_MANIFEST="$INPUT_MANIFEST" \
+		DATASET_MODES="$mode" \
+		TOKEN_PURPOSE="$purpose" \
+		BASE_URL="$BASE_URL" \
+		PERF_ADMIN_EMAIL="$PERF_ADMIN_EMAIL" \
+		PERF_ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD" \
+		node "$ISSUE_ROOT/prepare-runtime-token.mjs"
+	)"
+	if [[ -z "$RUNTIME_ACCESS_TOKEN" ]]; then
+		echo "Runtime access token preparation returned an empty value for mode/purpose: $mode/$purpose" >&2
+		exit 1
+	fi
+}
+
+clear_runtime_token() {
+	RUNTIME_ACCESS_TOKEN=""
+	unset PERF_ACCESS_TOKEN
 }
 
 validate_db_correctness() {
@@ -249,21 +322,15 @@ for raw_mode in "${modes[@]}"; do
 	safe_segment "$dataset_id"
 	safe_segment "$fixture_run_id"
 	mode_report_dir="$REPORT_ROOT/$dataset_id/$fixture_run_id/$mode"
-	mkdir -p "$mode_report_dir/warmup" "$mode_report_dir/measured"
-
-	record_environment "$mode_report_dir" "$dataset_id" "$fixture_run_id" "$mode"
-	RUNTIME_ACCESS_TOKEN="$(
-		INPUT_MANIFEST="$INPUT_MANIFEST" \
-		DATASET_MODES="$mode" \
-		BASE_URL="$BASE_URL" \
-		PERF_ADMIN_EMAIL="$PERF_ADMIN_EMAIL" \
-		PERF_ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD" \
-		node "$ISSUE_ROOT/prepare-runtime-token.mjs"
-	)"
-	if [[ -z "$RUNTIME_ACCESS_TOKEN" ]]; then
-		echo "Runtime access token preparation returned an empty value for mode: $mode" >&2
+	mkdir -p "$REPORT_ROOT/$dataset_id/$fixture_run_id"
+	if ! mkdir "$mode_report_dir"; then
+		echo "Report directory already exists; stale evidence mixing is blocked: $mode_report_dir" >&2
 		exit 1
 	fi
+	mkdir "$mode_report_dir/warmup" "$mode_report_dir/measured"
+
+	record_environment "$mode_report_dir" "$dataset_id" "$fixture_run_id" "$mode"
+	prepare_runtime_token "$mode" warmup
 	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-before.json"
 	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-before.json"
 	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-before.json"
@@ -277,6 +344,11 @@ for raw_mode in "${modes[@]}"; do
 	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-pre-measured.json"
 	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-pre-measured.json"
 	collect_db_context "$campus_id" "$week_start_date" "$mode_report_dir/db-context-pre-measured.txt"
+	clear_runtime_token
+	prepare_runtime_token "$mode" measured
+	PERF_ACCESS_TOKEN="$RUNTIME_ACCESS_TOKEN" \
+		node "$ISSUE_ROOT/validate-token-lifetime.mjs" \
+		"$MEASURED_DURATION" "$TOKEN_EXPIRY_SAFETY_SECONDS" "$(date +%s)" >/dev/null
 	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-before.json"
 	docker stats --no-stream --format '{{json .}}' \
 		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$mode_report_dir/measured/docker-stats-before.jsonl"
@@ -288,10 +360,13 @@ for raw_mode in "${modes[@]}"; do
 	docker stats --no-stream --format '{{json .}}' \
 		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$mode_report_dir/measured/docker-stats-after.jsonl"
 	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-after.json"
+	validate_db_window \
+		"$mode_report_dir/measured/db-counters-before.json" \
+		"$mode_report_dir/measured/db-counters-after.json" \
+		"$mode_report_dir/measured/db-window-adoption-gate.json"
 	collect_db_context "$campus_id" "$week_start_date" "$mode_report_dir/db-context-after.txt"
 	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-after.json"
 	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-after.json"
 	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-after.json"
-	RUNTIME_ACCESS_TOKEN=""
-	unset PERF_ACCESS_TOKEN
+	clear_runtime_token
 done

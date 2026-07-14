@@ -54,16 +54,19 @@ FaithLog frontend `develop`의 `aba1ab07bcb54c1df85ecf53238f4cb0484c2df3`에서 
 
 ## 향후 승인 후 실행 계약
 
-실행 대상은 PM/frontend가 공유하는 `faithlog-latest`뿐이다.
+실행 대상은 PM/frontend가 공유하는 `faithlog-latest`뿐이다. `input-manifest`의 `runtimeTarget`은 승인된 app/PostgreSQL/Redis service label과 app container port를 기록한다.
 
-- backend 기본 주소: `http://127.0.0.1:28080`
-- 기본 container alias: `faithlog-latest-app`, `faithlog-latest-postgres`, `faithlog-latest-redis`
-- alias를 실제 Compose project name으로 간주하지 않는다. runner가 credential bootstrap 전에 각 container의 `com.docker.compose.project`와 `com.docker.compose.service` label을 읽고, app/PostgreSQL/Redis project가 모두 같은지 검증한 뒤 environment report에 기록한다. label이 비었거나 project가 다르면 즉시 중단한다.
+- `BASE_URL`과 `APP_CONTAINER`에는 default가 없으며 실행 시 명시한다.
+- runner는 app의 실제 published port를 inspect하고 `BASE_URL`의 local host/port와 exact 결속한다.
+- container alias를 실제 Compose identity로 간주하지 않는다. credential bootstrap 전에 세 container의 project/service label을 읽고, project 3개가 같으며 service 3개가 manifest의 승인값과 exact match인지 검증한다. label/port가 비었거나 다르면 즉시 중단한다.
 
 부하 강도와 시간은 이 시나리오가 결정하지 않는다. 사용자가 승인한 값을 실행 시 명시해야 한다.
 
 ```bash
 INPUT_MANIFEST=/absolute/path/to/issue-199-input-manifest.json \
+BASE_URL=http://127.0.0.1:<approved-published-port> \
+APP_CONTAINER=<approved-app-container> \
+DATASET_MODES=<approved-comma-separated-modes> \
 PERF_ADMIN_EMAIL=runtime-only@example.com \
 PERF_ADMIN_PASSWORD=runtime-only-secret \
 PERF_DB_USER=runtime-only-db-user \
@@ -73,26 +76,28 @@ WARMUP_VUS=<approved> \
 WARMUP_DURATION=<approved> \
 MEASURED_VUS=<approved> \
 MEASURED_DURATION=<approved> \
-EXTERNAL_ACTIVITY='none; frontend QA stopped; no deploy or manual DB work' \
+TOKEN_EXPIRY_SAFETY_SECONDS=<approved> \
+EXTERNAL_ACTIVITY=none \
 performance/k6/issue-199-admin-dashboard-baseline/run-baseline.sh
 ```
 
-credential과 Access Token은 runtime memory에서만 사용한다. login credential은 child process에 상시 export하지 않고 각 mode의 bootstrap process에만 전달한다. mode마다 login → users/me·campuses/me로 fresh token을 발급하고, 해당 mode의 검증/k6 process에만 전달한 뒤 mode 종료 즉시 shell variable을 비운다. manifest, README, report, log, git에는 저장하지 않는다.
+`DATASET_MODES`에는 default가 없고 `empty,small,thousand` allowlist의 중복 없는 승인 선택만 허용한다. 선택 mode가 manifest에 없으면 container/credential/bootstrap 전에 중단한다. credential과 Access Token은 runtime memory에서만 사용한다. login credential은 child process에 상시 export하지 않고 bootstrap process에만 전달한다. mode 시작 시 warmup token을 발급하고, warmup/correctness 종료 뒤 measured 직전에 다시 fresh JWT를 발급한다. JWT 값은 저장·출력하지 않고 memory에서 `exp`만 해석해 `MEASURED_DURATION + TOKEN_EXPIRY_SAFETY_SECONDS`를 덮는지 검사하며, mode 종료 즉시 token variable을 비운다.
 
-runner는 검증된 실제 Compose project label을 안전한 path segment로 제한하고 `/tmp/faithlog-performance-${project}.lock` directory를 원자 획득한 뒤 `empty -> small -> thousand`를 순차 실행한다. #193/#195를 포함해 같은 Compose project를 쓰는 다른 성능 baseline이 lock을 보유하면 credential/bootstrap/DB/k6 전에 실패한다. 다른 성능 baseline, frontend QA, 수동 부하, 배포, DB 유지보수와 병렬 실행을 금지한다. shared Docker lifecycle의 `up`, `build`, `restart`, `down`, `rm`, prune을 호출하지 않는다.
+runner는 검증된 실제 Compose project label을 안전한 path segment로 제한하고 `/tmp/faithlog-performance-${project}.lock` directory를 원자 획득한 뒤 승인 mode를 runtime 선택 순서대로 직렬 실행한다. #193/#195를 포함해 같은 Compose project를 쓰는 다른 성능 baseline이 lock을 보유하면 credential/bootstrap/DB/k6 전에 실패한다. `EXTERNAL_ACTIVITY`는 자유 서술이 아니라 exact `none`만 채택 가능하다. 다른 성능 baseline, frontend QA, 수동 부하, 배포, DB 유지보수와 병렬 실행을 금지한다. shared Docker lifecycle의 `up`, `build`, `restart`, `down`, `rm`, prune을 호출하지 않는다.
 
 각 mode는 다음 순서로 분리된다.
 
-1. 프론트 login → users/me·campuses/me 순서 재현 및 runtime-only token 준비
+1. 프론트 login → users/me·campuses/me 순서 재현 및 warmup runtime-only token 준비
 2. DB machine-readable correctness + API exact correctness/campus isolation + DB context 사전 검증
 3. warmup k6와 failure/request/latency/throughput 채택 게이트
 4. warmup 후 correctness/context 재검증
-5. 마지막 별도 DB pure counter snapshot과 Docker CPU/RAM snapshot
+5. measured fresh JWT 발급과 exp 잔여 수명 gate 후 마지막 별도 DB pure counter/activity/planner snapshot 및 Docker CPU/RAM snapshot
 6. setup traffic 없이 dashboard summary만 measured k6 실행 및 채택 게이트
-7. Docker CPU/RAM snapshot과 첫 DB 작업인 pure counter snapshot
-8. DB/API correctness와 DB context 사후 검증
+7. Docker CPU/RAM snapshot과 첫 DB 작업인 pure counter/activity/planner snapshot
+8. DB counter delta/activity/planner/analyze adoption gate
+9. DB/API correctness와 DB context 사후 검증
 
-warmup과 measured 결과는 별도 디렉터리에 둔다. cache reset은 하지 않으므로 첫 observation을 진짜 cold-cache 결과라고 부르지 않는다. environment report는 `cacheResetPerformed=false`, external activity 선언, 실제 Compose label을 함께 남긴다. `last_analyze`, `last_autoanalyze`, `n_mod_since_analyze`, `analyze_count`, `autoanalyze_count`를 전후 비교해 측정 중 planner 통계 상태 변화도 확인한다.
+warmup과 measured 결과는 별도 디렉터리에 둔다. `<datasetId>/<fixtureRunId>/<mode>`가 이미 존재하면 stale evidence를 삭제하거나 덮어쓰지 않고 fail closed한다. cache reset은 하지 않으므로 첫 observation을 진짜 cold-cache 결과라고 부르지 않는다. environment report는 `cacheResetPerformed=false`, exact external activity gate, endpoint↔container identity, 실제 Compose label을 함께 남긴다.
 
 ## 수집 metric과 evidence
 
@@ -110,14 +115,15 @@ Docker:
 
 PostgreSQL read-only evidence:
 
-- `collect-db-counters.sql`: app table을 조회하지 않는 `pg_stat_database`와 `pg_stat_user_tables` pure snapshot. 모든 사전 검증 뒤 마지막 DB invocation과 measured 뒤 첫 DB invocation으로 실행한다. report JSON의 `observerOverhead`가 해석 경계를 함께 기록한다.
+- `collect-db-counters.sql`: app table을 조회하지 않는 `pg_stat_database`, `pg_stat_user_tables`, `pg_settings`, `pg_stat_activity` machine snapshot. 모든 사전 검증/bootstrap 뒤 마지막 DB invocation과 measured 뒤 첫 DB invocation으로 실행한다. observer connection은 `faithlog-issue199-observer` application name으로 명시 제외한다.
+- `validate-db-window.mjs`: required table/planner set exact, `capturedAt` 순서, `stats_reset`, database/table counter monotonicity, table별 delta, analyze/autoanalyze/planner 불변, 외부 active session 0, `EXTERNAL_ACTIVITY=none`, observer metadata를 검증한다. 위반 시 non-zero이고 `db-window-adoption-gate.json`을 contaminated로 기록한다.
 - `collect-correctness-evidence.sql`: dashboard 관련 exact aggregate를 한 줄 JSON으로 만들며 pure counter window 밖에서만 실행한다.
 - `validate-db-correctness.mjs`: summary 전체와 OPEN poll별 실제 `pollId/responseCount` 집합을 manifest와 exact 비교하고, DB-derived aggregate `missingResponseCount`도 함께 고정한다.
 - `collect-db-evidence.sql`: row count, analyze/autoanalyze, planner/query context를 pure counter window 밖에서 기록한다.
 - `pg_settings` planner state
 - 설치된 경우 `pg_stat_statements`; 없으면 unavailable 상태를 명시
 
-따라서 application table 접근 관점에서 pre/post pure DB counter 사이에는 measured dashboard summary 요청만 존재한다. login, users/me, campuses/me, isolation/API correctness, fixture aggregate/context SQL은 모두 pre snapshot 전에 끝나거나 post snapshot 뒤에 시작한다.
+따라서 application table 접근 관점에서 pre/post pure DB counter 사이에는 measured dashboard summary 요청만 존재한다. login, users/me, campuses/me, isolation/API correctness, fixture aggregate/context SQL은 모두 pre snapshot 전에 끝나거나 post snapshot 뒤에 시작한다. 외부 요청 선언 또는 snapshot 시 외부 non-idle DB session, planner/analyze 변화, stats reset, counter 역행/누락이 있으면 baseline은 채택되지 않는다.
 
 단, `pg_stat_database`의 database-wide `xact_*`/tuple delta에는 counter snapshot observer 자체의 read-only transaction/tuple overhead가 포함될 수 있다. 그러므로 이 delta를 dashboard의 exact query count로 해석하지 않는다. 반면 `pg_stat_user_tables` app-table counter는 snapshot이 통계 view만 읽고 application table을 직접 접근하지 않으므로 measured window의 app-table scan/index 변화와 구분해 해석한다. 각 `db-counters-*.json`에는 `databaseWideCountersIncludeSnapshotTransaction=true`, `databaseWideDeltaIsExactQueryCount=false`, `appTableCountersReadApplicationTables=false`를 기록한다.
 
@@ -146,6 +152,7 @@ performance/k6/issue-199-admin-dashboard-baseline/reports/
     measured/k6.log
     measured/db-counters-before.json
     measured/db-counters-after.json
+    measured/db-window-adoption-gate.json
     measured/docker-stats-before.jsonl
     measured/docker-stats-after.jsonl
 ```
