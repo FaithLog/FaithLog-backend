@@ -201,6 +201,12 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 	for (const name of ['WARMUP_VUS', 'WARMUP_DURATION', 'MEASURED_VUS', 'MEASURED_DURATION', 'EXECUTION_RUN_ID', 'EXCLUSIVE_WINDOW_CONFIRMED']) {
 		assert.match(runner, new RegExp(`${name}=.*:\\?`), `${name} must be runtime-required`);
 	}
+	for (const name of ['BASE_URL', 'APP_CONTAINER', 'DB_CONTAINER', 'EXPECTED_APP_SERVICE', 'EXPECTED_DB_SERVICE', 'EXPECTED_APP_IMAGE',
+		'SAMPLING_INTERVAL_SECONDS', 'SAMPLING_MAX_GAP_SECONDS']) {
+		assert.match(runner, new RegExp(`${name}=.*:\\?`), `${name} must be runtime-required without a target/policy default`);
+	}
+	assert.doesNotMatch(runner, /SAMPLING_INTERVAL_SECONDS=1|SAMPLING_MAX_GAP_SECONDS=2/);
+	assert.match(runner, /automaticAdoption:\s*false/);
 	assert.doesNotMatch(runner, /REQUESTED_MODE="\$\{1:-all\}"/);
 	assert.match(runner, /REQUESTED_MODE="\$\{1:\?/);
 	assert.match(runner, /warmup[\s\S]*k6 run[\s\S]*snapshot_db_tables "\$\{before_file\}"[\s\S]*measured[\s\S]*k6 run/);
@@ -209,6 +215,38 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 	assert.match(runner, /Report directory already exists|Refusing to overwrite/);
 	assert.doesNotMatch(runner, /docker\s+compose\s+(?:up|down|build)|docker\s+(?:system|builder|image|volume)\s+prune/);
 	assert.doesNotMatch(runner, /(?:^|\s)(?:source|\.)\s+\.env(?:\s|$)/m);
+});
+
+test('runner rejects every missing target identity before inspect or login', () => {
+	const runner = join(ROOT, 'run-baseline.sh');
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-target-'));
+	try {
+		const bin = join(temporary, 'bin');
+		mkdirSync(bin);
+		const calls = join(temporary, 'calls.log');
+		writeFileSync(join(bin, 'docker'), `#!/usr/bin/env bash\necho docker >> "${calls}"\nexit 99\n`);
+		for (const command of ['k6', 'lsof']) writeFileSync(join(bin, command), '#!/usr/bin/env bash\nexit 99\n');
+		for (const command of ['docker', 'k6', 'lsof']) chmodSync(join(bin, command), 0o755);
+		const required = {
+			FIXTURE_RUN_ID: 'i196target', EXECUTION_RUN_ID: 'exectarget',
+			WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
+			PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
+			PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'secret',
+			BASE_URL: 'http://127.0.0.1:18080', APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db',
+			EXPECTED_APP_SERVICE: 'app', EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'approved-image',
+			SAMPLING_INTERVAL_SECONDS: '1', SAMPLING_MAX_GAP_SECONDS: '2', EXCLUSIVE_WINDOW_CONFIRMED: 'true',
+		};
+		for (const missing of ['BASE_URL', 'APP_CONTAINER', 'DB_CONTAINER', 'EXPECTED_APP_SERVICE', 'EXPECTED_DB_SERVICE', 'EXPECTED_APP_IMAGE']) {
+			const env = { ...process.env, ...required, PATH: `${bin}:${process.env.PATH}` };
+			delete env[missing];
+			const result = spawnSync('bash', [runner, 'prayer'], { env, encoding: 'utf8' });
+			assert.notEqual(result.status, 0);
+			assert.match(result.stderr, new RegExp(`${missing}.*required`, 'i'), `${missing} omission must be the failure cause`);
+			assert.equal(existsSync(calls), false, `${missing} omission must happen before docker inspect/login`);
+		}
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
 });
 
 test('DB and log evidence contract is endpoint-scoped and read-only', () => {
@@ -569,18 +607,21 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			},
 		}));
 
-		execFileSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+		const pendingAdoptionProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, paths.report]);
+		assert.notEqual(pendingAdoptionProcess.status, 0, 'clean sampled evidence cannot auto-adopt before user policy approval');
 		const report = JSON.parse(readFileSync(paths.report, 'utf8'));
 		assert.deepEqual(report.http, {
 			p50Ms: 10, p95Ms: 20, p99Ms: 30, maxMs: 40,
 			throughputPerSecond: 1.5, requestCount: 2, failureRate: 0,
 		});
-		assert.equal(report.accepted, true);
-		assert.equal(report.measurementStatus, 'measured');
+		assert.equal(report.accepted, false);
+		assert.equal(report.automaticAdoption, false);
+		assert.equal(report.measurementStatus, 'conditional-not-adoptable');
+		assert.ok(report.rejectionReasons.includes('adoption-policy-pending-user-approval'));
 		assert.equal(report.db.queryCount, 4);
 		assert.equal(report.db.queriesPerRequest, 2);
-		assert.equal(report.db.tableCounterDelta[0].estimatedRowsAfter, 1000);
+		assert.equal(report.db.tableCounterDelta[0].estimatedRowsAfter, '1000');
 		assert.equal(report.nPlusOneEvidence.loopSignal[0].count, 4);
 		assert.equal(report.resources.length, 2);
 		const unconfirmedMetadata = join(temporary, 'metadata-unconfirmed-window.json');
@@ -747,6 +788,21 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		assert.ok(counterRejected.rejectionReasons.includes('snapshot-time-order'));
 		assert.ok(counterRejected.rejectionReasons.includes('counter-regression'));
 		assert.ok(counterRejected.rejectionReasons.some((reason) => reason.startsWith('write-counter-delta:')));
+
+		const unsafeBefore = join(temporary, 'unsafe-counter-before.json');
+		const unsafeAfter = join(temporary, 'unsafe-counter-after.json');
+		const unsafeReport = join(temporary, 'unsafe-counter-report.json');
+		writeFileSync(unsafeBefore, JSON.stringify(dbSnapshot('2026-07-14T00:00:01.000Z', {
+			users: { n_tup_upd: Number.MAX_SAFE_INTEGER + 1 },
+		})));
+		writeFileSync(unsafeAfter, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', {
+			users: { n_tup_upd: Number.MAX_SAFE_INTEGER + 2 },
+		})));
+		const unsafeProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, unsafeBefore, unsafeAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, unsafeReport]);
+		assert.notEqual(unsafeProcess.status, 0, 'unsafe JSON numbers must not collapse a +1 write counter delta to zero');
+		assert.ok(JSON.parse(readFileSync(unsafeReport, 'utf8')).rejectionReasons.includes('invalid-db-table-snapshot'));
+
 		const missingTableAfter = join(temporary, 'missing-table-after.json');
 		const missingTableReport = join(temporary, 'missing-table-report.json');
 		const missingTableSnapshot = dbSnapshot('2026-07-14T00:00:02.000Z');
