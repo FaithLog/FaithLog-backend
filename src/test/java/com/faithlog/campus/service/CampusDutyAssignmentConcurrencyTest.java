@@ -8,6 +8,7 @@ import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 
 import com.faithlog.billing.domain.entity.ChargeItem;
 import com.faithlog.billing.domain.entity.PaymentAccount;
@@ -16,6 +17,8 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.domain.entity.CampusDutyAssignment;
+import com.faithlog.campus.domain.type.DutyType;
+import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
@@ -36,6 +39,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -55,6 +59,9 @@ class CampusDutyAssignmentConcurrencyTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@MockitoSpyBean
+	private CampusDutyAssignmentRepository dutyAssignmentRepository;
 
 	@Autowired
 	private TransactionTemplate transactionTemplate;
@@ -160,6 +167,70 @@ class CampusDutyAssignmentConcurrencyTest {
 	@Test
 	void revokeMealDuty_waits_for_settlement_lock_then_rejects_new_unpaid_charge() throws Exception {
 		verifyRevokeWaitsForSettlement(PaymentCategory.MEAL);
+	}
+
+	@Test
+	void coffee_revoke_and_same_user_assign_are_serialized_so_successful_assign_stays_active() throws Exception {
+		verifyRevokeAndReassignAreSerialized(DutyType.COFFEE);
+	}
+
+	@Test
+	void meal_revoke_and_same_user_assign_are_serialized_so_successful_assign_stays_active() throws Exception {
+		verifyRevokeAndReassignAreSerialized(DutyType.MEAL);
+	}
+
+	private void verifyRevokeAndReassignAreSerialized(DutyType dutyType) throws Exception {
+		String label = dutyType.name().toLowerCase();
+		User manager = saveUser(label + "-reassign-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), label + "재지정직렬화캠", "분당", label + " 해제 재지정 동시성"));
+		DutyAssignmentResult original = dutyType == DutyType.COFFEE
+			? campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()))
+			: campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), manager.id()));
+		CountDownLatch revokeLocked = new CountDownLatch(1);
+		CountDownLatch allowRevoke = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			Object result = invocation.callRealMethod();
+			if (Thread.currentThread().getName().equals("duty-revoke")) {
+				revokeLocked.countDown();
+				if (!allowRevoke.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("revoke release timeout");
+				}
+			}
+			return result;
+		}).when(dutyAssignmentRepository).findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campus.campusId(), dutyType, manager.id());
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> revoke = executor.submit(() -> {
+				Thread.currentThread().setName("duty-revoke");
+				if (dutyType == DutyType.COFFEE) {
+					campusService.revokeCoffeeDuty(campus.campusId(), original.assignmentId(), manager.id());
+				} else {
+					campusService.revokeMealDuty(campus.campusId(), original.assignmentId(), manager.id());
+				}
+			});
+			assertThat(revokeLocked.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<DutyAssignmentResult> reassign = executor.submit(() -> dutyType == DutyType.COFFEE
+				? campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()))
+				: campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), manager.id())));
+
+			assertThatThrownBy(() -> reassign.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowRevoke.countDown();
+			revoke.get(5, TimeUnit.SECONDS);
+			DutyAssignmentResult reassigned = reassign.get(5, TimeUnit.SECONDS);
+			assertThat(reassigned.active()).isTrue();
+			assertThat(campusService.getDutyAssignments(campus.campusId(), manager.id()))
+				.filteredOn(result -> result.dutyType().equals(dutyType.name())
+					&& result.userId().equals(manager.id()))
+				.singleElement()
+				.satisfies(result -> assertThat(result.assignmentId()).isNotEqualTo(original.assignmentId()));
+		} finally {
+			allowRevoke.countDown();
+			executor.shutdownNow();
+		}
 	}
 
 	private void verifyRevokeWaitsForSettlement(PaymentCategory category) throws Exception {
