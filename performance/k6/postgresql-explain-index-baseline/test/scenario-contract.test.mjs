@@ -95,18 +95,39 @@ test('runner requires traceable fixture identity, exclusive lock, runtime creden
 	assert.match(runner, /adoptable: plannerIntegrity\.adoptable && databaseContinuity\.stable/);
 	assert.match(runtimeContract, /another performance or load run/i);
 	assert.doesNotMatch(runner, /application_name\s*<>\s*'faithlog-issue-194-explain'/);
-	const inspectIndex = runner.indexOf('const composeIdentity = inspectComposeIdentity');
+	const artifactIndex = runner.indexOf('crossIssueArtifacts = validateCrossIssueArtifacts');
+	const sqlLoadIndex = runner.indexOf('sqlSources = loadSqlSources');
+	const anchorSyntaxIndex = runner.indexOf('variables = validateAnchors');
+	const sourceGateIndex = runner.indexOf('sourceIntegrity = validateSourceIdentity');
+	const inspectIndex = runner.indexOf('composeIdentity = inspectComposeIdentity');
 	const lockIndex = runner.indexOf('projectLock = acquireProjectLock');
-	const identityIndex = runner.indexOf('const databaseIdentity = captureDatabaseIdentity');
+	const identityIndex = runner.indexOf('databaseIdentity = captureDatabaseIdentity');
 	const identityValidationIndex = runner.indexOf('validateDatabaseIdentity(composeIdentity, databaseIdentity');
+	const schemaGateIndex = runner.indexOf('const schemaStartIntegrity = validateSchemaSnapshot');
+	const anchorDbGateIndex = runner.indexOf('const anchorIntegrity = validateAnchorPreflight');
 	const startGateIndex = runner.indexOf('const startIntegrity = validateMeasurementStart');
-	const explainIndex = runner.indexOf('const rawExplain = explain');
-	assert.ok(inspectIndex < lockIndex && lockIndex < identityIndex
+	const explainIndex = runner.indexOf('rawExplain = await explain');
+	assert.ok([
+		artifactIndex, sqlLoadIndex, anchorSyntaxIndex, sourceGateIndex, inspectIndex,
+		lockIndex, identityIndex, identityValidationIndex, schemaGateIndex, anchorDbGateIndex,
+		startGateIndex, explainIndex,
+	].every((index) => index >= 0), 'every runner gate/order sentinel must exist');
+	assert.ok(artifactIndex < sqlLoadIndex && sqlLoadIndex < anchorSyntaxIndex
+		&& anchorSyntaxIndex < sourceGateIndex && sourceGateIndex < inspectIndex
+		&& inspectIndex < lockIndex && lockIndex < identityIndex
 		&& identityIndex < identityValidationIndex && identityValidationIndex < startGateIndex
-		&& startGateIndex < explainIndex);
-	const outcomeIndex = runner.indexOf('const measurementOutcome = decideMeasurementOutcome');
+		&& identityValidationIndex < schemaGateIndex && schemaGateIndex < anchorDbGateIndex
+		&& anchorDbGateIndex < startGateIndex && startGateIndex < explainIndex);
+	assert.match(runner, /writeRejectedReport\(reportPath/);
+	assert.match(runner, /queryRunCount: explainRunCount/);
+	assert.match(runner, /validateActivityWindow\(activityWindows\[0\]\)/);
+	assert.match(runner, /expectedLabels: measurementLabels/);
+	assert.match(runner, /validateSourceContinuity/);
+	assert.match(runner, /validateArtifactContinuity/);
+	const outcomeIndex = runner.indexOf('let measurementOutcome = decideMeasurementOutcome');
 	const ownedAtFinishIndex = runner.indexOf('assertProjectLockOwned(projectLock);');
 	const reportWriteIndex = runner.indexOf('writeJson(reportPath, report);');
+	assert.ok([outcomeIndex, ownedAtFinishIndex, reportWriteIndex].every((index) => index >= 0));
 	assert.ok(explainIndex < outcomeIndex && outcomeIndex < ownedAtFinishIndex
 		&& ownedAtFinishIndex < reportWriteIndex);
 	assert.doesNotMatch(
@@ -276,6 +297,11 @@ test('planner integrity validator blocks adoption for setting, analyze, n-mod, o
 			table: 'charge_items',
 			lastAnalyze: '2026-07-14T00:00:00Z',
 			lastAutoanalyze: null,
+			lastVacuum: null,
+			lastAutovacuum: null,
+			vacuumCount: 0,
+			autovacuumCount: 0,
+			allVisiblePages: 0,
 			nModSinceAnalyze: 0,
 		}],
 		externalActivity: { activeSessionCount: 0, sessions: [] },
