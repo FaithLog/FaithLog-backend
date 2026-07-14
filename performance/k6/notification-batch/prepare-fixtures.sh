@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 source "${SCRIPT_DIR}/guard-runtime.sh"
+source "${SCRIPT_DIR}/runner-lifecycle.sh"
 
 PERF_MEMBER_COUNT="${PERF_MEMBER_COUNT:-1000}"
 POSTGRES_USER="${POSTGRES_USER:-faithlog}"
@@ -62,14 +63,11 @@ if (( PERF_SUCCESS_COUNT + PERF_TRANSIENT_COUNT + PERF_PERMANENT_COUNT \
 	exit 2
 fi
 
-guard_notification_batch_runtime
-acquire_notification_batch_locks
-
 FIXTURE_ROOT="${REPOSITORY_ROOT}/build/reports/k6/notification-batch/fixtures"
 REPORT_DIR="${FIXTURE_ROOT}/${PERF_FIXTURE_RUN_ID}"
 MANIFEST_PATH="${REPORT_DIR}/manifest.json"
 TEMP_MANIFEST_PATH="${REPORT_DIR}/.manifest.json.tmp.$$"
-cleanup() {
+notification_batch_fixture_cleanup() {
 	rm -f "${TEMP_MANIFEST_PATH}"
 	if [[ ! -f "${MANIFEST_PATH}" ]]; then
 		rm -f "${REPORT_DIR}/runtime-identity-locked.json" \
@@ -79,7 +77,13 @@ cleanup() {
 	fi
 	release_notification_batch_locks
 }
-trap cleanup EXIT
+PERF_GLOBAL_LOCK_DIR=""
+PERF_PROJECT_LOCK_DIR=""
+PERF_GLOBAL_LOCK_HELD=false
+PERF_PROJECT_LOCK_HELD=false
+install_notification_batch_fixture_traps
+guard_notification_batch_runtime
+acquire_notification_batch_locks
 mkdir -p "${FIXTURE_ROOT}"
 if ! mkdir "${REPORT_DIR}" 2>/dev/null; then
 	echo "PERF_FIXTURE_RUN_ID report directory already exists; use a fresh fixtureRunId." >&2
@@ -90,7 +94,7 @@ bash "${SCRIPT_DIR}/capture-runtime-identity.sh" "${REPORT_DIR}/runtime-identity
 RUNTIME_IDENTITY_PHASES=locked,before-fixture RUN_DIR="${REPORT_DIR}" \
 	node "${SCRIPT_DIR}/assert-runtime-continuity.mjs"
 
-docker exec -i "${POSTGRES_CONTAINER}" psql \
+docker exec -i "${PERF_POSTGRES_CONTAINER_ID}" psql \
 	-U "${POSTGRES_USER}" \
 	-d "${POSTGRES_DB}" \
 	-X -q -A -t \

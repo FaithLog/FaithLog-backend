@@ -18,7 +18,16 @@ notification_batch_runner_signal_exit() {
 }
 
 install_notification_batch_runner_traps() {
-	trap notification_batch_runner_cleanup EXIT
+	install_notification_batch_signal_traps notification_batch_runner_cleanup
+}
+
+install_notification_batch_fixture_traps() {
+	install_notification_batch_signal_traps notification_batch_fixture_cleanup
+}
+
+install_notification_batch_signal_traps() {
+	local cleanup_function="${1:?Cleanup function is required.}"
+	trap "${cleanup_function}" EXIT
 	trap 'notification_batch_runner_signal_exit 129' HUP
 	trap 'notification_batch_runner_signal_exit 130' INT
 	trap 'notification_batch_runner_signal_exit 143' TERM

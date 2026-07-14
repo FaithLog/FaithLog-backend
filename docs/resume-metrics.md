@@ -1375,3 +1375,4 @@ Metric candidates:
 - API response time: measure `GET /api/v1/health` or another user-approved endpoint with a fixed local or deployed target.
 <!-- daily-resume-monitor:end:resume-metrics:2026-06-17 -->
 - 2026-07-14 Issue #198 PM 재리뷰 보강: post-lock PostgreSQL/Redis identity·published endpoint 고정, immutable-ID Docker sampling, exact dummy-token prefix, Redis evidence fail-closed, signal cleanup, runtime-approved maximum-gap 계약을 합성 RED→GREEN으로 추가했다. 실제 fixture/job/Docker/DB/Redis/Firebase/baseline은 실행하지 않았으며 상태는 계속 `scenario-ready / not-measured`다. sample count, cumulative-state 전략, Docker cadence/maximum gap은 사용자 승인 전 pending이므로 성과 수치로 사용하지 않는다.
+- 2026-07-14 Issue #198 runtime 재리뷰: workload 전 exact phase continuity, final phase 축소 방지, fixture/snapshot immutable-ID exec, lock 획득 전 signal cleanup과 lock ownership 보존을 합성 계약으로 보강했다. 실제 runtime은 실행하지 않았고 성능 수치도 생성하지 않았다.

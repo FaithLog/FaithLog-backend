@@ -67,23 +67,30 @@ acquire_notification_batch_locks() {
 	: "${PERF_COMPOSE_PROJECT:?guard_notification_batch_runtime must run before lock acquisition.}"
 	PERF_GLOBAL_LOCK_DIR="/tmp/faithlog-performance-global.lock"
 	PERF_PROJECT_LOCK_DIR="/tmp/faithlog-performance-${PERF_COMPOSE_PROJECT}.lock"
+	PERF_GLOBAL_LOCK_HELD=false
+	PERF_PROJECT_LOCK_HELD=false
 	if ! mkdir "${PERF_GLOBAL_LOCK_DIR}" 2>/dev/null; then
 		echo "Another Issue #198 fixture or measurement holds the host-global lock." >&2
 		return 2
 	fi
+	PERF_GLOBAL_LOCK_HELD=true
 	if ! mkdir "${PERF_PROJECT_LOCK_DIR}" 2>/dev/null; then
 		rmdir "${PERF_GLOBAL_LOCK_DIR}" 2>/dev/null || true
+		PERF_GLOBAL_LOCK_HELD=false
 		echo "Another FaithLog QA or performance runner holds the canonical Compose-project lock." >&2
 		return 2
 	fi
-	export PERF_GLOBAL_LOCK_DIR PERF_PROJECT_LOCK_DIR
+	PERF_PROJECT_LOCK_HELD=true
+	export PERF_GLOBAL_LOCK_DIR PERF_PROJECT_LOCK_DIR PERF_GLOBAL_LOCK_HELD PERF_PROJECT_LOCK_HELD
 }
 
 verify_notification_batch_runtime_after_lock() {
 	: "${PERF_PROJECT_LOCK_DIR:?Canonical project lock must be acquired before runtime verification.}"
 	: "${PERF_GLOBAL_LOCK_DIR:?Host-global lock must be acquired before runtime verification.}"
 	local output_path="${1:?Locked runtime identity output path is required.}"
-	if [[ ! -d "${PERF_PROJECT_LOCK_DIR}" || ! -d "${PERF_GLOBAL_LOCK_DIR}" ]]; then
+	if [[ "${PERF_PROJECT_LOCK_HELD:-false}" != "true" \
+		|| "${PERF_GLOBAL_LOCK_HELD:-false}" != "true" \
+		|| ! -d "${PERF_PROJECT_LOCK_DIR}" || ! -d "${PERF_GLOBAL_LOCK_DIR}" ]]; then
 		echo "Both performance locks must still be held during post-lock runtime verification." >&2
 		return 2
 	fi
@@ -115,10 +122,12 @@ verify_notification_batch_runtime_after_lock() {
 }
 
 release_notification_batch_locks() {
-	if [[ -n "${PERF_PROJECT_LOCK_DIR:-}" ]]; then
+	if [[ "${PERF_PROJECT_LOCK_HELD:-false}" == "true" && -n "${PERF_PROJECT_LOCK_DIR:-}" ]]; then
 		rmdir "${PERF_PROJECT_LOCK_DIR}" 2>/dev/null || true
+		PERF_PROJECT_LOCK_HELD=false
 	fi
-	if [[ -n "${PERF_GLOBAL_LOCK_DIR:-}" ]]; then
+	if [[ "${PERF_GLOBAL_LOCK_HELD:-false}" == "true" && -n "${PERF_GLOBAL_LOCK_DIR:-}" ]]; then
 		rmdir "${PERF_GLOBAL_LOCK_DIR}" 2>/dev/null || true
+		PERF_GLOBAL_LOCK_HELD=false
 	fi
 }

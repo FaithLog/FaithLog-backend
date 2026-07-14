@@ -487,6 +487,7 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 		assert.doesNotMatch(readFileSync(tracePath, 'utf8'), /exec.*(psql|redis-cli)/);
 		assert.equal(existsSync(gradleTracePath), false, 'Gradle invocation count must be exactly zero');
 		assert.equal(existsSync(join(reportRoot, 'runs', runId)), false);
+		assert.equal(existsSync(projectLock), true, 'runner must never release a canonical lock it did not acquire');
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 		rmSync(fixtureDir, { recursive: true, force: true });
@@ -780,6 +781,8 @@ source "${scenarioPath('guard-runtime.sh')}"
 source "${scenarioPath('runner-lifecycle.sh')}"
 PERF_GLOBAL_LOCK_DIR="${globalLock}"
 PERF_PROJECT_LOCK_DIR="${projectLock}"
+PERF_GLOBAL_LOCK_HELD=true
+PERF_PROJECT_LOCK_HELD=true
 SAMPLER_MARKER="${marker}"
 mkdir "$PERF_GLOBAL_LOCK_DIR" "$PERF_PROJECT_LOCK_DIR"
 touch "$SAMPLER_MARKER"

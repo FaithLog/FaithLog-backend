@@ -96,11 +96,14 @@ if [[ -n "$(git -C "${REPOSITORY_ROOT}" status --porcelain --untracked-files=all
 	exit 2
 fi
 
-acquire_notification_batch_locks
-
 SAMPLER_MARKER=""
 SAMPLER_PID=""
+PERF_GLOBAL_LOCK_DIR=""
+PERF_PROJECT_LOCK_DIR=""
+PERF_GLOBAL_LOCK_HELD=false
+PERF_PROJECT_LOCK_HELD=false
 install_notification_batch_runner_traps
+acquire_notification_batch_locks
 
 mkdir -p "${REPORT_ROOT}/runs"
 if ! mkdir "${RUN_DIR}" 2>/dev/null; then
@@ -140,7 +143,7 @@ printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","postgr
 
 snapshot_postgres() {
 	local output="$1"
-	docker exec "${POSTGRES_CONTAINER}" psql \
+	docker exec "${PERF_POSTGRES_CONTAINER_ID}" psql \
 		-h 127.0.0.1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -X -q -A -t \
 		-c "SELECT json_build_object(
 			'capturedAt', clock_timestamp(),
@@ -185,9 +188,9 @@ snapshot_postgres() {
 snapshot_redis() {
 	local output="$1"
 	local dbsize server_info commandstats captured_at
-	dbsize="$(docker exec "${REDIS_CONTAINER}" redis-cli --raw DBSIZE)"
-	server_info="$(docker exec "${REDIS_CONTAINER}" redis-cli --raw INFO server)"
-	commandstats="$(docker exec "${REDIS_CONTAINER}" redis-cli --raw INFO commandstats)"
+	dbsize="$(docker exec "${PERF_REDIS_CONTAINER_ID}" redis-cli --raw DBSIZE)"
+	server_info="$(docker exec "${PERF_REDIS_CONTAINER_ID}" redis-cli --raw INFO server)"
+	commandstats="$(docker exec "${PERF_REDIS_CONTAINER_ID}" redis-cli --raw INFO commandstats)"
 	captured_at="$(node -p 'new Date().toISOString()')"
 	REDIS_DBSIZE="${dbsize}" REDIS_SERVER_INFO="${server_info}" \
 	REDIS_COMMANDSTATS="${commandstats}" REDIS_CAPTURED_AT="${captured_at}" \
@@ -216,6 +219,8 @@ sample_docker_stats() {
 snapshot_postgres "${RUN_DIR}/postgres-before.json"
 snapshot_redis "${RUN_DIR}/redis-before.json"
 bash "${SCRIPT_DIR}/capture-runtime-identity.sh" "${RUN_DIR}/runtime-identity-before.json"
+RUNTIME_IDENTITY_PHASES=locked,initial,before RUN_DIR="${RUN_DIR}" \
+	node "${SCRIPT_DIR}/assert-runtime-continuity.mjs"
 
 SAMPLER_MARKER="${RUN_DIR}/.sampling"
 touch "${SAMPLER_MARKER}"
@@ -265,7 +270,8 @@ snapshot_redis "${RUN_DIR}/redis-after.json"
 bash "${SCRIPT_DIR}/capture-runtime-identity.sh" "${RUN_DIR}/runtime-identity-final.json"
 
 set +e
-RUN_DIR="${RUN_DIR}" node "${SCRIPT_DIR}/assert-runtime-continuity.mjs"
+RUNTIME_IDENTITY_PHASES=locked,initial,before,after,final RUN_DIR="${RUN_DIR}" \
+	node "${SCRIPT_DIR}/assert-runtime-continuity.mjs"
 CONTINUITY_STATUS=$?
 set -e
 if [[ ${CONTINUITY_STATUS} -ne 0 ]]; then

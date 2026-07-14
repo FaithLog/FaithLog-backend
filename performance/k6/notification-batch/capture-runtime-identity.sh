@@ -55,7 +55,7 @@ if [[ "${PG_COMPOSE_PROJECT}" != "${PERF_COMPOSE_PROJECT}" \
 	exit 2
 fi
 
-docker exec "${POSTGRES_CONTAINER}" psql \
+docker exec "${PG_CONTAINER_ID}" psql \
 	-h 127.0.0.1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -X -q -A -t \
 	-c "SELECT json_build_object(
 		'database', current_database(),
@@ -63,7 +63,7 @@ docker exec "${POSTGRES_CONTAINER}" psql \
 		'port', inet_server_port(),
 		'postmasterStartTime', pg_postmaster_start_time()
 	);" > "${PG_SERVER_PATH}"
-docker exec "${REDIS_CONTAINER}" redis-cli --raw INFO server > "${REDIS_SERVER_PATH}"
+docker exec "${REDIS_CONTAINER_ID}" redis-cli --raw INFO server > "${REDIS_SERVER_PATH}"
 
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER}" REDIS_CONTAINER="${REDIS_CONTAINER}" \
 PG_SERVER_PATH="${PG_SERVER_PATH}" REDIS_SERVER_PATH="${REDIS_SERVER_PATH}" \
