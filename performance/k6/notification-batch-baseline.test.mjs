@@ -347,6 +347,31 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 		);
 		assert.notEqual(contradictoryVerifier.status, 0, 'contradictory PostgreSQL evidence must fail');
 
+		writeFileSync(
+			join(runDir, 'postgres-after.json'),
+			`${JSON.stringify({
+				...postgresAfter,
+				tables: {
+					...postgresAfter.tables,
+					notification_logs: { n_tup_ins: 1001, n_tup_upd: 803 },
+					user_fcm_tokens: { n_tup_upd: 104 },
+				},
+			})}\n`,
+		);
+		const postgresOverCountVerifier = spawnSync(
+			process.execPath,
+			[fileURLToPath(new URL('verify-before.mjs', SCENARIO_ROOT))],
+			{
+				env: { ...process.env, MANIFEST_PATH: join(runDir, 'manifest.json'), RUN_DIR: runDir },
+				encoding: 'utf8',
+			},
+		);
+		assert.notEqual(
+			postgresOverCountVerifier.status,
+			0,
+			'unexpected extra PostgreSQL log/token updates must fail',
+		);
+
 		writeFileSync(join(runDir, 'postgres-after.json'), `${JSON.stringify(postgresAfter)}\n`);
 		writeFileSync(
 			join(runDir, 'redis-commandstats-after.txt'),

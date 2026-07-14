@@ -185,17 +185,20 @@ assert.equal(
 	'active Issue #198 dummy token cardinality must decrease exactly',
 );
 assert.equal(redisDbSizeDelta, manifest.memberCount, 'one retained dedupe key per target is required');
-assert.ok(
-	postgresDelta.tables.notification_logs.n_tup_ins >= result.creation.logInsertCount,
-	'notification_logs insert evidence must cover the logical insert count',
+assert.equal(
+	postgresDelta.tables.notification_logs.n_tup_ins,
+	result.creation.logInsertCount,
+	'notification_logs physical insert evidence must exactly match the logical insert count',
 );
-assert.ok(
-	postgresDelta.tables.notification_logs.n_tup_upd >= result.delivery.logUpdateCount,
-	'notification_logs update evidence must cover the logical update count',
+assert.equal(
+	postgresDelta.tables.notification_logs.n_tup_upd,
+	result.delivery.logUpdateCount,
+	'notification_logs physical update evidence must exactly match the logical update count',
 );
-assert.ok(
-	postgresDelta.tables.user_fcm_tokens.n_tup_upd >= result.delivery.tokenUpdateCount,
-	'user_fcm_tokens update evidence must cover permanent dummy-token deactivation',
+assert.equal(
+	postgresDelta.tables.user_fcm_tokens.n_tup_upd,
+	result.delivery.tokenUpdateCount,
+	'user_fcm_tokens physical update evidence must exactly match permanent dummy-token deactivation',
 );
 assert.equal(
 	redisCommandCallDelta.set,
