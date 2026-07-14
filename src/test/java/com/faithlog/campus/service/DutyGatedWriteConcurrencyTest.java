@@ -12,12 +12,14 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.billing.service.BillingService;
+import com.faithlog.billing.service.MealPaymentAccountService;
 import com.faithlog.billing.service.command.ChangeChargeStatusCommand;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.campus.domain.entity.CampusDutyAssignment;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
@@ -64,6 +66,9 @@ class DutyGatedWriteConcurrencyTest {
 	private BillingService billingService;
 
 	@Autowired
+	private MealPaymentAccountService mealPaymentAccountService;
+
+	@Autowired
 	private UserRepository userRepository;
 
 	@MockitoSpyBean
@@ -96,7 +101,7 @@ class DutyGatedWriteConcurrencyTest {
 		));
 		CountDownLatch dutyChecked = new CountDownLatch(1);
 		CountDownLatch allowWrite = new CountDownLatch(1);
-		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), dutyChecked, allowWrite);
+		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), DutyType.COFFEE, dutyChecked, allowWrite);
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> writer = executor.submit(() -> {
@@ -131,6 +136,54 @@ class DutyGatedWriteConcurrencyTest {
 	}
 
 	@Test
+	void meal_account_deactivate_holds_duty_lock_until_commit_before_revoke() throws Exception {
+		User manager = saveUser("duty-write-meal-account-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "200밥계좌명령동시성캠");
+		DutyAssignmentResult assignment = campusService.assignMealDuty(new AssignMealDutyCommand(
+			campus.campusId(), manager.id(), manager.id()
+		));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.MEAL, "동시 밥 계좌", "하나은행", "200-MEAL-ACCOUNT",
+			"담당자", manager.id()
+		));
+		CountDownLatch dutyChecked = new CountDownLatch(1);
+		CountDownLatch allowWrite = new CountDownLatch(1);
+		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), DutyType.MEAL, dutyChecked, allowWrite);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> writer = executor.submit(() -> {
+				Thread.currentThread().setName("duty-writer");
+				mealPaymentAccountService.deactivate(campus.campusId(), account.id(), manager.id());
+			});
+			if (!dutyChecked.await(5, TimeUnit.SECONDS)) {
+				writer.get(1, TimeUnit.SECONDS);
+				throw new AssertionError("밥 담당 잠금 조회가 실행되지 않았습니다.");
+			}
+			Future<?> revoke = executor.submit(() -> {
+				Thread.currentThread().setName("duty-revoke");
+				campusService.revokeMealDuty(campus.campusId(), assignment.assignmentId(), manager.id());
+			});
+
+			assertThatThrownBy(() -> revoke.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowWrite.countDown();
+			writer.get(5, TimeUnit.SECONDS);
+			revoke.get(5, TimeUnit.SECONDS);
+			assertThat(paymentAccountRepository.findAllById(java.util.List.of(account.id())))
+				.singleElement()
+				.extracting(PaymentAccount::isActive)
+				.isEqualTo(false);
+			assertThat(dutyAssignmentRepository.findById(assignment.assignmentId()))
+				.get()
+				.extracting(CampusDutyAssignment::isActive)
+				.isEqualTo(false);
+		} finally {
+			allowWrite.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
 	void coffee_charge_unpaid_transition_holds_duty_lock_so_revoke_observes_new_unpaid() throws Exception {
 		User manager = saveUser("duty-write-charge-manager@example.com", UserRole.MANAGER);
 		User target = saveUser("duty-write-charge-target@example.com", UserRole.USER);
@@ -152,7 +205,7 @@ class DutyGatedWriteConcurrencyTest {
 		chargeItemRepository.saveAndFlush(charge);
 		CountDownLatch dutyChecked = new CountDownLatch(1);
 		CountDownLatch allowWrite = new CountDownLatch(1);
-		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), dutyChecked, allowWrite);
+		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), DutyType.COFFEE, dutyChecked, allowWrite);
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> writer = executor.submit(() -> {
@@ -207,7 +260,7 @@ class DutyGatedWriteConcurrencyTest {
 		pollRepository.saveAndFlush(poll);
 		CountDownLatch dutyChecked = new CountDownLatch(1);
 		CountDownLatch allowManualClose = new CountDownLatch(1);
-		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), dutyChecked, allowManualClose);
+		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), DutyType.COFFEE, dutyChecked, allowManualClose);
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> manualClose = executor.submit(() -> {
@@ -234,6 +287,7 @@ class DutyGatedWriteConcurrencyTest {
 	private void pauseWriterAfterDutyLookup(
 		Long campusId,
 		Long userId,
+		DutyType dutyType,
 		CountDownLatch dutyChecked,
 		CountDownLatch allowWrite
 	) {
@@ -247,7 +301,7 @@ class DutyGatedWriteConcurrencyTest {
 					and assignment.isActive = true
 				""", CampusDutyAssignment.class)
 				.setParameter("campusId", campusId)
-				.setParameter("dutyType", DutyType.COFFEE)
+				.setParameter("dutyType", dutyType)
 				.setParameter("userId", userId)
 				.setLockMode(LockModeType.PESSIMISTIC_WRITE)
 				.getResultStream()
@@ -261,7 +315,7 @@ class DutyGatedWriteConcurrencyTest {
 			return result;
 		};
 		doAnswer(answer).when(dutyAssignmentRepository)
-			.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(campusId, DutyType.COFFEE, userId);
+			.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(campusId, dutyType, userId);
 	}
 
 	private User saveUser(String email, UserRole role) {

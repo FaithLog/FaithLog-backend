@@ -56,6 +56,21 @@ class DutySettlementLockStructureTest {
 	}
 
 	@Test
+	void meal_account_query_stays_non_locking_and_deactivate_uses_duty_then_account_lock() throws IOException {
+		String mealAccount = read("billing/service/MealPaymentAccountService.java");
+		String listMine = methodBetween(mealAccount, "public List<PaymentAccountResult> listMine", "public PaymentAccountResult deactivate");
+		String deactivate = mealAccount.substring(mealAccount.indexOf("public PaymentAccountResult deactivate"));
+
+		assertThat(listMine)
+			.contains("requireActiveMealDuty(campusId, requesterId)")
+			.doesNotContain("requireActiveMealDutyForUpdate");
+		assertThat(deactivate).contains(
+			"requireActiveMealDutyForUpdate(campusId, requesterId)",
+			"findByIdForUpdate(accountId)"
+		);
+	}
+
+	@Test
 	void manual_and_due_coffee_close_use_duty_then_poll_lock_order() throws IOException {
 		String pollStatus = read("poll/service/PollStatusCommandService.java");
 		String coffeeSettlement = read("poll/service/CoffeePollSettlementSupport.java");
@@ -79,6 +94,10 @@ class DutySettlementLockStructureTest {
 			.as("%s 호출이 %s 호출보다 먼저여야 합니다.", first, second)
 			.isGreaterThanOrEqualTo(0)
 			.isLessThan(source.indexOf(second));
+	}
+
+	private String methodBetween(String source, String start, String next) {
+		return source.substring(source.indexOf(start), source.indexOf(next));
 	}
 
 	private String read(String relativePath) throws IOException {
