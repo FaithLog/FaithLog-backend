@@ -264,6 +264,76 @@ class CampusApiRestDocsTest {
 	}
 
 	@Test
+	@Transactional
+	void documents_campus_member_delete_active_duty_conflict() throws Exception {
+		String managerToken = signupAndLogin("docs-member-delete-duty-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampusForDocs(managerToken, "200담당회원삭제충돌캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-member-delete-duty-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-member-delete-duty-member@example.com").orElseThrow();
+		JsonNode membership = joinCampusForDocs(memberToken, campus.path("inviteCode").asText());
+		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"userId\":" + member.id() + "}"))
+			.andExpect(status().isOk());
+
+		mockMvc.perform(delete("/api/v1/campuses/{campusId}/members/{membershipId}",
+				campusId, membership.path("membershipId").asLong())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT"))
+			.andExpect(jsonPath("$.message").value(
+				"활성 담당 배정이 남아 있습니다. 담당 해제를 먼저 완료해 주세요."))
+			.andDo(document("campus-member-delete-active-duty-conflict",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("membershipId").description("활성 담당 배정이 남은 캠퍼스 멤버십 ID")
+				),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	@Transactional
+	void documents_campus_rejoin_active_duty_conflict() throws Exception {
+		String managerToken = signupAndLogin("docs-rejoin-duty-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampusForDocs(managerToken, "200과거담당재가입충돌캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("docs-rejoin-duty-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-rejoin-duty-member@example.com").orElseThrow();
+		joinCampusForDocs(memberToken, campus.path("inviteCode").asText());
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/duty-assignments/meal", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"userId\":" + member.id() + "}"))
+			.andExpect(status().isOk());
+		CampusMember inactiveMember = campusMemberRepository.findByCampusIdAndUserId(campusId, member.id())
+			.orElseThrow();
+		inactiveMember.deactivate();
+		campusMemberRepository.saveAndFlush(inactiveMember);
+
+		mockMvc.perform(post("/api/v1/campuses/join")
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"inviteCode\":\"" + campus.path("inviteCode").asText() + "\"}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT"))
+			.andExpect(jsonPath("$.message").value(
+				"활성 담당 배정이 남아 있습니다. 담당 해제를 먼저 완료해 주세요."))
+			.andDo(document("campus-rejoin-active-duty-conflict",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				requestFields(fieldWithPath("inviteCode").description("과거 활성 담당 배정이 남은 캠퍼스 초대코드")),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
 	void documents_admin_campus_role_change_success() throws Exception {
 		String managerToken = signupAndLogin("docs-role-manager@example.com", UserRole.MANAGER);
 		JsonNode campus = createCampusForDocs(managerToken, "32캠");

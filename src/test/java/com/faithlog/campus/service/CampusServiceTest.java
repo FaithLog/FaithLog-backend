@@ -329,11 +329,13 @@ class CampusServiceTest {
 		assertThatThrownBy(() -> campusService.deleteCampusMember(
 			campus.campusId(), coffeeMembership.membershipId(), manager.id()
 		))
-			.isInstanceOf(BusinessException.class);
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("활성 담당 배정이 남아 있습니다. 담당 해제를 먼저 완료해 주세요.");
 		assertThatThrownBy(() -> campusService.deleteCampusMember(
 			campus.campusId(), mealMembership.membershipId(), manager.id()
 		))
-			.isInstanceOf(BusinessException.class);
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("활성 담당 배정이 남아 있습니다. 담당 해제를 먼저 완료해 주세요.");
 		assertThat(campusMemberRepository.findById(coffeeMembership.membershipId()))
 			.get()
 			.matches(CampusMember::isActive);
@@ -364,7 +366,7 @@ class CampusServiceTest {
 	}
 
 	@Test
-	void joinCampus_does_not_restore_stale_coffee_or_meal_duty_capability() {
+	void joinCampus_rejects_stale_coffee_or_meal_duty_instead_of_restoring_capability() {
 		User manager = saveUser("stale-duty-rejoin-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("stale-duty-rejoin-target@example.com", UserRole.USER);
 		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
@@ -379,12 +381,12 @@ class CampusServiceTest {
 		inactiveMember.deactivate();
 		campusMemberRepository.saveAndFlush(inactiveMember);
 
-		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
-
-		assertThat(List.of(
-			campusService.getMyCoffeeDutyAssignment(campus.campusId(), duty.id()).active(),
-			campusService.getMyMealDutyAssignment(campus.campusId(), duty.id()).active()
-		)).containsOnly(false);
+		assertThatThrownBy(() -> campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode())))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("활성 담당 배정이 남아 있습니다. 담당 해제를 먼저 완료해 주세요.");
+		assertThat(campusMemberRepository.findById(membership.membershipId()))
+			.get()
+			.matches(member -> !member.isActive());
 	}
 
 	@Test
@@ -427,11 +429,13 @@ class CampusServiceTest {
 		assertThatThrownBy(() -> campusService.deleteCampusMember(
 			campus.campusId(), coffeeMembership.membershipId(), manager.id()
 		))
-			.isInstanceOf(BusinessException.class);
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("활성 담당 배정이 남아 있습니다. 담당 해제를 먼저 완료해 주세요.");
 		assertThatThrownBy(() -> campusService.deleteCampusMember(
 			campus.campusId(), mealMembership.membershipId(), manager.id()
 		))
-			.isInstanceOf(BusinessException.class);
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("활성 담당 배정이 남아 있습니다. 담당 해제를 먼저 완료해 주세요.");
 		assertThat(campusMemberRepository.findById(coffeeMembership.membershipId()))
 			.get()
 			.matches(CampusMember::isActive);
