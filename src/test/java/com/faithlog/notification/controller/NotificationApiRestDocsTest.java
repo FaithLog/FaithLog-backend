@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +27,7 @@ import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentReposit
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.notification.service.FcmTokenService;
+import com.faithlog.notification.service.NotificationLockKey;
 import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
 import com.faithlog.notification.domain.type.DeviceType;
 import com.faithlog.billing.domain.entity.ChargeItem;
@@ -40,6 +42,8 @@ import com.faithlog.user.infrastructure.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.time.Duration;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
@@ -47,6 +51,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.restdocs.payload.JsonFieldType;
+import org.springframework.restdocs.payload.FieldDescriptor;
+import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -85,6 +91,14 @@ class NotificationApiRestDocsTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
+
+	@AfterEach
+	void resetNotificationConcurrencyPort() {
+		notificationConcurrencyPort.reset();
+	}
 
 	@Test
 	void registerFcmTokenDocs() throws Exception {
@@ -267,6 +281,90 @@ class NotificationApiRestDocsTest {
 		);
 	}
 
+	@Test
+	void sendCoffeeChargeRemindersForbiddenDocs() throws Exception {
+		documentChargeReminderForbidden(
+			"notification-docs-coffee-forbidden",
+			"/api/v1/campuses/{campusId}/coffee/charge-reminders",
+			"notification-send-coffee-charge-reminders-forbidden",
+			"NOTIFICATION_COFFEE_CHARGE_REMINDER_FORBIDDEN"
+		);
+	}
+
+	@Test
+	void sendMealChargeRemindersForbiddenDocs() throws Exception {
+		documentChargeReminderForbidden(
+			"notification-docs-meal-forbidden",
+			"/api/v1/campuses/{campusId}/meal/charge-reminders",
+			"notification-send-meal-charge-reminders-forbidden",
+			"NOTIFICATION_MEAL_CHARGE_REMINDER_FORBIDDEN"
+		);
+	}
+
+	@Test
+	void sendCoffeeChargeRemindersConflictDocs() throws Exception {
+		ChargeReminderFixture fixture = chargeReminderFixture(
+			"notification-docs-coffee-conflict", PaymentCategory.COFFEE, 4000);
+		notificationConcurrencyPort.acquire(
+			NotificationLockKey.chargeReminder(
+				fixture.campusId(), fixture.dutyUserId(), PaymentCategory.COFFEE.name()),
+			Duration.ofMinutes(10));
+
+		documentChargeReminderError(
+			fixture.dutyToken(), fixture.campusId(),
+			"/api/v1/campuses/{campusId}/coffee/charge-reminders",
+			"notification-send-charge-reminders-conflict",
+			409, "NOTIFICATION_LOCK_ALREADY_RUNNING");
+	}
+
+	@Test
+	void sendCoffeeChargeRemindersRedisUnavailableDocs() throws Exception {
+		ChargeReminderFixture fixture = chargeReminderFixture(
+			"notification-docs-coffee-redis", PaymentCategory.COFFEE, 4000);
+		notificationConcurrencyPort.fail();
+
+		documentChargeReminderError(
+			fixture.dutyToken(), fixture.campusId(),
+			"/api/v1/campuses/{campusId}/coffee/charge-reminders",
+			"notification-send-charge-reminders-redis-unavailable",
+			503, "NOTIFICATION_REDIS_UNAVAILABLE");
+	}
+
+	private void documentChargeReminderForbidden(
+		String prefix,
+		String path,
+		String snippetName,
+		String expectedCode
+	) throws Exception {
+		String token = signupAndLogin(prefix + "@example.com", UserRole.USER);
+		User user = userRepository.findByEmail(prefix + "@example.com").orElseThrow();
+		Campus campus = saveCampus(prefix + "-campus");
+		saveMember(campus.id(), user.id());
+		documentChargeReminderError(token, campus.id(), path, snippetName, 403, expectedCode);
+	}
+
+	private void documentChargeReminderError(
+		String token,
+		Long campusId,
+		String path,
+		String snippetName,
+		int expectedStatus,
+		String expectedCode
+	) throws Exception {
+		mockMvc.perform(post(path, campusId)
+				.header("Authorization", "Bearer " + token))
+			.andExpect(status().is(expectedStatus))
+			.andExpect(jsonPath("$.code").value(expectedCode))
+			.andDo(document(
+				snippetName,
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authorizationHeader(),
+				pathParameters(parameterWithName("campusId").description("미납 알림 대상 캠퍼스 ID")),
+				responseFields(errorResponseFields())
+			));
+	}
+
 	private void documentChargeReminder(
 		ChargeReminderFixture fixture,
 		String path,
@@ -319,7 +417,7 @@ class NotificationApiRestDocsTest {
 		fcmTokenService.registerToken(new RegisterFcmTokenCommand(
 			target.id(), prefix + "-fcm-token", prefix + "-client", DeviceType.IOS, "1.0.0"
 		));
-		return new ChargeReminderFixture(dutyToken, campus.id());
+		return new ChargeReminderFixture(dutyToken, campus.id(), duty.id());
 	}
 
 	private Fixture notificationFixture(String prefix) throws Exception {
@@ -424,9 +522,19 @@ class NotificationApiRestDocsTest {
 		return descriptors;
 	}
 
+	private FieldDescriptor[] errorResponseFields() {
+		return new FieldDescriptor[] {
+			fieldWithPath("success").description("요청 성공 여부. 실패 응답에서는 false"),
+			fieldWithPath("code").description("상세 오류 코드"),
+			fieldWithPath("message").description("오류 메시지"),
+			fieldWithPath("data").optional().description("실패 응답에서는 null"),
+			fieldWithPath("timestamp").description("응답 생성 시각")
+		};
+	}
+
 	private record Fixture(String ministerToken, Long campusId, Long targetUserId) {
 	}
 
-	private record ChargeReminderFixture(String dutyToken, Long campusId) {
+	private record ChargeReminderFixture(String dutyToken, Long campusId, Long dutyUserId) {
 	}
 }

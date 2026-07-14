@@ -19,5 +19,11 @@ class NotificationRestDocsIndexTest {
 		assertThat(index).contains("include::{snippets}/notification-list-notification-logs/http-request.adoc[]");
 		assertThat(index).contains("include::{snippets}/notification-send-coffee-charge-reminders/http-request.adoc[]");
 		assertThat(index).contains("include::{snippets}/notification-send-meal-charge-reminders/http-request.adoc[]");
+		assertThat(index).contains("include::{snippets}/notification-send-coffee-charge-reminders-forbidden/http-response.adoc[]");
+		assertThat(index).contains("include::{snippets}/notification-send-meal-charge-reminders-forbidden/http-response.adoc[]");
+		assertThat(index).contains("include::{snippets}/notification-send-charge-reminders-conflict/http-response.adoc[]");
+		assertThat(index).contains("include::{snippets}/notification-send-charge-reminders-redis-unavailable/http-response.adoc[]");
+		assertThat(index).contains("include::{snippets}/admin-coffee-duty-revoke-unpaid-conflict/http-response.adoc[]");
+		assertThat(index).contains("include::{snippets}/admin-meal-duty-revoke-unpaid-conflict/http-response.adoc[]");
 	}
 }

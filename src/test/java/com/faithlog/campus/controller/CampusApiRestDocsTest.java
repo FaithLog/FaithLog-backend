@@ -25,6 +25,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusRole;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.entity.PaymentAccount;
+import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
@@ -56,6 +62,12 @@ class CampusApiRestDocsTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private PaymentAccountRepository paymentAccountRepository;
+
+	@Autowired
+	private ChargeItemRepository chargeItemRepository;
 
 	@Test
 	void documents_campus_create_join_me_and_detail_contracts() throws Exception {
@@ -462,6 +474,66 @@ class CampusApiRestDocsTest {
 					parameterWithName("campusId").description("캠퍼스 ID"),
 					parameterWithName("assignmentId").description("해제할 MEAL duty assignment ID")
 				)
+			));
+	}
+
+	@Test
+	void documents_coffee_duty_revoke_unpaid_conflict() throws Exception {
+		documentDutyRevokeUnpaidConflict(PaymentCategory.COFFEE);
+	}
+
+	@Test
+	void documents_meal_duty_revoke_unpaid_conflict() throws Exception {
+		documentDutyRevokeUnpaidConflict(PaymentCategory.MEAL);
+	}
+
+	private void documentDutyRevokeUnpaidConflict(PaymentCategory category) throws Exception {
+		String prefix = category == PaymentCategory.COFFEE ? "coffee" : "meal";
+		String managerToken = signupAndLogin("docs-" + prefix + "-conflict-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampusForDocs(managerToken, "200" + prefix + "미납해제충돌캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("docs-" + prefix + "-conflict-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("docs-" + prefix + "-conflict-duty@example.com").orElseThrow();
+		joinCampusForDocs(dutyToken, campus.path("inviteCode").asText());
+		String assignPath = category == PaymentCategory.COFFEE
+			? "/api/v1/admin/campuses/{campusId}/duty-assignments/coffee"
+			: "/api/v1/admin/campuses/{campusId}/duty-assignments/meal";
+		var assignRequest = category == PaymentCategory.COFFEE
+			? put(assignPath, campusId)
+			: post(assignPath, campusId);
+		String assignmentBody = mockMvc.perform(assignRequest
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"userId\":" + duty.id() + "}"))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		long assignmentId = objectMapper.readTree(assignmentBody).path("data").path("assignmentId").asLong();
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campusId, category, prefix + " 미납 계좌", "하나은행", "200-" + prefix + "-conflict",
+			"담당자", duty.id()));
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId, duty.id(), category, account.id(), account.bankName(), account.accountNumber(),
+			account.accountHolder(), ChargeSourceType.POLL_RESPONSE, assignmentId,
+			prefix + " 미납", "담당 해제 충돌 문서", 5000, null));
+		String revokePath = "/api/v1/admin/campuses/{campusId}/duty-assignments/" + prefix + "/{assignmentId}";
+		String code = category == PaymentCategory.COFFEE
+			? "CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT"
+			: "CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT";
+
+		mockMvc.perform(delete(revokePath, campusId, assignmentId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value(code))
+			.andDo(document(
+				"admin-" + prefix + "-duty-revoke-unpaid-conflict",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("assignmentId").description("해제할 담당자 배정 ID")
+				),
+				responseFields(errorResponseFields())
 			));
 	}
 
