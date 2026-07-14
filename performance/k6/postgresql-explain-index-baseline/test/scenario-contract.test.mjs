@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -139,4 +140,117 @@ test('raw and normalized reports remain in the issue-local ignored path', () => 
 	const ignore = read('reports/.gitignore');
 	assert.match(ignore, /^\*$/m);
 	assert.match(ignore, /^!\.gitignore$/m);
+});
+
+test('canonical Compose-project lock conflicts across scenario owners and releases non-recursively', async () => {
+	const runtimeUrl = pathToFileURL(path.join(scenarioRoot, 'runtime-contract.mjs')).href;
+	const { acquireProjectLock, releaseProjectLock } = await import(runtimeUrl);
+	const lockRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-issue-194-lock-'));
+	try {
+		const first = acquireProjectLock('faithlog-latest', 'issue-193', lockRoot);
+		assert.equal(first.path, path.join(lockRoot, 'faithlog-performance-faithlog-latest.lock'));
+		assert.throws(
+			() => acquireProjectLock('faithlog-latest', 'issue-194', lockRoot),
+			/already holds|another performance|lock/i
+		);
+		releaseProjectLock(first);
+		assert.equal(fs.existsSync(first.path), false);
+	} finally {
+		fs.rmSync(lockRoot, { recursive: true, force: true });
+	}
+});
+
+test('WARM_RUNS is mandatory and rejects missing or out-of-range workload input', async () => {
+	const runtimeUrl = pathToFileURL(path.join(scenarioRoot, 'runtime-contract.mjs')).href;
+	const { parseWarmRuns } = await import(runtimeUrl);
+	assert.throws(() => parseWarmRuns(undefined), /WARM_RUNS.*required/i);
+	assert.throws(() => parseWarmRuns('0'), /1 through 20/i);
+	assert.throws(() => parseWarmRuns('21'), /1 through 20/i);
+	assert.equal(parseWarmRuns('3'), 3);
+});
+
+test('database identity preflight fails closed when psql target is not the inspected container database', async () => {
+	const runtimeUrl = pathToFileURL(path.join(scenarioRoot, 'runtime-contract.mjs')).href;
+	const { validateDatabaseIdentity } = await import(runtimeUrl);
+	const inspected = {
+		postgresContainerId: 'container-194',
+		composeProject: 'faithlog-latest',
+		composeService: 'postgres',
+		containerStartedAt: '2026-07-14T00:00:00.000Z',
+		postgresInternalPort: 5432,
+		containerNetworkAddresses: ['172.30.0.4'],
+	};
+	const matching = {
+		serverAddress: '172.30.0.4',
+		serverPort: 5432,
+		database: 'faithlog',
+		postmasterStartedAt: '2026-07-14T00:00:01.000Z',
+	};
+	assert.doesNotThrow(() => validateDatabaseIdentity(inspected, matching, 'faithlog'));
+	assert.throws(
+		() => validateDatabaseIdentity(inspected, { ...matching, serverAddress: '172.30.0.99' }, 'faithlog'),
+		/not the inspected PostgreSQL container/i
+	);
+	assert.throws(
+		() => validateDatabaseIdentity(inspected, { ...matching, database: 'other' }, 'faithlog'),
+		/database/i
+	);
+});
+
+test('planner integrity validator blocks adoption for setting, analyze, n-mod, or external-activity contamination', async () => {
+	const runtimeUrl = pathToFileURL(path.join(scenarioRoot, 'runtime-contract.mjs')).href;
+	const { validateMeasurementIntegrity } = await import(runtimeUrl);
+	const clean = {
+		settings: { enable_seqscan: 'on', work_mem: '4096' },
+		tableStatistics: [{
+			table: 'charge_items',
+			lastAnalyze: '2026-07-14T00:00:00Z',
+			lastAutoanalyze: null,
+			nModSinceAnalyze: 0,
+		}],
+		externalActivity: { activeSessionCount: 0, sessions: [] },
+	};
+	assert.deepEqual(validateMeasurementIntegrity(clean, structuredClone(clean)), {
+		adoptable: true,
+		reasons: [],
+	});
+	for (const contaminated of [
+		{ ...structuredClone(clean), settings: { enable_seqscan: 'off', work_mem: '4096' } },
+		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], lastAutoanalyze: '2026-07-14T00:01:00Z' }] },
+		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], nModSinceAnalyze: 1 }] },
+		{ ...structuredClone(clean), externalActivity: { activeSessionCount: 1, sessions: [{ pid: 42 }] } },
+	]) {
+		assert.equal(validateMeasurementIntegrity(clean, contaminated).adoptable, false);
+	}
+});
+
+test('inventory classifies exact, reconstructed, and synthetic SQL and forbids synthetic production-before evidence', async () => {
+	const evidenceUrl = pathToFileURL(path.join(scenarioRoot, 'evidence-contract.mjs')).href;
+	const { validateEvidenceInventory, groupEvidenceQueries } = await import(evidenceUrl);
+	const inventory = JSON.parse(read('inventory.json'));
+	assert.doesNotThrow(() => validateEvidenceInventory(inventory));
+	const groups = groupEvidenceQueries(inventory.queries);
+	assert.ok(Array.isArray(groups.exactCurrentProduction));
+	assert.ok(Array.isArray(groups.reconstructedCurrentQuery));
+	assert.ok(Array.isArray(groups.syntheticCandidate));
+	for (const id of ['i193-admin-charge-filter-page', 'i199-dashboard-summary']) {
+		const query = inventory.queries.find((item) => item.id === id);
+		assert.equal(query.evidenceClass, 'synthetic-candidate');
+		assert.equal(query.productionBeforeEligible, false);
+		assert.ok(query.productionSourceRefs.length > 0);
+	}
+	assert.ok(inventory.queries.every((query) => (
+		query.evidenceClass === 'exact-current-production'
+		|| query.productionBeforeEligible === false
+	)));
+});
+
+test('plan hash preserves topology while ignoring runtime-only metric differences', async () => {
+	const normalizerUrl = pathToFileURL(path.join(scenarioRoot, 'normalize-plan.mjs')).href;
+	const { normalizeExplain } = await import(normalizerUrl);
+	const nested = normalizeExplain(JSON.parse(read('test/fixtures/explain-topology-nested.json')));
+	const siblings = normalizeExplain(JSON.parse(read('test/fixtures/explain-topology-siblings.json')));
+	assert.notEqual(nested.planHash, siblings.planHash);
+	assert.deepEqual(nested.structure.tree.children[0].children[0].nodeType, 'Seq Scan');
+	assert.equal(siblings.structure.tree.children.length, 2);
 });
