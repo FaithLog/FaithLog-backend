@@ -310,6 +310,137 @@ class CampusServiceTest {
 	}
 
 	@Test
+	void deleteCampusMember_rejects_active_coffee_and_meal_duties_before_deactivating_membership() {
+		User manager = saveUser("delete-active-duty-manager@example.com", UserRole.MANAGER);
+		User coffeeDuty = saveUser("delete-active-coffee-duty@example.com", UserRole.USER);
+		User mealDuty = saveUser("delete-active-meal-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "200활성담당삭제차단캠", "분당", "활성 담당 회원 삭제 차단 RED"
+		));
+		CampusMembershipResult coffeeMembership = campusService.joinCampus(new JoinCampusCommand(
+			coffeeDuty.id(), campus.inviteCode()
+		));
+		CampusMembershipResult mealMembership = campusService.joinCampus(new JoinCampusCommand(
+			mealDuty.id(), campus.inviteCode()
+		));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), coffeeDuty.id()));
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), mealDuty.id()));
+
+		assertThatThrownBy(() -> campusService.deleteCampusMember(
+			campus.campusId(), coffeeMembership.membershipId(), manager.id()
+		))
+			.isInstanceOf(BusinessException.class);
+		assertThatThrownBy(() -> campusService.deleteCampusMember(
+			campus.campusId(), mealMembership.membershipId(), manager.id()
+		))
+			.isInstanceOf(BusinessException.class);
+		assertThat(campusMemberRepository.findById(coffeeMembership.membershipId()))
+			.get()
+			.matches(CampusMember::isActive);
+		assertThat(campusMemberRepository.findById(mealMembership.membershipId()))
+			.get()
+			.matches(CampusMember::isActive);
+	}
+
+	@Test
+	void getDutyAssignments_excludes_inactive_members_with_stale_active_assignments() {
+		User manager = saveUser("inactive-duty-list-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("inactive-duty-list-target@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "200비활성담당목록캠", "분당", "비활성 회원 담당 목록 제외 RED"
+		));
+		CampusMembershipResult membership = campusService.joinCampus(new JoinCampusCommand(
+			duty.id(), campus.inviteCode()
+		));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		CampusMember inactiveMember = campusMemberRepository.findById(membership.membershipId()).orElseThrow();
+		inactiveMember.deactivate();
+		campusMemberRepository.saveAndFlush(inactiveMember);
+
+		assertThat(campusService.getDutyAssignments(campus.campusId(), manager.id()))
+			.extracting(DutyAssignmentResult::userId)
+			.doesNotContain(duty.id());
+	}
+
+	@Test
+	void joinCampus_does_not_restore_stale_coffee_or_meal_duty_capability() {
+		User manager = saveUser("stale-duty-rejoin-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("stale-duty-rejoin-target@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "200과거담당재가입캠", "분당", "과거 담당 자동 복원 차단 RED"
+		));
+		CampusMembershipResult membership = campusService.joinCampus(new JoinCampusCommand(
+			duty.id(), campus.inviteCode()
+		));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		CampusMember inactiveMember = campusMemberRepository.findById(membership.membershipId()).orElseThrow();
+		inactiveMember.deactivate();
+		campusMemberRepository.saveAndFlush(inactiveMember);
+
+		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
+
+		assertThat(List.of(
+			campusService.getMyCoffeeDutyAssignment(campus.campusId(), duty.id()).active(),
+			campusService.getMyMealDutyAssignment(campus.campusId(), duty.id()).active()
+		)).containsOnly(false);
+	}
+
+	@Test
+	void deleteCampusMember_does_not_bypass_owned_unpaid_duty_conflict() {
+		User manager = saveUser("delete-unpaid-duty-manager@example.com", UserRole.MANAGER);
+		User coffeeDuty = saveUser("delete-unpaid-coffee-duty@example.com", UserRole.USER);
+		User mealDuty = saveUser("delete-unpaid-meal-duty@example.com", UserRole.USER);
+		User chargedMember = saveUser("delete-unpaid-charged-member@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "200미납담당삭제차단캠", "분당", "미납 담당 회원 삭제 우회 차단 RED"
+		));
+		CampusMembershipResult coffeeMembership = campusService.joinCampus(new JoinCampusCommand(
+			coffeeDuty.id(), campus.inviteCode()
+		));
+		CampusMembershipResult mealMembership = campusService.joinCampus(new JoinCampusCommand(
+			mealDuty.id(), campus.inviteCode()
+		));
+		campusService.joinCampus(new JoinCampusCommand(chargedMember.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), coffeeDuty.id()));
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), mealDuty.id()));
+		PaymentAccount coffeeAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "삭제 차단 커피 계좌", "하나은행", "200-DELETE-COFFEE",
+			"커피담당", coffeeDuty.id()
+		));
+		PaymentAccount mealAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.MEAL, "삭제 차단 밥 계좌", "국민은행", "200-DELETE-MEAL",
+			"밥담당", mealDuty.id()
+		));
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), chargedMember.id(), PaymentCategory.COFFEE, coffeeAccount.id(), coffeeAccount.bankName(),
+			coffeeAccount.accountNumber(), coffeeAccount.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20011L,
+			"회원 삭제 커피 미납", "회원 삭제 우회 RED", 1800, null
+		));
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), chargedMember.id(), PaymentCategory.MEAL, mealAccount.id(), mealAccount.bankName(),
+			mealAccount.accountNumber(), mealAccount.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20012L,
+			"회원 삭제 밥 미납", "회원 삭제 우회 RED", 7000, null
+		));
+
+		assertThatThrownBy(() -> campusService.deleteCampusMember(
+			campus.campusId(), coffeeMembership.membershipId(), manager.id()
+		))
+			.isInstanceOf(BusinessException.class);
+		assertThatThrownBy(() -> campusService.deleteCampusMember(
+			campus.campusId(), mealMembership.membershipId(), manager.id()
+		))
+			.isInstanceOf(BusinessException.class);
+		assertThat(campusMemberRepository.findById(coffeeMembership.membershipId()))
+			.get()
+			.matches(CampusMember::isActive);
+		assertThat(campusMemberRepository.findById(mealMembership.membershipId()))
+			.get()
+			.matches(CampusMember::isActive);
+	}
+
+	@Test
 	void changeCampusRole_allows_same_or_lower_role_assignment_by_campus_hierarchy() {
 		User manager = saveUser("role-manager@example.com", UserRole.MANAGER);
 		User minister = saveUser("role-minister@example.com", UserRole.USER);

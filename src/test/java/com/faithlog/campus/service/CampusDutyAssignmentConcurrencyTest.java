@@ -5,6 +5,7 @@ import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.campus.service.result.CampusMembershipResult;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,8 +18,10 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.domain.entity.CampusDutyAssignment;
+import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
@@ -62,6 +65,9 @@ class CampusDutyAssignmentConcurrencyTest {
 
 	@MockitoSpyBean
 	private CampusDutyAssignmentRepository dutyAssignmentRepository;
+
+	@MockitoSpyBean
+	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
 	private TransactionTemplate transactionTemplate;
@@ -177,6 +183,135 @@ class CampusDutyAssignmentConcurrencyTest {
 	@Test
 	void meal_revoke_and_same_user_assign_are_serialized_so_successful_assign_stays_active() throws Exception {
 		verifyRevokeAndReassignAreSerialized(DutyType.MEAL);
+	}
+
+	@Test
+	void member_deletion_and_duty_assignment_are_serialized_by_campus_then_duty_order() throws Exception {
+		User manager = saveUser("member-delete-assign-manager@example.com", UserRole.MANAGER);
+		User target = saveUser("member-delete-assign-target@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "회원삭제지정직렬화캠", "분당", "회원 삭제와 담당 지정 동시성 RED"
+		));
+		CampusMembershipResult membership = campusService.joinCampus(new JoinCampusCommand(
+			target.id(), campus.inviteCode()
+		));
+		CountDownLatch memberLoaded = new CountDownLatch(1);
+		CountDownLatch allowDelete = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			Object result = entityManager.createQuery("""
+				select member
+				from CampusMember member
+				where member.campusId = :campusId
+					and member.id = :membershipId
+				""", CampusMember.class)
+				.setParameter("campusId", campus.campusId())
+				.setParameter("membershipId", membership.membershipId())
+				.getResultStream()
+				.findFirst();
+			if (Thread.currentThread().getName().equals("member-delete-before-assign")) {
+				memberLoaded.countDown();
+				if (!allowDelete.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("member delete release timeout");
+				}
+			}
+			return result;
+		}).when(campusMemberRepository).findByCampusIdAndId(campus.campusId(), membership.membershipId());
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> deletion = executor.submit(() -> {
+				Thread.currentThread().setName("member-delete-before-assign");
+				campusService.deleteCampusMember(campus.campusId(), membership.membershipId(), manager.id());
+			});
+			assertThat(memberLoaded.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<DutyAssignmentResult> assignment = executor.submit(() -> campusService.assignCoffeeDuty(
+				new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), target.id())
+			));
+
+			assertThatThrownBy(() -> assignment.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowDelete.countDown();
+			deletion.get(5, TimeUnit.SECONDS);
+			assertThatThrownBy(() -> assignment.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(BusinessException.class);
+			assertThat(campusMemberRepository.findById(membership.membershipId()))
+				.get()
+				.matches(member -> !member.isActive());
+			assertThat(campusService.getDutyAssignments(campus.campusId(), manager.id()))
+				.extracting(DutyAssignmentResult::userId)
+				.doesNotContain(target.id());
+		} finally {
+			allowDelete.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void member_deletion_waits_for_duty_revoke_in_campus_then_duty_order() throws Exception {
+		User manager = saveUser("member-delete-revoke-manager@example.com", UserRole.MANAGER);
+		User target = saveUser("member-delete-revoke-target@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "회원삭제해제직렬화캠", "분당", "회원 삭제와 담당 해제 동시성 RED"
+		));
+		CampusMembershipResult membership = campusService.joinCampus(new JoinCampusCommand(
+			target.id(), campus.inviteCode()
+		));
+		DutyAssignmentResult assignment = campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), manager.id(), target.id()
+		));
+		CountDownLatch dutyLocked = new CountDownLatch(1);
+		CountDownLatch allowRevoke = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			Object result = entityManager.createQuery("""
+				select assignment
+				from CampusDutyAssignment assignment
+				where assignment.campusId = :campusId
+					and assignment.dutyType = :dutyType
+					and assignment.userId = :userId
+					and assignment.isActive = true
+				""", CampusDutyAssignment.class)
+				.setParameter("campusId", campus.campusId())
+				.setParameter("dutyType", DutyType.COFFEE)
+				.setParameter("userId", target.id())
+				.setLockMode(LockModeType.PESSIMISTIC_WRITE)
+				.getResultStream()
+				.findFirst();
+			if (Thread.currentThread().getName().equals("member-duty-revoke")) {
+				dutyLocked.countDown();
+				if (!allowRevoke.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("duty revoke release timeout");
+				}
+			}
+			return result;
+		}).when(dutyAssignmentRepository).findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campus.campusId(), DutyType.COFFEE, target.id());
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> revoke = executor.submit(() -> {
+				Thread.currentThread().setName("member-duty-revoke");
+				campusService.revokeCoffeeDuty(campus.campusId(), assignment.assignmentId(), manager.id());
+			});
+			assertThat(dutyLocked.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> deletion = executor.submit(() -> campusService.deleteCampusMember(
+				campus.campusId(), membership.membershipId(), manager.id()
+			));
+
+			assertThatThrownBy(() -> deletion.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowRevoke.countDown();
+			revoke.get(5, TimeUnit.SECONDS);
+			deletion.get(5, TimeUnit.SECONDS);
+			assertThat(campusMemberRepository.findById(membership.membershipId()))
+				.get()
+				.matches(member -> !member.isActive());
+			assertThat(campusService.getDutyAssignments(campus.campusId(), manager.id()))
+				.extracting(DutyAssignmentResult::assignmentId)
+				.doesNotContain(assignment.assignmentId());
+		} finally {
+			allowRevoke.countDown();
+			executor.shutdownNow();
+		}
 	}
 
 	private void verifyRevokeAndReassignAreSerialized(DutyType dutyType) throws Exception {
