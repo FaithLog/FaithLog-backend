@@ -72,6 +72,7 @@ test('canonical lock rebinds immutable Compose identity before psql and verifies
 		networkIdentity: [{ name: 'faithlog_default', networkId: 'network-a', ipAddress: '172.20.0.2', globalIPv6Address: '' }],
 	};
 	assert.equal(validateComposeIdentityContinuity(approved, structuredClone(approved)).stable, true);
+	assert.equal(validateComposeIdentityContinuity({}, {}).stable, false);
 	for (const changed of [
 		{ postgresContainerId: 'container-b' },
 		{ postgresImageId: 'sha256:image-b' },

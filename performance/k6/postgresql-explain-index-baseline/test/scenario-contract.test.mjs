@@ -99,22 +99,25 @@ test('runner requires traceable fixture identity, exclusive lock, runtime creden
 	const sqlLoadIndex = runner.indexOf('sqlSources = loadSqlSources');
 	const anchorSyntaxIndex = runner.indexOf('variables = validateAnchors');
 	const sourceGateIndex = runner.indexOf('sourceIntegrity = validateSourceIdentity');
-	const inspectIndex = runner.indexOf('composeIdentity = inspectComposeIdentity');
+	const inspectIndex = runner.indexOf('composeIdentityBeforeLock = inspectComposeIdentity');
 	const lockIndex = runner.indexOf('projectLock = acquireProjectLock');
+	const reboundInspectIndex = runner.indexOf('composeIdentityAfterLock = inspectComposeIdentity');
+	const composeContinuityIndex = runner.indexOf('validateComposeIdentityContinuity(composeIdentityBeforeLock, composeIdentityAfterLock)');
 	const identityIndex = runner.indexOf('databaseIdentity = captureDatabaseIdentity');
-	const identityValidationIndex = runner.indexOf('validateDatabaseIdentity(composeIdentity, databaseIdentity');
+	const identityValidationIndex = runner.indexOf('validateDatabaseIdentity(composeIdentityAfterLock, databaseIdentity');
 	const schemaGateIndex = runner.indexOf('const schemaStartIntegrity = validateSchemaSnapshot');
 	const anchorDbGateIndex = runner.indexOf('const anchorIntegrity = validateAnchorPreflight');
 	const startGateIndex = runner.indexOf('const startIntegrity = validateMeasurementStart');
 	const explainIndex = runner.indexOf('rawExplain = await explain');
 	assert.ok([
 		artifactIndex, sqlLoadIndex, anchorSyntaxIndex, sourceGateIndex, inspectIndex,
-		lockIndex, identityIndex, identityValidationIndex, schemaGateIndex, anchorDbGateIndex,
+		lockIndex, reboundInspectIndex, composeContinuityIndex, identityIndex, identityValidationIndex, schemaGateIndex, anchorDbGateIndex,
 		startGateIndex, explainIndex,
 	].every((index) => index >= 0), 'every runner gate/order sentinel must exist');
 	assert.ok(artifactIndex < sqlLoadIndex && sqlLoadIndex < anchorSyntaxIndex
 		&& anchorSyntaxIndex < sourceGateIndex && sourceGateIndex < inspectIndex
-		&& inspectIndex < lockIndex && lockIndex < identityIndex
+		&& inspectIndex < lockIndex && lockIndex < reboundInspectIndex
+		&& reboundInspectIndex < composeContinuityIndex && composeContinuityIndex < identityIndex
 		&& identityIndex < identityValidationIndex && identityValidationIndex < startGateIndex
 		&& identityValidationIndex < schemaGateIndex && schemaGateIndex < anchorDbGateIndex
 		&& anchorDbGateIndex < startGateIndex && startGateIndex < explainIndex);

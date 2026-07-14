@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { parseActivitySampleInterval } from './runtime-contract.mjs';
 
-const [outputPath, measuredApplicationPrefix] = process.argv.slice(2);
-if (!outputPath || !measuredApplicationPrefix) {
-	throw new Error('Usage: activity-monitor-worker.mjs <output-path> <measured-application-prefix>');
+const [outputPath, measuredApplicationPrefix, sampleIntervalInput, measuredDatabase] = process.argv.slice(2);
+if (!outputPath || !measuredApplicationPrefix || !measuredDatabase) {
+	throw new Error('Usage: activity-monitor-worker.mjs <output-path> <measured-application-prefix> <sample-interval-ms> <measured-database>');
 }
+const activitySampleIntervalMs = parseActivitySampleInterval(sampleIntervalInput);
 
 let stopping = false;
 let sampleCount = 0;
@@ -31,7 +33,7 @@ process.stdin.on('data', (chunk) => {
 while (!stopping) {
 	recordSample(captureSample());
 	if (sampleCount === 1) process.stdout.write('ready\n');
-	await delay(50);
+	await delay(activitySampleIntervalMs);
 }
 
 recordSample(captureSample());
@@ -50,6 +52,8 @@ fs.writeFileSync(outputPath, `${JSON.stringify({
 		&& measured.every((registration) => registration.observed && registration.unregistered),
 	transientExternalActivityDetected: observed.length > 0,
 	sampleCount,
+	activitySampleIntervalMs,
+	measuredDatabase,
 	measuredApplicationPrefix,
 	measuredSessionObserved: measured.length > 0 && measured.every((registration) => registration.observed),
 	measuredSessions: measured,
@@ -125,11 +129,12 @@ function validateBinding(registration, binding) {
 function captureSample() {
 	const result = spawnSync('psql', ['-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-v', `measured_prefix=${measuredApplicationPrefix}`, '-c', `
 		SELECT COALESCE(json_agg(json_build_object(
-			'pid', pid, 'applicationName', application_name, 'backendStart', backend_start,
+			'pid', pid, 'database', datname, 'backendType', backend_type,
+			'applicationName', application_name, 'backendStart', backend_start,
 			'state', state, 'waitEventType', wait_event_type, 'waitEvent', wait_event, 'queryStart', query_start
 		) ORDER BY pid), '[]'::json)
 		FROM pg_stat_activity
-		WHERE datname = current_database()
+		WHERE backend_type = 'client backend'
 			AND pid <> pg_backend_pid()
 			AND (state <> 'idle' OR application_name LIKE :'measured_prefix' || '%');
 	`], {

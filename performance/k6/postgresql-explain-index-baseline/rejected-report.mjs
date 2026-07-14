@@ -3,7 +3,7 @@ import fs from 'node:fs';
 export function writeRejectedReport(filePath, {
 	phase, reasons, queryRunCount, composeIdentity, databaseIdentity, capturedSnapshot,
 	schemaState = null, sourceIdentity = null, datasetId = null, fixtureRunId = null,
-	crossIssueArtifacts = [], activityWindows = [], schemaVersion = 2,
+	crossIssueArtifacts = [], activityWindows = [], activitySampleIntervalMs = null, schemaVersion = 2,
 }) {
 	const safePhase = phase === 'start-integrity' ? 'start-integrity' : 'runtime-failure';
 	const report = {
@@ -11,6 +11,7 @@ export function writeRejectedReport(filePath, {
 		status: `invalid-pending-${safePhase}`,
 		datasetId,
 		fixtureRunId,
+		activitySampleIntervalMs,
 		reasons: sanitizeReasons(reasons),
 		queryRunCount: Number.isSafeInteger(queryRunCount) && queryRunCount >= 0 ? queryRunCount : 0,
 		composeIdentity: composeIdentity ?? null,

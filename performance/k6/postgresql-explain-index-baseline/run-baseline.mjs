@@ -8,7 +8,7 @@ import { normalizeExplain } from './normalize-plan.mjs';
 import { validateAnchorPreflight, validateAnchors, validateAnchorsAgainstArtifacts } from './anchor-contract.mjs';
 import { validateActivityWindow } from './activity-monitor-contract.mjs';
 import { validateCrossIssueArtifacts } from './cross-issue-contract.mjs';
-import { writeRejectedReport } from './rejected-report.mjs';
+import { writeRejectedReport as writeRejectedReportFile } from './rejected-report.mjs';
 import { allocateReportDirectory, terminateChildProcess, withTimeout } from './runner-safety-contract.mjs';
 import { normalizeSchemaState, validateSchemaContinuity, validateSchemaSnapshot } from './schema-contract.mjs';
 import { assertSingleReadOnlySelect, buildSourceIdentity, loadSqlSources, validateSourceContinuity, validateSourceIdentity } from './source-identity.mjs';
@@ -17,10 +17,12 @@ import {
 	acquireProjectLock,
 	assertProjectLockOwned,
 	decideMeasurementOutcome,
+	parseActivitySampleInterval,
 	parseWarmRuns,
 	releaseProjectLock,
 	validateDatabaseContinuity,
 	validateDatabaseIdentity,
+	validateComposeIdentityContinuity,
 	validateMeasurementIntegrity,
 	validateMeasurementStart,
 } from './runtime-contract.mjs';
@@ -39,6 +41,7 @@ const requiredRuntimeInputs = [
 	'PGUSER',
 	'PGPASSWORD',
 	'WARM_RUNS',
+	'ACTIVITY_SAMPLE_INTERVAL_MS',
 ];
 
 for (const name of requiredRuntimeInputs) {
@@ -51,6 +54,11 @@ if (process.env.ALLOW_EXPLAIN_ANALYZE !== 'true') {
 }
 
 const warmRuns = parseWarmRuns(process.env.WARM_RUNS);
+const activitySampleIntervalMs = parseActivitySampleInterval(process.env.ACTIVITY_SAMPLE_INTERVAL_MS);
+
+function writeRejectedReport(filePath, details) {
+	return writeRejectedReportFile(filePath, { ...details, activitySampleIntervalMs });
+}
 
 fs.mkdirSync(reportsRoot, { recursive: true });
 
@@ -94,7 +102,18 @@ async function run() {
 	let variables = null;
 	let sourceIdentity = null;
 	let sourceIntegrity = null;
-	let composeIdentity = null;
+	let composeIdentityBeforeLock = null;
+	let composeIdentityAfterLock = null;
+	let composeIdentityAfterMeasurement = null;
+	let composeLockContinuity = null;
+	let composeMeasurementContinuity = null;
+	const composeIdentityEvidence = () => ({
+		beforeLock: composeIdentityBeforeLock,
+		afterLock: composeIdentityAfterLock,
+		afterMeasurement: composeIdentityAfterMeasurement,
+		lockContinuity: composeLockContinuity,
+		measurementContinuity: composeMeasurementContinuity,
+	});
 	try {
 		crossIssueReportText = fs.readFileSync(crossIssueReportPath, 'utf8');
 		crossIssueReport = JSON.parse(crossIssueReportText);
@@ -129,21 +148,21 @@ async function run() {
 		if (!sourceIntegrity.adoptable) {
 			throw new Error(`Source identity is not adoptable; no Docker/psql/EXPLAIN was run: ${sourceIntegrity.reasons.join(', ')}`);
 		}
-		composeIdentity = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+		composeIdentityBeforeLock = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
 	} catch (error) {
 		writeRejectedReport(reportPath, {
 			phase: 'start-integrity', reasons: ['input-or-identity-preflight-failure'], queryRunCount: 0,
-			composeIdentity, databaseIdentity: null, capturedSnapshot: null, sourceIdentity,
+			composeIdentity: composeIdentityEvidence(), databaseIdentity: null, capturedSnapshot: null, sourceIdentity,
 			datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID, crossIssueArtifacts,
 		});
 		throw error;
 	}
 	try {
-		projectLock = acquireProjectLock(composeIdentity.composeProject, 'issue-194');
+		projectLock = acquireProjectLock(composeIdentityBeforeLock.composeProject, 'issue-194');
 	} catch (error) {
 		writeRejectedReport(reportPath, {
 			phase: 'start-integrity', reasons: ['canonical-runner-lock-unavailable'], queryRunCount: 0,
-			composeIdentity, databaseIdentity: null, capturedSnapshot: null, sourceIdentity,
+			composeIdentity: composeIdentityEvidence(), databaseIdentity: null, capturedSnapshot: null, sourceIdentity,
 			datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID, crossIssueArtifacts,
 		});
 		throw error;
@@ -157,14 +176,24 @@ async function run() {
 	let explainRunCount = 0;
 	let measurementMonitor = null;
 	try {
+		composeIdentityAfterLock = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+		composeLockContinuity = validateComposeIdentityContinuity(composeIdentityBeforeLock, composeIdentityAfterLock);
+		if (!composeLockContinuity.stable) {
+			writeRejectedReport(reportPath, {
+				phase: 'start-integrity', reasons: composeLockContinuity.reasons, queryRunCount: 0,
+				composeIdentity: composeIdentityEvidence(), databaseIdentity: null, capturedSnapshot: null, sourceIdentity,
+				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID, crossIssueArtifacts,
+			});
+			throw new Error('PostgreSQL container identity changed while acquiring the canonical runner lock; no psql or EXPLAIN was run.');
+		}
 		databaseIdentity = captureDatabaseIdentity();
-		validateDatabaseIdentity(composeIdentity, databaseIdentity, process.env.PGDATABASE);
+		validateDatabaseIdentity(composeIdentityAfterLock, databaseIdentity, process.env.PGDATABASE);
 		schemaBefore = captureSchemaState(inventory.observedTables);
 		const schemaStartIntegrity = validateSchemaSnapshot(schemaBefore, inventory.observedTables);
 		if (!schemaStartIntegrity.adoptable) {
 			writeRejectedReport(reportPath, {
 				phase: 'start-integrity', reasons: schemaStartIntegrity.reasons, queryRunCount: 0,
-				composeIdentity, databaseIdentity, capturedSnapshot: null, schemaState: schemaBefore, sourceIdentity,
+				composeIdentity: composeIdentityEvidence(), databaseIdentity, capturedSnapshot: null, schemaState: schemaBefore, sourceIdentity,
 				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID, crossIssueArtifacts,
 			});
 			throw new Error('Schema/Flyway preflight rejected the measurement; no EXPLAIN was run.');
@@ -174,7 +203,7 @@ async function run() {
 		if (!anchorIntegrity.adoptable) {
 			writeRejectedReport(reportPath, {
 				phase: 'start-integrity', reasons: anchorIntegrity.reasons, queryRunCount: 0,
-				composeIdentity, databaseIdentity, capturedSnapshot: null, schemaState: schemaBefore, sourceIdentity,
+				composeIdentity: composeIdentityEvidence(), databaseIdentity, capturedSnapshot: null, schemaState: schemaBefore, sourceIdentity,
 				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID, crossIssueArtifacts,
 			});
 			throw new Error('Anchor relationship/cardinality preflight rejected the measurement; no EXPLAIN was run.');
@@ -186,7 +215,7 @@ async function run() {
 		if (!startIntegrity.adoptable) {
 			writeRejectedReport(reportPath, {
 				phase: 'start-integrity', reasons: startIntegrity.reasons, queryRunCount: 0,
-				composeIdentity, databaseIdentity, capturedSnapshot: before, schemaState: schemaBefore, sourceIdentity,
+				composeIdentity: composeIdentityEvidence(), databaseIdentity, capturedSnapshot: before, schemaState: schemaBefore, sourceIdentity,
 				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID, crossIssueArtifacts,
 			});
 			throw new Error('Measurement start is contaminated or incomplete; no EXPLAIN was run.');
@@ -248,13 +277,25 @@ async function run() {
 		}
 		activityWindows.push(await stopActivityMonitor(measurementMonitor));
 		measurementMonitor = null;
+		composeIdentityAfterMeasurement = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+		composeMeasurementContinuity = validateComposeIdentityContinuity(composeIdentityAfterLock, composeIdentityAfterMeasurement);
+		if (!composeMeasurementContinuity.stable) {
+			writeRejectedReport(reportPath, {
+				phase: 'runtime-failure', reasons: composeMeasurementContinuity.reasons,
+				queryRunCount: explainRunCount, composeIdentity: composeIdentityEvidence(), databaseIdentity,
+				capturedSnapshot: before, schemaState: schemaBefore, sourceIdentity,
+				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID,
+				crossIssueArtifacts, activityWindows,
+			});
+			throw new Error('PostgreSQL container identity changed during the measurement window.');
+		}
 		const measuredActivityIntegrity = validateActivityWindow(activityWindows[0], {
 			expectedLabels: measurementLabels,
 		});
 		if (!measuredActivityIntegrity.adoptable) {
 			writeRejectedReport(reportPath, {
 				phase: 'runtime-failure', reasons: measuredActivityIntegrity.reasons,
-				queryRunCount: explainRunCount, composeIdentity, databaseIdentity,
+				queryRunCount: explainRunCount, composeIdentity: composeIdentityEvidence(), databaseIdentity,
 				capturedSnapshot: before, schemaState: schemaBefore, sourceIdentity,
 				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID,
 				crossIssueArtifacts, activityWindows,
@@ -265,7 +306,7 @@ async function run() {
 		const schemaAfter = captureSchemaState(inventory.observedTables);
 		const schemaAfterIntegrity = validateSchemaSnapshot(schemaAfter, inventory.observedTables);
 		const databaseIdentityAfter = captureDatabaseIdentity();
-		validateDatabaseIdentity(composeIdentity, databaseIdentityAfter, process.env.PGDATABASE);
+		validateDatabaseIdentity(composeIdentityAfterMeasurement, databaseIdentityAfter, process.env.PGDATABASE);
 		const controlSourcesAfter = loadSqlSources(scenarioRoot, ['inventory.json', 'report-contract.json', 'source-manifest.json']);
 		const sourceIdentityAfter = captureSourceIdentity(
 			inventory, sourceManifest, sourceManifestText, null, controlSourcesAfter
@@ -289,10 +330,12 @@ async function run() {
 		const measurementIntegrity = {
 			adoptable: plannerIntegrity.adoptable && databaseContinuity.stable
 				&& schemaContinuity.stable && schemaAfterIntegrity.adoptable && activityIntegrity.adoptable
-				&& sourceContinuity.stable && crossArtifactContinuity.stable,
+				&& sourceContinuity.stable && crossArtifactContinuity.stable
+				&& composeLockContinuity.stable && composeMeasurementContinuity.stable,
 			reasons: [...plannerIntegrity.reasons, ...databaseContinuity.reasons,
 				...schemaContinuity.reasons, ...schemaAfterIntegrity.reasons, ...activityIntegrity.reasons,
-				...sourceContinuity.reasons, ...crossArtifactContinuity.reasons],
+				...sourceContinuity.reasons, ...crossArtifactContinuity.reasons,
+				...composeLockContinuity.reasons, ...composeMeasurementContinuity.reasons],
 		};
 		const evidenceGroups = groupEvidenceQueries(inventory.queries);
 		const productionBeforeEligibleQueryIds = inventory.queries
@@ -333,6 +376,7 @@ async function run() {
 		finishedAt,
 		sequentialExecution: true,
 		warmRuns,
+		activitySampleIntervalMs,
 		runnerLock: {
 			path: projectLock.path,
 			owner: projectLock.owner,
@@ -345,7 +389,7 @@ async function run() {
 			requiredVariables: ['PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWORD'],
 			valuesRecorded: false,
 		},
-		composeIdentity,
+		composeIdentity: composeIdentityEvidence(),
 		databaseIdentity: {
 			before: databaseIdentity,
 			after: databaseIdentityAfter,
@@ -411,7 +455,7 @@ async function run() {
 			writeRejectedReport(reportPath, {
 				phase: before ? 'runtime-failure' : 'start-integrity',
 				reasons: failureReasons,
-				queryRunCount: explainRunCount, composeIdentity, databaseIdentity,
+				queryRunCount: explainRunCount, composeIdentity: composeIdentityEvidence(), databaseIdentity,
 				capturedSnapshot: before, schemaState: schemaBefore, sourceIdentity,
 				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID,
 				crossIssueArtifacts, activityWindows,
@@ -462,15 +506,27 @@ function inspectComposeIdentity(container) {
 		...Object.keys(item.NetworkSettings?.Ports || {}),
 	]);
 	const postgresPortKey = [...exposedPortKeys].find((key) => key === '5432/tcp');
-	const containerNetworkAddresses = Object.values(item.NetworkSettings?.Networks || {})
-		.flatMap((network) => [network.IPAddress, network.GlobalIPv6Address])
-		.filter(Boolean);
-	if (!postgresPortKey || containerNetworkAddresses.length === 0 || !item.State?.StartedAt || !configuredDatabase) {
-		throw new Error('PostgreSQL container inspect data is missing database, port, network address, or start time identity evidence.');
+	const networkIdentity = Object.entries(item.NetworkSettings?.Networks || {})
+		.map(([name, network]) => ({
+			name,
+			networkId: network.NetworkID || null,
+			ipAddress: network.IPAddress || '',
+			globalIPv6Address: network.GlobalIPv6Address || '',
+		}))
+		.sort((left, right) => left.name.localeCompare(right.name));
+	const containerNetworkAddresses = networkIdentity
+		.flatMap((network) => [network.ipAddress, network.globalIPv6Address])
+		.filter(Boolean)
+		.sort();
+	if (!postgresPortKey || containerNetworkAddresses.length === 0 || !item.State?.StartedAt || !configuredDatabase
+		|| !item.Id || !item.Name || !item.Image || !item.Config?.Image) {
+		throw new Error('PostgreSQL container inspect data is missing container, image, database, port, network, or start-time identity evidence.');
 	}
 	return {
 		postgresContainerId: item.Id,
 		postgresContainerName: item.Name,
+		postgresImageId: item.Image,
+		postgresImageReference: item.Config?.Image,
 		composeProject,
 		composeService,
 		composeConfigFiles: labels['com.docker.compose.project.config_files'] || null,
@@ -479,6 +535,7 @@ function inspectComposeIdentity(container) {
 		containerStartedAt: item.State.StartedAt,
 		postgresInternalPort: Number(postgresPortKey.split('/')[0]),
 		containerNetworkAddresses,
+		networkIdentity,
 	};
 }
 
@@ -499,6 +556,7 @@ function capturePlannerState(observedTables) {
 	const sql = `
 		SELECT json_build_object(
 			'capturedAt', clock_timestamp(),
+			'database', current_database(),
 			'serverVersion', current_setting('server_version'),
 			'postmasterStartedAt', pg_postmaster_start_time(),
 			'settings', (
@@ -529,6 +587,8 @@ function capturePlannerState(observedTables) {
 					'activeSessionCount', count(*),
 					'sessions', COALESCE(json_agg(json_build_object(
 						'pid', pid,
+						'database', datname,
+						'backendType', backend_type,
 						'applicationName', application_name,
 						'state', state,
 						'waitEventType', wait_event_type,
@@ -537,7 +597,7 @@ function capturePlannerState(observedTables) {
 					) ORDER BY pid) FILTER (WHERE pid IS NOT NULL), '[]'::json)
 				)
 				FROM pg_stat_activity
-				WHERE datname = current_database()
+				WHERE backend_type = 'client backend'
 					AND pid <> pg_backend_pid()
 					AND state <> 'idle'
 			)
@@ -635,7 +695,7 @@ function captureSourceIdentity(inventory, sourceManifest, sourceManifestText, sq
 async function startActivityMonitor(reportDirectory, fileStem, measuredApplicationName) {
 	const outputPath = path.join(reportDirectory, 'raw', `${fileStem}__activity-window.json`);
 	const child = spawn(process.execPath, [
-		path.join(scenarioRoot, 'activity-monitor-worker.mjs'), outputPath, measuredApplicationName,
+		path.join(scenarioRoot, 'activity-monitor-worker.mjs'), outputPath, measuredApplicationName, String(activitySampleIntervalMs), process.env.PGDATABASE,
 	], {
 		cwd: scenarioRoot,
 		env: { ...process.env, PGAPPNAME: `faithlog-194-observer-${process.pid}` },

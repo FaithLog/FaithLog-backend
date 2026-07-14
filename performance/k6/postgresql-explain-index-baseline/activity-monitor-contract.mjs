@@ -5,6 +5,10 @@ export function validateActivityWindow(window, { expectedLabels = null } = {}) {
 	if (window?.transientExternalActivityDetected || (window?.sessions || []).length > 0) {
 		reasons.push('transient-external-activity-detected');
 	}
+	if (typeof window?.measuredDatabase === 'string'
+		&& (window?.sessions || []).some((session) => session.database !== window.measuredDatabase)) {
+		reasons.push('other-database-activity-detected');
+	}
 	if (expectedLabels) {
 		const measuredSessions = Array.isArray(window?.measuredSessions) ? window.measuredSessions : [];
 		const actualLabels = measuredSessions.map((session) => session.label).sort();

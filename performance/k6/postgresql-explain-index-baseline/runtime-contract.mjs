@@ -19,6 +19,20 @@ export function parseWarmRuns(value) {
 	return parsed;
 }
 
+export function parseActivitySampleInterval(value) {
+	if (value === undefined || value === null || value === '') {
+		throw new Error('ACTIVITY_SAMPLE_INTERVAL_MS is required at runtime; no observer cadence default is approved.');
+	}
+	if (!/^[1-9]\d*$/.test(String(value))) {
+		throw new Error('ACTIVITY_SAMPLE_INTERVAL_MS must be a positive integer supplied for the approved measurement window.');
+	}
+	const parsed = Number(value);
+	if (!Number.isSafeInteger(parsed) || parsed > 2_147_483_647) {
+		throw new Error('ACTIVITY_SAMPLE_INTERVAL_MS must fit the positive Node.js timer integer range.');
+	}
+	return parsed;
+}
+
 export function parsePageSize(value) {
 	const parsed = Number(value);
 	if (!Number.isSafeInteger(parsed) || parsed < 1) {
@@ -109,6 +123,45 @@ export function validateDatabaseContinuity(before, after) {
 	};
 }
 
+export function validateComposeIdentityContinuity(before, after) {
+	const fields = [
+		'postgresContainerId', 'postgresContainerName', 'postgresImageId', 'postgresImageReference',
+		'containerStartedAt', 'composeProject', 'composeService', 'composeConfigFiles',
+		'composeWorkingDir', 'configuredDatabase', 'postgresInternalPort',
+		'containerNetworkAddresses', 'networkIdentity',
+	];
+	const changedFields = fields.filter((field) => canonicalValue(before?.[field]) !== canonicalValue(after?.[field]));
+	const complete = isCompleteComposeIdentity(before) && isCompleteComposeIdentity(after);
+	const reasons = [];
+	if (!complete) reasons.push('compose-container-identity-incomplete');
+	if (changedFields.length > 0) reasons.push('compose-container-identity-changed');
+	return {
+		stable: complete && changedFields.length === 0,
+		reasons,
+		changedFields,
+	};
+}
+
+function isCompleteComposeIdentity(identity) {
+	const stringFields = [
+		'postgresContainerId', 'postgresContainerName', 'postgresImageId', 'postgresImageReference',
+		'containerStartedAt', 'composeProject', 'composeService', 'configuredDatabase',
+	];
+	return identity && stringFields.every((field) => typeof identity[field] === 'string' && identity[field].length > 0)
+		&& Number.isFinite(Date.parse(identity.containerStartedAt))
+		&& Number.isSafeInteger(identity.postgresInternalPort) && identity.postgresInternalPort > 0
+		&& Array.isArray(identity.containerNetworkAddresses) && identity.containerNetworkAddresses.length > 0
+		&& identity.containerNetworkAddresses.every((address) => typeof address === 'string' && address.length > 0)
+		&& Array.isArray(identity.networkIdentity) && identity.networkIdentity.length > 0
+		&& identity.networkIdentity.every((network) => typeof network?.name === 'string' && network.name.length > 0
+			&& typeof network.networkId === 'string' && network.networkId.length > 0
+			&& Boolean(network.ipAddress || network.globalIPv6Address));
+}
+
+function canonicalValue(value) {
+	return JSON.stringify(value ?? null);
+}
+
 export function validateMeasurementIntegrity(before, after, {
 	expectedTables = [],
 	expectedSettingNames = REQUIRED_PLANNER_SETTINGS,
@@ -155,9 +208,11 @@ export function validateMeasurementIntegrity(before, after, {
 	if (activeSessionCount(before) > 0) {
 		reasons.push('external-activity-present-before');
 	}
+	if (hasOtherDatabaseActivity(before)) reasons.push('other-database-activity-present-before');
 	if (activeSessionCount(after) > 0) {
 		reasons.push('external-activity-present-after');
 	}
+	if (hasOtherDatabaseActivity(after)) reasons.push('other-database-activity-present-after');
 	return { adoptable: reasons.length === 0, reasons };
 }
 
@@ -170,6 +225,7 @@ export function validateMeasurementStart(snapshot, {
 	if (activeSessionCount(snapshot) > 0) {
 		reasons.push('external-activity-present-at-start');
 	}
+	if (hasOtherDatabaseActivity(snapshot)) reasons.push('other-database-activity-present-at-start');
 	return { adoptable: reasons.length === 0, reasons };
 }
 
@@ -243,6 +299,11 @@ function validateSnapshotEvidence(snapshot, phase, expectedTables, expectedSetti
 function activeSessionCount(snapshot) {
 	const value = snapshot.externalActivity?.activeSessionCount;
 	return typeof value === 'number' && Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+}
+
+function hasOtherDatabaseActivity(snapshot) {
+	return typeof snapshot?.database === 'string'
+		&& (snapshot.externalActivity?.sessions || []).some((session) => session.database !== snapshot.database);
 }
 
 function stableStringify(value) {

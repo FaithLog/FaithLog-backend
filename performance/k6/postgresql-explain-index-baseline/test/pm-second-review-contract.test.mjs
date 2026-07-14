@@ -36,19 +36,19 @@ const anchors = {
 	},
 };
 
-test('cross-issue artifacts are real, unique, in-tree accepted JSON with matching identity and hashes', async () => {
+test('cross-issue artifacts are real, unique, in-tree JSON and pending issue contracts fail closed', async () => {
 	const { validateCrossIssueArtifacts } = await import(moduleUrl('cross-issue-contract.mjs'));
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-194-cross-'));
 	try {
 		const issueReports = {};
-		const accepted = {
+		const issueStates = {
 			192: { status: 'verified', passed: true },
-			193: { status: 'eligible-for-pm-review' },
+			193: { status: 'conditional-shared-stack', automaticAdoption: false },
 			195: { status: 'adoptable', adoptable: true },
-			196: { status: 'measured', accepted: true, measurementStatus: 'measured' },
+			196: { status: 'conditional-not-adoptable', accepted: false, automaticAdoption: false },
 			197: { status: 'baseline-measured' },
 			198: { status: 'before-baseline' },
-			199: { status: 'adoptable', adoptable: true },
+			199: { baselineAdoptionStatus: 'conditional-not-adoptable', automaticAdoption: false, status: 'conditional-not-adoptable' },
 		};
 		for (const issueNumber of [192, 193, 195, 196, 197, 198, 199]) {
 			const relative = `artifacts/issue-${issueNumber}.json`;
@@ -60,49 +60,42 @@ test('cross-issue artifacts are real, unique, in-tree accepted JSON with matchin
 				fixtureRunId: 'fixture-1',
 				memberCount: 1000,
 				expectedAnchors: anchors,
-				...accepted[issueNumber],
+				...issueStates[issueNumber],
 			}));
 			issueReports[issueNumber] = relative;
 		}
-		const result = validateCrossIssueArtifacts({
+		assert.throws(() => validateCrossIssueArtifacts({
 			crossIssueReportPath: path.join(root, 'cross.json'),
 			issueReports,
 			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', memberCount: 1000,
-		});
-		assert.equal(result.length, 7);
-		assert.ok(result.every((item) => /^[a-f0-9]{64}$/.test(item.sha256)));
-		const issue199Path = path.join(root, issueReports[199]);
-		const issue199 = JSON.parse(fs.readFileSync(issue199Path, 'utf8'));
-		fs.writeFileSync(issue199Path, JSON.stringify({ ...issue199, status: 'scenario-ready/not-measured', adoptable: false }));
-		assert.throws(() => validateCrossIssueArtifacts({
-			crossIssueReportPath: path.join(root, 'cross.json'), issueReports,
-			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', memberCount: 1000,
-		}), /not measured|adoptable/i);
-		fs.writeFileSync(issue199Path, JSON.stringify({ ...issue199, fixtureRunId: 'other-fixture' }));
+		}), /issue[- ]193.*pending/i);
+		const issue192Path = path.join(root, issueReports[192]);
+		const issue192 = JSON.parse(fs.readFileSync(issue192Path, 'utf8'));
+		fs.writeFileSync(issue192Path, JSON.stringify({ ...issue192, fixtureRunId: 'other-fixture' }));
 		assert.throws(() => validateCrossIssueArtifacts({
 			crossIssueReportPath: path.join(root, 'cross.json'), issueReports,
 			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', memberCount: 1000,
 		}), /fixtureRunId.*does not match/i);
-		fs.writeFileSync(issue199Path, '{invalid-json');
+		fs.writeFileSync(issue192Path, '{invalid-json');
 		assert.throws(() => validateCrossIssueArtifacts({
 			crossIssueReportPath: path.join(root, 'cross.json'), issueReports,
 			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', memberCount: 1000,
 		}), /not valid JSON/i);
-		fs.writeFileSync(issue199Path, JSON.stringify(issue199));
+		fs.writeFileSync(issue192Path, JSON.stringify(issue192));
 
-		issueReports[199] = issueReports[198];
+		issueReports[193] = issueReports[192];
 		assert.throws(() => validateCrossIssueArtifacts({
 			crossIssueReportPath: path.join(root, 'cross.json'), issueReports,
 			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', memberCount: 1000,
 		}), /duplicate/i);
-		issueReports[199] = '../outside.json';
+		issueReports[192] = '../outside.json';
 		assert.throws(() => validateCrossIssueArtifacts({
 			crossIssueReportPath: path.join(root, 'cross.json'), issueReports,
 			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', memberCount: 1000,
 		}), /traversal|outside|relative/i);
 		const link = path.join(root, 'artifacts', 'link.json');
-		fs.symlinkSync(path.join(root, 'artifacts', 'issue-199.json'), link);
-		issueReports[199] = 'artifacts/link.json';
+		fs.symlinkSync(path.join(root, 'artifacts', 'issue-192.json'), link);
+		issueReports[192] = 'artifacts/link.json';
 		assert.throws(() => validateCrossIssueArtifacts({
 			crossIssueReportPath: path.join(root, 'cross.json'), issueReports,
 			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', memberCount: 1000,
@@ -224,9 +217,9 @@ test('query-window monitor retains transient external activity that disappears b
 		const sessionsReady = path.join(root, 'sessions-ready');
 		fs.mkdirSync(bin);
 		const fakePsql = path.join(bin, 'psql');
-		fs.writeFileSync(fakePsql, `#!/bin/sh\nif [ -f "$FAKE_SESSIONS_READY" ]; then\n  printf '%s\\n' '[{"pid":777,"applicationName":"faithlog-measured","backendStart":"2026-07-14T00:00:00Z","state":"idle","queryStart":"2026-07-14T00:00:01Z"},{"pid":903,"applicationName":"faithlog-other","backendStart":"2026-07-14T00:00:00Z","state":"active","queryStart":"2026-07-14T00:00:01Z"}]'\nelse\n  printf '%s\\n' '[]'\nfi\n`);
+		fs.writeFileSync(fakePsql, `#!/bin/sh\nif [ -f "$FAKE_SESSIONS_READY" ]; then\n  printf '%s\\n' '[{"pid":777,"database":"faithlog","backendType":"client backend","applicationName":"faithlog-measured","backendStart":"2026-07-14T00:00:00Z","state":"idle","queryStart":"2026-07-14T00:00:01Z"},{"pid":903,"database":"postgres","backendType":"client backend","applicationName":"faithlog-other","backendStart":"2026-07-14T00:00:00Z","state":"active","queryStart":"2026-07-14T00:00:01Z"}]'\nelse\n  printf '%s\\n' '[]'\nfi\n`);
 		fs.chmodSync(fakePsql, 0o700);
-		const worker = spawn(process.execPath, [path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-'], {
+		const worker = spawn(process.execPath, [path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-', '1', 'faithlog'], {
 			env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_SESSIONS_READY: sessionsReady }, stdio: ['pipe', 'pipe', 'pipe'],
 		});
 		let externalNotified = false;
@@ -270,6 +263,9 @@ test('query-window monitor retains transient external activity that disappears b
 		assert.equal(result.transientExternalActivityDetected, true);
 		assert.deepEqual(result.sessions.map((session) => session.pid), [903]);
 		const { validateActivityWindow } = await import(moduleUrl('activity-monitor-contract.mjs'));
+		const crossDatabase = validateActivityWindow(result, { expectedLabels: ['test-window'] });
+		assert.equal(crossDatabase.adoptable, false);
+		assert.ok(crossDatabase.reasons.includes('other-database-activity-detected'));
 		const unsampled = validateActivityWindow({
 			sampleCount: 2, measuredSessionObserved: false, measuredSessions: [{ pid: 777, observed: false }], sessions: [],
 		});
@@ -313,7 +309,7 @@ test('activity worker rejects wrong backend identity and unknown lifecycle token
 		const sessionsReady = path.join(root, 'sessions-ready');
 		fs.mkdirSync(bin);
 		const fakePsql = path.join(bin, 'psql');
-		fs.writeFileSync(fakePsql, `#!/bin/sh\nif [ -f "$FAKE_SESSIONS_READY" ]; then\n  printf '%s\\n' '[{"pid":777,"applicationName":"faithlog-measured","backendStart":"2026-07-14T00:00:00Z","state":"idle","queryStart":"2026-07-14T00:00:01Z"}]'\nelse\n  printf '%s\\n' '[]'\nfi\n`);
+		fs.writeFileSync(fakePsql, `#!/bin/sh\nif [ -f "$FAKE_SESSIONS_READY" ]; then\n  printf '%s\\n' '[{"pid":777,"database":"faithlog","backendType":"client backend","applicationName":"faithlog-measured","backendStart":"2026-07-14T00:00:00Z","state":"idle","queryStart":"2026-07-14T00:00:01Z"}]'\nelse\n  printf '%s\\n' '[]'\nfi\n`);
 		fs.chmodSync(fakePsql, 0o700);
 		const token = 'b'.repeat(32);
 		const prepared = Buffer.from(JSON.stringify({
@@ -323,7 +319,7 @@ test('activity worker rejects wrong backend identity and unknown lifecycle token
 			pid: 777, applicationName: 'faithlog-measured', backendStart: '2026-07-14T00:00:02Z', registrationToken: token,
 		})).toString('base64url');
 		const output = path.join(root, 'wrong-identity.json');
-		const worker = spawn(process.execPath, [path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-'], {
+		const worker = spawn(process.execPath, [path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-', '1', 'faithlog'], {
 			env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_SESSIONS_READY: sessionsReady }, stdio: ['pipe', 'pipe', 'pipe'],
 		});
 		let measuredAck = false;
@@ -356,7 +352,7 @@ test('activity worker rejects wrong backend identity and unknown lifecycle token
 
 		fs.rmSync(sessionsReady, { force: true });
 		const unknownWorker = spawn(process.execPath, [
-			path.join(scenarioRoot, 'activity-monitor-worker.mjs'), path.join(root, 'unknown.json'), 'faithlog-',
+			path.join(scenarioRoot, 'activity-monitor-worker.mjs'), path.join(root, 'unknown.json'), 'faithlog-', '1', 'faithlog',
 		], {
 			env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_SESSIONS_READY: sessionsReady }, stdio: ['pipe', 'pipe', 'pipe'],
 		});
@@ -444,6 +440,7 @@ test('start and runtime rejection reports are 0600, structured, redacted and pre
 		const file = path.join(root, 'baseline-report.json');
 		writeRejectedReport(file, {
 			phase: 'start-integrity', reasons: ['external-activity-present-at-start'], queryRunCount: 0,
+			activitySampleIntervalMs: 25,
 			composeIdentity: { composeProject: 'faithlog' }, databaseIdentity: { database: 'faithlog' },
 			capturedSnapshot: { capturedAt: '2026-07-14T00:00:00Z' },
 			error: new Error('psql failed PGPASSWORD=raw-secret'),
@@ -452,6 +449,7 @@ test('start and runtime rejection reports are 0600, structured, redacted and pre
 		assert.equal(report.status, 'invalid-pending-start-integrity');
 		assert.equal(report.schemaVersion, 2);
 		assert.equal(report.queryRunCount, 0);
+		assert.equal(report.activitySampleIntervalMs, 25);
 		assert.deepEqual(report.reasons, ['external-activity-present-at-start']);
 		assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /raw-secret|PGPASSWORD|psql failed/);
 		assert.equal(fs.statSync(file).mode & 0o777, 0o600);

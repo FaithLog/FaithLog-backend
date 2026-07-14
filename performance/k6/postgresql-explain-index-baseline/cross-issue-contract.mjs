@@ -89,6 +89,10 @@ function validateArtifactSchema(artifact, expected) {
 	if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) {
 		throw new Error(`Issue ${expected.issueNumber} artifact must be a JSON object.`);
 	}
+	const acceptance = classifyIssueArtifactAcceptance(expected.issueNumber, artifact);
+	if (acceptance.pendingApprovalContract) {
+		throw new Error(acceptance.reason);
+	}
 	for (const field of ['issueNumber', 'datasetId', 'fixtureRunId', 'memberCount', 'status', 'expectedAnchors']) {
 		if (!Object.hasOwn(artifact, field)) {
 			throw new Error(`Issue ${expected.issueNumber} artifact schema is missing ${field}.`);
@@ -102,23 +106,37 @@ function validateArtifactSchema(artifact, expected) {
 	if (!artifact.expectedAnchors || typeof artifact.expectedAnchors !== 'object' || Array.isArray(artifact.expectedAnchors)) {
 		throw new Error(`Issue ${expected.issueNumber} artifact expectedAnchors must be an object.`);
 	}
-	if (!acceptedByExistingIssueContract(expected.issueNumber, artifact)) {
-		throw new Error(`Issue ${expected.issueNumber} artifact is not measured/adoptable under that issue's existing contract.`);
+	if (!acceptance.accepted) {
+		throw new Error(acceptance.reason);
 	}
 }
 
-function acceptedByExistingIssueContract(issueNumber, artifact) {
+export function classifyIssueArtifactAcceptance(issueNumber, artifact) {
 	switch (issueNumber) {
-		case 192: return artifact.status === 'verified' && artifact.passed === true;
-		case 193: return artifact.status === 'eligible-for-pm-review';
-		case 195: return artifact.status === 'adoptable' && artifact.adoptable === true;
-		case 196: return artifact.status === 'measured'
-			&& artifact.accepted === true && artifact.measurementStatus === 'measured';
-		case 197: return artifact.status === 'baseline-measured';
-		case 198: return artifact.status === 'before-baseline';
-		case 199: return artifact.status === 'adoptable' && artifact.adoptable === true;
-		default: return false;
+		case 192: return acceptance(artifact.status === 'verified' && artifact.passed === true, issueNumber);
+		case 193:
+		case 196:
+		case 199:
+			return {
+				accepted: false,
+				pendingApprovalContract: true,
+				reason: `issue-${issueNumber}-adoption-contract-pending: current conditional artifacts and invented success statuses are not accepted.`,
+			};
+		case 195: return acceptance(artifact.status === 'adoptable' && artifact.adoptable === true, issueNumber);
+		case 197: return acceptance(artifact.status === 'baseline-measured', issueNumber);
+		case 198: return acceptance(artifact.status === 'before-baseline', issueNumber);
+		default: return acceptance(false, issueNumber);
 	}
+}
+
+function acceptance(accepted, issueNumber) {
+	return {
+		accepted,
+		pendingApprovalContract: false,
+		reason: accepted
+			? null
+			: `Issue ${issueNumber} artifact is not measured/adoptable under that issue's existing contract.`,
+	};
 }
 
 function isInside(root, candidate) {
