@@ -505,6 +505,13 @@ test('runtime continuity rejects same-name container replacement before verifica
 			runner.indexOf('assert-runtime-continuity.mjs') < runner.indexOf('verify-before.mjs'),
 			'runtime continuity must execute before result verification',
 		);
+		assert.ok(
+			runner.indexOf('RUNTIME_IDENTITY_PHASES=locked,initial,before') < runner.indexOf('./gradlew'),
+			'locked/initial/before continuity must execute before the mutating Gradle workload',
+		);
+		assert.match(runner,
+			/RUNTIME_IDENTITY_PHASES=locked,initial,before,after,final RUN_DIR=.*assert-runtime-continuity\.mjs/s,
+			'final continuity must not inherit a reduced phase list');
 		const identity = (capturedAt, uptimeSeconds) => ({
 			capturedAt,
 			postgres: {
@@ -556,7 +563,11 @@ test('runtime continuity rejects same-name container replacement before verifica
 					mutations.push({
 						name: `${phase} ${side} container ${field}`,
 						phase,
-						mutate: (value) => { value[side].container[field] = `replacement-${field}`; },
+						mutate: (value) => {
+							value[side].container[field] = field === 'hostPort'
+								? (side === 'postgres' ? 25432 : 26379)
+								: `replacement-${field}`;
+						},
 					});
 				}
 			}
@@ -594,6 +605,28 @@ test('runtime continuity rejects same-name container replacement before verifica
 			assertFails(runNode('assert-runtime-continuity.mjs', { RUN_DIR: root }),
 				`${phase} Redis uptime reset must fail continuity`);
 		}
+
+		writeValidPhases();
+		const beforeReplacement = identity('2026-07-14T00:01:01Z', 101);
+		beforeReplacement.redis.container.id = 'replacement-before-workload';
+		writeFileSync(join(root, 'runtime-identity-before.json'), `${JSON.stringify(beforeReplacement)}\n`);
+		const mutationTrace = join(root, 'gradle-mutation.trace');
+		const fakeGradle = join(root, 'gradlew');
+		writeFileSync(fakeGradle, `#!/usr/bin/env bash\nprintf 'mutation\\n' >> "$MUTATION_TRACE"\n`);
+		chmodSync(fakeGradle, 0o755);
+		const preWorkload = spawnSync('bash', ['-c',
+			`RUNTIME_IDENTITY_PHASES=locked,initial,before RUN_DIR="$RUN_DIR" node "$VALIDATOR" && "$FAKE_GRADLE"`], {
+			env: {
+				...process.env,
+				RUN_DIR: root,
+				VALIDATOR: scenarioPath('assert-runtime-continuity.mjs'),
+				FAKE_GRADLE: fakeGradle,
+				MUTATION_TRACE: mutationTrace,
+			},
+			encoding: 'utf8',
+		});
+		assertFails(preWorkload, 'before-phase replacement must fail before the fake mutating workload');
+		assert.equal(existsSync(mutationTrace), false, 'Gradle/DB mutation count must be exactly zero');
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -674,6 +707,8 @@ test('dummy-token classification uses an exact prefix and sampling is immutable 
 	const runner = readFileSync(scenarioPath('run-before.sh'), 'utf8');
 	const redisParser = readFileSync(scenarioPath('parse-redis-evidence.mjs'), 'utf8');
 	const dockerCapture = readFileSync(scenarioPath('capture-docker-stats.sh'), 'utf8');
+	const identityCapture = readFileSync(scenarioPath('capture-runtime-identity.sh'), 'utf8');
+	const prepare = readFileSync(scenarioPath('prepare-fixtures.sh'), 'utf8');
 	assert.doesNotMatch(sql, /LIKE\s+'PERFORMANCE_198_DUMMY:/i);
 	assert.doesNotMatch(runner, /LIKE\s+'PERFORMANCE_198_DUMMY:/i);
 	assert.match(sql, /starts_with\(token\.token,\s*'PERFORMANCE_198_DUMMY:'\)/i);
@@ -684,6 +719,10 @@ test('dummy-token classification uses an exact prefix and sampling is immutable 
 	assert.match(dockerCapture, /docker stats[\s\S]*REDIS_OBSERVED_ID/);
 	assert.doesNotMatch(redisParser, /cmdstat_set[\s\S]{0,120}\?\?\s*["']0["']/);
 	assert.match(redisParser, /Redis evidence missing cmdstat_set/);
+	for (const script of [runner, identityCapture, prepare]) {
+		assert.doesNotMatch(script, /docker exec(?: -i)? "\$\{POSTGRES_CONTAINER\}"/);
+		assert.doesNotMatch(script, /docker exec(?: -i)? "\$\{REDIS_CONTAINER\}"/);
+	}
 	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-missing-redis-set-'));
 	try {
 		const outputPath = join(root, 'redis.json');
@@ -730,6 +769,12 @@ test('runner lifecycle cleans its sampler marker and both locks on TERM', async 
 	const projectLock = join(root, 'project.lock');
 	const ready = join(root, 'ready');
 	try {
+		const runner = readFileSync(scenarioPath('run-before.sh'), 'utf8');
+		const prepare = readFileSync(scenarioPath('prepare-fixtures.sh'), 'utf8');
+		assert.ok(runner.indexOf('install_notification_batch_runner_traps')
+			< runner.indexOf('acquire_notification_batch_locks'));
+		assert.ok(prepare.indexOf('install_notification_batch_fixture_traps')
+			< prepare.indexOf('acquire_notification_batch_locks'));
 		const command = `
 source "${scenarioPath('guard-runtime.sh')}"
 source "${scenarioPath('runner-lifecycle.sh')}"
@@ -814,6 +859,10 @@ test('verifier requires exact PostgreSQL Redis and two-container lifecycle evide
 			['Docker sample gap exceeds approved maximum', (value) => {
 				value.environment.dockerStatsMaxGapMilliseconds = 10000;
 				value.evidenceWindow.dockerStatsMaxGapMilliseconds = 10000;
+			}],
+			['out-of-order Docker sample pairs', (value) => {
+				const lines = value.dockerStats.trim().split('\n');
+				value.dockerStats = [lines[0], lines[3], lines[4], lines[1], lines[2]].join('\n') + '\n';
 			}],
 		];
 		for (const [name, mutate] of cases) {
