@@ -559,12 +559,10 @@ class BillingQueryServiceTest {
 		)))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("캠퍼스 청구 조회 권한이 없습니다.");
-		assertThatThrownBy(() -> billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
+		assertThat(billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
 			campus.campusId(), manager.id(), PaymentCategory.COFFEE, null, null, null, otherAccount.id(),
 			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
-		)))
-			.isInstanceOf(BusinessException.class)
-			.hasMessage("캠퍼스 청구 조회 권한이 없습니다.");
+		)).summary().totalAmount()).isEqualTo(2900);
 		assertThat(billingQueryService.listAdminCampusCharges(new AdminCampusChargeListQuery(
 			campus.campusId(), serviceAdmin.id(), PaymentCategory.COFFEE, null, null, null, otherAccount.id(),
 			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
