@@ -3,9 +3,24 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { groupEvidenceQueries, validateEvidenceInventory } from './evidence-contract.mjs';
 import { normalizeExplain } from './normalize-plan.mjs';
+import {
+	REQUIRED_PLANNER_SETTINGS,
+	acquireProjectLock,
+	assertProjectLockOwned,
+	decideMeasurementOutcome,
+	parsePageSize,
+	parseWarmRuns,
+	releaseProjectLock,
+	validateDatabaseContinuity,
+	validateDatabaseIdentity,
+	validateMeasurementIntegrity,
+	validateMeasurementStart,
+} from './runtime-contract.mjs';
 
 const scenarioRoot = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(scenarioRoot, '..', '..', '..');
 const reportsRoot = path.join(scenarioRoot, 'reports');
 const requiredRuntimeInputs = [
 	'DATASET_ID',
@@ -17,6 +32,7 @@ const requiredRuntimeInputs = [
 	'PGDATABASE',
 	'PGUSER',
 	'PGPASSWORD',
+	'WARM_RUNS',
 ];
 
 for (const name of requiredRuntimeInputs) {
@@ -28,30 +44,21 @@ if (process.env.ALLOW_EXPLAIN_ANALYZE !== 'true') {
 	throw new Error('EXPLAIN ANALYZE is blocked. Set ALLOW_EXPLAIN_ANALYZE=true only in the approved isolated measurement window.');
 }
 
-const warmRuns = Number(process.env.WARM_RUNS || 3);
-if (!Number.isInteger(warmRuns) || warmRuns < 1 || warmRuns > 20) {
-	throw new Error('WARM_RUNS must be an integer from 1 through 20.');
-}
+const warmRuns = parseWarmRuns(process.env.WARM_RUNS);
 
 fs.mkdirSync(reportsRoot, { recursive: true });
-const lockPath = path.resolve(scenarioRoot, '..', '.faithlog-performance-runner.lock');
-try {
-	fs.mkdirSync(lockPath, { recursive: false });
-} catch (error) {
-	if (error.code === 'EEXIST') {
-		throw new Error('Another performance or load run holds the Issue #194 runner lock. Do not run scenarios in parallel.');
-	}
-	throw error;
-}
 
 let exitCode = 0;
+let projectLock = null;
 try {
 	await run();
 } catch (error) {
 	exitCode = 1;
 	console.error(error instanceof Error ? error.message : String(error));
 } finally {
-	fs.rmSync(lockPath, { recursive: true, force: true });
+	if (projectLock) {
+		releaseProjectLock(projectLock);
+	}
 }
 process.exitCode = exitCode;
 
@@ -63,8 +70,15 @@ async function run() {
 
 	const inventory = JSON.parse(fs.readFileSync(path.join(scenarioRoot, 'inventory.json'), 'utf8'));
 	const reportContract = JSON.parse(fs.readFileSync(path.join(scenarioRoot, 'report-contract.json'), 'utf8'));
-	const composeIdentity = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+	validateEvidenceInventory(inventory, {
+		...reportContract.evidenceClassification,
+		sourceRoot: repositoryRoot,
+	});
 	const variables = validateAnchors(crossIssueReport.anchors);
+	const composeIdentity = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+	projectLock = acquireProjectLock(composeIdentity.composeProject, 'issue-194');
+	const databaseIdentity = captureDatabaseIdentity();
+	validateDatabaseIdentity(composeIdentity, databaseIdentity, process.env.PGDATABASE);
 	const startedAt = new Date().toISOString();
 	const reportDirectory = path.join(
 		reportsRoot,
@@ -74,6 +88,12 @@ async function run() {
 	fs.mkdirSync(path.join(reportDirectory, 'normalized'), { recursive: true });
 
 	const before = capturePlannerState(inventory.observedTables);
+	const startIntegrity = validateMeasurementStart(before, {
+		expectedTables: inventory.observedTables,
+	});
+	if (!startIntegrity.adoptable) {
+		throw new Error(`Measurement start is contaminated or incomplete; no EXPLAIN was run: ${startIntegrity.reasons.join(', ')}`);
+	}
 	const queryReports = [];
 	for (const query of inventory.queries) {
 		const sqlPath = path.join(scenarioRoot, query.sqlFile);
@@ -94,6 +114,11 @@ async function run() {
 				writeJson(path.join(reportDirectory, 'normalized', `${fileStem}.json`), {
 					queryId: query.id,
 					issueNumber: query.issueNumber,
+					evidenceClass: query.evidenceClass,
+					productionBeforeEligible: query.productionBeforeEligible,
+					productionSourceRefs: query.productionSourceRefs,
+					productionSqlIdentity: query.productionSqlIdentity ?? null,
+					productionSqlFingerprint: query.productionSqlIdentity?.fingerprint ?? null,
 					phase: phase.id,
 					runNumber,
 					cacheResetPerformed: false,
@@ -103,6 +128,11 @@ async function run() {
 				queryReports.push({
 					queryId: query.id,
 					issueNumber: query.issueNumber,
+					evidenceClass: query.evidenceClass,
+					productionBeforeEligible: query.productionBeforeEligible,
+					productionSourceRefs: query.productionSourceRefs,
+					productionSqlIdentity: query.productionSqlIdentity ?? null,
+					productionSqlFingerprint: query.productionSqlIdentity?.fingerprint ?? null,
 					phase: phase.id,
 					runNumber,
 					cacheResetPerformed: false,
@@ -114,10 +144,30 @@ async function run() {
 		}
 	}
 	const after = capturePlannerState(inventory.observedTables);
+	const databaseIdentityAfter = captureDatabaseIdentity();
+	validateDatabaseIdentity(composeIdentity, databaseIdentityAfter, process.env.PGDATABASE);
 	const finishedAt = new Date().toISOString();
+	const plannerIntegrity = validateMeasurementIntegrity(before, after, {
+		expectedTables: inventory.observedTables,
+	});
+	const databaseContinuity = validateDatabaseContinuity(databaseIdentity, databaseIdentityAfter);
+	const measurementIntegrity = {
+		adoptable: plannerIntegrity.adoptable && databaseContinuity.stable,
+		reasons: [...plannerIntegrity.reasons, ...databaseContinuity.reasons],
+	};
+	const evidenceGroups = groupEvidenceQueries(inventory.queries);
+	const productionBeforeEligibleQueryIds = inventory.queries
+		.filter((query) => query.productionBeforeEligible)
+		.map((query) => query.id);
+	const measurementOutcome = decideMeasurementOutcome(
+		measurementIntegrity,
+		productionBeforeEligibleQueryIds,
+		reportContract.evidenceClassification.productionBeforeEvidenceEnabled
+	);
+	assertProjectLockOwned(projectLock);
 	const report = {
 		schemaVersion: reportContract.schemaVersion,
-		status: 'measured-before-index-baseline',
+		status: measurementOutcome.status,
 		issueNumber: 194,
 		datasetId: process.env.DATASET_ID,
 		fixtureRunId: process.env.FIXTURE_RUN_ID,
@@ -130,6 +180,12 @@ async function run() {
 		startedAt,
 		finishedAt,
 		sequentialExecution: true,
+		warmRuns,
+		runnerLock: {
+			path: projectLock.path,
+			owner: projectLock.owner,
+			ownedAtFinish: true,
+		},
 		cacheResetPerformed: false,
 		cacheInterpretation: reportContract.measurementPhases,
 		credentialPolicy: {
@@ -138,16 +194,31 @@ async function run() {
 			valuesRecorded: false,
 		},
 		composeIdentity,
+		databaseIdentity: {
+			before: databaseIdentity,
+			after: databaseIdentityAfter,
+			...databaseContinuity,
+		},
+		evidenceClassification: {
+			groups: evidenceGroups,
+			productionBeforeEligibleQueryIds,
+			productionBeforeAdoptable: measurementOutcome.productionBeforeAdoptable,
+			policy: 'Only captured exact-current-production SQL with a Hibernate fingerprint may support production before metrics.',
+		},
 		plannerState: {
 			before,
 			after,
 			autoanalyzeChanges: compareAutoanalyze(before.tableStatistics, after.tableStatistics),
+			integrity: measurementIntegrity,
 		},
 		queries: queryReports,
 	};
 	const reportPath = path.join(reportDirectory, 'baseline-report.json');
 	writeJson(reportPath, report);
-	console.log(JSON.stringify({ reportPath, queryRunCount: queryReports.length }, null, 2));
+	console.log(JSON.stringify({ reportPath, queryRunCount: queryReports.length, status: report.status }, null, 2));
+	if (measurementOutcome.exitNonZero) {
+		throw new Error(`Measurement integrity failed; report is invalid/pending and cannot be adopted: ${measurementIntegrity.reasons.join(', ')}`);
+	}
 }
 
 function validateCrossIssueReport(report) {
@@ -176,7 +247,7 @@ function validateAnchors(anchors) {
 	}
 	const integerFields = [
 		'campus_id', 'poll_id', 'meal_poll_id', 'member_user_id', 'payment_account_id',
-		'prayer_season_id', 'prayer_week_id', 'page_size', 'page_offset',
+		'prayer_season_id', 'prayer_week_id', 'page_offset',
 	];
 	const isoDateFields = ['week_start_date'];
 	const isoInstantFields = ['stale_before', 'range_start', 'range_end'];
@@ -188,6 +259,8 @@ function validateAnchors(anchors) {
 		}
 		variables[field] = String(value);
 	}
+	const pageSize = parsePageSize(anchors.page_size);
+	variables.page_size = String(pageSize);
 	for (const field of isoDateFields) {
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(anchors[field])) {
 			throw new Error(`anchors.${field} must use YYYY-MM-DD.`);
@@ -215,10 +288,24 @@ function inspectComposeIdentity(container) {
 	}
 	const item = inspected[0];
 	const labels = item.Config?.Labels || {};
+	const configuredDatabase = (item.Config?.Env || [])
+		.find((entry) => entry.startsWith('POSTGRES_DB='))
+		?.slice('POSTGRES_DB='.length);
 	const composeProject = labels['com.docker.compose.project'];
 	const composeService = labels['com.docker.compose.service'];
 	if (!composeProject || !composeService) {
 		throw new Error('PostgreSQL container is missing actual Docker Compose project/service labels.');
+	}
+	const exposedPortKeys = new Set([
+		...Object.keys(item.Config?.ExposedPorts || {}),
+		...Object.keys(item.NetworkSettings?.Ports || {}),
+	]);
+	const postgresPortKey = [...exposedPortKeys].find((key) => key === '5432/tcp');
+	const containerNetworkAddresses = Object.values(item.NetworkSettings?.Networks || {})
+		.flatMap((network) => [network.IPAddress, network.GlobalIPv6Address])
+		.filter(Boolean);
+	if (!postgresPortKey || containerNetworkAddresses.length === 0 || !item.State?.StartedAt || !configuredDatabase) {
+		throw new Error('PostgreSQL container inspect data is missing database, port, network address, or start time identity evidence.');
 	}
 	return {
 		postgresContainerId: item.Id,
@@ -227,7 +314,23 @@ function inspectComposeIdentity(container) {
 		composeService,
 		composeConfigFiles: labels['com.docker.compose.project.config_files'] || null,
 		composeWorkingDir: labels['com.docker.compose.project.working_dir'] || null,
+		configuredDatabase,
+		containerStartedAt: item.State.StartedAt,
+		postgresInternalPort: Number(postgresPortKey.split('/')[0]),
+		containerNetworkAddresses,
 	};
+}
+
+function captureDatabaseIdentity() {
+	const sql = `
+		SELECT json_build_object(
+			'serverAddress', inet_server_addr()::text,
+			'serverPort', inet_server_port(),
+			'database', current_database(),
+			'postmasterStartedAt', pg_postmaster_start_time()
+		);
+	`;
+	return JSON.parse(psql(sql));
 }
 
 function capturePlannerState(observedTables) {
@@ -236,15 +339,11 @@ function capturePlannerState(observedTables) {
 		SELECT json_build_object(
 			'capturedAt', clock_timestamp(),
 			'serverVersion', current_setting('server_version'),
+			'postmasterStartedAt', pg_postmaster_start_time(),
 			'settings', (
 				SELECT json_object_agg(name, setting ORDER BY name)
 				FROM pg_settings
-				WHERE name IN (
-					'random_page_cost', 'seq_page_cost', 'cpu_tuple_cost', 'cpu_index_tuple_cost',
-					'effective_cache_size', 'work_mem', 'shared_buffers', 'default_statistics_target',
-					'enable_seqscan', 'enable_indexscan', 'enable_indexonlyscan', 'enable_bitmapscan',
-					'enable_hashjoin', 'enable_mergejoin', 'enable_nestloop'
-				)
+				WHERE name IN (${REQUIRED_PLANNER_SETTINGS.map(sqlLiteral).join(', ')})
 			),
 			'tableStatistics', (
 				SELECT COALESCE(json_agg(json_build_object(
@@ -274,7 +373,6 @@ function capturePlannerState(observedTables) {
 				WHERE datname = current_database()
 					AND pid <> pg_backend_pid()
 					AND state <> 'idle'
-					AND application_name <> 'faithlog-issue-194-explain'
 			)
 		);
 	`;

@@ -18,6 +18,7 @@ export function normalizeExplain(rawExplain) {
 	const nodes = [];
 	visit(root, nodes);
 	const structure = {
+		tree: structuralTree(root),
 		nodes: nodes.map(structuralNode),
 	};
 	const scanSummary = Object.fromEntries([...scanMetricKeys.values()].map((key) => [key, 0]));
@@ -90,6 +91,13 @@ function structuralNode(node) {
 		filter: normalizeExpression(node.Filter),
 		recheckCond: normalizeExpression(node['Recheck Cond']),
 	});
+}
+
+function structuralTree(node) {
+	return {
+		...structuralNode(node),
+		children: (node.Plans || []).map(structuralTree),
+	};
 }
 
 function metricNode(node) {

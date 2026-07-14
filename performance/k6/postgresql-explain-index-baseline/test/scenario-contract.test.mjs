@@ -6,6 +6,7 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const scenarioRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repositoryRoot = path.resolve(scenarioRoot, '..', '..', '..');
 const expectedIssues = [192, 193, 195, 196, 197, 198, 199];
 const expectedQueryIds = [
 	'i192-coffee-response-graph',
@@ -70,19 +71,44 @@ test('inventory connects every approved performance issue to read-only SQL and i
 test('runner requires traceable fixture identity, exclusive lock, runtime credentials, and actual Compose labels', () => {
 	const wrapper = read('run-baseline.sh');
 	const runner = read('run-baseline.mjs');
+	const runtimeContract = read('runtime-contract.mjs');
 	assert.match(wrapper, /node .*run-baseline\.mjs/);
 	for (const input of ['DATASET_ID', 'FIXTURE_RUN_ID', 'CROSS_ISSUE_REPORT', 'POSTGRES_CONTAINER']) {
 		assert.match(runner, new RegExp(input));
 	}
 	assert.match(runner, /PGPASSWORD/);
-	assert.match(runner, /mkdirSync\([^)]*recursive:\s*false/);
+	assert.match(runtimeContract, /mkdirSync\([^)]*recursive:\s*false/);
+	assert.match(runtimeContract, /rmdirSync/);
+	assert.doesNotMatch(runtimeContract, /rmSync\([^)]*recursive:\s*true/);
 	assert.match(runner, /docker[\s\S]*inspect/);
 	assert.match(runner, /com\.docker\.compose\.project/);
 	assert.match(runner, /com\.docker\.compose\.service/);
 	assert.match(runner, /EXPLAIN \(ANALYZE, BUFFERS, FORMAT JSON\)/);
 	assert.match(runner, /BEGIN READ ONLY/);
 	assert.match(runner, /ALLOW_EXPLAIN_ANALYZE/);
-	assert.match(runner, /another performance or load run/i);
+	assert.match(runner, /parseWarmRuns\(process\.env\.WARM_RUNS\)/);
+	assert.match(runner, /\{ id: 'warm_cache', runs: warmRuns,/);
+	assert.doesNotMatch(runner, /WARM_RUNS\s*\|\|/);
+	assert.match(runner, /status: measurementOutcome\.status/);
+	assert.match(runner, /if \(!startIntegrity\.adoptable\)/);
+	assert.match(runner, /if \(measurementOutcome\.exitNonZero\)/);
+	assert.match(runner, /adoptable: plannerIntegrity\.adoptable && databaseContinuity\.stable/);
+	assert.match(runtimeContract, /another performance or load run/i);
+	assert.doesNotMatch(runner, /application_name\s*<>\s*'faithlog-issue-194-explain'/);
+	const inspectIndex = runner.indexOf('const composeIdentity = inspectComposeIdentity');
+	const lockIndex = runner.indexOf('projectLock = acquireProjectLock');
+	const identityIndex = runner.indexOf('const databaseIdentity = captureDatabaseIdentity');
+	const identityValidationIndex = runner.indexOf('validateDatabaseIdentity(composeIdentity, databaseIdentity');
+	const startGateIndex = runner.indexOf('const startIntegrity = validateMeasurementStart');
+	const explainIndex = runner.indexOf('const rawExplain = explain');
+	assert.ok(inspectIndex < lockIndex && lockIndex < identityIndex
+		&& identityIndex < identityValidationIndex && identityValidationIndex < startGateIndex
+		&& startGateIndex < explainIndex);
+	const outcomeIndex = runner.indexOf('const measurementOutcome = decideMeasurementOutcome');
+	const ownedAtFinishIndex = runner.indexOf('assertProjectLockOwned(projectLock);');
+	const reportWriteIndex = runner.indexOf('writeJson(reportPath, report);');
+	assert.ok(explainIndex < outcomeIndex && outcomeIndex < ownedAtFinishIndex
+		&& ownedAtFinishIndex < reportWriteIndex);
 	assert.doesNotMatch(
 		runner,
 		/runCommand\(['"]docker['"],\s*\[\s*['"](?:down|up|build|prune|restart)['"]/i
@@ -134,6 +160,8 @@ test('phase and planner-state contract never represents the first observation as
 	assert.ok(contract.planMetrics.includes('planHash'));
 	assert.ok(contract.planMetrics.includes('planningTimeMs'));
 	assert.ok(contract.planMetrics.includes('executionTimeMs'));
+	assert.ok(contract.planMetrics.includes('sortSpaceType'));
+	assert.ok(contract.comparisonIdentity.includes('runNumber'));
 });
 
 test('raw and normalized reports remain in the issue-local ignored path', () => {
@@ -155,6 +183,21 @@ test('canonical Compose-project lock conflicts across scenario owners and releas
 		);
 		releaseProjectLock(first);
 		assert.equal(fs.existsSync(first.path), false);
+		const populated = acquireProjectLock('faithlog-latest', 'issue-194', lockRoot);
+		const unexpectedFile = path.join(populated.path, 'unexpected-owner-data');
+		fs.writeFileSync(unexpectedFile, 'must survive non-recursive release');
+		assert.throws(() => releaseProjectLock(populated), /not empty|ENOTEMPTY/i);
+		assert.equal(fs.existsSync(unexpectedFile), true);
+		fs.rmSync(populated.path, { recursive: true });
+		const disappeared = acquireProjectLock('faithlog-latest', 'issue-194', lockRoot);
+		fs.rmdirSync(disappeared.path);
+		assert.throws(() => releaseProjectLock(disappeared), /disappeared/i);
+		const original = acquireProjectLock('faithlog-latest', 'issue-194', lockRoot);
+		fs.rmdirSync(original.path);
+		const replacement = acquireProjectLock('faithlog-latest', 'issue-195', lockRoot);
+		assert.throws(() => releaseProjectLock(original), /ownership changed/i);
+		assert.equal(fs.existsSync(replacement.path), true);
+		releaseProjectLock(replacement);
 	} finally {
 		fs.rmSync(lockRoot, { recursive: true, force: true });
 	}
@@ -162,20 +205,23 @@ test('canonical Compose-project lock conflicts across scenario owners and releas
 
 test('WARM_RUNS is mandatory and rejects missing or out-of-range workload input', async () => {
 	const runtimeUrl = pathToFileURL(path.join(scenarioRoot, 'runtime-contract.mjs')).href;
-	const { parseWarmRuns } = await import(runtimeUrl);
+	const { parsePageSize, parseWarmRuns } = await import(runtimeUrl);
 	assert.throws(() => parseWarmRuns(undefined), /WARM_RUNS.*required/i);
 	assert.throws(() => parseWarmRuns('0'), /1 through 20/i);
 	assert.throws(() => parseWarmRuns('21'), /1 through 20/i);
 	assert.equal(parseWarmRuns('3'), 3);
+	assert.throws(() => parsePageSize('0'), /positive safe integer/i);
+	assert.equal(parsePageSize('25'), 25);
 });
 
 test('database identity preflight fails closed when psql target is not the inspected container database', async () => {
 	const runtimeUrl = pathToFileURL(path.join(scenarioRoot, 'runtime-contract.mjs')).href;
-	const { validateDatabaseIdentity } = await import(runtimeUrl);
+	const { validateDatabaseContinuity, validateDatabaseIdentity } = await import(runtimeUrl);
 	const inspected = {
 		postgresContainerId: 'container-194',
 		composeProject: 'faithlog-latest',
 		composeService: 'postgres',
+		configuredDatabase: 'faithlog',
 		containerStartedAt: '2026-07-14T00:00:00.000Z',
 		postgresInternalPort: 5432,
 		containerNetworkAddresses: ['172.30.0.4'],
@@ -195,12 +241,36 @@ test('database identity preflight fails closed when psql target is not the inspe
 		() => validateDatabaseIdentity(inspected, { ...matching, database: 'other' }, 'faithlog'),
 		/database/i
 	);
+	assert.throws(
+		() => validateDatabaseIdentity(inspected, { ...matching, database: 'other' }, 'other'),
+		/POSTGRES_DB/i
+	);
+	assert.throws(
+		() => validateDatabaseIdentity(inspected, { ...matching, serverPort: 5433 }, 'faithlog'),
+		/not the inspected PostgreSQL container/i
+	);
+	assert.throws(
+		() => validateDatabaseIdentity(inspected, { ...matching, postmasterStartedAt: '2026-07-13T23:59:59.000Z' }, 'faithlog'),
+		/container lifetime/i
+	);
+	assert.equal(validateDatabaseContinuity(matching, structuredClone(matching)).stable, true);
+	assert.equal(validateDatabaseContinuity(matching, {
+		...matching,
+		postmasterStartedAt: '2026-07-14T00:02:00.000Z',
+	}).stable, false);
 });
 
 test('planner integrity validator blocks adoption for setting, analyze, n-mod, or external-activity contamination', async () => {
 	const runtimeUrl = pathToFileURL(path.join(scenarioRoot, 'runtime-contract.mjs')).href;
-	const { validateMeasurementIntegrity } = await import(runtimeUrl);
+	const {
+		decideMeasurementOutcome,
+		validateMeasurementIntegrity,
+		validateMeasurementStart,
+	} = await import(runtimeUrl);
 	const clean = {
+		capturedAt: '2026-07-14T00:00:10Z',
+		serverVersion: '17.5',
+		postmasterStartedAt: '2026-07-14T00:00:01Z',
 		settings: { enable_seqscan: 'on', work_mem: '4096' },
 		tableStatistics: [{
 			table: 'charge_items',
@@ -210,29 +280,64 @@ test('planner integrity validator blocks adoption for setting, analyze, n-mod, o
 		}],
 		externalActivity: { activeSessionCount: 0, sessions: [] },
 	};
-	assert.deepEqual(validateMeasurementIntegrity(clean, structuredClone(clean)), {
+	const integrityOptions = {
+		expectedTables: ['charge_items'],
+		expectedSettingNames: ['enable_seqscan', 'work_mem'],
+	};
+	assert.deepEqual(validateMeasurementIntegrity(clean, structuredClone(clean), integrityOptions), {
 		adoptable: true,
 		reasons: [],
 	});
 	for (const contaminated of [
 		{ ...structuredClone(clean), settings: { enable_seqscan: 'off', work_mem: '4096' } },
+		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], lastAnalyze: '2026-07-14T00:01:00Z' }] },
 		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], lastAutoanalyze: '2026-07-14T00:01:00Z' }] },
 		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], nModSinceAnalyze: 1 }] },
 		{ ...structuredClone(clean), externalActivity: { activeSessionCount: 1, sessions: [{ pid: 42 }] } },
 	]) {
-		assert.equal(validateMeasurementIntegrity(clean, contaminated).adoptable, false);
+		assert.equal(validateMeasurementIntegrity(clean, contaminated, integrityOptions).adoptable, false);
 	}
+	const activeBefore = {
+		...structuredClone(clean),
+		externalActivity: { activeSessionCount: 1, sessions: [{ pid: 41 }] },
+	};
+	assert.equal(validateMeasurementIntegrity(activeBefore, clean, integrityOptions).adoptable, false);
+	assert.equal(validateMeasurementStart(activeBefore, integrityOptions).adoptable, false);
+	assert.equal(validateMeasurementStart({ externalActivity: { activeSessionCount: 0, sessions: [] } }, integrityOptions).adoptable, false);
+	const contaminatedIntegrity = validateMeasurementIntegrity(clean, {
+		...structuredClone(clean),
+		tableStatistics: [{ ...clean.tableStatistics[0], nModSinceAnalyze: 1 }],
+	}, integrityOptions);
+	assert.deepEqual(decideMeasurementOutcome(contaminatedIntegrity, [], false), {
+		status: 'invalid-pending-planner-integrity',
+		productionBeforeAdoptable: false,
+		exitNonZero: true,
+	});
+	assert.deepEqual(decideMeasurementOutcome({ adoptable: true, reasons: [] }, [], false), {
+		status: 'measured-diagnostic-not-production-baseline',
+		productionBeforeAdoptable: false,
+		exitNonZero: false,
+	});
 });
 
 test('inventory classifies exact, reconstructed, and synthetic SQL and forbids synthetic production-before evidence', async () => {
 	const evidenceUrl = pathToFileURL(path.join(scenarioRoot, 'evidence-contract.mjs')).href;
 	const { validateEvidenceInventory, groupEvidenceQueries } = await import(evidenceUrl);
 	const inventory = JSON.parse(read('inventory.json'));
-	assert.doesNotThrow(() => validateEvidenceInventory(inventory));
+	const evidencePolicy = {
+		...JSON.parse(read('report-contract.json')).evidenceClassification,
+		sourceRoot: repositoryRoot,
+	};
+	assert.doesNotThrow(() => validateEvidenceInventory(inventory, evidencePolicy));
 	const groups = groupEvidenceQueries(inventory.queries);
-	assert.ok(Array.isArray(groups.exactCurrentProduction));
-	assert.ok(Array.isArray(groups.reconstructedCurrentQuery));
-	assert.ok(Array.isArray(groups.syntheticCandidate));
+	assert.equal(groups.exactCurrentProduction.length, 0);
+	assert.equal(groups.reconstructedCurrentQuery.length, 2);
+	assert.equal(groups.syntheticCandidate.length, 22);
+	for (const query of inventory.queries) {
+		for (const sourceRef of query.productionSourceRefs) {
+			assert.equal(fs.existsSync(path.join(repositoryRoot, sourceRef)), true, `missing source ref: ${sourceRef}`);
+		}
+	}
 	for (const id of ['i193-admin-charge-filter-page', 'i199-dashboard-summary']) {
 		const query = inventory.queries.find((item) => item.id === id);
 		assert.equal(query.evidenceClass, 'synthetic-candidate');
@@ -243,6 +348,21 @@ test('inventory classifies exact, reconstructed, and synthetic SQL and forbids s
 		query.evidenceClass === 'exact-current-production'
 		|| query.productionBeforeEligible === false
 	)));
+	const invalidExact = structuredClone(inventory);
+	invalidExact.queries[0] = {
+		...invalidExact.queries[0],
+		evidenceClass: 'exact-current-production',
+		productionSqlIdentity: { captureType: 'hibernate-sql', fingerprint: 'anything' },
+	};
+	assert.throws(() => validateEvidenceInventory(invalidExact, evidencePolicy), /SHA-256/i);
+	const unapprovedExact = structuredClone(inventory);
+	unapprovedExact.queries[0] = {
+		...unapprovedExact.queries[0],
+		evidenceClass: 'exact-current-production',
+		productionBeforeEligible: true,
+		productionSqlIdentity: { captureType: 'hibernate-sql', fingerprint: 'a'.repeat(64) },
+	};
+	assert.throws(() => validateEvidenceInventory(unapprovedExact, evidencePolicy), /not approved/i);
 });
 
 test('plan hash preserves topology while ignoring runtime-only metric differences', async () => {

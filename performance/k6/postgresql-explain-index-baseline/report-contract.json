@@ -1,6 +1,17 @@
 {
   "schemaVersion": 1,
   "status": "scenario-ready-not-measured",
+  "runtimeStatuses": {
+    "measured-before-index-baseline": "Allowed only when planner integrity passes and at least one exact-current-production query has a captured Hibernate SQL fingerprint.",
+    "measured-diagnostic-not-production-baseline": "Clean reconstructed/synthetic diagnostic evidence that must not be used as a production before metric.",
+    "invalid-pending-planner-integrity": "Planner, analyze, n_mod_since_analyze, or external activity contamination; runner exits non-zero and adoption is forbidden."
+  },
+  "workload": {
+    "warmRunsInput": "WARM_RUNS",
+    "runtimeRequired": true,
+    "default": null,
+    "allowedRange": [1, 20]
+  },
   "measurementPhases": [
     {
       "id": "cold_like_observation",
@@ -26,10 +37,19 @@
       "nModSinceAnalyze",
       "externalActivity"
     ],
-    "autoanalyzeComparison": "Compare per-table lastAutoanalyze and nModSinceAnalyze between before and after snapshots."
+    "autoanalyzeComparison": "Compare per-table lastAnalyze, lastAutoanalyze, and nModSinceAnalyze between before and after snapshots.",
+    "adoptionRule": "Settings and table statistics must be unchanged, with zero external active sessions in both snapshots; otherwise status is invalid-pending-planner-integrity and the runner exits non-zero."
+  },
+  "evidenceClassification": {
+    "allowed": ["exact-current-production", "reconstructed-current-query", "synthetic-candidate"],
+    "productionBeforeRule": "Only exact-current-production with a captured Hibernate SQL fingerprint may set productionBeforeEligible=true.",
+    "productionBeforeEvidenceEnabled": false,
+    "activationRule": "A separate user-approved contract change and executable captured-SQL shape verification are required before production before evidence can be enabled.",
+    "currentInventoryProductionBeforeEligible": false
   },
   "planMetrics": [
     "planHash",
+    "recursivePlanTree",
     "nodeTypes",
     "scanSummary",
     "planRows",
@@ -40,6 +60,7 @@
     "rowsRemoved",
     "sortMethod",
     "sortSpaceUsedKb",
+    "sortSpaceType",
     "planningTimeMs",
     "executionTimeMs"
   ],
@@ -48,7 +69,9 @@
     "fixtureRunId",
     "queryId",
     "phase",
+    "runNumber",
     "planHash",
+    "productionSqlFingerprint",
     "composeProject",
     "composeService",
     "postgresContainerId"
