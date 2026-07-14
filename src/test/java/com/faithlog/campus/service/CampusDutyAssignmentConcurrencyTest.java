@@ -369,6 +369,67 @@ class CampusDutyAssignmentConcurrencyTest {
 		}
 	}
 
+	@Test
+	void member_deletion_revalidates_requester_role_after_waiting_for_campus_lock() throws Exception {
+		User manager = saveUser("member-delete-auth-manager@example.com", UserRole.MANAGER);
+		User target = saveUser("member-delete-auth-target@example.com", UserRole.USER);
+		User admin = saveUser("member-delete-auth-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "회원삭제권한재검증캠", "분당", "잠금 대기 뒤 관리자 권한 재검증 RED"
+		));
+		CampusMembershipResult targetMembership = campusService.joinCampus(new JoinCampusCommand(
+			target.id(), campus.inviteCode()
+		));
+		Long managerMembershipId = campusMemberRepository
+			.findByCampusIdAndUserId(campus.campusId(), manager.id())
+			.orElseThrow()
+			.id();
+		CountDownLatch roleChanged = new CountDownLatch(1);
+		CountDownLatch allowRoleCommit = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			Object result = invocation.callRealMethod();
+			if (Thread.currentThread().getName().equals("requester-role-demotion")) {
+				roleChanged.countDown();
+				if (!allowRoleCommit.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("requester role demotion release timeout");
+				}
+			}
+			return result;
+		}).when(campusAccessPolicy).getUserOrThrow(manager.id());
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> roleDemotion = executor.submit(() -> {
+				Thread.currentThread().setName("requester-role-demotion");
+				campusService.changeCampusRole(new ChangeCampusRoleCommand(
+					campus.campusId(), managerMembershipId, admin.id(), CampusRole.MEMBER
+				));
+			});
+			assertThat(roleChanged.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> deletion = executor.submit(() -> {
+				Thread.currentThread().setName("member-delete-stale-manager");
+				campusService.deleteCampusMember(
+					campus.campusId(), targetMembership.membershipId(), manager.id()
+				);
+			});
+			assertThatThrownBy(() -> deletion.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowRoleCommit.countDown();
+			roleDemotion.get(5, TimeUnit.SECONDS);
+
+			assertThatThrownBy(() -> deletion.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(BusinessException.class)
+				.satisfies(exception -> assertThat(((BusinessException) exception.getCause()).errorCode())
+					.isEqualTo(ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN));
+			assertThat(campusMemberRepository.findById(targetMembership.membershipId()))
+				.get()
+				.matches(member -> member.status() == com.faithlog.campus.domain.type.CampusMemberStatus.ACTIVE);
+		} finally {
+			allowRoleCommit.countDown();
+			executor.shutdownNow();
+		}
+	}
+
 	private void verifyRevokeAndReassignAreSerialized(DutyType dutyType) throws Exception {
 		String label = dutyType.name().toLowerCase();
 		User manager = saveUser(label + "-reassign-manager@example.com", UserRole.MANAGER);
