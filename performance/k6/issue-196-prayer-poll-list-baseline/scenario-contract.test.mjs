@@ -256,6 +256,56 @@ test('runner rejects every missing target identity before inspect or login', () 
 	}
 });
 
+test('seed, shape, and direct scenario require every approved target identity before side effects', () => {
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-entry-target-'));
+	try {
+		const bin = join(temporary, 'bin');
+		mkdirSync(bin);
+		const calls = join(temporary, 'calls.log');
+		writeFileSync(join(bin, 'docker'), `#!/usr/bin/env bash\necho docker >> "${calls}"\nexit 99\n`);
+		chmodSync(join(bin, 'docker'), 0o755);
+		const required = {
+			BASE_URL: 'http://127.0.0.1:18080', APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db',
+			EXPECTED_APP_SERVICE: 'app', EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'approved-image',
+		};
+		const manifest = join(temporary, 'fixture-manifest.json');
+		writeFileSync(manifest, JSON.stringify({
+			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196entry', shapedAt: null,
+			composeRuntime: { composeProject: 'approved', appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:app' },
+			primaryCampus: { campusId: 1 }, polls: { byKey: {
+				open: { id: 1 }, closed_member_visible: { id: 2 }, closed_admin_only: { id: 3 },
+				closed_expired: { id: 4 }, scheduled_future: { id: 5 },
+			} },
+		}));
+		for (const entrypoint of ['seed', 'shape']) {
+			for (const missing of Object.keys(required)) {
+				rmSync(calls, { force: true });
+				const env = {
+					...process.env, ...required, PATH: `${bin}:${process.env.PATH}`,
+					FIXTURE_RUN_ID: 'i196entry', FIXTURE_MANIFEST: manifest,
+					PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
+					PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'secret',
+				};
+				delete env[missing];
+				const command = entrypoint === 'seed' ? process.execPath : 'bash';
+				const args = entrypoint === 'seed' ? [join(ROOT, 'seed-fixture.mjs')] : [join(ROOT, 'shape-fixture.sh')];
+				const result = spawnSync(command, args, { env, encoding: 'utf8' });
+				assert.notEqual(result.status, 0);
+				assert.match(result.stderr, new RegExp(`${missing}.*required`, 'i'), `${entrypoint} must reject missing ${missing}`);
+				assert.equal(existsSync(calls), false, `${entrypoint} must reject missing ${missing} before Docker/API/DB`);
+			}
+		}
+		const scenario = read('scenario.js');
+		assert.match(scenario, /BASE_URL.*required/i);
+		assert.doesNotMatch(scenario, /BASE_URL\s*=\s*\(__ENV\.BASE_URL\s*\|\|/);
+		for (const source of [read('seed-fixture.mjs'), read('shape-fixture.sh')]) {
+			assert.doesNotMatch(source, /faithlog-backend|faithlog-postgres|faithlog-latest|http:\/\/localhost:8080/);
+		}
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
+});
+
 test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	const runner = read('run-baseline.sh');
 	const sql = read('db-table-stats.sql');
@@ -647,6 +697,44 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		assert.equal(report.db.tableCounterDelta[0].estimatedRowsAfter, '1000');
 		assert.equal(report.nPlusOneEvidence.loopSignal[0].count, 4);
 		assert.equal(report.resources.length, 2);
+		const approvedSamplingMetadata = join(temporary, 'metadata-approved-sampling.json');
+		const approvedSamplingReport = join(temporary, 'approved-sampling-report.json');
+		const approvedSampling = JSON.parse(readFileSync(paths.metadata, 'utf8'));
+		approvedSampling.runtime.samplingIntervalSeconds = 2;
+		approvedSampling.runtime.samplingMaxGapSeconds = 4;
+		writeFileSync(approvedSamplingMetadata, JSON.stringify(approvedSampling));
+		const approvedSamplingProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity,
+			approvedSamplingMetadata, approvedSamplingReport]);
+		assert.notEqual(approvedSamplingProcess.status, 0, 'automatic adoption must remain disabled');
+		const approvedSamplingResult = JSON.parse(readFileSync(approvedSamplingReport, 'utf8'));
+		assert.equal(approvedSamplingResult.measurementStatus, 'conditional-not-adoptable');
+		assert.equal(approvedSamplingResult.automaticAdoption, false);
+		assert.equal(approvedSamplingResult.rejectionReasons.includes('invalid-sampling-contract'), false);
+
+		for (const [name, resourceLines, expectedReason] of [
+			['negative', [
+				'2026-07-14T00:00:00Z\tfaithlog-backend\t-1.0%\t100MiB / 1GiB\t9.8%',
+				'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
+				'2026-07-14T00:00:02Z\tfaithlog-backend\t11.0%\t101MiB / 1GiB\t9.9%',
+				'2026-07-14T00:00:02Z\tfaithlog-postgres\t21.0%\t201MiB / 1GiB\t19.6%',
+			], 'invalid-resource-sample'],
+			['extra-container', [
+				...readFileSync(paths.resources, 'utf8').split('\n'),
+				'2026-07-14T00:00:00Z\tforeign-container\t1.0%\t1MiB / 1GiB\t0.1%',
+				'2026-07-14T00:00:02Z\tforeign-container\t1.0%\t1MiB / 1GiB\t0.1%',
+			], 'unexpected-resource-container'],
+		]) {
+			const resourcePath = join(temporary, `${name}-resources.tsv`);
+			const resourceReport = join(temporary, `${name}-resource-report.json`);
+			writeFileSync(resourcePath, resourceLines.join('\n'));
+			const resourceProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+				paths.summary, paths.before, paths.after, paths.sql, resourcePath, paths.integrity, paths.metadata, resourceReport]);
+			assert.notEqual(resourceProcess.status, 0);
+			const resourceResult = JSON.parse(readFileSync(resourceReport, 'utf8'));
+			assert.equal(resourceResult.measurementStatus, 'rejected');
+			assert.ok(resourceResult.rejectionReasons.includes(expectedReason), `${name} must add ${expectedReason}`);
+		}
 		const unconfirmedMetadata = join(temporary, 'metadata-unconfirmed-window.json');
 		const unconfirmedReport = join(temporary, 'unconfirmed-window-report.json');
 		const unconfirmed = JSON.parse(readFileSync(paths.metadata, 'utf8'));
@@ -964,7 +1052,10 @@ test('fixture preparation is create-only outside rows owned by the current fixtu
 	assert.match(seed, /faithlog-performance-\$\{composeRuntime\.composeProject\}\.lock/);
 	assert.doesNotMatch(seed, /\/api\/v1\/admin\/campuses\/\$\{campusId\}\/members/);
 	assert.doesNotMatch(seed, /process\.env\.PERF_(?:GLOBAL|PROJECT)_LOCK/);
-	assert.doesNotMatch(seed, /process\.env\.EXPECTED_APP_IMAGE/);
+	for (const name of ['BASE_URL', 'APP_CONTAINER', 'DB_CONTAINER', 'EXPECTED_APP_SERVICE', 'EXPECTED_DB_SERVICE', 'EXPECTED_APP_IMAGE']) {
+		assert.match(seed, new RegExp(`required\\(['\"]${name}['\"]\\)`));
+		assert.match(shaper, new RegExp(`${name}=.*:\\?`));
+	}
 	assert.doesNotMatch(seed, /email:\s*ADMIN_EMAIL/);
 	assert.doesNotMatch(seed, /\.\.\.(?:primary|isolation)Campus/);
 	assert.doesNotMatch(seed, /method:\s*['\"]DELETE['\"]/);
