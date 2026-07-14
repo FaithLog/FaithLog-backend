@@ -1612,6 +1612,49 @@ class PollServiceTest {
 	}
 
 	@Test
+	void legacy_mixed_coffee_poll_close_fails_closed_for_manager_and_active_owner_duty() {
+		User manager = saveUser("poll-200-legacy-close-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-200-legacy-close-duty@example.com", UserRole.USER);
+		User member = saveUser("poll-200-legacy-close-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200레거시혼합투표종료캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Poll managerTarget = saveOpenLegacyMixedCoffeePoll(
+			campus.campusId(), accountId, duty.id(), "관리자 종료 대상"
+		);
+		Poll dutyTarget = saveOpenLegacyMixedCoffeePoll(
+			campus.campusId(), accountId, duty.id(), "담당자 종료 대상"
+		);
+		PollOption option = pollOptionRepository.saveAndFlush(PollOption.create(
+			dutyTarget.id(), "레거시 아이스 아메리카노", null, 1800, 1
+		));
+		com.faithlog.poll.domain.entity.PollResponse response = pollResponseRepository.saveAndFlush(
+			com.faithlog.poll.domain.entity.PollResponse.create(dutyTarget.id(), member.id(), "레거시 응답")
+		);
+		pollResponseOptionRepository.saveAndFlush(
+			com.faithlog.poll.domain.entity.PollResponseOption.create(response.id(), option.id())
+		);
+
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), managerTarget.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_ADMIN_FORBIDDEN)
+			);
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), dutyTarget.id(), duty.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED)
+			);
+		assertThat(pollRepository.findById(managerTarget.id())).get()
+			.extracting(Poll::status)
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(dutyTarget.id())).get()
+			.extracting(Poll::status)
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
+	@Test
 	void close_poll_rejects_scheduled_or_already_closed_poll() {
 		User manager = saveUser("poll-close-state-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "97상태캠");
@@ -2977,6 +3020,26 @@ class PollServiceTest {
 		ReflectionTestUtils.setField(savedPoll, "status", PollStatus.OPEN);
 		pollRepository.saveAndFlush(savedPoll);
 		return pollService.getPoll(campusId, poll.id(), requesterId);
+	}
+
+	private Poll saveOpenLegacyMixedCoffeePoll(Long campusId, Long accountId, Long createdBy, String title) {
+		Poll poll = Poll.create(
+			campusId,
+			null,
+			title,
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			false,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			createdBy
+		);
+		poll.open();
+		return pollRepository.saveAndFlush(poll);
 	}
 
 	private PollResult createScheduledCustomPoll(Long campusId, Long managerId, String title, SelectionType selectionType, boolean anonymous, List<String> optionContents) {
