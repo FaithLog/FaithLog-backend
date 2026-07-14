@@ -1,6 +1,7 @@
 package com.faithlog.billing.infrastructure.repository;
 
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
+import com.faithlog.billing.service.port.PaymentAccountLockScope;
 import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import java.util.List;
@@ -12,6 +13,15 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 public interface PaymentAccountRepository extends JpaRepository<PaymentAccount, Long>, PaymentAccountRepositoryPort {
+
+	@Query("""
+		select new com.faithlog.billing.service.port.PaymentAccountLockScope(
+			account.id, account.campusId, account.accountType, account.ownerUserId
+		)
+		from PaymentAccount account
+		where account.id = :accountId
+		""")
+	Optional<PaymentAccountLockScope> findLockScopeById(@Param("accountId") Long accountId);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select account from PaymentAccount account where account.id = :accountId")

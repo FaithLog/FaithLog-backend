@@ -7,6 +7,7 @@ import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.service.policy.BillingAccessPolicy;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
+import com.faithlog.billing.service.port.PaymentAccountLockScope;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.DutyType;
@@ -77,6 +78,13 @@ public class PaymentAccountCommandService {
 
 	@Transactional
 	public PaymentAccountResult deactivatePaymentAccount(Long accountId, Long requesterId) {
+		PaymentAccountLockScope scope = paymentAccountRepository.findLockScopeById(accountId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
+		if (scope.accountType() == PaymentCategory.COFFEE) {
+			PaymentAccount account = lockOwnedCoffeeAccount(scope, null, requesterId);
+			account.deactivate();
+			return PaymentAccountResult.from(account);
+		}
 		PaymentAccount account = paymentAccountRepository.findById(accountId)
 			.filter(paymentAccount -> !paymentAccount.isDeleted())
 			.filter(paymentAccount -> paymentAccount.accountType() != PaymentCategory.MEAL)
@@ -115,6 +123,17 @@ public class PaymentAccountCommandService {
 
 	@Transactional
 	public void deletePaymentAccount(Long campusId, Long paymentAccountId, Long requesterId) {
+		PaymentAccountLockScope scope = paymentAccountRepository.findLockScopeById(paymentAccountId)
+			.filter(candidate -> candidate.campusId().equals(campusId))
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
+		if (scope.accountType() == PaymentCategory.COFFEE) {
+			PaymentAccount account = lockOwnedCoffeeAccount(scope, campusId, requesterId);
+			if (account.isActive()) {
+				throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_ACTIVE_DELETE_FORBIDDEN);
+			}
+			account.softDelete();
+			return;
+		}
 		PaymentAccount account = findPaymentAccountInCampus(campusId, paymentAccountId);
 		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
 		requirePaymentAccountManager(campusId, requesterId, account.accountType());
@@ -212,6 +231,26 @@ public class PaymentAccountCommandService {
 			return account;
 		}
 		return paymentAccountRepository.findByIdForUpdate(account.id())
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
+	}
+
+	private PaymentAccount lockOwnedCoffeeAccount(
+		PaymentAccountLockScope scope,
+		Long expectedCampusId,
+		Long requesterId
+	) {
+		if (expectedCampusId != null && !scope.campusId().equals(expectedCampusId)) {
+			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND);
+		}
+		if (!requesterId.equals(scope.ownerUserId())) {
+			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN);
+		}
+		requirePaymentAccountManager(scope.campusId(), requesterId, PaymentCategory.COFFEE);
+		return paymentAccountRepository.findByIdForUpdate(scope.id())
+			.filter(account -> !account.isDeleted())
+			.filter(account -> account.campusId().equals(scope.campusId()))
+			.filter(account -> account.accountType() == PaymentCategory.COFFEE)
+			.filter(account -> requesterId.equals(account.ownerUserId()))
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 	}
 
