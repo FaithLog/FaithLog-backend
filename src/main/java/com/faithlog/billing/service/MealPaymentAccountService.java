@@ -55,7 +55,7 @@ public class MealPaymentAccountService {
 
 	@Transactional(readOnly = true)
 	public List<PaymentAccountResult> listMine(Long campusId, Long requesterId, boolean includeInactive) {
-		mealDutyAccessService.requireActiveMealDutyForUpdate(campusId, requesterId);
+		mealDutyAccessService.requireActiveMealDuty(campusId, requesterId);
 		List<PaymentAccount> accounts = includeInactive
 			? paymentAccountRepository.findByCampusIdAndOwnerUserIdAndAccountTypeAndDeletedAtIsNullOrderByIdAsc(
 				campusId, requesterId, PaymentCategory.MEAL)
@@ -66,8 +66,8 @@ public class MealPaymentAccountService {
 
 	@Transactional
 	public PaymentAccountResult deactivate(Long campusId, Long accountId, Long requesterId) {
-		mealDutyAccessService.requireActiveMealDuty(campusId, requesterId);
-		PaymentAccount account = paymentAccountRepository.findById(accountId)
+		mealDutyAccessService.requireActiveMealDutyForUpdate(campusId, requesterId);
+		PaymentAccount account = paymentAccountRepository.findByIdForUpdate(accountId)
 			.filter(candidate -> !candidate.isDeleted())
 			.filter(candidate -> candidate.campusId().equals(campusId))
 			.filter(candidate -> candidate.accountType() == PaymentCategory.MEAL)
