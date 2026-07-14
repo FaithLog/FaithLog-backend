@@ -263,6 +263,32 @@ class PollAutomationServiceTest {
 			.containsExactly(org.assertj.core.groups.Tuple.tuple(member.id(), PaymentCategory.COFFEE, "아이스 아메리카노", 1800));
 	}
 
+	@Test
+	void closeDueCoffeePolls_fails_closed_for_legacy_inconsistent_coffee_poll() {
+		User manager = saveUser("batch-close-legacy-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("batch-close-legacy-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200레거시불일치자동마감캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Poll legacyInconsistent = Poll.create(
+			campus.campusId(), null, "레거시 불일치 커피 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.NONE, PaymentCategory.COFFEE, accountId,
+			Instant.now().minusSeconds(3600), Instant.now().minusSeconds(60), duty.id()
+		);
+		legacyInconsistent.open();
+		pollRepository.saveAndFlush(legacyInconsistent);
+
+		int closed = pollAutomationService.closeDueCoffeePolls(Instant.now());
+
+		assertThat(closed).isZero();
+		assertThat(pollRepository.findById(legacyInconsistent.id()))
+			.get()
+			.extracting(Poll::status)
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(chargeItemRepository.findAll()).isEmpty();
+	}
+
 	private PollTemplateResult createTemplate(Long campusId, Long managerId, String title, boolean autoCreateEnabled) {
 		return pollTemplateService.createTemplate(new CreatePollTemplateCommand(
 			campusId,
