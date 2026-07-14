@@ -293,6 +293,35 @@ class AdminManagementApiRestDocsTest {
 			.andExpect(status().isCreated());
 	}
 
+	@Test
+	void documents_invalid_stale_only_query() throws Exception {
+		String managerToken = signupAndLogin(
+			"docs-invalid-stale-query-manager@example.com", UserRole.MANAGER, "쿼리관리자"
+		);
+		JsonNode campus = createCampus(managerToken, "잘못된과거담당쿼리캠");
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/duty-assignments", campus.path("campusId").asLong())
+				.header("Authorization", "Bearer " + managerToken)
+				.param("staleOnly", "garbage"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"))
+			.andDo(document("admin-duty-assignments-invalid-stale-only",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				queryParameters(parameterWithName("staleOnly").description("boolean으로 변환할 수 없는 잘못된 값")),
+				responseFields(
+					fieldWithPath("success").description("요청 성공 여부. `false`"),
+					fieldWithPath("code").description("`GLOBAL_VALIDATION_FAILED`"),
+					fieldWithPath("message").description("오류 메시지"),
+					fieldWithPath("data").description("오류 응답 데이터. `null`"),
+					fieldWithPath("timestamp").description("응답 생성 시각")
+				)
+			));
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)

@@ -10,9 +10,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.campus.domain.entity.CampusDutyAssignment;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusMemberStatus;
 import com.faithlog.campus.domain.type.CampusRole;
+import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
@@ -42,6 +44,9 @@ class AdminManagementControllerTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private CampusDutyAssignmentRepository campusDutyAssignmentRepository;
 
 	@Test
 	void admin_users_api_requires_service_admin_and_supports_search_role_paging_and_sort() throws Exception {
@@ -145,6 +150,36 @@ class AdminManagementControllerTest {
 					"""))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("ADMIN_LAST_ADMIN_DEMOTION_FORBIDDEN"));
+	}
+
+	@Test
+	void service_admin_direct_member_add_rejects_stale_active_duty_reactivation() throws Exception {
+		String adminToken = signupAndLogin("admin-stale-add-admin@example.com", UserRole.ADMIN, "서비스관리자");
+		String managerToken = signupAndLogin("admin-stale-add-manager@example.com", UserRole.MANAGER, "캠퍼스관리자");
+		String memberToken = signupAndLogin("admin-stale-add-member@example.com", UserRole.USER, "과거담당자");
+		User member = userRepository.findByEmail("admin-stale-add-member@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "직접추가복구캠");
+		JsonNode membership = joinCampus(memberToken, campus.path("inviteCode").asText());
+		campusDutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(
+			campus.path("campusId").asLong(), member.id()
+		));
+		CampusMember inactive = campusMemberRepository
+			.findById(membership.path("membershipId").asLong())
+			.orElseThrow();
+		inactive.deactivate();
+		campusMemberRepository.saveAndFlush(inactive);
+
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/members", campus.path("campusId").asLong())
+				.header("Authorization", "Bearer " + adminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(member.id())))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT"));
+		assertThat(campusMemberRepository.findById(inactive.id())).get().matches(value -> !value.isActive());
 	}
 
 	@Test

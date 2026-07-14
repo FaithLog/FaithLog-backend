@@ -19,6 +19,7 @@ import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.campus.service.result.CampusMembershipResult;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
@@ -1076,6 +1077,32 @@ class BillingServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN)
 			);
+	}
+
+	@Test
+	void service_admin_can_resolve_only_stale_duty_owned_unpaid_charge_for_recovery() {
+		User manager = saveUser("billing-stale-recovery-manager@example.com", UserRole.MANAGER);
+		User staleDuty = saveUser("billing-stale-recovery-duty@example.com", UserRole.USER);
+		User member = saveUser("billing-stale-recovery-member@example.com", UserRole.USER);
+		User admin = saveUser("billing-stale-recovery-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "200과거담당미납복구캠");
+		CampusMembershipResult staleMembership = campusService.joinCampus(new JoinCampusCommand(
+			staleDuty.id(), campus.inviteCode()
+		));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), staleDuty.id()));
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), staleDuty.id(), PaymentCategory.COFFEE, "과거 담당 계좌", "하나은행",
+			"200-STALE-RECOVERY", "과거담당", staleDuty.id()
+		));
+		ChargeItem charge = saveCoffeeCharge(campus.campusId(), member.id(), account, 20091L);
+		CampusMember inactive = campusMemberRepository.findById(staleMembership.membershipId()).orElseThrow();
+		inactive.deactivate();
+		campusMemberRepository.saveAndFlush(inactive);
+
+		assertThat(billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(), admin.id(), ChargeStatus.WAIVED
+		)).status()).isEqualTo(ChargeStatus.WAIVED);
 	}
 
 	@Test

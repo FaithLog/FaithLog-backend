@@ -638,6 +638,38 @@ class CampusServiceTest {
 	}
 
 	@Test
+	void getDutyAssignments_bulk_loads_users_after_coffee_cardinality_limit_removal() {
+		User manager = saveUser("duty-list-bulk-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "담당목록일괄조회캠", "분당", "담당 사용자 N+1 RED"
+		));
+		for (int index = 0; index < 8; index++) {
+			User duty = saveUser("duty-list-bulk-%02d@example.com".formatted(index), UserRole.USER);
+			campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
+			campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		}
+		entityManager.flush();
+		entityManager.clear();
+		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+		statistics.clear();
+
+		assertThat(campusService.getDutyAssignments(campus.campusId(), manager.id())).hasSize(8);
+		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(4);
+	}
+
+	@Test
+	void revokeMealDuty_uses_category_neutral_not_found_message() {
+		User manager = saveUser("meal-duty-not-found-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "밥담당중립오류캠", "분당", "담당 유형 중립 404 RED"
+		));
+
+		assertThatThrownBy(() -> campusService.revokeMealDuty(campus.campusId(), Long.MAX_VALUE, manager.id()))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("담당자 배정을 찾을 수 없습니다.");
+	}
+
+	@Test
 	void assignCoffeeDuty_requires_non_member_campus_role_or_admin_and_existing_target_membership() {
 		User manager = saveUser("coffee-permission-manager@example.com", UserRole.MANAGER);
 		User member = saveUser("coffee-permission-member@example.com", UserRole.USER);
