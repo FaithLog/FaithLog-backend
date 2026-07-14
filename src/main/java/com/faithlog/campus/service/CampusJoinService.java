@@ -36,7 +36,7 @@ public class CampusJoinService {
 
 	@Transactional
 	public CampusMembershipResult joinCampus(JoinCampusCommand command) {
-		CampusUserLookupResult requester = campusAccessPolicy.getActiveUser(command.requesterId());
+		CampusUserLookupResult requester = campusAccessPolicy.getActiveUserForUpdate(command.requesterId());
 		Campus campus = campusRepository.findByInviteCode(command.inviteCode())
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_INVALID_INVITE_CODE));
 		campus = campusRepository.findByIdForUpdate(campus.id())

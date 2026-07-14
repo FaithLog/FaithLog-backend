@@ -340,7 +340,7 @@ class CampusDutyAssignmentConcurrencyTest {
 				}
 			}
 			return result;
-		}).when(campusAccessPolicy).getUserOrThrow(target.id());
+		}).when(campusAccessPolicy).getUsersForUpdate(List.of(manager.id(), target.id()));
 
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
@@ -395,7 +395,7 @@ class CampusDutyAssignmentConcurrencyTest {
 				}
 			}
 			return result;
-		}).when(campusAccessPolicy).getUserOrThrow(manager.id());
+		}).when(campusAccessPolicy).getUsersForUpdate(List.of(admin.id(), manager.id()));
 
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {

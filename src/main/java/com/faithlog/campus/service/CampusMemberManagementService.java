@@ -15,6 +15,7 @@ import com.faithlog.campus.service.result.AdminCampusMemberResult;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,18 +58,20 @@ public class CampusMemberManagementService {
 
 	@Transactional
 	public void deleteCampusMember(Long campusId, Long membershipId, Long requesterId) {
-		CampusUserLookupResult requester = campusAccessPolicy.getActiveUser(requesterId);
 		CampusMemberLockScope targetScope = campusMemberRepository.findLockScopeByCampusIdAndId(campusId, membershipId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
-
+		Map<Long, CampusUserLookupResult> lockedUsers = campusAccessPolicy.getUsersForUpdate(
+			List.of(requesterId, targetScope.userId()));
+		CampusUserLookupResult requester = requireActiveRequester(lockedUsers.get(requesterId));
+		campusRepository.findByIdForUpdate(campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 		if (!requester.isAdmin()) {
 			CampusMember requesterMembership = campusMemberRepository
-				.findByCampusIdAndUserId(campusId, requester.userId())
+				.findByCampusIdAndUserIdForUpdate(campusId, requester.userId())
+				.filter(CampusMember::isActive)
 				.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN));
 			CampusRolePolicy.requireCampusManager(requesterMembership, ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN);
 		}
-		campusRepository.findByIdForUpdate(campusId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 		var activeDuties = dutyAssignmentRepository.findActiveByCampusIdAndUserIdForUpdate(
 			campusId, targetScope.userId());
 		CampusMember targetMember = campusMemberRepository.findByCampusIdAndIdForUpdate(campusId, membershipId)
@@ -81,10 +84,12 @@ public class CampusMemberManagementService {
 
 	@Transactional
 	public AdminCampusMemberResult changeCampusRole(ChangeCampusRoleCommand command) {
-		CampusUserLookupResult requester = campusAccessPolicy.getActiveUser(command.requesterId());
 		CampusMemberLockScope targetScope = campusMemberRepository
 			.findLockScopeByCampusIdAndId(command.campusId(), command.campusMemberId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
+		Map<Long, CampusUserLookupResult> lockedUsers = campusAccessPolicy.getUsersForUpdate(
+			List.of(command.requesterId(), targetScope.userId()));
+		CampusUserLookupResult requester = requireActiveRequester(lockedUsers.get(command.requesterId()));
 		campusRepository.findByIdForUpdate(command.campusId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 		CampusMember targetMember = campusMemberRepository
@@ -104,11 +109,18 @@ public class CampusMemberManagementService {
 			);
 		}
 
-		CampusUserLookupResult targetUser = campusAccessPolicy.getUserOrThrow(targetScope.userId());
+		CampusUserLookupResult targetUser = lockedUsers.get(targetScope.userId());
 		if (targetMember.campusRole() != command.campusRole()) {
 			targetMember.changeCampusRole(command.campusRole());
 			userTokenVersionPort.increaseTokenVersion(targetMember.userId());
 		}
 		return AdminCampusMemberResult.of(targetMember, targetUser);
+	}
+
+	private CampusUserLookupResult requireActiveRequester(CampusUserLookupResult requester) {
+		if (requester == null || !requester.active()) {
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
+		}
+		return requester;
 	}
 }

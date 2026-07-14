@@ -43,7 +43,7 @@ public class CampusCreationService {
 
 	@Transactional
 	public CampusCreateResult createCampus(CreateCampusCommand command) {
-		CampusUserLookupResult requester = campusAccessPolicy.getActiveUser(command.requesterId());
+		CampusUserLookupResult requester = campusAccessPolicy.getActiveUserForUpdate(command.requesterId());
 		CampusRolePolicy.requireCampusCreator(requester);
 
 		Campus campus = campusRepository.save(Campus.create(

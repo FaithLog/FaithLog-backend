@@ -54,12 +54,12 @@ public class AccountWithdrawalCommandService {
 		if (command.userId() == null || command.sessionId() == null || command.accessJti() == null) {
 			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
-		AccountWithdrawalLockScope userScope = userRepository.findWithdrawalLockScopeById(command.userId())
+		User user = userRepository.findByIdForUpdate(command.userId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
-		if (!userScope.active() || userScope.deletedAt() != null) {
+		if (!user.isActive() || user.deletedAt() != null) {
 			throw new BusinessException(ErrorCode.USER_ALREADY_DELETED);
 		}
-		if (!softDeletionSupport.passwordMatches(command.password(), userScope.passwordHash())) {
+		if (!softDeletionSupport.passwordMatches(command.password(), user.passwordHash())) {
 			throw new BusinessException(ErrorCode.USER_DELETE_PASSWORD_MISMATCH);
 		}
 		if (!DELETE_CONFIRM_TEXT.equals(command.confirmText())) {
@@ -79,14 +79,6 @@ public class AccountWithdrawalCommandService {
 			lockedMemberships.add(campusMemberRepository.findByCampusIdAndIdForUpdate(
 				membershipScope.campusId(), membershipScope.membershipId()
 			).orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND)));
-		}
-		User user = userRepository.findByIdForUpdate(command.userId())
-			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
-		if (!user.isActive() || user.deletedAt() != null) {
-			throw new BusinessException(ErrorCode.USER_ALREADY_DELETED);
-		}
-		if (!softDeletionSupport.passwordMatches(command.password(), user.passwordHash())) {
-			throw new BusinessException(ErrorCode.USER_DELETE_PASSWORD_MISMATCH);
 		}
 		if (hasActiveDuty) {
 			throw new BusinessException(ErrorCode.CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT);

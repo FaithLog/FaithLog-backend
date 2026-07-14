@@ -14,6 +14,9 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -52,8 +55,9 @@ public class AdminUserManagementService {
 
 	@Transactional
 	public AdminUserResult changeUserRole(ChangeUserRoleCommand command) {
-		requireAdmin(command.requesterId());
-		User user = getUserOrThrow(command.userId());
+		Map<Long, User> lockedUsers = lockUsers(command.requesterId(), command.userId());
+		AdminAccessPolicy.requireServiceAdmin(lockedUsers.get(command.requesterId()));
+		User user = lockedUsers.get(command.userId());
 		if (user.role() == UserRole.ADMIN
 			&& command.role() != UserRole.ADMIN
 			&& user.isActive()
@@ -62,6 +66,20 @@ public class AdminUserManagementService {
 		}
 		user.changeRole(command.role());
 		return AdminUserResult.of(user, userCampuses(user.id()));
+	}
+
+	private Map<Long, User> lockUsers(Long requesterId, Long targetId) {
+		List<Long> userIds = java.util.stream.Stream.of(requesterId, targetId)
+			.distinct()
+			.sorted()
+			.toList();
+		Map<Long, User> users = userRepository.findAdminUsersByIdsForUpdate(userIds)
+			.stream()
+			.collect(Collectors.toMap(User::id, Function.identity()));
+		if (!users.keySet().containsAll(userIds)) {
+			throw new BusinessException(ErrorCode.ADMIN_USER_NOT_FOUND);
+		}
+		return users;
 	}
 
 	private List<AdminUserCampusResult> userCampuses(Long userId) {

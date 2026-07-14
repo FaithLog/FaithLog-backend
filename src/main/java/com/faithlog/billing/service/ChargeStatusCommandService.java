@@ -12,6 +12,7 @@ import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.service.port.ChargeItemLockScope;
 import com.faithlog.billing.service.port.DevotionChargeReopenPort;
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
+import com.faithlog.billing.service.port.PaymentAccountLockScope;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
@@ -75,17 +76,20 @@ public class ChargeStatusCommandService {
 	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
 		ChargeItemLockScope chargeScope = chargeItemRepository.findChargeItemLockScopeById(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
-		if (chargeScope.getPaymentCategory() == PaymentCategory.MEAL) {
+		CampusUserLookupResult requester = getActiveUser(command.requesterId());
+		boolean staleDutyRecovery = requireStaleDutyRecoveryScopeIfEligible(chargeScope, requester);
+		if (chargeScope.getPaymentCategory() == PaymentCategory.MEAL && !staleDutyRecovery) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND);
 		}
-		if (chargeScope.getPaymentCategory() == PaymentCategory.COFFEE) {
+		if (chargeScope.getPaymentCategory() == PaymentCategory.COFFEE && !staleDutyRecovery) {
 			requireOwnedCoffeeChargeManagerForUpdate(chargeScope, command.requesterId());
-		} else {
+		} else if (chargeScope.getPaymentCategory() != PaymentCategory.MEAL && !staleDutyRecovery) {
 			requireChargeStatusManager(chargeScope.getCampusId(), command.requesterId());
 		}
 		ChargeItem chargeItem = chargeItemRepository.findChargeItemByIdForUpdate(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
-		requireLockedChargeWithinAuthorizedScope(chargeScope, chargeItem, command.requesterId());
+		requireLockedChargeWithinAuthorizedScope(
+			chargeScope, chargeItem, command.requesterId(), staleDutyRecovery);
 		ChargeStatusPolicy.applyAdminStatusChange(chargeItem, command.status());
 		if (shouldReopenWeeklyDevotion(chargeItem, command.status())) {
 			devotionChargeReopenPort.reopenWeeklyDevotion(
@@ -96,6 +100,39 @@ public class ChargeStatusCommandService {
 		}
 
 		return ChargeItemResult.from(chargeItem);
+	}
+
+	private boolean requireStaleDutyRecoveryScopeIfEligible(
+		ChargeItemLockScope chargeScope,
+		CampusUserLookupResult requester
+	) {
+		if (!requester.isAdmin()
+			|| chargeScope.getStatus() != ChargeStatus.UNPAID
+			|| (chargeScope.getPaymentCategory() != PaymentCategory.COFFEE
+				&& chargeScope.getPaymentCategory() != PaymentCategory.MEAL)
+			|| chargeScope.getPaymentAccountId() == null) {
+			return false;
+		}
+		PaymentAccountLockScope account = paymentAccountRepository
+			.findLockScopeById(chargeScope.getPaymentAccountId())
+			.filter(candidate -> candidate.campusId().equals(chargeScope.getCampusId()))
+			.filter(candidate -> candidate.accountType() == chargeScope.getPaymentCategory())
+			.filter(candidate -> candidate.ownerUserId() != null)
+			.orElse(null);
+		if (account == null) {
+			return false;
+		}
+		DutyType dutyType = chargeScope.getPaymentCategory() == PaymentCategory.COFFEE
+			? DutyType.COFFEE
+			: DutyType.MEAL;
+		if (dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			chargeScope.getCampusId(), dutyType, account.ownerUserId()).isEmpty()) {
+			return false;
+		}
+		return campusMemberRepository.findByCampusIdAndUserIdForUpdate(
+			chargeScope.getCampusId(), account.ownerUserId())
+			.filter(member -> !member.isActive())
+			.isPresent();
 	}
 
 	private boolean shouldReopenWeeklyDevotion(ChargeItem chargeItem, ChargeStatus targetStatus) {
@@ -130,13 +167,16 @@ public class ChargeStatusCommandService {
 	private void requireLockedChargeWithinAuthorizedScope(
 		ChargeItemLockScope authorizedScope,
 		ChargeItem lockedCharge,
-		Long requesterId
+		Long requesterId,
+		boolean staleDutyRecovery
 	) {
 		if (!lockedCharge.campusId().equals(authorizedScope.getCampusId())
-			|| lockedCharge.paymentCategory() != authorizedScope.getPaymentCategory()) {
+			|| lockedCharge.paymentCategory() != authorizedScope.getPaymentCategory()
+			|| !java.util.Objects.equals(
+				lockedCharge.paymentAccountId(), authorizedScope.getPaymentAccountId())) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
 		}
-		if (lockedCharge.paymentCategory() == PaymentCategory.COFFEE) {
+		if (!staleDutyRecovery && lockedCharge.paymentCategory() == PaymentCategory.COFFEE) {
 			requireOwnedCoffeeAccount(
 				lockedCharge.campusId(), lockedCharge.paymentAccountId(), requesterId);
 		}

@@ -34,7 +34,7 @@ public class LoginCommandService {
 
 	@Transactional
 	public LoginResult login(LoginCommand command) {
-		User user = userRepository.findByEmail(command.email())
+		User user = userRepository.findByEmailForUpdate(command.email())
 			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS));
 
 		if (!user.isActive() || !passwordEncoder.matches(command.password(), user.passwordHash())) {

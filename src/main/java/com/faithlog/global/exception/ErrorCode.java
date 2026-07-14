@@ -31,7 +31,7 @@ public enum ErrorCode {
 	CAMPUS_MEMBER_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "캠퍼스 멤버 관리 권한이 없습니다."),
 	CAMPUS_ROLE_CHANGE_FORBIDDEN(HttpStatus.FORBIDDEN, "캠퍼스 역할 변경 권한이 없습니다."),
 	CAMPUS_ROLE_HIERARCHY_FORBIDDEN(HttpStatus.FORBIDDEN, "상위 캠퍼스 역할은 변경할 수 없습니다."),
-	CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "커피 담당자 배정을 찾을 수 없습니다."),
+	CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "담당자 배정을 찾을 수 없습니다."),
 	CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT(HttpStatus.CONFLICT, "활성 담당 배정이 남아 있습니다. 담당 해제를 먼저 완료해 주세요."),
 	CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT(HttpStatus.CONFLICT, "소유한 커피 계좌에 미납 청구가 있어 담당자를 해제할 수 없습니다."),
 	CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT(HttpStatus.CONFLICT, "소유한 밥 계좌에 미납 청구가 있어 담당자를 해제할 수 없습니다."),

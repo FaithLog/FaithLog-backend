@@ -19,6 +19,7 @@ import com.faithlog.campus.service.result.MyDutyAssignmentResult;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -66,11 +67,13 @@ public class CampusDutyAssignmentService {
 		List<CampusDutyAssignment> assignments = staleOnly
 			? dutyAssignmentRepository.findActiveWithInactiveMemberByCampusIdOrderByIdAsc(campusId)
 			: dutyAssignmentRepository.findActiveWithActiveMemberByCampusIdOrderByIdAsc(campusId);
+		Map<Long, CampusUserLookupResult> users = campusAccessPolicy.getUsers(
+			assignments.stream().map(CampusDutyAssignment::userId).toList());
 		return assignments
 			.stream()
 			.map(assignment -> DutyAssignmentResult.of(
 				assignment,
-				campusAccessPolicy.getUserOrThrow(assignment.userId())
+				users.get(assignment.userId())
 			))
 			.toList();
 	}
@@ -101,16 +104,9 @@ public class CampusDutyAssignmentService {
 
 	@Transactional
 	public DutyAssignmentResult assignCoffeeDuty(AssignCoffeeDutyCommand command) {
-		campusAccessPolicy.requireCampusManager(
-			command.campusId(),
-			command.requesterId(),
-			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
-			"커피 담당자 관리 권한이 없습니다."
-		);
-		campusRepository.findByIdForUpdate(command.campusId())
-			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+		lockCampusForDutyManagement(command.campusId(), command.requesterId(), "커피 담당자 관리 권한이 없습니다.");
 		CampusMember targetMember = campusMemberRepository
-			.findByCampusIdAndUserId(command.campusId(), command.userId())
+			.findByCampusIdAndUserIdForUpdate(command.campusId(), command.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(
 				ErrorCode.CAMPUS_MEMBER_NOT_FOUND,
@@ -131,16 +127,9 @@ public class CampusDutyAssignmentService {
 
 	@Transactional
 	public DutyAssignmentResult assignMealDuty(AssignMealDutyCommand command) {
-		campusAccessPolicy.requireCampusManager(
-			command.campusId(),
-			command.requesterId(),
-			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
-			"밥 담당자 관리 권한이 없습니다."
-		);
-		campusRepository.findByIdForUpdate(command.campusId())
-			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+		lockCampusForDutyManagement(command.campusId(), command.requesterId(), "밥 담당자 관리 권한이 없습니다.");
 		CampusMember targetMember = campusMemberRepository
-			.findByCampusIdAndUserId(command.campusId(), command.userId())
+			.findByCampusIdAndUserIdForUpdate(command.campusId(), command.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(
 				ErrorCode.CAMPUS_MEMBER_NOT_FOUND,
@@ -158,14 +147,7 @@ public class CampusDutyAssignmentService {
 
 	@Transactional
 	public void revokeCoffeeDuty(Long campusId, Long assignmentId, Long requesterId) {
-		campusAccessPolicy.requireCampusManager(
-			campusId,
-			requesterId,
-			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
-			"커피 담당자 관리 권한이 없습니다."
-		);
-		campusRepository.findByIdForUpdate(campusId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+		lockCampusForDutyManagement(campusId, requesterId, "커피 담당자 관리 권한이 없습니다.");
 		CampusDutyAssignment assignment = dutyAssignmentRepository
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.COFFEE, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
@@ -180,14 +162,7 @@ public class CampusDutyAssignmentService {
 
 	@Transactional
 	public void revokeMealDuty(Long campusId, Long assignmentId, Long requesterId) {
-		campusAccessPolicy.requireCampusManager(
-			campusId,
-			requesterId,
-			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
-			"밥 담당자 관리 권한이 없습니다."
-		);
-		campusRepository.findByIdForUpdate(campusId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+		lockCampusForDutyManagement(campusId, requesterId, "밥 담당자 관리 권한이 없습니다.");
 		CampusDutyAssignment assignment = dutyAssignmentRepository
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.MEAL, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
@@ -198,6 +173,24 @@ public class CampusDutyAssignmentService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND));
 		requireNoOwnedUnpaidCharges(assignment, PaymentCategory.MEAL, ErrorCode.CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT);
 		assignment.revoke();
+	}
+
+	private void lockCampusForDutyManagement(Long campusId, Long requesterId, String message) {
+		CampusUserLookupResult requester = campusAccessPolicy.getActiveUserForUpdate(requesterId);
+		campusRepository.findByIdForUpdate(campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+		if (requester.isAdmin()) {
+			return;
+		}
+		CampusMember requesterMembership = campusMemberRepository
+			.findByCampusIdAndUserIdForUpdate(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN, message));
+		com.faithlog.campus.service.policy.CampusRolePolicy.requireCampusManager(
+			requesterMembership,
+			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
+			message
+		);
 	}
 
 	private void requireNoOwnedUnpaidCharges(
