@@ -10,8 +10,6 @@ import com.faithlog.poll.service.CoffeePollSettlementCommandService;
 import com.faithlog.poll.service.CoffeeOperationClassifier;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
-import com.faithlog.global.exception.BusinessException;
-import com.faithlog.global.exception.ErrorCode;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -71,9 +69,11 @@ public class DueCoffeePollClosureService {
 			.map(lease -> {
 				try {
 					return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
-						dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+						if (dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
 							lockScope.getCampusId(), DutyType.COFFEE, lockScope.getCreatedBy()
-						).orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+						).isEmpty()) {
+							return false;
+						}
 						Poll poll = pollRepository.findByIdAndCampusIdForUpdate(pollId, lockScope.getCampusId()).orElseThrow();
 						if (poll.status() != PollStatus.OPEN) {
 							return false;
