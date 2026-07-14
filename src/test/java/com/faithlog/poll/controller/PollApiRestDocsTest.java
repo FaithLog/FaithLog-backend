@@ -1149,7 +1149,7 @@ class PollApiRestDocsTest {
 				.header("Authorization", "Bearer " + memberToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data[?(@.id == %d)]".formatted(pollId)).exists())
-			.andExpect(jsonPath("$.data[?(@.id == %d)].createdByUserId".formatted(pollId)).value(manager.id()))
+			.andExpect(jsonPath("$.data[?(@.id == %d)].createdByUserId".formatted(pollId)).value(manager.id().intValue()))
 			.andExpect(jsonPath("$.data[?(@.id == %d)].manageableByMe".formatted(pollId)).value(false))
 			.andDo(document("poll-list-success",
 				preprocessRequest(prettyPrint()),

@@ -16,10 +16,12 @@ public record PollListItemResult(
 	Instant startsAt,
 	Instant endsAt,
 	PollStatus status,
-	boolean responded
+	boolean responded,
+	Long createdByUserId,
+	boolean manageableByMe
 ) {
 
-	public static PollListItemResult of(Poll poll, boolean responded) {
+	public static PollListItemResult of(Poll poll, boolean responded, boolean manageableByMe) {
 		return new PollListItemResult(
 			poll.id(),
 			poll.campusId(),
@@ -30,7 +32,9 @@ public record PollListItemResult(
 			poll.startsAt(),
 			poll.endsAt(),
 			poll.status(),
-			responded
+			responded,
+			poll.createdBy(),
+			manageableByMe
 		);
 	}
 }

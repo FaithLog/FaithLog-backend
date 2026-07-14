@@ -16,7 +16,9 @@ public record PollListResponse(
 	Instant startsAt,
 	Instant endsAt,
 	PollStatus status,
-	boolean responded
+	boolean responded,
+	Long createdByUserId,
+	boolean manageableByMe
 ) {
 
 	public static PollListResponse from(PollListItemResult result) {
@@ -30,7 +32,9 @@ public record PollListResponse(
 			result.startsAt(),
 			result.endsAt(),
 			result.status(),
-			result.responded()
+			result.responded(),
+			result.createdByUserId(),
+			result.manageableByMe()
 		);
 	}
 }

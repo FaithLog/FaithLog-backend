@@ -48,6 +48,7 @@ public class PollQueryService {
 	public List<PollListItemResult> listPolls(Long campusId, Long requesterId) {
 		pollAccessService.requirePollReader(campusId, requesterId);
 		boolean adminWindow = pollAccessService.hasAdminVisibility(campusId, requesterId);
+		boolean activeCoffeeDuty = pollAccessService.isActiveCoffeeDuty(campusId, requesterId);
 		List<Poll> campusPolls = pollRepository.findByCampusIdOrderByIdDesc(campusId);
 		campusPolls.forEach(pollStatusSynchronizer::openScheduledPollIfCurrent);
 		List<Poll> visiblePolls = campusPolls.stream()
@@ -64,7 +65,11 @@ public class PollQueryService {
 			.map(PollResponse::pollId)
 			.collect(HashSet::new, HashSet::add, HashSet::addAll);
 		return visiblePolls.stream()
-			.map(poll -> PollListItemResult.of(poll, respondedPollIds.contains(poll.id())))
+			.map(poll -> PollListItemResult.of(
+				poll,
+				respondedPollIds.contains(poll.id()),
+				isManageableByRequester(poll, requesterId, adminWindow, activeCoffeeDuty)
+			))
 			.toList();
 	}
 
@@ -79,7 +84,29 @@ public class PollQueryService {
 		PollResponseResult myResponse = pollResponseRepository.findByPollIdAndUserId(poll.id(), requesterId)
 			.map(response -> PollResponseResult.of(response, optionIdsForResponse(response.id())))
 			.orElse(null);
-		return new PollDetailResult(pollResultAssembler.toResult(poll), myResponse);
+		boolean manageableByMe = isManageableByRequester(
+			poll,
+			requesterId,
+			pollAccessService.hasAdminVisibility(campusId, requesterId),
+			pollAccessService.isActiveCoffeeDuty(campusId, requesterId)
+		);
+		return new PollDetailResult(pollResultAssembler.toResult(poll), myResponse, poll.createdBy(), manageableByMe);
+	}
+
+	private boolean isManageableByRequester(
+		Poll poll,
+		Long requesterId,
+		boolean adminVisibility,
+		boolean activeCoffeeDuty
+	) {
+		if (CoffeeOperationClassifier.isCoffeeOperation(
+			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory()
+		)) {
+			return CoffeeOperationClassifier.isConsistentConfiguration(
+				poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory()
+			) && activeCoffeeDuty && requesterId.equals(poll.createdBy());
+		}
+		return adminVisibility;
 	}
 
 	private List<Long> optionIdsForResponse(Long responseId) {
