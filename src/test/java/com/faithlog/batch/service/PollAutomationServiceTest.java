@@ -27,7 +27,11 @@ import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.domain.type.SelectionType;
 import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
+import com.faithlog.poll.infrastructure.repository.PollTemplateOptionRepository;
+import com.faithlog.poll.infrastructure.repository.PollTemplateRepository;
 import com.faithlog.poll.infrastructure.repository.CoffeeMenuCatalogRepository;
+import com.faithlog.poll.domain.entity.PollTemplate;
+import com.faithlog.poll.domain.entity.PollTemplateOption;
 import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
@@ -73,6 +77,12 @@ class PollAutomationServiceTest {
 
 	@Autowired
 	private PollOptionRepository pollOptionRepository;
+
+	@Autowired
+	private PollTemplateRepository pollTemplateRepository;
+
+	@Autowired
+	private PollTemplateOptionRepository pollTemplateOptionRepository;
 
 	@Autowired
 	private CoffeeMenuCatalogRepository coffeeMenuCatalogRepository;
@@ -156,6 +166,35 @@ class PollAutomationServiceTest {
 
 		assertThat(created).isZero();
 		assertThat(pollRepository.findAll()).noneMatch(poll -> template.id().equals(poll.templateId()));
+	}
+
+	@Test
+	void createDuePolls_fails_closed_for_legacy_mixed_coffee_template() {
+		User manager = saveUser("batch-legacy-mixed-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "200레거시혼합자동제외캠");
+		PollTemplate legacyMixed = pollTemplateRepository.saveAndFlush(PollTemplate.create(
+			campus.campusId(),
+			"레거시 혼합 커피 템플릿",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			null,
+			false,
+			true,
+			DayOfWeek.MONDAY,
+			LocalTime.of(11, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(12, 0),
+			false
+		));
+		pollTemplateOptionRepository.saveAndFlush(PollTemplateOption.create(
+			legacyMixed.id(), "레거시 커피", null, 1800, 1));
+
+		int created = pollAutomationService.createDuePolls(mondayAt(11, 0).toInstant());
+
+		assertThat(created).isZero();
+		assertThat(pollRepository.findAll()).noneMatch(poll -> legacyMixed.id().equals(poll.templateId()));
 	}
 
 	@Test

@@ -570,6 +570,33 @@ class PollServiceTest {
 	}
 
 	@Test
+	void non_duty_manager_cannot_deactivate_legacy_mixed_coffee_template() {
+		User manager = saveUser("poll-200-legacy-mixed-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "200레거시혼합권한캠");
+		PollTemplate legacyMixed = pollTemplateRepository.saveAndFlush(PollTemplate.create(
+			campus.campusId(),
+			"레거시 혼합 커피 템플릿",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			null,
+			false,
+			true,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(18, 0),
+			false
+		));
+
+		assertThatThrownBy(() -> pollTemplateService.deactivateTemplate(
+			campus.campusId(), legacyMixed.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN));
+	}
+
+	@Test
 	void create_poll_without_template_uses_direct_options_and_template_poll_copies_snapshots() {
 		User manager = saveUser("poll-create-manager@example.com", UserRole.MANAGER);
 		User coffeeDuty = saveUser("poll-create-duty@example.com", UserRole.USER);
