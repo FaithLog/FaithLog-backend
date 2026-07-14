@@ -115,4 +115,3 @@ node -e '
 	fs.writeFileSync(process.argv[1], `${JSON.stringify(identity)}\n`, { flag: "wx" });
 ' "${TEMP_PATH}"
 mv "${TEMP_PATH}" "${OUTPUT_PATH}"
-

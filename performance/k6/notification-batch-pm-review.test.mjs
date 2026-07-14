@@ -321,6 +321,40 @@ test('summarizer validates exact sample kinds and stays disabled until cumulativ
 		assertFails(result, 'unimplemented cumulative-state strategy must keep aggregation disabled');
 		assert.match(result.stderr, /cumulative-state|snapshot|cleanup|not implemented/i);
 		assert.equal(existsSync(outputPath), false);
+
+		const duplicate = writeRun(root, 'duplicate-directory').runDir;
+		for (const file of ['manifest.json', 'scenario-result.json']) {
+			const value = JSON.parse(readFileSync(join(duplicate, file), 'utf8'));
+			value.fixtureRunId = 'measured-1';
+			writeFileSync(join(duplicate, file), `${JSON.stringify(value)}\n`);
+		}
+		writeFileSync(runDirsFile, `${runs[0]}\n${runs[1]}\n${duplicate}\n`);
+		const duplicateResult = runNode('summarize-before.mjs', {
+			RUN_DIRS_FILE: runDirsFile,
+			OUTPUT_PATH: outputPath,
+			EXPECTED_WARMUP_SAMPLES: '1',
+			EXPECTED_MEASURED_SAMPLES: '2',
+			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
+		});
+		assertFails(duplicateResult, 'duplicate fixtureRunId across different run directories must fail');
+		assert.match(duplicateResult.stderr, /Duplicate fixtureRunIds/);
+
+		const invalidKind = writeRun(root, 'invalid-kind').runDir;
+		for (const file of ['manifest.json', 'scenario-result.json']) {
+			const value = JSON.parse(readFileSync(join(invalidKind, file), 'utf8'));
+			value.sampleKind = 'calibration';
+			writeFileSync(join(invalidKind, file), `${JSON.stringify(value)}\n`);
+		}
+		writeFileSync(runDirsFile, `${runs[0]}\n${runs[1]}\n${invalidKind}\n`);
+		const invalidKindResult = runNode('summarize-before.mjs', {
+			RUN_DIRS_FILE: runDirsFile,
+			OUTPUT_PATH: outputPath,
+			EXPECTED_WARMUP_SAMPLES: '1',
+			EXPECTED_MEASURED_SAMPLES: '2',
+			CUMULATIVE_STATE_STRATEGY: 'fixture-only-cleanup',
+		});
+		assertFails(invalidKindResult, 'unapproved sampleKind must fail');
+		assert.match(invalidKindResult.stderr, /sampleKind=warmup or measured/);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -399,6 +433,14 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 test('runtime continuity rejects same-name container replacement before verification', () => {
 	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-runtime-continuity-'));
 	try {
+		const runner = readFileSync(scenarioPath('run-before.sh'), 'utf8');
+		for (const phase of ['initial', 'before', 'after', 'final']) {
+			assert.match(runner, new RegExp(`runtime-identity-${phase}\\.json`));
+		}
+		assert.ok(
+			runner.indexOf('assert-runtime-continuity.mjs') < runner.indexOf('verify-before.mjs'),
+			'runtime continuity must execute before result verification',
+		);
 		const identity = (capturedAt, uptimeSeconds) => ({
 			capturedAt,
 			postgres: {
