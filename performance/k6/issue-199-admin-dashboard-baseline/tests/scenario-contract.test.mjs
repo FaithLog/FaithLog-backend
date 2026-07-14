@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {fileURLToPath} from 'node:url';
@@ -15,6 +17,11 @@ const files = {
 	runner: path.join(issueRoot, 'run-baseline.sh'),
 	dbEvidence: path.join(issueRoot, 'collect-db-evidence.sql'),
 	verifier: path.join(issueRoot, 'verify-summary.mjs'),
+	runtimeToken: path.join(issueRoot, 'prepare-runtime-token.mjs'),
+	summaryValidator: path.join(issueRoot, 'validate-k6-summary.mjs'),
+	dbCorrectnessValidator: path.join(issueRoot, 'validate-db-correctness.mjs'),
+	dbCounters: path.join(issueRoot, 'collect-db-counters.sql'),
+	dbCorrectness: path.join(issueRoot, 'collect-correctness-evidence.sql'),
 	readme: path.join(issueRoot, 'README.md'),
 	reportsIgnore: path.join(issueRoot, 'reports/.gitignore'),
 };
@@ -197,3 +204,239 @@ test('README and report path keep this issue scenario-ready/not-measured and pro
 	assert.match(ignore, /^\*$/m);
 	assert.match(ignore, /^!\.gitignore$/m);
 });
+
+test('k6 summary validator rejects non-zero failures and missing adoption metrics', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-summary-'));
+	try {
+		const validSummary = {
+			metrics: {
+				admin_dashboard_duration: {'p(50)': 10, 'p(95)': 20, 'p(99)': 30, max: 40},
+				admin_dashboard_requests: {count: 12, rate: 6},
+				admin_dashboard_failure_rate: {rate: 0},
+			},
+		};
+		const validPath = path.join(temporaryDirectory, 'valid.json');
+		const failedPath = path.join(temporaryDirectory, 'failed.json');
+		const missingPath = path.join(temporaryDirectory, 'missing.json');
+		fs.writeFileSync(validPath, JSON.stringify(validSummary));
+		fs.writeFileSync(failedPath, JSON.stringify({
+			...validSummary,
+			metrics: {
+				...validSummary.metrics,
+				admin_dashboard_failure_rate: {rate: 0.01},
+			},
+		}));
+		fs.writeFileSync(missingPath, JSON.stringify({metrics: {admin_dashboard_failure_rate: {rate: 0}}}));
+
+		assert.equal(runNode(files.summaryValidator, validPath).status, 0);
+		assert.notEqual(runNode(files.summaryValidator, failedPath).status, 0);
+		assert.notEqual(runNode(files.summaryValidator, missingPath).status, 0);
+	} finally {
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('runner fake execution keeps bootstrap and correctness traffic outside the measured DB counter window', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-runner-'));
+	const fakeBin = path.join(temporaryDirectory, 'bin');
+	const fakeLog = path.join(temporaryDirectory, 'commands.log');
+	const fixtureRunId = `ISSUE_199_CONTRACT_${process.pid}`;
+	const generatedReport = path.join(issueRoot, 'reports', 'CONTRACT_DATASET', fixtureRunId);
+	fs.mkdirSync(fakeBin);
+
+	const manifest = {
+		issue: 199,
+		datasetId: 'CONTRACT_DATASET',
+		modes: {
+			empty: {
+				mode: 'empty',
+				fixtureRunId,
+				campusId: 101,
+				isolationCampusId: 102,
+				weekStartDate: '2026-07-13',
+				expected: expectedFixture(),
+			},
+		},
+	};
+	const manifestPath = path.join(temporaryDirectory, 'manifest.json');
+	fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+
+	const fakeNode = path.join(fakeBin, 'node');
+	fs.writeFileSync(fakeNode, `#!/usr/bin/env bash
+printf 'node:%s\\n' "$*" >> "$FAKE_LOG"
+case "$1" in
+  *prepare-runtime-token.mjs) printf 'contract-runtime-token\\n'; exit 0 ;;
+  *verify-summary.mjs) printf '{"status":"api-correctness-verified"}\\n'; exit 0 ;;
+esac
+exec ${shellQuote(process.execPath)} "$@"
+`);
+	const fakeDocker = path.join(fakeBin, 'docker');
+	fs.writeFileSync(fakeDocker, `#!/usr/bin/env bash
+case "$1" in
+  inspect)
+    if [[ "$*" == *com.docker.compose.project* ]]; then printf 'contract-project\\n';
+    elif [[ "$*" == *com.docker.compose.service* ]]; then printf 'contract-service\\n';
+    fi
+    exit 0
+    ;;
+  stats)
+    printf 'docker:stats\\n' >> "$FAKE_LOG"
+    printf '{"Name":"contract","CPUPerc":"0%%","MemUsage":"0B / 0B"}\\n'
+    exit 0
+    ;;
+  exec)
+    sql="$(</dev/stdin)"
+    if [[ "$sql" == *issue199:evidence=correctness* ]]; then
+      printf 'docker:db-correctness\\n' >> "$FAKE_LOG"
+      printf '%%s\\n' "$FAKE_DB_EVIDENCE_JSON"
+    elif [[ "$sql" == *issue199:evidence=counters* ]]; then
+      printf 'docker:db-counters\\n' >> "$FAKE_LOG"
+      printf '{"kind":"counter-snapshot"}\\n'
+    else
+      printf 'docker:db-context\\n' >> "$FAKE_LOG"
+      printf 'context evidence\\n'
+    fi
+    exit 0
+    ;;
+esac
+exit 1
+`);
+	const fakeK6 = path.join(fakeBin, 'k6');
+	fs.writeFileSync(fakeK6, `#!/usr/bin/env bash
+printf 'k6:%s:%s\\n' "$PHASE" "$PERF_ACCESS_TOKEN" >> "$FAKE_LOG"
+[[ "$PERF_ACCESS_TOKEN" == 'contract-runtime-token' ]]
+[[ -z "\${PERF_ADMIN_PASSWORD:-}" ]]
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == '--summary-export' ]]; then summary_path="$2"; shift 2; else shift; fi
+done
+printf '%%s\\n' "$FAKE_K6_SUMMARY_JSON" > "$summary_path"
+`);
+	for (const executable of [fakeNode, fakeDocker, fakeK6]) {
+		fs.chmodSync(executable, 0o755);
+	}
+
+	const summary = {
+		metrics: {
+			admin_dashboard_duration: {'p(50)': 1, 'p(95)': 2, 'p(99)': 3, max: 4},
+			admin_dashboard_requests: {count: 2, rate: 2},
+			admin_dashboard_failure_rate: {rate: 0},
+		},
+	};
+	const result = spawnSync('bash', [files.runner], {
+		encoding: 'utf8',
+		env: {
+			...process.env,
+			PATH: `${fakeBin}:${process.env.PATH}`,
+			FAKE_LOG: fakeLog,
+			FAKE_DB_EVIDENCE_JSON: JSON.stringify(expectedFixture()),
+			FAKE_K6_SUMMARY_JSON: JSON.stringify(summary),
+			INPUT_MANIFEST: manifestPath,
+			DATASET_MODES: 'empty',
+			WARMUP_VUS: '1',
+			WARMUP_DURATION: '1s',
+			MEASURED_VUS: '1',
+			MEASURED_DURATION: '1s',
+			EXTERNAL_ACTIVITY: 'contract-test-none',
+			PERF_ADMIN_EMAIL: 'runtime-only@example.com',
+			PERF_ADMIN_PASSWORD: 'runtime-only-secret',
+			PERF_DB_USER: 'runtime-only-db-user',
+			PERF_DB_PASSWORD: 'runtime-only-db-secret',
+			PERF_DB_NAME: 'runtime-only-db-name',
+		},
+	});
+
+	try {
+		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+		const log = fs.readFileSync(fakeLog, 'utf8').trim().split('\n');
+		const tokenIndex = findLog(log, 'prepare-runtime-token.mjs');
+		const measuredIndex = findLog(log, 'k6:measured:contract-runtime-token');
+		const preCounterIndex = findNthLog(log, 'docker:db-counters', 1);
+		const postCounterIndex = findNthLog(log, 'docker:db-counters', 2);
+		assert.ok(tokenIndex >= 0 && tokenIndex < preCounterIndex);
+		assert.ok(findLog(log, 'docker:db-correctness') < preCounterIndex);
+		assert.ok(preCounterIndex < measuredIndex && measuredIndex < postCounterIndex);
+		assert.equal(
+			log.slice(preCounterIndex + 1, postCounterIndex).filter((line) => line.startsWith('docker:db-')).length,
+			0,
+			'no correctness/context DB query may run inside the measured counter window',
+		);
+	} finally {
+		fs.rmSync(generatedReport, {recursive: true, force: true});
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('DB correctness validator exact-matches per-poll counts even when aggregate missing is unchanged', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-correctness-'));
+	try {
+		const manifest = {
+			issue: 199,
+			datasetId: 'CONTRACT_DATASET',
+			modes: {small: {mode: 'small', fixtureRunId: 'SMALL', expected: expectedFixture()}},
+		};
+		const manifestPath = path.join(temporaryDirectory, 'manifest.json');
+		const validEvidencePath = path.join(temporaryDirectory, 'valid.json');
+		const redistributedEvidencePath = path.join(temporaryDirectory, 'redistributed.json');
+		const validEvidence = expectedFixture();
+		const redistributedEvidence = structuredClone(validEvidence);
+		redistributedEvidence.pollResponseCounts = [
+			{pollId: 201, responseCount: 19},
+			{pollId: 202, responseCount: 16},
+		];
+		fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+		fs.writeFileSync(validEvidencePath, JSON.stringify(validEvidence));
+		fs.writeFileSync(redistributedEvidencePath, JSON.stringify(redistributedEvidence));
+
+		assert.equal(runNode(files.dbCorrectnessValidator, manifestPath, 'small', validEvidencePath).status, 0);
+		assert.notEqual(
+			runNode(files.dbCorrectnessValidator, manifestPath, 'small', redistributedEvidencePath).status,
+			0,
+		);
+	} finally {
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+function runNode(script, ...args) {
+	return spawnSync(process.execPath, [script, ...args], {encoding: 'utf8'});
+}
+
+function expectedFixture() {
+	return {
+		campus: {campusId: 101, campusName: 'CONTRACT', region: 'TEST'},
+		members: {activeCount: 30, inactiveCount: 2, adminCount: 3},
+		devotion: {weekStartDate: '2026-07-13', submittedCount: 20, missingCount: 10, submitRate: 66.7},
+		charges: {
+			statusBasis: ['UNPAID'],
+			unpaidAmount: 120000,
+			unpaidMemberCount: 12,
+			byCategory: [
+				{paymentCategory: 'PENALTY', unpaidAmount: 80000},
+				{paymentCategory: 'COFFEE', unpaidAmount: 40000},
+			],
+		},
+		polls: {openCount: 2, recentlyClosedCount: 1, missingResponseCount: 25, recentlyClosedDays: 7},
+		pollResponseCounts: [
+			{pollId: 201, responseCount: 20},
+			{pollId: 202, responseCount: 15},
+		],
+	};
+}
+
+function shellQuote(value) {
+	return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function findLog(log, fragment) {
+	return log.findIndex((line) => line.includes(fragment));
+}
+
+function findNthLog(log, fragment, occurrence) {
+	let seen = 0;
+	for (let index = 0; index < log.length; index += 1) {
+		if (log[index].includes(fragment) && ++seen === occurrence) {
+			return index;
+		}
+	}
+	return -1;
+}
