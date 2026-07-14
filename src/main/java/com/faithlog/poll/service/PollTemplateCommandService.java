@@ -1,8 +1,6 @@
 package com.faithlog.poll.service;
 
-import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.domain.type.PaymentCategory;
-import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.PollTemplate;
@@ -20,18 +18,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class PollTemplateCommandService {
 
 	private final PollTemplateRepository pollTemplateRepository;
-	private final PaymentAccountRepositoryPort paymentAccountRepository;
 	private final PollTemplateOptionSupport optionSupport;
 	private final PollAccessService pollAccessService;
 
 	public PollTemplateCommandService(
 		PollTemplateRepository pollTemplateRepository,
-		PaymentAccountRepositoryPort paymentAccountRepository,
 		PollTemplateOptionSupport optionSupport,
 		PollAccessService pollAccessService
 	) {
 		this.pollTemplateRepository = pollTemplateRepository;
-		this.paymentAccountRepository = paymentAccountRepository;
 		this.optionSupport = optionSupport;
 		this.pollAccessService = pollAccessService;
 	}
@@ -48,14 +43,8 @@ public class PollTemplateCommandService {
 			command.chargeGenerationType(),
 			command.paymentCategory()
 		);
-		requirePaymentAccountIfNeeded(
-			command.pollType(),
-			command.chargeGenerationType(),
-			command.paymentCategory(),
-			command.paymentAccountId(),
-			command.campusId(),
-			command.requesterId()
-		);
+		CoffeeOperationPolicy.requireConsistentConfiguration(
+			command.pollType(), command.chargeGenerationType(), command.paymentCategory());
 		List<PollOptionSnapshot> snapshots = optionSupport.resolve(command.pollType(), command.options());
 		PollTemplate template = pollTemplateRepository.save(PollTemplate.create(
 			command.campusId(),
@@ -64,7 +53,8 @@ public class PollTemplateCommandService {
 			command.selectionType(),
 			command.chargeGenerationType(),
 			command.paymentCategory(),
-			command.paymentAccountId(),
+			CoffeeOperationPolicy.isCoffeeOperation(
+				command.pollType(), command.chargeGenerationType(), command.paymentCategory()) ? null : command.paymentAccountId(),
 			command.allowUserOptionAdd(),
 			command.autoCreateEnabled(),
 			command.startDayOfWeek(),
@@ -87,24 +77,22 @@ public class PollTemplateCommandService {
 			command.requesterId(),
 			template.pollType()
 		);
+		requireTemplateManageAccess(
+			command.campusId(), command.requesterId(), template.pollType(),
+			command.chargeGenerationType(), command.paymentCategory());
 		if (template.pollType() == PollType.MEAL || command.paymentCategory() == PaymentCategory.MEAL) {
 			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "MEAL 투표는 템플릿을 지원하지 않습니다.");
 		}
-		requirePaymentAccountIfNeeded(
-			template.pollType(),
-			command.chargeGenerationType(),
-			command.paymentCategory(),
-			command.paymentAccountId(),
-			command.campusId(),
-			command.requesterId()
-		);
+		CoffeeOperationPolicy.requireConsistentConfiguration(
+			template.pollType(), command.chargeGenerationType(), command.paymentCategory());
 		List<PollOptionSnapshot> snapshots = optionSupport.resolve(template.pollType(), command.options());
 		template.update(
 			command.title(),
 			command.selectionType(),
 			command.chargeGenerationType(),
 			command.paymentCategory(),
-			command.paymentAccountId(),
+			CoffeeOperationPolicy.isCoffeeOperation(
+				template.pollType(), command.chargeGenerationType(), command.paymentCategory()) ? null : command.paymentAccountId(),
 			command.allowUserOptionAdd(),
 			command.autoCreateEnabled(),
 			command.startDayOfWeek(),
@@ -121,7 +109,11 @@ public class PollTemplateCommandService {
 		PollTemplate template = pollTemplateRepository.findById(templateId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
 		requireSameCampusScope(template, campusId);
-		pollAccessService.requireTemplateManager(campusId, requesterId);
+		if (template.pollType() == PollType.COFFEE) {
+			pollAccessService.requireCoffeeTemplateManagerForUpdate(campusId, requesterId);
+		} else {
+			pollAccessService.requireTemplateManager(campusId, requesterId);
+		}
 		template.deactivate();
 		return toResult(template);
 	}
@@ -136,32 +128,6 @@ public class PollTemplateCommandService {
 		return PollTemplateResult.of(template, optionSupport.results(template.id()));
 	}
 
-	private void requirePaymentAccountIfNeeded(
-		PollType pollType,
-		ChargeGenerationType chargeGenerationType,
-		PaymentCategory paymentCategory,
-		Long paymentAccountId,
-		Long campusId,
-		Long requesterId
-	) {
-		if (pollType != PollType.COFFEE
-			&& chargeGenerationType != ChargeGenerationType.OPTION_PRICE
-			&& paymentCategory != PaymentCategory.COFFEE) {
-			return;
-		}
-		if (paymentAccountId == null) {
-			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
-		}
-		PaymentAccount account = paymentAccountRepository.findById(paymentAccountId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
-		if (!account.isActive()
-			|| !account.campusId().equals(campusId)
-			|| account.accountType() != PaymentCategory.COFFEE
-			|| !requesterId.equals(account.ownerUserId())) {
-			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
-		}
-	}
-
 	private void requireTemplateManageAccess(
 		Long campusId,
 		Long requesterId,
@@ -169,11 +135,10 @@ public class PollTemplateCommandService {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory
 	) {
-		boolean coffeeTemplate = pollType == PollType.COFFEE
-			|| paymentCategory == PaymentCategory.COFFEE
-			|| (chargeGenerationType == ChargeGenerationType.OPTION_PRICE && paymentCategory == PaymentCategory.COFFEE);
+		boolean coffeeTemplate = CoffeeOperationPolicy.isCoffeeOperation(
+			pollType, chargeGenerationType, paymentCategory);
 		if (coffeeTemplate) {
-			pollAccessService.requireCoffeeTemplateManager(campusId, requesterId);
+			pollAccessService.requireCoffeeTemplateManagerForUpdate(campusId, requesterId);
 			return;
 		}
 		pollAccessService.requireTemplateManager(campusId, requesterId);
@@ -185,7 +150,7 @@ public class PollTemplateCommandService {
 		PollType persistedPollType
 	) {
 		if (persistedPollType == PollType.COFFEE) {
-			pollAccessService.requireCoffeeTemplateManager(campusId, requesterId);
+			pollAccessService.requireCoffeeTemplateManagerForUpdate(campusId, requesterId);
 			return;
 		}
 		pollAccessService.requireTemplateManager(campusId, requesterId);

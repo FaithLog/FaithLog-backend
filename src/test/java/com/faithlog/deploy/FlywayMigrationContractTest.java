@@ -20,6 +20,9 @@ class FlywayMigrationContractTest {
 	private static final Path MULTIPLE_COFFEE_DUTY_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V9__allow_multiple_active_coffee_duties.sql"
 	);
+	private static final Path COFFEE_TEMPLATE_ACCOUNT_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V10__neutralize_coffee_template_accounts.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -250,5 +253,19 @@ class FlywayMigrationContractTest {
 			"WHERE is_active = TRUE AND duty_type = 'COFFEE'"
 		);
 		assertThat(sql).doesNotContain("DELETE FROM", "UPDATE ");
+	}
+
+	@Test
+	void v10MigrationMakesExistingCoffeeTemplatesAccountNeutralWithoutDeletingData() throws IOException {
+		assertThat(COFFEE_TEMPLATE_ACCOUNT_MIGRATION).exists();
+		String sql = Files.readString(COFFEE_TEMPLATE_ACCOUNT_MIGRATION);
+
+		assertThat(sql).contains(
+			"UPDATE poll_templates",
+			"SET payment_account_id = NULL",
+			"WHERE poll_type = 'COFFEE'",
+			"AND payment_account_id IS NOT NULL"
+		);
+		assertThat(sql).doesNotContain("DELETE FROM", "DROP ", "ALTER TABLE");
 	}
 }

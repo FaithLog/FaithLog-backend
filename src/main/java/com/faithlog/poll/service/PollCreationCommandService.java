@@ -65,7 +65,10 @@ public class PollCreationCommandService {
 		if (command.templateId() != null) {
 			return createFromTemplate(command);
 		}
-		pollAccessService.requirePollCreator(command.campusId(), command.requesterId(), command.pollType());
+		pollAccessService.requirePollCreatorForUpdate(
+			command.campusId(), command.requesterId(), command.pollType(),
+			command.chargeGenerationType(), command.paymentCategory()
+		);
 		return createDirect(command);
 	}
 
@@ -78,19 +81,24 @@ public class PollCreationCommandService {
 		if (!template.isActive()) {
 			throw new BusinessException(ErrorCode.POLL_TEMPLATE_INACTIVE);
 		}
-		pollAccessService.requirePollCreator(command.campusId(), command.requesterId(), template.pollType());
+		pollAccessService.requirePollCreatorForUpdate(
+			command.campusId(), command.requesterId(), template.pollType(),
+			template.chargeGenerationType(), template.paymentCategory()
+		);
+		CoffeeOperationPolicy.requireConsistentConfiguration(
+			template.pollType(), template.chargeGenerationType(), template.paymentCategory());
 		List<PollTemplateOption> templateOptions = pollTemplateOptionRepository.findByTemplateIdOrderBySortOrderAsc(template.id());
 		if (templateOptions.isEmpty()) {
 			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
 		}
 		requireCoffeePrerequisitesIfNeeded(
 			template.pollType(), template.chargeGenerationType(), template.paymentCategory(),
-			template.paymentAccountId(), command.campusId(), command.requesterId()
+			command.paymentAccountId(), command.campusId(), command.requesterId()
 		);
 		Poll poll = pollRepository.save(Poll.create(
 			command.campusId(), template.id(), command.title(), template.pollType(), template.selectionType(),
 			command.isAnonymous(), template.allowUserOptionAdd(), template.chargeGenerationType(),
-			template.paymentCategory(), template.paymentAccountId(), command.startsAt(), command.endsAt(),
+			template.paymentCategory(), command.paymentAccountId(), command.startsAt(), command.endsAt(),
 			command.requesterId()
 		));
 		pollStatusSynchronizer.openIfCurrent(poll);
@@ -114,6 +122,8 @@ public class PollCreationCommandService {
 		ChargeGenerationType chargeGenerationType = command.chargeGenerationType() == null
 			? ChargeGenerationType.NONE
 			: command.chargeGenerationType();
+		CoffeeOperationPolicy.requireConsistentConfiguration(
+			pollType, chargeGenerationType, command.paymentCategory());
 		boolean allowUserOptionAdd = command.allowUserOptionAdd() == null
 			? pollType == PollType.COFFEE
 			: command.allowUserOptionAdd();
@@ -144,9 +154,7 @@ public class PollCreationCommandService {
 		Long campusId,
 		Long requesterId
 	) {
-		if (pollType != PollType.COFFEE
-			&& chargeGenerationType != ChargeGenerationType.OPTION_PRICE
-			&& paymentCategory != PaymentCategory.COFFEE) {
+		if (!CoffeeOperationPolicy.isCoffeeOperation(pollType, chargeGenerationType, paymentCategory)) {
 			return;
 		}
 		if (paymentAccountId == null) {

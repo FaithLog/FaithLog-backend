@@ -216,7 +216,7 @@ class PollServiceTest {
 			null,
 			null,
 			null,
-			null,
+			accountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of()
@@ -514,7 +514,7 @@ class PollServiceTest {
 
 	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
-	void persisted_coffee_template_update_requires_requester_owned_active_same_campus_coffee_account() {
+	void persisted_coffee_template_update_remains_account_neutral_regardless_of_requested_account() {
 		User manager = saveUser("poll-179-account-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-179-account-duty@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "179계좌검증캠");
@@ -539,14 +539,14 @@ class PollServiceTest {
 			manager.id()
 		)).id();
 
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), null);
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), otherUserAccountId);
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), originalDutyAccountId);
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), otherCampusAccountId);
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), penaltyAccountId);
+		for (Long requestedAccountId : List.of(
+			otherUserAccountId, originalDutyAccountId, otherCampusAccountId, penaltyAccountId, activeDutyAccountId)) {
+			assertThat(updateCoffeeTemplate(campus.campusId(), template.id(), duty.id(), requestedAccountId)
+				.paymentAccountId()).isNull();
+		}
 
-		PollTemplateResult updated = updateCoffeeTemplate(campus.campusId(), template.id(), duty.id(), activeDutyAccountId);
-		assertThat(updated.paymentAccountId()).isEqualTo(activeDutyAccountId);
+		PollTemplateResult updated = updateCoffeeTemplate(campus.campusId(), template.id(), duty.id(), null);
+		assertThat(updated.paymentAccountId()).isNull();
 		assertThat(updated.title()).isEqualTo("179 계좌 회귀 수정");
 	}
 
@@ -610,7 +610,7 @@ class PollServiceTest {
 			false,
 			null,
 			null,
-			null,
+				coffeeAccountId,
 				Instant.now().plusSeconds(86_400),
 				Instant.now().plusSeconds(90_000),
 				List.of()
@@ -1122,7 +1122,7 @@ class PollServiceTest {
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		)))
+			)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
 			);
@@ -1144,7 +1144,7 @@ class PollServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
 			);
-		assertThatThrownBy(() -> pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+		assertThat(pollTemplateService.createTemplate(new CreatePollTemplateCommand(
 			campus.campusId(),
 			manager.id(),
 			"계좌 없는 커피 템플릿",
@@ -1160,10 +1160,7 @@ class PollServiceTest {
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		)))
-			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
-			);
+			)).paymentAccountId()).isNull();
 		assertThat(pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
 			manager.id(),
@@ -1254,8 +1251,8 @@ class PollServiceTest {
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 
-		assertThat(template.paymentAccountId()).isEqualTo(dutyAccountId);
-		assertThatThrownBy(() -> pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+		assertThat(template.paymentAccountId()).isNull();
+		assertThat(pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
 			campus.campusId(),
 			template.id(),
 			duty.id(),
@@ -1271,10 +1268,7 @@ class PollServiceTest {
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		)))
-			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
-			);
+			)).paymentAccountId()).isNull();
 	}
 
 	@Test
@@ -1294,8 +1288,8 @@ class PollServiceTest {
 			false,
 			ChargeGenerationType.NONE,
 			null,
-			null,
-			Instant.now().minusSeconds(60),
+				null,
+				Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of(
 				new CreatePollOptionCommand("참석", null, 0, 1),
@@ -1367,8 +1361,8 @@ class PollServiceTest {
 			false,
 			null,
 			null,
-			null,
-			Instant.now().minusSeconds(60),
+				accountId,
+				Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of()
 		));
@@ -2688,18 +2682,6 @@ class PollServiceTest {
 			LocalTime.of(17, 0),
 			List.of(new CreatePollTemplateOptionCommand("관리자 수정 선택지", null, 0, 1))
 		));
-	}
-
-	private void assertCoffeeTemplateAccountUpdateRejected(
-		Long campusId,
-		Long templateId,
-		Long requesterId,
-		Long paymentAccountId
-	) {
-		assertThatThrownBy(() -> updateCoffeeTemplate(campusId, templateId, requesterId, paymentAccountId))
-			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
-			);
 	}
 
 	private PollTemplateResult updateCoffeeTemplate(

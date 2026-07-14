@@ -10,6 +10,8 @@ import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.type.PollType;
+import com.faithlog.poll.domain.type.ChargeGenerationType;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.poll.domain.entity.Poll;
 import java.util.Collection;
 import java.util.HashMap;
@@ -43,9 +45,27 @@ class PollAccessService {
 		requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
 	}
 
+	void requireCoffeeTemplateManagerForUpdate(Long campusId, Long requesterId) {
+		requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
+	}
+
 	void requirePollCreator(Long campusId, Long requesterId, PollType pollType) {
 		if (pollType == PollType.COFFEE) {
 			requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
+			return;
+		}
+		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
+	}
+
+	void requirePollCreatorForUpdate(
+		Long campusId,
+		Long requesterId,
+		PollType pollType,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory
+	) {
+		if (CoffeeOperationPolicy.isCoffeeOperation(pollType, chargeGenerationType, paymentCategory)) {
+			requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
 			return;
 		}
 		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
@@ -78,6 +98,13 @@ class PollAccessService {
 
 	void requireCoffeePollOwner(Long campusId, Long requesterId, Poll poll) {
 		requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
+		if (!requesterId.equals(poll.createdBy())) {
+			throw new BusinessException(ErrorCode.POLL_ADMIN_FORBIDDEN);
+		}
+	}
+
+	void requireCoffeePollOwnerForUpdate(Long campusId, Long requesterId, Poll poll) {
+		requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
 		if (!requesterId.equals(poll.createdBy())) {
 			throw new BusinessException(ErrorCode.POLL_ADMIN_FORBIDDEN);
 		}
@@ -150,6 +177,17 @@ class PollAccessService {
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(errorCode));
 		if (!isActiveCoffeeDuty(campusId, requester.userId())) {
+			throw new BusinessException(errorCode);
+		}
+	}
+
+	private void requireActiveCoffeeDutyForUpdate(Long campusId, Long requesterId, ErrorCode errorCode) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(errorCode));
+		if (dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campusId, DutyType.COFFEE, requester.userId()).isEmpty()) {
 			throw new BusinessException(errorCode);
 		}
 	}
