@@ -12,8 +12,9 @@ const result = JSON.parse(readFileSync(join(runDir, 'scenario-result.json'), 'ut
 const environment = JSON.parse(readFileSync(join(runDir, 'environment.json'), 'utf8'));
 const postgresBefore = JSON.parse(readFileSync(join(runDir, 'postgres-before.json'), 'utf8'));
 const postgresAfter = JSON.parse(readFileSync(join(runDir, 'postgres-after.json'), 'utf8'));
-const redisBefore = readFileSync(join(runDir, 'redis-commandstats-before.txt'), 'utf8');
-const redisAfter = readFileSync(join(runDir, 'redis-commandstats-after.txt'), 'utf8');
+const redisBefore = JSON.parse(readFileSync(join(runDir, 'redis-before.json'), 'utf8'));
+const redisAfter = JSON.parse(readFileSync(join(runDir, 'redis-after.json'), 'utf8'));
+const evidenceWindow = JSON.parse(readFileSync(join(runDir, 'evidence-window.json'), 'utf8'));
 const dockerStats = readFileSync(join(runDir, 'docker-stats.csv'), 'utf8');
 
 const expectedPending = manifest.successCount + manifest.transientCount + manifest.permanentCount;
@@ -80,85 +81,172 @@ for (const phase of [result.creation, result.delivery]) {
 	assert.ok(phase.perUserDbCalls >= 0, 'perUserDbCalls must be non-negative');
 }
 
-const numericDelta = (before, after) => {
-	const resultDelta = {};
-	for (const [key, afterValue] of Object.entries(after ?? {})) {
-		const beforeValue = before?.[key];
-		if (typeof afterValue === 'number') {
-			resultDelta[key] = afterValue - Number(beforeValue ?? 0);
-		} else if (afterValue && typeof afterValue === 'object') {
-			resultDelta[key] = numericDelta(beforeValue, afterValue);
-		}
-	}
-	return resultDelta;
+const exactKeys = (value, expectedKeys, path) => {
+	assert.ok(value && typeof value === 'object' && !Array.isArray(value), `${path} must be an object`);
+	assert.deepEqual(Object.keys(value).sort(), [...expectedKeys].sort(), `${path} schema mismatch`);
 };
-
-const assertFiniteNonNegativeNumbers = (value, path = 'evidence') => {
-	for (const [key, nested] of Object.entries(value ?? {})) {
-		const nestedPath = `${path}.${key}`;
-		if (typeof nested === 'number') {
-			assert.ok(Number.isFinite(nested) && nested >= 0, `${nestedPath} must be finite and non-negative`);
-		} else if (nested && typeof nested === 'object') {
-			assertFiniteNonNegativeNumbers(nested, nestedPath);
-		}
+const assertIsoTimestamp = (value, path) => {
+	assert.equal(typeof value, 'string', `${path} must be an ISO timestamp string`);
+	assert.ok(Number.isFinite(Date.parse(value)), `${path} must be a valid ISO timestamp`);
+	return Date.parse(value);
+};
+const assertExactNumericRecord = (value, expectedKeys, path) => {
+	exactKeys(value, expectedKeys, path);
+	for (const key of expectedKeys) {
+		assert.ok(typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0,
+			`${path}.${key} must be a finite non-negative number`);
 	}
 };
-
-const redisCalls = (text) => Object.fromEntries(
-	text.split(/\r?\n/)
-		.filter((line) => line.startsWith('cmdstat_'))
-		.map((line) => {
-			const [name, values] = line.split(':', 2);
-			const calls = values.split(',').find((value) => value.startsWith('calls='));
-			return [name.slice('cmdstat_'.length), Number(calls?.slice('calls='.length) ?? 0)];
-		}),
-);
-
-const redisDbSize = (text) => {
-	const value = Number(text.match(/^dbsize=(\d+)$/m)?.[1]);
-	assert.ok(Number.isInteger(value) && value >= 0, 'Redis DBSIZE evidence is required');
-	return value;
+const exactNumericDelta = (before, after, expectedKeys, path) => {
+	assertExactNumericRecord(before, expectedKeys, `${path}.before`);
+	assertExactNumericRecord(after, expectedKeys, `${path}.after`);
+	return Object.fromEntries(expectedKeys.map((key) => {
+		assert.ok(after[key] >= before[key], `${path}.${key} must be monotonic`);
+		return [key, after[key] - before[key]];
+	}));
 };
 
-const redisBeforeCalls = redisCalls(redisBefore);
-const redisAfterCalls = redisCalls(redisAfter);
-const redisDbSizeBefore = redisDbSize(redisBefore);
-const redisDbSizeAfter = redisDbSize(redisAfter);
-const redisDbSizeDelta = redisDbSizeAfter - redisDbSizeBefore;
-const redisCommandCallDelta = Object.fromEntries(
-	Object.entries(redisAfterCalls).map(([command, calls]) => [command, calls - (redisBeforeCalls[command] ?? 0)]),
+const POSTGRES_TOP_LEVEL_KEYS = [
+	'capturedAt', 'currentDatabase', 'statsReset', 'database', 'tables', 'cardinality', 'relationBytes',
+];
+const POSTGRES_DATABASE_KEYS = [
+	'xact_commit', 'xact_rollback', 'blks_read', 'blks_hit', 'tup_returned', 'tup_fetched',
+	'tup_inserted', 'tup_updated', 'tup_deleted',
+];
+const POSTGRES_TABLES = ['campus_members', 'user_fcm_tokens', 'notification_logs'];
+const POSTGRES_TABLE_KEYS = [
+	'seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch', 'n_tup_ins', 'n_tup_upd', 'n_tup_del',
+];
+const POSTGRES_CARDINALITY_KEYS = [
+	'userFcmTokensTotal', 'activeTokensTotal', 'issue198DummyTokensTotal',
+	'issue198ActiveDummyTokens', 'notificationLogsTotal', 'issue198MarkerLogsTotal',
+];
+const POSTGRES_RELATION_BYTES_KEYS = ['userFcmTokens', 'notificationLogs'];
+for (const [phase, snapshot] of [['before', postgresBefore], ['after', postgresAfter]]) {
+	exactKeys(snapshot, POSTGRES_TOP_LEVEL_KEYS, `postgres.${phase}`);
+	assert.equal(snapshot.currentDatabase, environment.postgresDatabase,
+		`postgres.${phase}.currentDatabase must match the manifest runtime`);
+	assertIsoTimestamp(snapshot.capturedAt, `postgres.${phase}.capturedAt`);
+	assertIsoTimestamp(snapshot.statsReset, `postgres.${phase}.statsReset`);
+	exactKeys(snapshot.tables, POSTGRES_TABLES, `postgres.${phase}.tables`);
+	for (const tableName of POSTGRES_TABLES) {
+		assertExactNumericRecord(snapshot.tables[tableName], POSTGRES_TABLE_KEYS,
+			`postgres.${phase}.tables.${tableName}`);
+	}
+	assertExactNumericRecord(snapshot.cardinality, POSTGRES_CARDINALITY_KEYS,
+		`postgres.${phase}.cardinality`);
+	assertExactNumericRecord(snapshot.relationBytes, POSTGRES_RELATION_BYTES_KEYS,
+		`postgres.${phase}.relationBytes`);
+}
+assert.ok(Date.parse(postgresBefore.capturedAt) < Date.parse(postgresAfter.capturedAt),
+	'PostgreSQL capturedAt must be strictly ordered');
+assert.equal(postgresAfter.statsReset, postgresBefore.statsReset, 'PostgreSQL stats_reset changed');
+const postgresDelta = {
+	database: exactNumericDelta(
+		postgresBefore.database, postgresAfter.database, POSTGRES_DATABASE_KEYS, 'postgres.database',
+	),
+	tables: Object.fromEntries(POSTGRES_TABLES.map((tableName) => [tableName, exactNumericDelta(
+		postgresBefore.tables[tableName], postgresAfter.tables[tableName],
+		POSTGRES_TABLE_KEYS, `postgres.tables.${tableName}`,
+	)])),
+};
+
+const REDIS_KEYS = ['capturedAt', 'runId', 'uptimeSeconds', 'tcpPort', 'dbSize', 'commands'];
+for (const [phase, snapshot] of [['before', redisBefore], ['after', redisAfter]]) {
+	exactKeys(snapshot, REDIS_KEYS, `redis.${phase}`);
+	assertIsoTimestamp(snapshot.capturedAt, `redis.${phase}.capturedAt`);
+	assert.equal(typeof snapshot.runId, 'string', `redis.${phase}.runId must be a string`);
+	assert.match(snapshot.runId, /^[A-Za-z0-9_-]+$/, `redis.${phase}.runId is invalid`);
+	for (const key of ['uptimeSeconds', 'tcpPort', 'dbSize']) {
+		assert.ok(Number.isSafeInteger(snapshot[key]) && snapshot[key] >= (key === 'dbSize' ? 0 : 1),
+			`redis.${phase}.${key} must be an integer`);
+	}
+	assertExactNumericRecord(snapshot.commands, ['set'], `redis.${phase}.commands`);
+}
+assert.ok(Date.parse(redisBefore.capturedAt) < Date.parse(redisAfter.capturedAt),
+	'Redis capturedAt must be strictly ordered');
+assert.equal(redisAfter.runId, redisBefore.runId, 'Redis run_id changed during evidence capture');
+assert.equal(redisAfter.tcpPort, redisBefore.tcpPort, 'Redis server endpoint changed during evidence capture');
+assert.ok(redisAfter.uptimeSeconds >= redisBefore.uptimeSeconds, 'Redis uptime must be monotonic');
+assert.ok(redisAfter.dbSize >= redisBefore.dbSize, 'Redis DBSIZE must be monotonic');
+const redisDbSizeBefore = redisBefore.dbSize;
+const redisDbSizeDelta = redisAfter.dbSize - redisBefore.dbSize;
+const redisCommandCallDelta = exactNumericDelta(
+	redisBefore.commands, redisAfter.commands, ['set'], 'redis.commands',
 );
-const dockerRows = dockerStats.trim().split(/\r?\n/).slice(1).filter(Boolean);
-assert.ok(dockerRows.length > 0, 'docker-stats.csv must contain measured samples');
+
+exactKeys(evidenceWindow,
+	['workloadStartedAt', 'workloadFinishedAt', 'dockerStatsSampleIntervalSeconds'], 'evidenceWindow');
+const workloadStartedAt = assertIsoTimestamp(evidenceWindow.workloadStartedAt, 'workloadStartedAt');
+const workloadFinishedAt = assertIsoTimestamp(evidenceWindow.workloadFinishedAt, 'workloadFinishedAt');
+assert.ok(workloadStartedAt < workloadFinishedAt, 'Workload evidence window must be strictly ordered');
+assert.ok(Number.isSafeInteger(evidenceWindow.dockerStatsSampleIntervalSeconds)
+	&& evidenceWindow.dockerStatsSampleIntervalSeconds >= 1
+	&& evidenceWindow.dockerStatsSampleIntervalSeconds <= 60,
+'Docker stats cadence must be an approved integer from 1 through 60 seconds');
+assert.equal(evidenceWindow.dockerStatsSampleIntervalSeconds, environment.dockerStatsSampleIntervalSeconds,
+	'Docker stats cadence must match the runtime environment');
+
+const dockerLines = dockerStats.trim().split(/\r?\n/);
+assert.equal(dockerLines.shift(),
+	'captured_at,container_name,container_id,cpu_percent,memory_usage,memory_percent',
+	'Docker stats schema mismatch');
+const expectedContainers = new Map([
+	[environment.postgresContainer, environment.postgresContainerId],
+	[environment.redisContainer, environment.redisContainerId],
+]);
+assert.equal(expectedContainers.size, 2, 'PostgreSQL and Redis containers must be distinct');
+const dockerSamples = new Map();
 const dockerPeakByContainer = {};
-for (const row of dockerRows) {
-	const [, container, cpuPercent, , memoryPercent] = row.split(',');
-	assert.ok(container && cpuPercent && memoryPercent, `Invalid docker stats row: ${row}`);
-	const cpu = Number(cpuPercent.replace('%', ''));
-	const memory = Number(memoryPercent.replace('%', ''));
+let previousDockerRowTimestamp = null;
+for (const row of dockerLines) {
+	const columns = row.split(',');
+	assert.equal(columns.length, 6, `Invalid Docker stats row: ${row}`);
+	const [capturedAt, container, containerId, cpuPercent, memoryUsage, memoryPercent] = columns;
+	const capturedTimestamp = assertIsoTimestamp(capturedAt, `docker.${container}.capturedAt`);
+	if (previousDockerRowTimestamp !== null) {
+		assert.ok(capturedTimestamp >= previousDockerRowTimestamp,
+			'Docker sample rows must be timestamp-monotonic');
+	}
+	previousDockerRowTimestamp = capturedTimestamp;
+	assert.equal(containerId, expectedContainers.get(container), `Unexpected Docker container identity: ${row}`);
+	assert.ok(memoryUsage.length > 0, `Docker memory usage is required: ${row}`);
+	const cpu = Number(cpuPercent.replace(/%$/, ''));
+	const memory = Number(memoryPercent.replace(/%$/, ''));
 	assert.ok(Number.isFinite(cpu) && cpu >= 0, `Invalid Docker CPU sample: ${row}`);
 	assert.ok(Number.isFinite(memory) && memory >= 0, `Invalid Docker memory sample: ${row}`);
-	const peak = dockerPeakByContainer[container] ?? { cpuPercent: 0, memoryPercent: 0, sampleCount: 0 };
+	const sampleContainers = dockerSamples.get(capturedAt) ?? new Set();
+	assert.equal(sampleContainers.has(container), false, `Duplicate Docker container row at ${capturedAt}`);
+	sampleContainers.add(container);
+	dockerSamples.set(capturedAt, sampleContainers);
+	const peak = dockerPeakByContainer[container]
+		?? { containerId, cpuPercent: 0, memoryPercent: 0, sampleCount: 0 };
 	peak.cpuPercent = Math.max(peak.cpuPercent, cpu);
 	peak.memoryPercent = Math.max(peak.memoryPercent, memory);
 	peak.sampleCount += 1;
 	dockerPeakByContainer[container] = peak;
 }
+assert.ok(dockerSamples.size >= 2, 'At least two Docker sample instants are required');
+const dockerTimestamps = [...dockerSamples.keys()].sort((left, right) => Date.parse(left) - Date.parse(right));
+for (const [capturedAt, containers] of dockerSamples) {
+	assert.deepEqual([...containers].sort(), [...expectedContainers.keys()].sort(),
+		`Docker sample ${capturedAt} must contain exact PostgreSQL and Redis identities`);
+}
+for (let index = 1; index < dockerTimestamps.length; index += 1) {
+	const gapMs = Date.parse(dockerTimestamps[index]) - Date.parse(dockerTimestamps[index - 1]);
+	assert.ok(gapMs > 0, 'Docker sample timestamps must be strictly monotonic');
+	assert.ok(gapMs <= (evidenceWindow.dockerStatsSampleIntervalSeconds * 1000) + 5000,
+		'Docker sample gap exceeds the approved cadence tolerance');
+}
+assert.ok(Date.parse(dockerTimestamps[0]) <= workloadStartedAt,
+	'Docker sampling must begin before the workload');
+assert.ok(Date.parse(dockerTimestamps.at(-1)) >= workloadFinishedAt,
+	'Docker sampling must finish after the workload');
+const dockerRows = dockerLines;
 
-const postgresDelta = {
-	database: numericDelta(postgresBefore.database, postgresAfter.database),
-	tables: numericDelta(postgresBefore.tables, postgresAfter.tables),
-};
-assertFiniteNonNegativeNumbers(postgresDelta, 'postgresDelta');
-assertFiniteNonNegativeNumbers(redisCommandCallDelta, 'redisCommandCallDelta');
-assert.ok(postgresDelta.tables?.notification_logs, 'notification_logs PostgreSQL evidence is required');
-assert.ok(postgresDelta.tables?.user_fcm_tokens, 'user_fcm_tokens PostgreSQL evidence is required');
 const cardinalityBefore = postgresBefore.cardinality;
 const cardinalityAfter = postgresAfter.cardinality;
 const relationBytesBefore = postgresBefore.relationBytes;
-assertFiniteNonNegativeNumbers(cardinalityBefore, 'postgresBefore.cardinality');
-assertFiniteNonNegativeNumbers(cardinalityAfter, 'postgresAfter.cardinality');
-assertFiniteNonNegativeNumbers(relationBytesBefore, 'postgresBefore.relationBytes');
 assert.equal(
 	cardinalityAfter.notificationLogsTotal - cardinalityBefore.notificationLogsTotal,
 	result.creation.logInsertCount,
@@ -220,13 +308,25 @@ const verification = {
 	unexpectedRequestLogCount: result.correctness.unexpectedRequestLogCount,
 	evidence: {
 		window: environment.externalEvidenceWindow,
+		postgresCurrentDatabase: postgresBefore.currentDatabase,
+		postgresStatsReset: postgresBefore.statsReset,
+		postgresCapturedAt: { before: postgresBefore.capturedAt, after: postgresAfter.capturedAt },
 		postgresBeforeCardinality: cardinalityBefore,
 		postgresBeforeRelationBytes: relationBytesBefore,
 		postgresDelta,
+		redisRunId: redisBefore.runId,
+		redisUptimeBefore: redisBefore.uptimeSeconds,
+		redisCapturedAt: { before: redisBefore.capturedAt, after: redisAfter.capturedAt },
 		redisDbSizeBefore,
 		redisDbSizeDelta,
 		redisCommandCallDelta,
 		dockerSampleCount: dockerRows.length,
+		dockerSampleInstantCount: dockerSamples.size,
+		dockerStatsSampleIntervalSeconds: evidenceWindow.dockerStatsSampleIntervalSeconds,
+		evidenceWindow: {
+			workloadStartedAt: evidenceWindow.workloadStartedAt,
+			workloadFinishedAt: evidenceWindow.workloadFinishedAt,
+		},
 		dockerPeakByContainer,
 	},
 	checkedAt: new Date().toISOString(),

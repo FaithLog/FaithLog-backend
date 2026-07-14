@@ -274,6 +274,27 @@ test('summarizer requires approved exact warmup/measured counts and refuses one 
 			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
 		}), 'one measured sample and zero warmups must fail before percentile generation');
 		assert.equal(existsSync(outputPath), false);
+
+		const warmup = writeRun(root, 'warmup-1', 'warmup');
+		writeFileSync(runDirsFile, `${warmup.runDir}\n${oneMeasured.runDir}\n`);
+		assertFails(runNode('summarize-before.mjs', {
+			RUN_DIRS_FILE: runDirsFile,
+			OUTPUT_PATH: outputPath,
+			EXPECTED_WARMUP_SAMPLES: '1',
+			EXPECTED_MEASURED_SAMPLES: '2',
+			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
+		}), 'measured sample count below the approved exact count must fail');
+
+		const secondMeasured = writeRun(root, 'measured-2');
+		writeFileSync(runDirsFile, `${oneMeasured.runDir}\n${secondMeasured.runDir}\n`);
+		assertFails(runNode('summarize-before.mjs', {
+			RUN_DIRS_FILE: runDirsFile,
+			OUTPUT_PATH: outputPath,
+			EXPECTED_WARMUP_SAMPLES: '1',
+			EXPECTED_MEASURED_SAMPLES: '2',
+			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
+		}), 'warmup sample count below the approved exact count must fail');
+		assert.equal(existsSync(outputPath), false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -448,6 +469,26 @@ test('verifier requires exact PostgreSQL Redis and two-container lifecycle evide
 		assertFails(verify(), 'string PostgreSQL counter must fail');
 
 		writePostgres(artifacts.postgresAfter);
+		const writeRedis = (name, value) => writeFileSync(
+			join(runDir, name), `${JSON.stringify(value)}\n`,
+		);
+		const missingRedis = structuredClone(artifacts.redisBefore);
+		delete missingRedis.runId;
+		writeRedis('redis-before.json', missingRedis);
+		assertFails(verify(), 'missing Redis identity must fail');
+
+		writeRedis('redis-before.json', artifacts.redisBefore);
+		const nullRedis = structuredClone(artifacts.redisAfter);
+		nullRedis.dbSize = null;
+		writeRedis('redis-after.json', nullRedis);
+		assertFails(verify(), 'null Redis evidence must fail');
+
+		const stringRedis = structuredClone(artifacts.redisAfter);
+		stringRedis.commands.set = '2006';
+		writeRedis('redis-after.json', stringRedis);
+		assertFails(verify(), 'string Redis counter must fail');
+
+		writeRedis('redis-after.json', artifacts.redisAfter);
 		writeFileSync(
 			join(runDir, 'docker-stats.csv'),
 			artifacts.dockerStats.replace('redis-198,redis-id-198', 'other-redis,other-id'),

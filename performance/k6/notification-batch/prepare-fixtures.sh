@@ -62,12 +62,7 @@ if (( PERF_SUCCESS_COUNT + PERF_TRANSIENT_COUNT + PERF_PERMANENT_COUNT \
 fi
 
 guard_notification_batch_runtime
-
-LOCK_DIR="/tmp/faithlog-performance-global.lock"
-if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-	echo "Another FaithLog fixture, QA, or performance measurement holds the host-global lock." >&2
-	exit 2
-fi
+acquire_notification_batch_locks
 
 FIXTURE_ROOT="${REPOSITORY_ROOT}/build/reports/k6/notification-batch/fixtures"
 REPORT_DIR="${FIXTURE_ROOT}/${PERF_FIXTURE_RUN_ID}"
@@ -78,7 +73,7 @@ cleanup() {
 	if [[ ! -f "${MANIFEST_PATH}" ]]; then
 		rmdir "${REPORT_DIR}" 2>/dev/null || true
 	fi
-	rmdir "${LOCK_DIR}" 2>/dev/null || true
+	release_notification_batch_locks
 }
 trap cleanup EXIT
 mkdir -p "${FIXTURE_ROOT}"

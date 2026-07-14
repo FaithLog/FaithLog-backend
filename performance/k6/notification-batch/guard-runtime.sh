@@ -76,3 +76,28 @@ guard_notification_batch_runtime() {
 	PERF_POSTGRES_IMAGE_ID="$(docker inspect --format '{{.Image}}' "${POSTGRES_CONTAINER}")"
 	PERF_REDIS_IMAGE_ID="$(docker inspect --format '{{.Image}}' "${REDIS_CONTAINER}")"
 }
+
+acquire_notification_batch_locks() {
+	: "${PERF_COMPOSE_PROJECT:?guard_notification_batch_runtime must run before lock acquisition.}"
+	PERF_GLOBAL_LOCK_DIR="/tmp/faithlog-performance-global.lock"
+	PERF_PROJECT_LOCK_DIR="/tmp/faithlog-performance-${PERF_COMPOSE_PROJECT}.lock"
+	if ! mkdir "${PERF_GLOBAL_LOCK_DIR}" 2>/dev/null; then
+		echo "Another Issue #198 fixture or measurement holds the host-global lock." >&2
+		return 2
+	fi
+	if ! mkdir "${PERF_PROJECT_LOCK_DIR}" 2>/dev/null; then
+		rmdir "${PERF_GLOBAL_LOCK_DIR}" 2>/dev/null || true
+		echo "Another FaithLog QA or performance runner holds the canonical Compose-project lock." >&2
+		return 2
+	fi
+	export PERF_GLOBAL_LOCK_DIR PERF_PROJECT_LOCK_DIR
+}
+
+release_notification_batch_locks() {
+	if [[ -n "${PERF_PROJECT_LOCK_DIR:-}" ]]; then
+		rmdir "${PERF_PROJECT_LOCK_DIR}" 2>/dev/null || true
+	fi
+	if [[ -n "${PERF_GLOBAL_LOCK_DIR:-}" ]]; then
+		rmdir "${PERF_GLOBAL_LOCK_DIR}" 2>/dev/null || true
+	fi
+}

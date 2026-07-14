@@ -65,10 +65,16 @@ build/reports/k6/notification-batch/
     run-status.json
     scenario-result.json
     verification-report.json
+    runtime-continuity-report.json
+    runtime-identity-initial.json
+    runtime-identity-before.json
+    runtime-identity-after.json
+    runtime-identity-final.json
+    evidence-window.json
     postgres-before.json
     postgres-after.json
-    redis-commandstats-before.txt
-    redis-commandstats-after.txt
+    redis-before.json
+    redis-after.json
     docker-stats.csv
     gradle-scenario.log
 ```
@@ -108,26 +114,34 @@ PERF_EXPECTED_COMPOSE_PROJECT=<user-approved-dedicated-project> \
 POSTGRES_CONTAINER=<dedicated-postgres-container> \
 REDIS_CONTAINER=<dedicated-redis-container> \
 PERF_BUSINESS_DATE=<YYYY-MM-DD> \
+PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS=<user-approved-1-to-60> \
 RUN_ID=<fresh-run-id> \
 MANIFEST_PATH=build/reports/k6/notification-batch/fixtures/<fixtureRunId>/manifest.json \
 bash performance/k6/notification-batch/run-before.sh
 ```
 
-fixture preparation과 runner는 Compose project와 무관한 host-global `/tmp/faithlog-performance-global.lock`을 공유해 서로 다른 #198 project/worktree도 동시에 실행하지 못하게 한다. 기존 다른 k6/frontend/Docker QA entrypoint는 이 lock을 아직 획득하지 않으므로, 실행자는 시작 전 다른 병렬 부하가 없음을 별도로 확인해야 한다. 즉 이 lock은 #198 스크립트 간 fail-closed이고 저장소 전체 QA의 강제 mutex라고 과장하지 않는다. runner는 clean index/worktree만 허용하고 실제 Compose label/host port/image ID/git commit/businessDate, PostgreSQL counter delta, Redis `INFO commandstats` delta, PostgreSQL/Redis `docker stats` peak, Java process CPU duration/heap delta를 기록한다. run ID가 이미 있으면 overwrite하지 않고 즉시 거부한다.
+fixture preparation과 runner는 #198 전용 host-global `/tmp/faithlog-performance-global.lock`과 저장소 performance runner의 canonical `/tmp/faithlog-performance-${actualComposeProject}.lock`을 같은 순서로 함께 획득한다. 실제 Compose project 검증 뒤 canonical lock 획득에 실패하면 fixture SQL 또는 Gradle을 시작하지 않는다. 따라서 같은 Compose project를 쓰는 다른 issue runner와 상호 배제되며, global lock은 서로 다른 #198 worktree/project의 동시 실행까지 막는 추가 안전장치일 뿐 canonical project lock을 대체하지 않는다. 별도 project가 실제로 같은 외부 자원을 공유하는 구성은 lock만으로 판별할 수 있으므로 실행자는 병렬 부하 부재를 계속 확인한다. runner는 clean index/worktree만 허용하고 run ID가 이미 있으면 overwrite하지 않고 즉시 거부한다.
 
-PostgreSQL/Redis counter와 Docker stats의 window는 Gradle 실행, Spring startup, measured method, correctness replay/postflight를 모두 포함하는 `gradle-spring-harness-lifecycle`이다. creation/delivery phase duration 또는 per-user Hibernate prepared statements와 직접 대응시키지 않으며 harness-wide 보조 evidence로만 집계한다. verifier는 이 window에 다른 부하가 없다는 실행 전제 아래 request marker log 총수 증가, active dummy-token 감소, retained Redis key 증가와 PostgreSQL notification log/token physical insert·update를 logical write와 exact count로 맞춘다. PostgreSQL 또는 Redis counter의 under/over-count를 모두 거부하는 합성 계약 테스트를 함께 둔다. Redis SET은 creation+replay 2,000회와 delivery lock 1회의 exact count를 요구한다.
+lock 획득 후 runner는 workload의 initial/before/after/final 네 시점에서 PostgreSQL/Redis container `.Id`, image ID, `.State.StartedAt`, Compose project/service/config hash를 기록한다. PostgreSQL은 current database, server address/port, postmaster start time을, Redis는 run ID, port, monotonic uptime을 함께 고정한다. 네 시점 identity가 다르면 verifier 실행 전에 `runtime-continuity` 실패로 종료한다. 같은 container 이름과 image/project를 유지한 재생성도 container ID 또는 server identity가 달라 실패한다.
+
+PostgreSQL/Redis counter와 Docker stats의 window는 Gradle 실행, Spring startup, measured method, correctness replay/postflight를 모두 포함하는 `gradle-spring-harness-lifecycle`이다. creation/delivery phase duration 또는 per-user Hibernate prepared statements와 직접 대응시키지 않으며 harness-wide 보조 evidence로만 집계한다. PostgreSQL snapshot은 exact current database, non-null `stats_reset`, ordered `capturedAt`, database counter set과 `campus_members|user_fcm_tokens|notification_logs` exact table set을 요구한다. Redis snapshot은 exact run ID/uptime/port/DBSIZE/SET count schema를 요구한다. 누락·null·문자열 counter, reset, 감소, under/over-count는 실패한다. Docker CSV는 approved runtime cadence, immutable ID가 일치하는 PostgreSQL+Redis 두 row의 sample instant가 최소 2개 있어야 하고 workload 시작 전부터 종료 후까지 덮어야 한다. 다른 container, 한 시점 sample, 순서·cadence·coverage 위반은 실패한다. Redis SET은 creation+replay 2,000회와 delivery lock 1회의 exact count를 요구한다.
 
 ## p50/p95/p99/max 집계 — 지금은 실행 금지
 
-한 fixtureRunId는 생성 1회와 delivery 1회의 독립 sample이다. 현재 runner는 sample마다 `--no-daemon` test JVM을 새로 시작하므로 `cold-jvm-per-sample`이고, warmup은 PostgreSQL/Redis 외부 cache만 데우며 JVM JIT/Spring bean/connection pool을 measured sample과 공유하지 않는다. 또한 sample마다 이전 dummy token/log/dedupe history가 남으므로 pre-run token/log cardinality, table relation bytes, Redis DBSIZE도 workload fingerprint에 포함한다. 이 값이 다르면 summarizer는 percentile 집계를 거부한다. 실제 baseline 전에 사용자는 cold-JVM 또는 same-JVM 모델과 함께, 동일 DB/Redis snapshot 복원 또는 fixture-only cleanup 정책을 승인해야 한다. 이 세션은 snapshot/cleanup을 실행하거나 임의 선택하지 않는다. warmup과 measured fixtureRunId 목록을 명시한 파일을 만들고, 검증된 run directory만 집계한다. 반복 횟수는 baseline 실행 승인 때 사용자가 결정하며 script가 조용히 정하지 않는다.
+한 fixtureRunId는 생성 1회와 delivery 1회의 독립 sample이다. 현재 runner는 sample마다 `--no-daemon` test JVM을 새로 시작하므로 `cold-jvm-per-sample`이고, warmup은 PostgreSQL/Redis 외부 cache만 데우며 JVM JIT/Spring bean/connection pool을 measured sample과 공유하지 않는다. sample마다 이전 dummy token/log/dedupe history가 남으므로 additive fixture만으로는 두 번째 sample의 pre-run token/log cardinality, relation bytes, Redis DBSIZE가 첫 sample과 같을 수 없다.
+
+따라서 현재 summarizer는 fail-closed disabled다. `EXPECTED_WARMUP_SAMPLES`와 `EXPECTED_MEASURED_SAMPLES`를 runtime 필수값으로 받아 각각 정확히 일치하는지, 모든 sampleKind가 `warmup|measured`인지, fixtureRunId가 전체에서 유일한지 먼저 검증한다. warmup은 최소 1개, measured는 percentile을 위해 최소 2개이며 단일 measured 또는 warmup 0은 허용하지 않는다. `CUMULATIVE_STATE_STRATEGY`도 `snapshot-restore|fixture-only-cleanup` 중 하나를 runtime에 명시해야 하지만, 어느 전략도 아직 사용자 승인·구현되지 않았으므로 count 검증을 통과해도 non-zero로 종료하고 summary를 만들지 않는다. 이 세션은 snapshot/cleanup을 실행하거나 임의 선택하지 않는다.
 
 ```bash
 RUN_DIRS_FILE=<approved-run-directory-list.txt> \
 OUTPUT_PATH=build/reports/k6/notification-batch/before-summary.json \
+EXPECTED_WARMUP_SAMPLES=<user-approved-exact-count> \
+EXPECTED_MEASURED_SAMPLES=<user-approved-exact-count-at-least-2> \
+CUMULATIVE_STATE_STRATEGY=<snapshot-restore-or-fixture-only-cleanup> \
 node performance/k6/notification-batch/summarize-before.mjs
 ```
 
-summary는 creation/delivery 각각 다음을 만든다.
+위 명령은 현재 의도적으로 실패한다. 사용자가 하나의 cumulative-state 전략과 실행 모델을 승인하고, 해당 restore/cleanup 구현이 매 sample의 동일 pre-run fingerprint를 증명한 뒤에만 fail-closed gate를 제거할 수 있다. 그 이후 summary는 creation/delivery 각각 다음을 만든다.
 
 - 전체 duration p50/p95/p99/max
 - throughput p50/p95/p99/max

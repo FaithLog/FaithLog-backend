@@ -38,6 +38,7 @@ test('runtime guard rejects shared Docker and every Firebase-capable profile', (
 test('fixture contract separates datasetId and fixtureRunId and permits dummy notification rows only', () => {
 	const prepare = readScenario('prepare-fixtures.sh');
 	const sql = readScenario('prepare-fixtures.sql');
+	const guard = readScenario('guard-runtime.sh');
 
 	assert.match(prepare, /PERF_DATASET_ID/);
 	assert.match(prepare, /PERF_FIXTURE_RUN_ID/);
@@ -45,7 +46,9 @@ test('fixture contract separates datasetId and fixtureRunId and permits dummy no
 	assert.match(prepare, /PERF_MEMBER_COUNT.*1000/);
 	assert.match(prepare, /PERF_MEMBER_COUNT.*!=.*1000/s);
 	assert.match(prepare, /PERF_CAMPUS_ID.*positive integer/);
-	assert.match(prepare, /faithlog-performance-global\.lock/);
+	assert.match(prepare, /acquire_notification_batch_locks/);
+	assert.match(guard, /faithlog-performance-global\.lock/);
+	assert.match(guard, /faithlog-performance-\$\{PERF_COMPOSE_PROJECT\}\.lock/);
 	assert.match(prepare, /mixedTokenUserCount/);
 	assert.match(prepare, /manifest\.json/);
 	assert.match(prepare, /build\/reports\/k6\/notification-batch\/fixtures/);
@@ -63,10 +66,12 @@ test('fixture contract separates datasetId and fixtureRunId and permits dummy no
 	assert.doesNotMatch(prepare, /FIREBASE|FCM_TOKEN=.*[^D]UMMY/i);
 });
 
-test('runner keeps fixture preparation separate, holds a global load lock, and records actual Compose labels', () => {
+test('runner keeps fixture preparation separate, holds global and canonical project locks, and records labels', () => {
 	const runner = readScenario('run-before.sh');
+	const guard = readScenario('guard-runtime.sh');
 
-	assert.match(runner, /\/tmp\/faithlog-performance-global\.lock/);
+	assert.match(runner, /acquire_notification_batch_locks/);
+	assert.match(guard, /faithlog-performance-\$\{PERF_COMPOSE_PROJECT\}\.lock/);
 	assert.match(runner, /status --porcelain --untracked-files=all/);
 	assert.match(runner, /NotificationBatchBeforeScenarioTest/);
 	assert.match(runner, /--no-daemon/);
@@ -159,7 +164,7 @@ test('verification contract covers throughput, DB calls, status counts, dedupe, 
 	assert.match(readme, /병렬/);
 });
 
-test('verification and summary scripts parse and aggregate synthetic non-Docker evidence', () => {
+test('verification accepts strict synthetic evidence and summary remains fail-closed', () => {
 	const temporaryRoot = mkdtempSync(join(tmpdir(), 'faithlog-198-reporting-'));
 	try {
 		const runDir = join(temporaryRoot, 'measured-run');
@@ -229,7 +234,9 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 			springProfile: 'local',
 			fcmAdapter: 'fake',
 			postgresContainer: 'pg-198',
+			postgresContainerId: 'pg-id-198',
 			redisContainer: 'redis-198',
+			redisContainerId: 'redis-id-198',
 			dockerProject: 'faithlog-perf-198',
 			postgresHost: '127.0.0.1',
 			postgresHostPort: 15432,
@@ -243,14 +250,32 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 			executionModel: 'cold-jvm-per-sample',
 			warmupScope: 'external-postgres-redis-cache-only',
 			externalEvidenceWindow: 'gradle-spring-harness-lifecycle',
+			dockerStatsSampleIntervalSeconds: 60,
 			sharedStack: false,
 			externalFcm: false,
 		};
+		const tableStats = (values = {}) => ({
+			seq_scan: 0,
+			seq_tup_read: 0,
+			idx_scan: 0,
+			idx_tup_fetch: 0,
+			n_tup_ins: 0,
+			n_tup_upd: 0,
+			n_tup_del: 0,
+			...values,
+		});
 		const postgresBefore = {
-			database: { xact_commit: 10 },
+			capturedAt: '2026-07-14T00:01:00.000Z',
+			currentDatabase: 'faithlog',
+			statsReset: '2026-07-14T00:00:00.000Z',
+			database: {
+				xact_commit: 10, xact_rollback: 0, blks_read: 1, blks_hit: 2,
+				tup_returned: 3, tup_fetched: 4, tup_inserted: 5, tup_updated: 6, tup_deleted: 0,
+			},
 			tables: {
-				notification_logs: { n_tup_ins: 1, n_tup_upd: 2 },
-				user_fcm_tokens: { n_tup_upd: 2 },
+				campus_members: tableStats(),
+				notification_logs: tableStats({ n_tup_ins: 1, n_tup_upd: 2 }),
+				user_fcm_tokens: tableStats({ n_tup_upd: 2 }),
 			},
 			cardinality: {
 				userFcmTokensTotal: 2000,
@@ -263,10 +288,19 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 			relationBytes: { userFcmTokens: 65536, notificationLogs: 32768 },
 		};
 		const postgresAfter = {
-			database: { xact_commit: 20 },
+			...postgresBefore,
+			capturedAt: '2026-07-14T00:02:00.000Z',
+			database: {
+				...postgresBefore.database,
+				xact_commit: 20,
+				blks_hit: 200,
+				tup_inserted: 1005,
+				tup_updated: 907,
+			},
 			tables: {
-				notification_logs: { n_tup_ins: 1001, n_tup_upd: 802 },
-				user_fcm_tokens: { n_tup_upd: 103 },
+				campus_members: tableStats({ seq_scan: 1, seq_tup_read: 1000 }),
+				notification_logs: tableStats({ n_tup_ins: 1001, n_tup_upd: 802 }),
+				user_fcm_tokens: tableStats({ n_tup_upd: 103 }),
 			},
 			cardinality: {
 				userFcmTokensTotal: 2000,
@@ -288,12 +322,26 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 		})) {
 			writeFileSync(join(runDir, name), `${JSON.stringify(value)}\n`, { flag: name === 'manifest.json' ? 'wx' : 'w' });
 		}
-		writeFileSync(join(runDir, 'redis-commandstats-before.txt'), 'dbsize=10\ncmdstat_set:calls=5,usec=10\n');
-		writeFileSync(join(runDir, 'redis-commandstats-after.txt'), 'dbsize=1010\ncmdstat_set:calls=2006,usec=4010\n');
+		writeFileSync(join(runDir, 'redis-before.json'), `${JSON.stringify({
+			capturedAt: '2026-07-14T00:01:00.000Z', runId: 'redis-run-id-198', uptimeSeconds: 100,
+			tcpPort: 6379, dbSize: 10, commands: { set: 5 },
+		})}\n`);
+		writeFileSync(join(runDir, 'redis-after.json'), `${JSON.stringify({
+			capturedAt: '2026-07-14T00:02:00.000Z', runId: 'redis-run-id-198', uptimeSeconds: 160,
+			tcpPort: 6379, dbSize: 1010, commands: { set: 2006 },
+		})}\n`);
+		writeFileSync(join(runDir, 'evidence-window.json'), `${JSON.stringify({
+			workloadStartedAt: '2026-07-14T00:01:10.000Z',
+			workloadFinishedAt: '2026-07-14T00:01:50.000Z',
+			dockerStatsSampleIntervalSeconds: 60,
+		})}\n`);
 		writeFileSync(
 			join(runDir, 'docker-stats.csv'),
-			'captured_at,container,cpu_percent,memory_usage,memory_percent\n'
-				+ '2026-07-14T00:00:00Z,pg-198,1.5%,10MiB / 1GiB,2.5%\n',
+			'captured_at,container_name,container_id,cpu_percent,memory_usage,memory_percent\n'
+				+ '2026-07-14T00:01:00.000Z,pg-198,pg-id-198,1.5%,10MiB / 1GiB,2.5%\n'
+				+ '2026-07-14T00:01:00.000Z,redis-198,redis-id-198,0.5%,5MiB / 1GiB,1.0%\n'
+				+ '2026-07-14T00:02:00.000Z,pg-198,pg-id-198,2.0%,11MiB / 1GiB,2.7%\n'
+				+ '2026-07-14T00:02:00.000Z,redis-198,redis-id-198,0.7%,6MiB / 1GiB,1.2%\n',
 		);
 
 		const verifier = spawnSync(
@@ -314,18 +362,18 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 			process.execPath,
 			[fileURLToPath(new URL('summarize-before.mjs', SCENARIO_ROOT))],
 			{
-				env: { ...process.env, RUN_DIRS_FILE: runDirsFile, OUTPUT_PATH: outputPath },
+				env: {
+					...process.env,
+					RUN_DIRS_FILE: runDirsFile,
+					OUTPUT_PATH: outputPath,
+					EXPECTED_WARMUP_SAMPLES: '0',
+					EXPECTED_MEASURED_SAMPLES: '1',
+					CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
+				},
 				encoding: 'utf8',
 			},
 		);
-		assert.equal(summarizer.status, 0, summarizer.stderr);
-		const summary = JSON.parse(readFileSync(outputPath, 'utf8'));
-		assert.equal(summary.measuredCount, 1);
-		assert.equal(summary.totals.createdLogs, 1000);
-		assert.equal(summary.evidenceTotals.postgresDelta.tables.notification_logs.n_tup_ins, 1000);
-		assert.equal(summary.evidenceTotals.redisCommandCallDelta.set, 2001);
-		assert.equal(summary.evidenceTotals.redisDbSizeDelta, 1000);
-		assert.equal(summary.evidenceTotals.dockerPeakByContainer['pg-198'].sampleCount, 1);
+		assert.notEqual(summarizer.status, 0, 'one-sample baseline aggregation must stay disabled');
 
 		writeFileSync(
 			join(runDir, 'postgres-after.json'),
@@ -333,7 +381,10 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 				...postgresAfter,
 				tables: {
 					...postgresAfter.tables,
-					notification_logs: { n_tup_ins: 500, n_tup_upd: 802 },
+					notification_logs: {
+						...postgresAfter.tables.notification_logs,
+						n_tup_ins: 500,
+					},
 				},
 			})}\n`,
 		);
@@ -363,23 +414,23 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 			assert.notEqual(verifier.status, 0, message);
 		};
 		assertPostgresOverCountFails(
-			{ notification_logs: { n_tup_ins: 1002, n_tup_upd: 802 } },
+			{ notification_logs: { ...postgresAfter.tables.notification_logs, n_tup_ins: 1002 } },
 			'unexpected extra PostgreSQL notification log insert must fail',
 		);
 		assertPostgresOverCountFails(
-			{ notification_logs: { n_tup_ins: 1001, n_tup_upd: 803 } },
+			{ notification_logs: { ...postgresAfter.tables.notification_logs, n_tup_upd: 803 } },
 			'unexpected extra PostgreSQL notification log update must fail',
 		);
 		assertPostgresOverCountFails(
-			{ user_fcm_tokens: { n_tup_upd: 104 } },
+			{ user_fcm_tokens: { ...postgresAfter.tables.user_fcm_tokens, n_tup_upd: 104 } },
 			'unexpected extra PostgreSQL token update must fail independently',
 		);
 
 		writeFileSync(join(runDir, 'postgres-after.json'), `${JSON.stringify(postgresAfter)}\n`);
-		writeFileSync(
-			join(runDir, 'redis-commandstats-after.txt'),
-			'dbsize=1011\ncmdstat_set:calls=2007,usec=4012\n',
-		);
+		writeFileSync(join(runDir, 'redis-after.json'), `${JSON.stringify({
+			capturedAt: '2026-07-14T00:02:00.000Z', runId: 'redis-run-id-198', uptimeSeconds: 160,
+			tcpPort: 6379, dbSize: 1011, commands: { set: 2007 },
+		})}\n`);
 		const overCountVerifier = spawnSync(
 			process.execPath,
 			[fileURLToPath(new URL('verify-before.mjs', SCENARIO_ROOT))],

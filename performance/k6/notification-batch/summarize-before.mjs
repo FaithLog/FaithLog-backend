@@ -4,8 +4,27 @@ import { dirname, join } from 'node:path';
 
 const runDirsFile = process.env.RUN_DIRS_FILE;
 const outputPath = process.env.OUTPUT_PATH;
+const expectedWarmupSamplesRaw = process.env.EXPECTED_WARMUP_SAMPLES;
+const expectedMeasuredSamplesRaw = process.env.EXPECTED_MEASURED_SAMPLES;
+const cumulativeStateStrategy = process.env.CUMULATIVE_STATE_STRATEGY;
 assert.ok(runDirsFile, 'RUN_DIRS_FILE is required');
 assert.ok(outputPath, 'OUTPUT_PATH is required');
+assert.ok(expectedWarmupSamplesRaw, 'EXPECTED_WARMUP_SAMPLES is a required runtime approval');
+assert.ok(expectedMeasuredSamplesRaw, 'EXPECTED_MEASURED_SAMPLES is a required runtime approval');
+assert.ok(cumulativeStateStrategy, 'CUMULATIVE_STATE_STRATEGY is a required runtime approval');
+
+const parseApprovedSampleCount = (raw, name, minimum) => {
+	assert.match(raw, /^[0-9]+$/, `${name} must be an explicit non-negative integer`);
+	const value = Number(raw);
+	assert.ok(Number.isSafeInteger(value) && value >= minimum, `${name} must be at least ${minimum}`);
+	return value;
+};
+const expectedWarmupSamples = parseApprovedSampleCount(expectedWarmupSamplesRaw, 'EXPECTED_WARMUP_SAMPLES', 1);
+const expectedMeasuredSamples = parseApprovedSampleCount(expectedMeasuredSamplesRaw, 'EXPECTED_MEASURED_SAMPLES', 2);
+assert.ok(
+	['snapshot-restore', 'fixture-only-cleanup'].includes(cumulativeStateStrategy),
+	'CUMULATIVE_STATE_STRATEGY must be snapshot-restore or fixture-only-cleanup',
+);
 
 const runDirs = readFileSync(runDirsFile, 'utf8')
 	.split(/\r?\n/)
@@ -27,14 +46,26 @@ for (const sample of samples) {
 	assert.equal(sample.runStatus.status, 'verified');
 	assert.equal(sample.manifest.fixtureRunId, sample.result.fixtureRunId);
 	assert.equal(sample.manifest.sampleKind, sample.result.sampleKind);
+	assert.ok(['warmup', 'measured'].includes(sample.manifest.sampleKind),
+		'Every run directory must declare sampleKind=warmup or measured');
 }
 
 const measured = samples.filter((sample) => sample.manifest.sampleKind === 'measured');
 const warmups = samples.filter((sample) => sample.manifest.sampleKind === 'warmup');
-assert.ok(measured.length > 0, 'At least one measured fixtureRunId is required');
+assert.equal(warmups.length, expectedWarmupSamples,
+	'Warmup sample count must exactly match EXPECTED_WARMUP_SAMPLES');
+assert.equal(measured.length, expectedMeasuredSamples,
+	'Measured sample count must exactly match EXPECTED_MEASURED_SAMPLES');
+assert.equal(samples.length, expectedWarmupSamples + expectedMeasuredSamples,
+	'Only approved warmup and measured samples may be aggregated');
 assert.equal(new Set(measured.map((sample) => sample.result.datasetId)).size, 1);
 assert.equal(new Set(samples.map((sample) => sample.result.fixtureRunId)).size, samples.length,
 	'Duplicate fixtureRunIds are forbidden');
+assert.fail(
+	`Cumulative-state strategy ${cumulativeStateStrategy} is selected but not implemented; `
+		+ 'baseline aggregation stays disabled until the user approves and tooling proves snapshot restore '
+		+ 'or fixture-only cleanup equivalence',
+);
 
 const workloadSignature = (sample) => JSON.stringify({
 	datasetId: sample.manifest.datasetId,
@@ -50,7 +81,9 @@ const workloadSignature = (sample) => JSON.stringify({
 	fcmAdapter: sample.environment.fcmAdapter,
 	dockerProject: sample.environment.dockerProject,
 	postgresContainer: sample.environment.postgresContainer,
+	postgresContainerId: sample.environment.postgresContainerId,
 	redisContainer: sample.environment.redisContainer,
+	redisContainerId: sample.environment.redisContainerId,
 	postgresHostPort: sample.environment.postgresHostPort,
 	postgresDatabase: sample.environment.postgresDatabase,
 	redisHostPort: sample.environment.redisHostPort,
@@ -61,11 +94,14 @@ const workloadSignature = (sample) => JSON.stringify({
 	executionModel: sample.environment.executionModel,
 	warmupScope: sample.environment.warmupScope,
 	externalEvidenceWindow: sample.environment.externalEvidenceWindow,
+	dockerStatsSampleIntervalSeconds: sample.environment.dockerStatsSampleIntervalSeconds,
 	javaRuntimeVersion: sample.result.javaRuntimeVersion,
 	notificationType: sample.result.notificationType,
 	retryBackoffPolicy: sample.result.retryBackoffPolicy,
 	postgresBeforeCardinality: sample.verification.evidence.postgresBeforeCardinality,
 	postgresBeforeRelationBytes: sample.verification.evidence.postgresBeforeRelationBytes,
+	postgresStatsReset: sample.verification.evidence.postgresStatsReset,
+	redisRunId: sample.verification.evidence.redisRunId,
 	redisDbSizeBefore: sample.verification.evidence.redisDbSizeBefore,
 });
 assert.equal(new Set(samples.map(workloadSignature)).size, 1,

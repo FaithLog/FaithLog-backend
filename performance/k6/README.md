@@ -2,7 +2,7 @@
 
 Issue-specific internal service scenarios:
 
-- [Issue #198 notification batch before scenario](notification-batch/README.md) — scenario-ready / not-measured; external FCM prohibited
+- [Issue #198 notification batch before scenario](notification-batch/README.md) — scenario-ready / not-measured; external FCM prohibited; baseline summarizer disabled pending approved cumulative-state strategy and exact sample counts
 
 Issue #90 uses k6 to collect reproducible local performance numbers. Defaults target local Docker Compose only.
 
