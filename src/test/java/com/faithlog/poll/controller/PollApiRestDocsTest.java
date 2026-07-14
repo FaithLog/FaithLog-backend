@@ -1149,7 +1149,7 @@ class PollApiRestDocsTest {
 				.header("Authorization", "Bearer " + memberToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data[?(@.id == %d)]".formatted(pollId)).exists())
-			.andExpect(jsonPath("$.data[?(@.id == %d)].createdByUserId".formatted(pollId)).value(manager.id().intValue()))
+			.andExpect(jsonPath("$.data[?(@.id == %d)].createdByUserId".formatted(pollId)).doesNotExist())
 			.andExpect(jsonPath("$.data[?(@.id == %d)].manageableByMe".formatted(pollId)).value(false))
 			.andDo(document("poll-list-success",
 				preprocessRequest(prettyPrint()),
@@ -1158,7 +1158,6 @@ class PollApiRestDocsTest {
 				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
 				relaxedResponseFields(apiResponseFields(
 					fieldWithPath("data[]").description("조회 가능한 투표 목록"),
-					fieldWithPath("data[].createdByUserId").description("투표 생성 사용자 ID"),
 					fieldWithPath("data[].manageableByMe").description("현재 사용자가 이 투표를 관리할 수 있는지 여부")
 				))
 			));
@@ -1167,7 +1166,7 @@ class PollApiRestDocsTest {
 				.header("Authorization", "Bearer " + memberToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.myResponse.optionIds[0]").value(firstOptionId))
-			.andExpect(jsonPath("$.data.createdByUserId").value(manager.id()))
+			.andExpect(jsonPath("$.data.createdByUserId").doesNotExist())
 			.andExpect(jsonPath("$.data.manageableByMe").value(false))
 			.andDo(document("poll-detail-success",
 				preprocessRequest(prettyPrint()),
@@ -1177,9 +1176,8 @@ class PollApiRestDocsTest {
 					parameterWithName("campusId").description("캠퍼스 ID"),
 					parameterWithName("pollId").description("투표 ID")
 				),
-					relaxedResponseFields(apiResponseFields(
+				relaxedResponseFields(apiResponseFields(
 					fieldWithPath("data.id").description("투표 ID"),
-					fieldWithPath("data.createdByUserId").description("투표 생성 사용자 ID"),
 					fieldWithPath("data.manageableByMe").description("현재 사용자가 이 투표를 관리할 수 있는지 여부"),
 					fieldWithPath("data.options[]").description("선택지 목록"),
 					fieldWithPath("data.myResponse").optional().description("현재 로그인 사용자의 응답. 미응답이면 null")

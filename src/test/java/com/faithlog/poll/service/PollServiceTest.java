@@ -42,6 +42,7 @@ import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
@@ -855,6 +856,49 @@ class PollServiceTest {
 	}
 
 	@Test
+	void meal_poll_manageability_matches_active_meal_duty_for_list_and_detail() {
+		User manager = saveUser("poll-200-meal-manage-manager@example.com", UserRole.MANAGER);
+		User mealDuty = saveUser("poll-200-meal-manage-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200밥투표관리권한캠");
+		joinCampus(campus, mealDuty);
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), mealDuty.id()));
+		Poll mealPoll = pollRepository.save(Poll.createMeal(
+			campus.campusId(),
+			"밥 담당자 관리 투표",
+			false,
+			false,
+			Instant.now(),
+			Instant.now().plusSeconds(3600),
+			mealDuty.id()
+		));
+
+		assertThat(pollService.listPolls(campus.campusId(), manager.id()))
+			.filteredOn(item -> item.id().equals(mealPoll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
+		assertThat(pollService.getPollDetail(campus.campusId(), mealPoll.id(), manager.id()).manageableByMe())
+			.isFalse();
+		assertThat(pollService.listPolls(campus.campusId(), mealDuty.id()))
+			.filteredOn(item -> item.id().equals(mealPoll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isTrue());
+		assertThat(pollService.getPollDetail(campus.campusId(), mealPoll.id(), mealDuty.id()).manageableByMe())
+			.isTrue();
+	}
+
+	@Test
+	void poll_public_service_results_expose_manageability_without_creator_user_id() {
+		assertThat(List.of(PollListItemResult.class.getRecordComponents()))
+			.extracting(component -> component.getName())
+			.contains("manageableByMe")
+			.doesNotContain("createdByUserId");
+		assertThat(List.of(com.faithlog.poll.service.result.PollDetailResult.class.getRecordComponents()))
+			.extracting(component -> component.getName())
+			.contains("manageableByMe")
+			.doesNotContain("createdByUserId");
+	}
+
+	@Test
 	void direct_coffee_poll_requires_catalog_menu_id_without_persisting_rows() {
 		User manager = saveUser("poll-183-direct-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-183-direct-duty@example.com", UserRole.USER);
@@ -1606,26 +1650,17 @@ class PollServiceTest {
 		assertThat(pollService.listPolls(campus.campusId(), ownerDuty.id()))
 			.filteredOn(item -> item.id().equals(poll.id()))
 			.singleElement()
-			.satisfies(item -> {
-				assertThat(item.createdByUserId()).isEqualTo(ownerDuty.id());
-				assertThat(item.manageableByMe()).isTrue();
-			});
+			.satisfies(item -> assertThat(item.manageableByMe()).isTrue());
 		assertThat(pollService.listPolls(campus.campusId(), otherDuty.id()))
 			.filteredOn(item -> item.id().equals(poll.id()))
 			.singleElement()
-			.satisfies(item -> {
-				assertThat(item.createdByUserId()).isEqualTo(ownerDuty.id());
-				assertThat(item.manageableByMe()).isFalse();
-			});
+			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
 		assertThat(pollService.listPolls(campus.campusId(), manager.id()))
 			.filteredOn(item -> item.id().equals(poll.id()))
 			.singleElement()
 			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
-		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), ownerDuty.id()))
-			.satisfies(detail -> {
-				assertThat(detail.createdByUserId()).isEqualTo(ownerDuty.id());
-				assertThat(detail.manageableByMe()).isTrue();
-			});
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), ownerDuty.id()).manageableByMe())
+			.isTrue();
 		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), otherDuty.id()).manageableByMe())
 			.isFalse();
 
@@ -2301,11 +2336,9 @@ class PollServiceTest {
 		verify(pollResponseRepository).findByPollIdInAndUserId(any(), eq(member.id()));
 		verify(pollResponseRepository, never()).findByPollIdAndUserId(anyLong(), anyLong());
 		assertThat(results).allSatisfy(result -> {
-			assertThat(result.createdByUserId()).isEqualTo(manager.id());
 			assertThat(result.manageableByMe()).isFalse();
 		});
 		assertThat(managerResults).allSatisfy(result -> {
-			assertThat(result.createdByUserId()).isEqualTo(manager.id());
 			assertThat(result.manageableByMe()).isTrue();
 		});
 	}
