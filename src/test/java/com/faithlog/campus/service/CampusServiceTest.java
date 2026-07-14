@@ -440,7 +440,7 @@ class CampusServiceTest {
 	}
 
 	@Test
-	void assignCoffeeDuty_replaces_active_assignment_and_revoke_marks_it_inactive() {
+	void assignCoffeeDuty_keeps_multiple_active_assignments_and_is_idempotent_per_user() {
 		User manager = saveUser("coffee-manager@example.com", UserRole.MANAGER);
 		User elder = saveUser("coffee-elder@example.com", UserRole.USER);
 		User first = saveUser("coffee-first@example.com", UserRole.USER);
@@ -462,16 +462,22 @@ class CampusServiceTest {
 		DutyAssignmentResult secondAssignment = campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
 			campus.campusId(), elder.id(), second.id()
 		));
+		DutyAssignmentResult repeatedFirstAssignment = campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), elder.id(), first.id()
+		));
 
 		assertThat(firstAssignment.dutyType()).isEqualTo(DutyType.COFFEE.name());
 		assertThat(secondAssignment.userId()).isEqualTo(second.id());
+		assertThat(repeatedFirstAssignment.assignmentId()).isEqualTo(firstAssignment.assignmentId());
 		assertThat(campusService.getDutyAssignments(campus.campusId(), elder.id()))
 			.extracting(DutyAssignmentResult::userId)
-			.containsExactly(second.id());
+			.containsExactly(first.id(), second.id());
 
 		campusService.revokeCoffeeDuty(campus.campusId(), secondAssignment.assignmentId(), elder.id());
 
-		assertThat(campusService.getDutyAssignments(campus.campusId(), elder.id())).isEmpty();
+		assertThat(campusService.getDutyAssignments(campus.campusId(), elder.id()))
+			.extracting(DutyAssignmentResult::userId)
+			.containsExactly(first.id());
 	}
 
 	@Test

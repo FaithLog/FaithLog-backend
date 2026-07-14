@@ -37,7 +37,7 @@ class CampusDutyAssignmentConcurrencyTest {
 	private UserRepository userRepository;
 
 	@Test
-	void assignCoffeeDuty_keeps_only_one_active_coffee_assignment_under_concurrent_requests() throws Exception {
+	void assignCoffeeDuty_keeps_multiple_members_and_one_active_assignment_per_member_under_concurrency() throws Exception {
 		User manager = saveUser("coffee-concurrent-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
 			manager.id(),
@@ -55,7 +55,10 @@ class CampusDutyAssignmentConcurrencyTest {
 		ExecutorService executor = Executors.newFixedThreadPool(targets.size());
 		CountDownLatch ready = new CountDownLatch(targets.size());
 		CountDownLatch start = new CountDownLatch(1);
-		List<Future<DutyAssignmentResult>> futures = targets.stream()
+		List<User> requests = new ArrayList<>(targets);
+		requests.add(targets.getFirst());
+		requests.add(targets.getFirst());
+		List<Future<DutyAssignmentResult>> futures = requests.stream()
 			.map(target -> executor.submit(() -> {
 				ready.countDown();
 				start.await(5, TimeUnit.SECONDS);
@@ -76,8 +79,11 @@ class CampusDutyAssignmentConcurrencyTest {
 		assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
 
 		List<DutyAssignmentResult> activeAssignments = campusService.getDutyAssignments(campus.campusId(), manager.id());
-		assertThat(activeAssignments).hasSize(1);
-		assertThat(activeAssignments.getFirst().active()).isTrue();
+		assertThat(activeAssignments)
+			.hasSize(targets.size())
+			.allMatch(DutyAssignmentResult::active)
+			.extracting(DutyAssignmentResult::userId)
+			.containsExactlyInAnyOrderElementsOf(targets.stream().map(User::id).toList());
 	}
 
 	@Test
