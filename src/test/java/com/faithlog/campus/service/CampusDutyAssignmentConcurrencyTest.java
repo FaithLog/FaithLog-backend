@@ -190,7 +190,20 @@ class CampusDutyAssignmentConcurrencyTest {
 		CountDownLatch revokeLocked = new CountDownLatch(1);
 		CountDownLatch allowRevoke = new CountDownLatch(1);
 		doAnswer(invocation -> {
-			Object result = invocation.callRealMethod();
+			Object result = entityManager.createQuery("""
+				select assignment
+				from CampusDutyAssignment assignment
+				where assignment.campusId = :campusId
+					and assignment.dutyType = :dutyType
+					and assignment.userId = :userId
+					and assignment.isActive = true
+				""", CampusDutyAssignment.class)
+				.setParameter("campusId", campus.campusId())
+				.setParameter("dutyType", dutyType)
+				.setParameter("userId", manager.id())
+				.setLockMode(LockModeType.PESSIMISTIC_WRITE)
+				.getResultStream()
+				.findFirst();
 			if (Thread.currentThread().getName().equals("duty-revoke")) {
 				revokeLocked.countDown();
 				if (!allowRevoke.await(5, TimeUnit.SECONDS)) {

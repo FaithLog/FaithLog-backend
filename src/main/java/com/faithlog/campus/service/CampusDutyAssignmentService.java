@@ -110,7 +110,7 @@ public class CampusDutyAssignmentService {
 			));
 
 		CampusDutyAssignment assignment = dutyAssignmentRepository
-			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+			.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
 				command.campusId(), DutyType.COFFEE, targetMember.userId())
 			.orElseGet(() -> dutyAssignmentRepository.save(
 				CampusDutyAssignment.assignCoffee(command.campusId(), targetMember.userId())
@@ -140,7 +140,7 @@ public class CampusDutyAssignmentService {
 			));
 
 		CampusDutyAssignment assignment = dutyAssignmentRepository
-			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+			.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
 				command.campusId(), DutyType.MEAL, targetMember.userId())
 			.orElseGet(() -> dutyAssignmentRepository.save(
 				CampusDutyAssignment.assignMeal(command.campusId(), targetMember.userId())
@@ -156,6 +156,8 @@ public class CampusDutyAssignmentService {
 			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
 			"커피 담당자 관리 권한이 없습니다."
 		);
+		campusRepository.findByIdForUpdate(campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 		CampusDutyAssignment assignment = dutyAssignmentRepository
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.COFFEE, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
@@ -176,6 +178,8 @@ public class CampusDutyAssignmentService {
 			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
 			"밥 담당자 관리 권한이 없습니다."
 		);
+		campusRepository.findByIdForUpdate(campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 		CampusDutyAssignment assignment = dutyAssignmentRepository
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.MEAL, assignmentId)
 			.filter(CampusDutyAssignment::isActive)

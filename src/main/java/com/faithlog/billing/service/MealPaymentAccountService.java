@@ -32,9 +32,9 @@ public class MealPaymentAccountService {
 
 	@Transactional
 	public PaymentAccountResult create(CreateMealPaymentAccountCommand command) {
-		mealDutyAccessService.requireActiveMealDutyForUpdate(command.campusId(), command.requesterId());
 		campusRepository.findByIdForUpdate(command.campusId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
+		mealDutyAccessService.requireActiveMealDutyForUpdate(command.campusId(), command.requesterId());
 		paymentAccountRepository.findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNull(
 			command.campusId(), PaymentCategory.MEAL, command.requesterId())
 			.ifPresent(account -> {

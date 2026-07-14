@@ -51,8 +51,8 @@ public class PaymentAccountCommandService {
 		if (command.accountType() == PaymentCategory.MEAL) {
 			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "MEAL 계좌는 밥 계좌 API에서만 등록할 수 있습니다.");
 		}
-		requirePaymentAccountManager(command.campusId(), command.requesterId(), command.accountType());
 		lockCampusOrThrow(command.campusId());
+		requirePaymentAccountManager(command.campusId(), command.requesterId(), command.accountType());
 		Long ownerUserId = resolveOwnerUserId(command);
 
 		if (deactivatePreviousActiveAccount(command.campusId(), command.accountType(), ownerUserId)) {
