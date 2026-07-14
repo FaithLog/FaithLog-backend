@@ -121,6 +121,14 @@ public class ChargeReminderService {
 				LinkedHashMap::new,
 				Collectors.groupingBy(ChargeItem::userId, LinkedHashMap::new, Collectors.toList())
 			));
+		Set<Long> targetUserIds = chargesByAccountAndUser.values().stream()
+			.flatMap(chargesByUser -> chargesByUser.keySet().stream())
+			.collect(Collectors.toSet());
+		Set<Long> sendableTargetUserIds = targetUserIds.isEmpty()
+			? Set.of()
+			: userFcmTokenRepository.findActiveSendableTokensByUserIdIn(targetUserIds).stream()
+				.map(token -> token.userId())
+				.collect(Collectors.toSet());
 
 		UUID requestId = UUID.randomUUID();
 		LocalDate businessDate = LocalDate.ofInstant(clock.instant(), SEOUL_ZONE);
@@ -148,7 +156,7 @@ public class ChargeReminderService {
 					reservations.add(deduplicationCommand);
 					String title = title(paymentCategory);
 					String body = body(paymentCategory, entry.getValue());
-					if (userFcmTokenRepository.findActiveSendableTokens(targetUserId).isEmpty()) {
+					if (!sendableTargetUserIds.contains(targetUserId)) {
 						notificationLogRepository.save(NotificationLog.skipped(
 							requestId, targetUserId, campusId, NotificationType.PAYMENT_UNPAID,
 							null, account.id(), title, body, "NO_ACTIVE_FCM_TOKEN"
