@@ -119,6 +119,18 @@ class PollUseCaseServiceStructureTest {
 	}
 
 	@Test
+	void pollManageabilityLoadsOnlyRelevantDutyAndReusesDetailVisibilityAccess() {
+		String query = read(SERVICE_ROOT.resolve("PollQueryService.java"));
+		String lookup = read(SERVICE_ROOT.resolve("PollLookupSupport.java"));
+
+		assertAll(
+			() -> assertTrue(query.contains("visiblePolls.stream().anyMatch")),
+			() -> assertTrue(query.contains("getVisiblePollWithAccess")),
+			() -> assertTrue(lookup.contains("record VisiblePollAccess"))
+		);
+	}
+
+	@Test
 	void mealSettlementOrdersResponseSelectionsSoPostWriteRollbackTestIsDeterministic() {
 		String settlement = read(SERVICE_ROOT.resolve("MealPollSettlementService.java"));
 		String repository = read(MAIN_ROOT.resolve(
