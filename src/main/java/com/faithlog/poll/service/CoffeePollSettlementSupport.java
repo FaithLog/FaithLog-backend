@@ -4,7 +4,9 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.campus.domain.type.DutyType;
+import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
+import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.Poll;
@@ -34,6 +36,7 @@ class CoffeePollSettlementSupport {
 	private final PollResponseRepository pollResponseRepository;
 	private final PollResponseOptionRepository pollResponseOptionRepository;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
+	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final PaymentAccountRepositoryPort paymentAccountRepository;
 
 	CoffeePollSettlementSupport(
@@ -42,6 +45,7 @@ class CoffeePollSettlementSupport {
 		PollResponseRepository pollResponseRepository,
 		PollResponseOptionRepository pollResponseOptionRepository,
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
+		CampusMemberRepositoryPort campusMemberRepository,
 		PaymentAccountRepositoryPort paymentAccountRepository
 	) {
 		this.pollRepository = pollRepository;
@@ -49,6 +53,7 @@ class CoffeePollSettlementSupport {
 		this.pollResponseRepository = pollResponseRepository;
 		this.pollResponseOptionRepository = pollResponseOptionRepository;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
+		this.campusMemberRepository = campusMemberRepository;
 		this.paymentAccountRepository = paymentAccountRepository;
 	}
 
@@ -65,6 +70,9 @@ class CoffeePollSettlementSupport {
 			return null;
 		}
 
+		campusMemberRepository.findByCampusIdAndUserId(campusId, scope.getCreatedBy())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
 		dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
 			campusId, DutyType.COFFEE, scope.getCreatedBy())
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));

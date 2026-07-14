@@ -205,9 +205,12 @@ class PollAccessService {
 	}
 
 	boolean isActiveCoffeeDuty(Long campusId, Long userId) {
-		return dutyAssignmentRepository
-			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId)
-			.isPresent();
+		return campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
+			.filter(CampusMember::isActive)
+			.isPresent()
+			&& dutyAssignmentRepository
+				.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId)
+				.isPresent();
 	}
 
 	boolean isActiveMealDuty(Long campusId, Long userId) {

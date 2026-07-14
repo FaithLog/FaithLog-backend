@@ -10,6 +10,8 @@ import com.faithlog.poll.service.CoffeePollSettlementCommandService;
 import com.faithlog.poll.service.CoffeeOperationClassifier;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -23,6 +25,7 @@ public class DueCoffeePollClosureService {
 	private final CoffeePollSettlementCommandService coffeePollSettlementCommandService;
 	private final NotificationLockService notificationLockService;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
+	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final TransactionTemplate transactionTemplate;
 
 	public DueCoffeePollClosureService(
@@ -30,12 +33,14 @@ public class DueCoffeePollClosureService {
 		CoffeePollSettlementCommandService coffeePollSettlementCommandService,
 		NotificationLockService notificationLockService,
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
+		CampusMemberRepositoryPort campusMemberRepository,
 		PlatformTransactionManager transactionManager
 	) {
 		this.pollRepository = pollRepository;
 		this.coffeePollSettlementCommandService = coffeePollSettlementCommandService;
 		this.notificationLockService = notificationLockService;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
+		this.campusMemberRepository = campusMemberRepository;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
@@ -69,6 +74,12 @@ public class DueCoffeePollClosureService {
 			.map(lease -> {
 				try {
 					return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
+						if (campusMemberRepository.findByCampusIdAndUserId(
+							lockScope.getCampusId(), lockScope.getCreatedBy())
+							.filter(CampusMember::isActive)
+							.isEmpty()) {
+							return false;
+						}
 						if (dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
 							lockScope.getCampusId(), DutyType.COFFEE, lockScope.getCreatedBy()
 						).isEmpty()) {
