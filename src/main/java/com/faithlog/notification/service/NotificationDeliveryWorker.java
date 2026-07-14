@@ -47,17 +47,23 @@ public class NotificationDeliveryWorker {
 	}
 
 	public void processRequest(UUID requestId) {
-		List<PendingNotificationLog> pendingLogs = transactionTemplate.execute(status -> notificationLogRepository
-			.findByRequestIdAndSendStatusOrderByIdAsc(requestId, SendStatus.PENDING)
-			.stream()
-			.map(PendingNotificationLog::from)
-			.toList());
-		if (pendingLogs == null || pendingLogs.isEmpty()) {
+		Long campusId = transactionTemplate.execute(status -> notificationLogRepository
+			.findCampusIdByRequestId(requestId)
+			.orElse(null));
+		if (campusId == null) {
 			return;
 		}
-		notificationLockService.acquireScheduledLock(NotificationLockKey.dispatch(pendingLogs.get(0).campusId(), requestId))
+		notificationLockService.acquireScheduledLock(NotificationLockKey.dispatch(campusId, requestId))
 			.ifPresent(lease -> {
 				try {
+					List<PendingNotificationLog> pendingLogs = transactionTemplate.execute(status -> notificationLogRepository
+						.findByRequestIdAndSendStatusOrderByIdAsc(requestId, SendStatus.PENDING)
+						.stream()
+						.map(PendingNotificationLog::from)
+						.toList());
+					if (pendingLogs == null || pendingLogs.isEmpty()) {
+						return;
+					}
 					Set<Long> pendingUserIds = pendingLogs.stream()
 						.map(PendingNotificationLog::userId)
 						.collect(Collectors.toSet());

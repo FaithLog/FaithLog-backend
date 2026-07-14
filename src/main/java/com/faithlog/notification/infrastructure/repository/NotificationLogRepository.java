@@ -5,6 +5,7 @@ import com.faithlog.notification.domain.type.SendStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -12,6 +13,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface NotificationLogRepository extends JpaRepository<NotificationLog, Long>, JpaSpecificationExecutor<NotificationLog> {
+
+	@Query("select distinct log.campusId from NotificationLog log where log.requestId = :requestId")
+	Optional<Long> findCampusIdByRequestId(@Param("requestId") UUID requestId);
 
 	List<NotificationLog> findByRequestIdOrderByIdAsc(UUID requestId);
 
