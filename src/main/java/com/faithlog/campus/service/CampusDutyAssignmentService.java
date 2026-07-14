@@ -203,11 +203,15 @@ public class CampusDutyAssignmentService {
 			.stream()
 			.map(account -> account.id())
 			.collect(Collectors.toSet());
+		if (ownedAccountIds.isEmpty()) {
+			return;
+		}
 		boolean hasUnpaidCharge = chargeItemRepository
-			.findByCampusIdAndPaymentCategoryAndStatus(
-				assignment.campusId(), paymentCategory, ChargeStatus.UNPAID)
+			.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+				assignment.campusId(), paymentCategory, ChargeStatus.UNPAID, ownedAccountIds)
 			.stream()
-			.anyMatch(charge -> ownedAccountIds.contains(charge.paymentAccountId()));
+			.findAny()
+			.isPresent();
 		if (hasUnpaidCharge) {
 			throw new BusinessException(errorCode);
 		}

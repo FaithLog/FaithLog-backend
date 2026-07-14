@@ -13,6 +13,8 @@ import com.faithlog.campus.service.result.DutyAssignmentResult;
 import com.faithlog.campus.service.result.MyDutyAssignmentResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
@@ -664,7 +666,7 @@ class CampusServiceTest {
 		);
 		verify(chargeItemRepository, never())
 			.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
-				campus.campusId(), PaymentCategory.COFFEE, ChargeStatus.UNPAID, anySet()
+				anyLong(), any(PaymentCategory.class), any(ChargeStatus.class), anySet()
 			);
 	}
 
