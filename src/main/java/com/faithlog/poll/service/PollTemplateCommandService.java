@@ -43,7 +43,7 @@ public class PollTemplateCommandService {
 			command.chargeGenerationType(),
 			command.paymentCategory()
 		);
-		CoffeeOperationPolicy.requireConsistentConfiguration(
+		CoffeeOperationClassifier.requireConsistentConfiguration(
 			command.pollType(), command.chargeGenerationType(), command.paymentCategory());
 		List<PollOptionSnapshot> snapshots = optionSupport.resolve(command.pollType(), command.options());
 		PollTemplate template = pollTemplateRepository.save(PollTemplate.create(
@@ -53,7 +53,7 @@ public class PollTemplateCommandService {
 			command.selectionType(),
 			command.chargeGenerationType(),
 			command.paymentCategory(),
-			CoffeeOperationPolicy.isCoffeeOperation(
+			CoffeeOperationClassifier.isCoffeeOperation(
 				command.pollType(), command.chargeGenerationType(), command.paymentCategory()) ? null : command.paymentAccountId(),
 			command.allowUserOptionAdd(),
 			command.autoCreateEnabled(),
@@ -83,7 +83,7 @@ public class PollTemplateCommandService {
 		if (template.pollType() == PollType.MEAL || command.paymentCategory() == PaymentCategory.MEAL) {
 			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "MEAL 투표는 템플릿을 지원하지 않습니다.");
 		}
-		CoffeeOperationPolicy.requireConsistentConfiguration(
+		CoffeeOperationClassifier.requireConsistentConfiguration(
 			template.pollType(), command.chargeGenerationType(), command.paymentCategory());
 		List<PollOptionSnapshot> snapshots = optionSupport.resolve(template.pollType(), command.options());
 		template.update(
@@ -91,7 +91,7 @@ public class PollTemplateCommandService {
 			command.selectionType(),
 			command.chargeGenerationType(),
 			command.paymentCategory(),
-			CoffeeOperationPolicy.isCoffeeOperation(
+			CoffeeOperationClassifier.isCoffeeOperation(
 				template.pollType(), command.chargeGenerationType(), command.paymentCategory()) ? null : command.paymentAccountId(),
 			command.allowUserOptionAdd(),
 			command.autoCreateEnabled(),
@@ -135,7 +135,7 @@ public class PollTemplateCommandService {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory
 	) {
-		boolean coffeeTemplate = CoffeeOperationPolicy.isCoffeeOperation(
+		boolean coffeeTemplate = CoffeeOperationClassifier.isCoffeeOperation(
 			pollType, chargeGenerationType, paymentCategory);
 		if (coffeeTemplate) {
 			pollAccessService.requireCoffeeTemplateManagerForUpdate(campusId, requesterId);

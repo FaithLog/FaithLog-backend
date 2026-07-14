@@ -65,7 +65,7 @@ class PollAccessService {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory
 	) {
-		if (CoffeeOperationPolicy.isCoffeeOperation(pollType, chargeGenerationType, paymentCategory)) {
+		if (CoffeeOperationClassifier.isCoffeeOperation(pollType, chargeGenerationType, paymentCategory)) {
 			requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
 			return;
 		}

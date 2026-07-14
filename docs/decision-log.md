@@ -18,7 +18,9 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: COFFEE/MEAL 담당 청구 알림 API는 charge ID 선택을 받지 않고 요청 담당자의 소유 계좌에 연결된 해당 category의 모든 UNPAID 청구를 조회한다. 계좌와 수신자별 미납 합계를 서버 고정 제목·본문으로 발송하고, 같은 담당 계좌·수신자·영업일의 `PAYMENT_UNPAID` 알림은 하루 1회만 생성한다. 다른 캠퍼스·category·담당자 계좌와 미납이 아닌 청구는 대상에서 제외한다.
 - Decision: 알림 title은 각각 `커피 미납 청구 안내`, `밥 미납 청구 안내`로 고정한다. body는 수신자의 청구 `title`별 건수와 금액을 최초 청구 ID 순서로 묶어 최대 5종까지 표시하고, 초과 항목은 `외 N종`으로 줄인 뒤 전체 미납 합계를 항상 표시한다. 예시는 `커피 미납: 아이스 아메리카노 2건 3600원, 카페라떼 1건 2900원 / 총 6500원입니다. 확인 후 납부해 주세요.`이다. 알림 API 경로와 body 없는 요청, `202 Accepted`의 `notificationRequestId`/`queuedCount`/`skippedCount` 계약은 변경하지 않으며, 일일 기준은 `Asia/Seoul`이다. 일일 중복과 활성 FCM 토큰 없음은 `skippedCount`에 포함한다.
 - Decision: COFFEE 투표는 scheduler 자동 생성 대상에서 제외한다. 기존 COFFEE 템플릿과 API 필드는 삭제하거나 변경하지 않고, ACTIVE COFFEE 담당자가 투표를 수동 생성한다. 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산 동작은 유지한다.
+- Decision: 공동 관리 COFFEE 템플릿은 계좌 중립으로 저장한다. 기존 `paymentAccountId` 요청/응답 필드는 호환을 위해 유지하되 COFFEE 템플릿 create/update에서는 요청값을 저장하지 않고 null을 반환한다. 템플릿 기반 COFFEE 투표를 실제 생성할 때 기존 투표 생성 요청의 `paymentAccountId`로 요청자 본인 소유 ACTIVE COFFEE 계좌를 지정한다. 기존 COFFEE 템플릿의 계좌 연결은 V10 migration에서 null로 정리하며 다른 필드나 row는 변경·삭제하지 않는다.
 - Decision: 담당 해제와 COFFEE/MEAL 정산은 같은 ACTIVE 담당자 배정 행의 `PESSIMISTIC_WRITE` 잠금을 공유한다. 정산이 먼저면 해제가 새 UNPAID를 확인해 409를 반환하고, 해제가 먼저면 정산은 ACTIVE 담당자 검증에 실패한다.
+- Decision: 위 직렬화 계약은 정산뿐 아니라 투표·템플릿·계좌·청구 상태·미납 알림의 모든 duty-gated command에 적용하며 잠금 순서를 `duty -> poll/account/charge`로 통일한다. 미납 알림의 Redis 일일 중복 예약은 DB transaction이 commit되지 않으면 해제해 정상 재시도를 허용한다.
 - Impact: 기존 관리자 범용 알림 API와 scheduler 알림은 유지하고 담당 청구 전용 application boundary/API를 추가한다. CampusDutyAssignment repository 조회는 사용자별 활성 여부를 기준으로 통일하고, active duty unique 제약은 `(campus_id, duty_type, user_id)`로 변경한다. 알림 endpoint/요청/202 응답 DTO와 DB schema는 추가 승인으로 변경되지 않으며 API, ErrorCode, Flyway, REST Docs와 프론트 연동 계약을 함께 갱신한다.
 
 ### 2026-07-13 - Issue #190 Penalty Cancel Resubmission And Admin Paid

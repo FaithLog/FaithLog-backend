@@ -1464,7 +1464,7 @@ include::{snippets}/charge-my-paid-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/charges`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 캠퍼스 청구 집계를 조회한다. 서비스 `MANAGER` 역할만으로는 권한이 없다. `paymentAccountId`가 있으면 해당 계좌에 연결된 청구만 `summary + members[]`로 집계하며, `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 캠퍼스 관리자와 활성 `COFFEE` 담당자의 COFFEE 계좌 필터 조회는 본인 소유 COFFEE 계좌 범위로 제한되고, 전역 `ADMIN`은 전체 접근할 수 있다. `PENALTY` 조회는 기존 관리자 권한을 요구한다. 응답은 `summary + members[]` 집계만 포함하고 개별 청구 item 목록은 포함하지 않는다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 캠퍼스 청구 집계를 조회한다. 서비스 `MANAGER` 역할만으로는 권한이 없다. `paymentAccountId`가 있으면 해당 계좌에 연결된 청구만 `summary + members[]`로 집계하며, `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 캠퍼스 관리자와 전역 `ADMIN`은 캠퍼스 내 전체 COFFEE 계좌를 필터 조회할 수 있고, 활성 `COFFEE` 담당자는 본인 소유 COFFEE 계좌 범위로 제한된다. `PENALTY` 조회는 기존 관리자 권한을 요구한다. 응답은 `summary + members[]` 집계만 포함하고 개별 청구 item 목록은 포함하지 않는다.
 
 ==== Request
 
@@ -1898,7 +1898,7 @@ include::{snippets}/coffee-brand-menus-list-success/response-fields.adoc[]
 
 `POST /api/v1/admin/campuses/{campusId}/poll-templates`
 
-`COFFEE` 템플릿의 모든 선택지는 active backend catalog `menuId`가 필수다. 요청의 `content`와 `priceAmount`는 호환을 위해 받을 수 있지만, 저장 snapshot은 항상 catalog의 메뉴명, 메뉴 코드, 가격을 사용한다. persisted `COFFEE` 템플릿 수정에도 동일한 정책을 적용한다. 기존 요청 필드 호환을 위해 `autoCreateEnabled`와 시간 필드는 유지하지만, scheduler는 COFFEE 템플릿으로 투표를 자동 생성하지 않는다. ACTIVE COFFEE 담당자가 투표를 수동 생성하며, 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산은 유지한다.
+`COFFEE` 템플릿은 같은 캠퍼스의 모든 ACTIVE COFFEE 담당자가 공동 관리하는 계좌 중립 템플릿이다. `paymentAccountId` 필드는 호환을 위해 받을 수 있지만 저장하지 않으며 응답은 null이다. 모든 선택지는 active backend catalog `menuId`가 필수다. 요청의 `content`와 `priceAmount`는 호환을 위해 받을 수 있지만, 저장 snapshot은 항상 catalog의 메뉴명, 메뉴 코드, 가격을 사용한다. persisted `COFFEE` 템플릿 수정에도 동일한 정책을 적용한다. 기존 요청 필드 호환을 위해 `autoCreateEnabled`와 시간 필드는 유지하지만, scheduler는 COFFEE 템플릿으로 투표를 자동 생성하지 않는다. ACTIVE COFFEE 담당자가 투표를 수동 생성하며, 이때 requester 본인 소유 active COFFEE `paymentAccountId`를 요청에 지정한다. 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산은 유지한다.
 
 ==== Request
 
@@ -1928,6 +1928,8 @@ include::{snippets}/poll-template-create-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/poll-templates`
 
+캠퍼스 관리자와 전역 ADMIN은 기존처럼 전체 템플릿을 읽을 수 있다. ACTIVE COFFEE 담당자는 COFFEE 템플릿 목록을 읽을 수 있다.
+
 ==== Request
 
 include::{snippets}/poll-template-list-success/http-request.adoc[]
@@ -1947,6 +1949,8 @@ include::{snippets}/poll-template-list-success/http-response.adoc[]
 === Get Poll Template
 
 `GET /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+
+캠퍼스 관리자와 전역 ADMIN은 기존 읽기 권한을 유지한다. ACTIVE COFFEE 담당자는 COFFEE 템플릿 상세를 읽을 수 있다.
 
 ==== Request
 
@@ -1992,6 +1996,8 @@ include::{snippets}/poll-template-detail-campus-scope-mismatch/response-fields.a
 
 `PATCH /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
 
+persisted COFFEE 템플릿은 ACTIVE COFFEE 담당자만 수정할 수 있으며 모든 담당자가 공동 관리한다. 비담당 관리자의 write bypass는 없다.
+
 ==== Request
 
 include::{snippets}/poll-template-update-success/http-request.adoc[]
@@ -2016,6 +2022,8 @@ include::{snippets}/poll-template-update-success/http-response.adoc[]
 
 `DELETE /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
 
+persisted COFFEE 템플릿은 ACTIVE COFFEE 담당자만 비활성화할 수 있다. 비담당 관리자는 `403 POLL_TEMPLATE_MANAGE_FORBIDDEN`으로 실패한다.
+
 ==== Request
 
 include::{snippets}/poll-template-deactivate-success/http-request.adoc[]
@@ -2032,11 +2040,15 @@ include::{snippets}/poll-template-deactivate-success/path-parameters.adoc[]
 
 include::{snippets}/poll-template-deactivate-success/http-response.adoc[]
 
+==== Non-duty Manager Error
+
+include::{snippets}/poll-template-deactivate-non-duty-forbidden/http-response.adoc[]
+
 === Create Poll
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
 
-`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. `pollType=COFFEE` 투표 생성은 ACTIVE `COFFEE` 담당자만 가능하다. `COFFEE` 투표는 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`와 각 선택지의 active backend catalog `menuId`가 필수다. 요청의 `content`/`priceAmount`와 무관하게 catalog 메뉴명/코드/가격만 snapshot한다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한과 custom content/0원 계약을 유지한다.
+`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. `pollType=COFFEE` 투표 생성은 ACTIVE `COFFEE` 담당자만 가능하다. 직접 생성과 계좌 중립 COFFEE 템플릿 기반 생성 모두 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`가 필수다. 직접 COFFEE 투표의 각 선택지는 active backend catalog `menuId`가 필수이며 요청의 `content`/`priceAmount`와 무관하게 catalog 메뉴명/코드/가격만 snapshot한다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한과 custom content/0원 계약을 유지한다.
 
 ==== Request
 
@@ -2061,6 +2073,14 @@ include::{snippets}/poll-create-direct-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/poll-create-direct-success/response-fields.adoc[]
+
+==== Account-neutral Template Request
+
+include::{snippets}/poll-create-template-success/http-request.adoc[]
+
+==== Account-neutral Template Response
+
+include::{snippets}/poll-create-template-success/http-response.adoc[]
 
 === Reject Coffee Poll Option Without Menu ID
 

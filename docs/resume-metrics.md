@@ -31,6 +31,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ### 2026-07-14
 
+- #200 PM 전체 diff 재리뷰 finding 8건 보강:
+  - TDD: COFFEE 분류 우회·공용 템플릿, 관리자 COFFEE 계좌 필터 읽기, 삭제 계좌 알림·commit/release rollback dedupe·FCM token 일괄조회, duty-gated write·마감 잠금 순서를 4개 test-only 커밋으로 먼저 고정했다. 기존 구현에서 각 focused 범위가 `5 failures`, `1 failure`, `3 + 2 failures`, `4 failures`로 재현됐다.
+  - 계약/DB: COFFEE operation 판정을 pollType/chargeGenerationType/paymentCategory의 단일 classifier로 통일하고 혼합 설정 우회를 차단했다. 사용자 승인대로 COFFEE 템플릿을 계좌 중립으로 저장하고, 실제 템플릿 기반 투표 생성에서 요청자의 active owned 계좌를 받는다. V10은 기존 COFFEE template의 `payment_account_id`만 null로 갱신하며 row 삭제나 schema 변경은 없다.
+  - 동시성: 투표·템플릿·계좌·청구 상태·미납 알림 및 MEAL command가 담당 해제와 같은 duty row `PESSIMISTIC_WRITE`를 공유하고 `duty -> poll/account/charge` 순서를 사용한다. 수동/기한 마감 동시 테스트에서 잠금 전 managed Poll snapshot이 stale OPEN으로 재사용되는 추가 race를 발견해 projection으로 잠금 scope만 읽은 뒤 duty와 Poll을 순서대로 잠그도록 보강했다.
+  - 알림/조회: soft-deleted owned account의 UNPAID도 알림 범위에 포함하고, transaction rollback 시 Redis daily reservation을 보상한다. dispatch는 request의 전체 recipient token을 1회 bulk 조회한다. 캠퍼스 관리자/전역 ADMIN의 COFFEE 계좌 필터 읽기는 전체 campus 범위를 유지하고 담당자 write/필터 ownership은 그대로다.
+  - 검증: 최종 전체 `481 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`를 통과했다. test source 88개, REST Docs snippet group 155개, Flyway V1-V10이다. Docker/PostgreSQL/Flyway 실제 적용은 사용자 승인 범위에 따라 실행하지 않았다.
+  - 이력서 문장 후보: `다중 COFFEE 담당 권한·미납 알림 전체 diff 리뷰에서 8개 인가/동시성/rollback/N+1 finding을 TDD로 재현하고 duty-first row lock, transaction completion 보상, recipient token bulk 조회, 계좌 중립 템플릿 V10으로 보강해 481개 전체 테스트와 REST Docs 155개 계약을 통과했다.`
+
 - #188/#189/#190 통합 검증:
   - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
   - 통합 리뷰 RED/GREEN: 재오픈된 weekly row를 잠그지 않아 동시 0원 재제출 두 건이 모두 제출 검사를 통과할 수 있는 race를 결정적 latch 테스트로 재현했다. RED `1 test / 1 failure` 뒤 취소 재오픈과 재제출 양쪽이 같은 weekly row `PESSIMISTIC_WRITE`를 사용하도록 보강했고, 신규 회귀와 #190 전체 재제출 통합 class가 GREEN이었다. production API/DTO/ErrorCode/Flyway는 바꾸지 않았다.

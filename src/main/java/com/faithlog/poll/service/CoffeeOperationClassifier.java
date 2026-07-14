@@ -6,9 +6,9 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.type.ChargeGenerationType;
 import com.faithlog.poll.domain.type.PollType;
 
-final class CoffeeOperationPolicy {
+final class CoffeeOperationClassifier {
 
-	private CoffeeOperationPolicy() {
+	private CoffeeOperationClassifier() {
 	}
 
 	static boolean isCoffeeOperation(

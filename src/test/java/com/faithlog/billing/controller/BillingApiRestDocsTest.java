@@ -648,7 +648,7 @@ class BillingApiRestDocsTest {
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
 					parameterWithName("userId").optional().description("사용자 ID 필터"),
 					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
-					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 지정 계좌에 연결된 청구만 집계. COFFEE 계좌는 캠퍼스 관리자/담당자 모두 본인 소유 계좌만 필터 가능하며 전역 ADMIN은 전체 접근 가능"),
+					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 캠퍼스 관리자와 전역 ADMIN은 캠퍼스 내 전체 계좌를 필터할 수 있고, COFFEE 담당자는 본인 소유 COFFEE 계좌만 필터 가능"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
 					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")

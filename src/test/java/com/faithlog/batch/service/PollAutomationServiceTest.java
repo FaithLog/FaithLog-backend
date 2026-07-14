@@ -200,7 +200,7 @@ class PollAutomationServiceTest {
 		PollTemplateResult template = createCoffeeTemplate(campus.campusId(), duty.id(), accountId);
 		Poll poll = pollRepository.findById(pollService.createPoll(new CreatePollCommand(
 			campus.campusId(), duty.id(), template.id(), "자동 마감 대상 커피 투표",
-			null, null, false, null, null, null, null,
+			null, null, false, null, null, null, accountId,
 			Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600), List.of()
 		)).id()).orElseThrow();
 		Long optionId = pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id()).get(0).id();
