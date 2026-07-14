@@ -32,6 +32,8 @@ REDIS_PROJECT=""
 REDIS_SERVICE=""
 COMPOSE_PROJECT=""
 ENDPOINT_IDENTITY=""
+INITIAL_RUNTIME_IDENTITY_JSON=""
+HAS_CONDITIONAL_DB_WINDOW=0
 
 for command_name in node k6 docker date; do
 	command -v "$command_name" >/dev/null || {
@@ -238,12 +240,77 @@ collect_db_counters() {
 	collect_db_machine_evidence "$1" "$2" "$ISSUE_ROOT/collect-db-counters.sql" "$3"
 }
 
+inspect_container_identity() {
+	docker inspect --format '{"evidence":"issue199-runtime-identity","id":{{json .Id}},"imageId":{{json .Image}},"imageRef":{{json .Config.Image}},"startedAt":{{json .State.StartedAt}},"composeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"composeService":{{json (index .Config.Labels "com.docker.compose.service")}},"composeConfigHash":{{json (index .Config.Labels "com.docker.compose.config-hash")}}}' "$1"
+}
+
+collect_postgres_runtime_identity() {
+	docker exec -i \
+		-e PGPASSWORD="$PERF_DB_PASSWORD" \
+		-e PGAPPNAME=faithlog-issue199-observer \
+		"$POSTGRES_CONTAINER" \
+		psql -X -qAt -v ON_ERROR_STOP=1 \
+		-U "$PERF_DB_USER" \
+		-d "$PERF_DB_NAME" \
+		-f - < "$ISSUE_ROOT/collect-runtime-identity.sql"
+}
+
+capture_runtime_identity_json() {
+	local app_identity
+	local postgres_container_identity
+	local redis_identity
+	local postgres_server_identity
+	app_identity="$(inspect_container_identity "$APP_CONTAINER")"
+	postgres_container_identity="$(inspect_container_identity "$POSTGRES_CONTAINER")"
+	redis_identity="$(inspect_container_identity "$REDIS_CONTAINER")"
+	postgres_server_identity="$(collect_postgres_runtime_identity)"
+	APP_IDENTITY="$app_identity" \
+	POSTGRES_CONTAINER_IDENTITY="$postgres_container_identity" \
+	REDIS_IDENTITY="$redis_identity" \
+	POSTGRES_SERVER_IDENTITY="$postgres_server_identity" \
+	node -e '
+		const report = {
+			capturedAt: new Date().toISOString(),
+			containers: {
+				app: JSON.parse(process.env.APP_IDENTITY),
+				postgres: JSON.parse(process.env.POSTGRES_CONTAINER_IDENTITY),
+				redis: JSON.parse(process.env.REDIS_IDENTITY),
+			},
+			postgres: JSON.parse(process.env.POSTGRES_SERVER_IDENTITY),
+		};
+		for (const container of Object.values(report.containers)) delete container.evidence;
+		process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+	'
+}
+
+validate_runtime_continuity() {
+	node "$ISSUE_ROOT/validate-runtime-continuity.mjs" "$1" "$2" "$3" "$4"
+}
+
 validate_db_window() {
 	local before_file="$1"
 	local after_file="$2"
 	local output_file="$3"
 	node "$ISSUE_ROOT/validate-db-window.mjs" \
 		"$before_file" "$after_file" "$EXTERNAL_ACTIVITY" "$output_file"
+}
+
+validate_db_window_or_defer_adoption() {
+	local before_file="$1"
+	local after_file="$2"
+	local output_file="$3"
+	if validate_db_window "$before_file" "$after_file" "$output_file"; then
+		return
+	fi
+	if node -e '
+		const fs = require("node:fs");
+		const gate = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+		if (gate.status !== "conditional-not-adoptable" || gate.adoptable !== false) process.exit(1);
+	' "$output_file"; then
+		HAS_CONDITIONAL_DB_WINDOW=1
+		return
+	fi
+	return 1
 }
 
 prepare_runtime_token() {
@@ -304,6 +371,8 @@ run_k6_phase() {
 		"$ISSUE_ROOT/admin-dashboard-baseline.js" > "$output_dir/k6.log" 2>&1
 }
 
+INITIAL_RUNTIME_IDENTITY_JSON="$(capture_runtime_identity_json)"
+
 IFS=',' read -r -a modes <<< "$DATASET_MODES"
 for raw_mode in "${modes[@]}"; do
 	mode="${raw_mode//[[:space:]]/}"
@@ -349,6 +418,13 @@ for raw_mode in "${modes[@]}"; do
 	PERF_ACCESS_TOKEN="$RUNTIME_ACCESS_TOKEN" \
 		node "$ISSUE_ROOT/validate-token-lifetime.mjs" \
 		"$MEASURED_DURATION" "$TOKEN_EXPIRY_SAFETY_SECONDS" "$(date +%s)" >/dev/null
+	printf '%s\n' "$INITIAL_RUNTIME_IDENTITY_JSON" > "$mode_report_dir/runtime-identity-initial.json"
+	capture_runtime_identity_json > "$mode_report_dir/measured/runtime-identity-before.json"
+	validate_runtime_continuity \
+		"$mode_report_dir/runtime-identity-initial.json" \
+		"$mode_report_dir/measured/runtime-identity-before.json" \
+		"$mode_report_dir/measured/runtime-identity-before.json" \
+		"$mode_report_dir/measured/runtime-continuity-pre-gate.json"
 	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-before.json"
 	docker stats --no-stream --format '{{json .}}' \
 		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$mode_report_dir/measured/docker-stats-before.jsonl"
@@ -360,13 +436,24 @@ for raw_mode in "${modes[@]}"; do
 	docker stats --no-stream --format '{{json .}}' \
 		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$mode_report_dir/measured/docker-stats-after.jsonl"
 	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-after.json"
-	validate_db_window \
-		"$mode_report_dir/measured/db-counters-before.json" \
-		"$mode_report_dir/measured/db-counters-after.json" \
-		"$mode_report_dir/measured/db-window-adoption-gate.json"
+	capture_runtime_identity_json > "$mode_report_dir/measured/runtime-identity-after.json"
 	collect_db_context "$campus_id" "$week_start_date" "$mode_report_dir/db-context-after.txt"
 	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-after.json"
 	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-after.json"
 	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-after.json"
 	clear_runtime_token
+	validate_runtime_continuity \
+		"$mode_report_dir/runtime-identity-initial.json" \
+		"$mode_report_dir/measured/runtime-identity-before.json" \
+		"$mode_report_dir/measured/runtime-identity-after.json" \
+		"$mode_report_dir/measured/runtime-continuity-gate.json"
+	validate_db_window_or_defer_adoption \
+		"$mode_report_dir/measured/db-counters-before.json" \
+		"$mode_report_dir/measured/db-counters-after.json" \
+		"$mode_report_dir/measured/db-window-adoption-gate.json"
 done
+
+if (( HAS_CONDITIONAL_DB_WINDOW )); then
+	echo "Baseline is conditional-not-adoptable: external activity coverage is boundary-snapshot-only." >&2
+	exit 1
+fi

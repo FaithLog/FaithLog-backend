@@ -71,17 +71,30 @@ planner_settings AS (
     )
 ),
 external_activity AS (
-    SELECT COUNT(*) AS active_sessions
+    SELECT
+        COUNT(*) AS active_sessions,
+        COALESCE(
+            jsonb_agg(jsonb_build_object(
+                'pid', pid,
+                'applicationName', application_name,
+                'backendStart', backend_start,
+                'transactionStart', xact_start,
+                'queryStart', query_start,
+                'state', state
+            ) ORDER BY pid),
+            '[]'::jsonb
+        ) AS active_session_details
     FROM pg_stat_activity
     WHERE datname = current_database()
       AND pid <> pg_backend_pid()
       AND backend_type = 'client backend'
       AND state IS DISTINCT FROM 'idle'
-      AND application_name IS DISTINCT FROM 'faithlog-issue199-observer'
 )
 SELECT jsonb_build_object(
     'capturedAt', now(),
+    'externalActivityCoverage', 'boundary-snapshot-only',
     'externalActiveSessions', (SELECT active_sessions FROM external_activity),
+    'externalActiveSessionDetails', (SELECT active_session_details FROM external_activity),
     'observerOverhead', jsonb_build_object(
         'databaseWideCountersIncludeSnapshotTransaction', true,
         'databaseWideDeltaIsExactQueryCount', false,

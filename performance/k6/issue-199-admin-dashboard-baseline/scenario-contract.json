@@ -1,6 +1,7 @@
 {
   "issue": 199,
   "status": "scenario-ready/not-measured",
+  "baselineAdoptionStatus": "conditional-not-adoptable",
   "endpoint": {
     "method": "GET",
     "path": "/api/v1/admin/campuses/{campusId}/dashboard/summary",
@@ -15,7 +16,8 @@
   "runtimeTarget": {
     "baseUrlAndAppContainerRequired": true,
     "publishedPortMustMatch": true,
-    "serviceLabelsFromManifestMustMatch": ["app", "postgres", "redis"]
+    "serviceLabelsFromManifestMustMatch": ["app", "postgres", "redis"],
+    "continuityIdentity": ["containerId", "imageId", "imageRef", "startedAt", "composeConfigHash", "postgresPostmasterStartedAt"]
   },
   "authorization": {
     "allowed": [
@@ -86,7 +88,9 @@
     "throughputMustExistAndBePositive": true,
     "requiredLatencyStatistics": ["p50", "p95", "p99", "max"],
     "latencyThreshold": "not-user-approved",
-    "dbWindow": "required tables/planner exact; monotonic deltas; stable stats_reset/analyze/autoanalyze/planner; no external activity"
+    "dbWindow": "strict database/table/planner schema; required sets exact; monotonic deltas; stable stats_reset/analyze/autoanalyze/planner; boundary snapshots contain no external activity",
+    "externalActivityCoverage": "boundary-snapshot-only",
+    "externalActivityAdoption": "non-adoptable until user-approved continuous provenance or isolation exists"
   },
   "correctness": [
     "member active/inactive/admin counts",
@@ -104,7 +108,8 @@
     "out-of-window analyze/autoanalyze and fixture context",
     "optional pg_stat_statements query evidence",
     "planner settings",
-    "machine-gated external activity declaration and pg_stat_activity snapshots",
-    "matching actual Compose project/service labels and a shared Compose-project runner lock"
+    "operator external activity declaration and boundary-only pg_stat_activity snapshots (not complete provenance)",
+    "matching actual Compose project/service labels and a shared Compose-project runner lock",
+    "initial/mode-before/mode-after immutable container and PostgreSQL postmaster continuity evidence"
   ]
 }

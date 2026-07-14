@@ -69,6 +69,8 @@ test('manifest separates empty, small, and 1000-member modes and references shar
 	const manifest = JSON.parse(read(files.manifestExample));
 
 	assert.equal(contract.issue, 199);
+	assert.equal(contract.status, 'scenario-ready/not-measured');
+	assert.equal(contract.baselineAdoptionStatus, 'conditional-not-adoptable');
 	assert.deepEqual(contract.dataset.modes, ['empty', 'small', 'thousand']);
 	assert.deepEqual(contract.dataset.identifiers, ['datasetId', 'fixtureRunId']);
 	assert.equal(contract.dataset.thousandMemberCount, 1000);
@@ -160,6 +162,7 @@ test('runner separates warmup and measured phases, serializes modes, records act
 	assert.match(source, /validate-runtime-target\.mjs/);
 	assert.match(source, /validate-token-lifetime\.mjs/);
 	assert.match(source, /validate-db-window\.mjs/);
+	assert.match(source, /validate-runtime-continuity\.mjs/);
 	assert.match(source, /Report directory already exists/);
 	assert.match(source, /PHASE=warmup/);
 	assert.match(source, /PHASE=measured/);
@@ -180,7 +183,8 @@ test('DB evidence is read-only and captures counters, query evidence, analyze an
 	const contextSql = read(files.dbEvidence);
 	const counterSql = read(files.dbCounters);
 	const correctnessSql = read(files.dbCorrectness);
-	const sql = `${contextSql}\n${counterSql}\n${correctnessSql}`;
+	const runtimeIdentitySql = read(files.runtimeIdentity);
+	const sql = `${contextSql}\n${counterSql}\n${correctnessSql}\n${runtimeIdentitySql}`;
 
 	for (const table of [
 		'users', 'campuses', 'campus_members', 'weekly_devotion_records', 'charge_items',
@@ -211,6 +215,8 @@ test('DB evidence is read-only and captures counters, query evidence, analyze an
 		/\b(?:FROM|JOIN)\s+(?:users|campuses|campus_members|weekly_devotion_records|charge_items|polls|poll_responses)\b/i,
 	);
 	assert.match(correctnessSql, /issue199:evidence=correctness/);
+	assert.match(runtimeIdentitySql, /issue199:evidence=runtime-identity/);
+	assert.match(runtimeIdentitySql, /pg_postmaster_start_time/);
 });
 
 test('counter evidence reports database-wide observer overhead separately from application-table counters', () => {
@@ -254,6 +260,7 @@ test('README and report path keep this issue scenario-ready/not-measured and pro
 	const ignore = read(files.reportsIgnore);
 
 	assert.match(readme, /scenario-ready\/not-measured/i);
+	assert.match(readme, /conditional-not-adoptable/i);
 	assert.match(readme, /seed.*수행하지 않/i);
 	assert.match(readme, /Docker.*실행하지 않/i);
 	assert.match(readme, /다른.*부하.*병렬.*금지/);
@@ -299,7 +306,8 @@ test('runner fake execution refreshes the token per mode and keeps bootstrap out
 	const harness = createFakeRunnerHarness();
 	try {
 		const result = harness.run({DATASET_MODES: 'empty,small'});
-		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+		assert.notEqual(result.status, 0, 'boundary-only activity evidence must block baseline adoption');
+		assert.match(result.stderr, /conditional-not-adoptable|boundary-snapshot-only/);
 		const log = harness.log();
 		assert.equal(Number(fs.readFileSync(harness.tokenCountPath, 'utf8')), 4);
 		for (const [mode, counterOccurrence] of [
@@ -410,10 +418,16 @@ test('DB window validator rejects missing or regressed counters and produces sem
 	}
 });
 
-test('DB window validator blocks autoanalyze changes, external sessions, and declared external requests', () => {
+test('DB window validator blocks a short external request hidden between boundaries and other contamination', () => {
 	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-activity-'));
 	try {
 		const before = dbWindowFixture();
+		const shortExternalRequest = {
+			startedAt: '2026-07-14T00:00:20.000Z',
+			endedAt: '2026-07-14T00:00:40.000Z',
+		};
+		assert.ok(Date.parse(shortExternalRequest.startedAt) > Date.parse(before.capturedAt));
+		assert.ok(Date.parse(shortExternalRequest.endedAt) < Date.parse(dbWindowFixture({after: true}).capturedAt));
 		const boundaryOnly = runDbWindowValidator(
 			temporaryDirectory,
 			before,

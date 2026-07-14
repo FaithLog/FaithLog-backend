@@ -42,6 +42,8 @@ try {
 
 function validateWindow(before, after, declaredExternalActivity) {
 	const failures = [];
+	validateSnapshotSchema(before, 'before');
+	validateSnapshotSchema(after, 'after');
 	if (declaredExternalActivity !== 'none') {
 		failures.push({name: 'externalActivity', expected: 'none', actual: declaredExternalActivity});
 	}
@@ -53,17 +55,32 @@ function validateWindow(before, after, declaredExternalActivity) {
 			failures.push({name: `${stage}.externalActiveSessions`, expected: 0, actual: snapshot.externalActiveSessions});
 		}
 	}
+	const externalActivityCoverage = before.externalActivityCoverage;
+	if (before.externalActivityCoverage !== after.externalActivityCoverage) {
+		failures.push({
+			name: 'externalActivityCoverage stability',
+			expected: before.externalActivityCoverage,
+			actual: after.externalActivityCoverage,
+		});
+	}
+	if (externalActivityCoverage !== 'continuous-approved-provenance-or-isolation') {
+		failures.push({
+			name: 'externalActivityCoverage',
+			expected: 'continuous approved provenance or isolation',
+			actual: externalActivityCoverage,
+		});
+	}
 	const beforeTime = Date.parse(before.capturedAt);
 	const afterTime = Date.parse(after.capturedAt);
 	if (!Number.isFinite(beforeTime) || !Number.isFinite(afterTime) || afterTime <= beforeTime) {
 		failures.push({name: 'capturedAt order', expected: 'after > before', actual: {before: before.capturedAt, after: after.capturedAt}});
 	}
 
-	if (before.database?.datname !== after.database?.datname) {
-		failures.push({name: 'database.datname', expected: before.database?.datname, actual: after.database?.datname});
+	if (before.database.datname !== after.database.datname) {
+		failures.push({name: 'database.datname', expected: before.database.datname, actual: after.database.datname});
 	}
-	if ((before.database?.stats_reset ?? null) !== (after.database?.stats_reset ?? null)) {
-		failures.push({name: 'database.stats_reset', expected: before.database?.stats_reset ?? null, actual: after.database?.stats_reset ?? null});
+	if (before.database.stats_reset !== after.database.stats_reset) {
+		failures.push({name: 'database.stats_reset', expected: before.database.stats_reset, actual: after.database.stats_reset});
 	}
 	const databaseDelta = deltaFields(before.database, after.database, DATABASE_COUNTERS, 'database', failures);
 
@@ -76,8 +93,8 @@ function validateWindow(before, after, declaredExternalActivity) {
 		if (!left || !right) continue;
 		tableDeltas[relname] = deltaFields(left, right, TABLE_COUNTERS, `tables.${relname}`, failures);
 		for (const field of TABLE_STABILITY_FIELDS) {
-			if ((left[field] ?? null) !== (right[field] ?? null)) {
-				failures.push({name: `tables.${relname}.${field}`, expected: left[field] ?? null, actual: right[field] ?? null});
+			if (left[field] !== right[field]) {
+				failures.push({name: `tables.${relname}.${field}`, expected: left[field], actual: right[field]});
 			}
 		}
 	}
@@ -92,15 +109,49 @@ function validateWindow(before, after, declaredExternalActivity) {
 		}
 	}
 
+	const coverageOnly = failures.length === 1 && failures[0].name === 'externalActivityCoverage';
 	return {
-		status: failures.length === 0 ? 'adoptable' : 'contaminated',
+		status: coverageOnly ? 'conditional-not-adoptable' : failures.length === 0 ? 'adoptable' : 'contaminated',
 		adoptable: failures.length === 0,
 		externalActivity: declaredExternalActivity,
+		externalActivityCoverage,
 		observerOverhead: OBSERVER_POLICY,
 		databaseDelta,
 		tableDeltas,
 		failures,
 	};
+}
+
+function validateSnapshotSchema(snapshot, label) {
+	object(snapshot, label);
+	timestamp(snapshot.capturedAt, `${label}.capturedAt`, false);
+	string(snapshot.externalActivityCoverage, `${label}.externalActivityCoverage`);
+	number(snapshot.externalActiveSessions, `${label}.externalActiveSessions`);
+	object(snapshot.observerOverhead, `${label}.observerOverhead`);
+
+	object(snapshot.database, `${label}.database`);
+	string(snapshot.database.datname, `${label}.database.datname`);
+	timestamp(snapshot.database.stats_reset, `${label}.database.stats_reset`, true);
+	for (const field of DATABASE_COUNTERS) number(snapshot.database[field], `${label}.database.${field}`);
+
+	assert.ok(Array.isArray(snapshot.tables), `${label}.tables must be an array.`);
+	for (const [index, table] of snapshot.tables.entries()) {
+		object(table, `${label}.tables[${index}]`);
+		string(table.relname, `${label}.tables[${index}].relname`);
+		for (const field of [...TABLE_COUNTERS, 'n_live_tup', 'n_dead_tup', 'n_mod_since_analyze', 'analyze_count', 'autoanalyze_count']) {
+			number(table[field], `${label}.tables[${index}].${field}`);
+		}
+		timestamp(table.last_analyze, `${label}.tables[${index}].last_analyze`, true);
+		timestamp(table.last_autoanalyze, `${label}.tables[${index}].last_autoanalyze`, true);
+	}
+
+	assert.ok(Array.isArray(snapshot.plannerSettings), `${label}.plannerSettings must be an array.`);
+	for (const [index, planner] of snapshot.plannerSettings.entries()) {
+		object(planner, `${label}.plannerSettings[${index}]`);
+		string(planner.name, `${label}.plannerSettings[${index}].name`);
+		string(planner.setting, `${label}.plannerSettings[${index}].setting`);
+		string(planner.source, `${label}.plannerSettings[${index}].source`);
+	}
 }
 
 function readJson(filePath) {
@@ -115,8 +166,8 @@ function exactMap(items, key, required, label, failures) {
 	}
 	const map = new Map();
 	for (const item of items) {
-		if (map.has(item?.[key])) failures.push({name: `${label} duplicate`, expected: 'unique', actual: item?.[key]});
-		map.set(item?.[key], item);
+		if (map.has(item[key])) failures.push({name: `${label} duplicate`, expected: 'unique', actual: item[key]});
+		map.set(item[key], item);
 	}
 	const actual = [...map.keys()].sort();
 	if (!deepEqual(actual, required)) failures.push({name: `${label} set`, expected: required, actual});
@@ -135,9 +186,27 @@ function deltaFields(before, after, fields, label, failures) {
 }
 
 function number(value, label) {
-	const numeric = Number(value);
-	assert.ok(Number.isFinite(numeric), `${label} must be numeric.`);
+	const isNumber = typeof value === 'number' && Number.isFinite(value);
+	const isDecimalString = typeof value === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value);
+	assert.ok(isNumber || isDecimalString, `${label} must be a finite non-negative number or strict decimal string.`);
+	const numeric = typeof value === 'number' ? value : Number(value);
+	assert.ok(Number.isFinite(numeric), `${label} must be finite.`);
+	assert.ok(numeric >= 0, `${label} must be non-negative.`);
 	return numeric;
+}
+
+function object(value, label) {
+	assert.ok(value !== null && typeof value === 'object' && !Array.isArray(value), `${label} must be an object.`);
+}
+
+function string(value, label) {
+	assert.ok(typeof value === 'string' && value.length > 0, `${label} must be a non-empty string.`);
+}
+
+function timestamp(value, label, nullable) {
+	if (nullable && value === null) return;
+	string(value, label);
+	assert.ok(Number.isFinite(Date.parse(value)), `${label} must be an ISO timestamp${nullable ? ' or null' : ''}.`);
 }
 
 function deepEqual(left, right) {
