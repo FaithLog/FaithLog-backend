@@ -1603,6 +1603,32 @@ class PollServiceTest {
 		PollResult poll = createOpenCoffeePoll(campus.campusId(), ownerDuty.id(), accountId, "담당자 소유 커피 투표");
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), otherDuty.id()));
 
+		assertThat(pollService.listPolls(campus.campusId(), ownerDuty.id()))
+			.filteredOn(item -> item.id().equals(poll.id()))
+			.singleElement()
+			.satisfies(item -> {
+				assertThat(item.createdByUserId()).isEqualTo(ownerDuty.id());
+				assertThat(item.manageableByMe()).isTrue();
+			});
+		assertThat(pollService.listPolls(campus.campusId(), otherDuty.id()))
+			.filteredOn(item -> item.id().equals(poll.id()))
+			.singleElement()
+			.satisfies(item -> {
+				assertThat(item.createdByUserId()).isEqualTo(ownerDuty.id());
+				assertThat(item.manageableByMe()).isFalse();
+			});
+		assertThat(pollService.listPolls(campus.campusId(), manager.id()))
+			.filteredOn(item -> item.id().equals(poll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), ownerDuty.id()))
+			.satisfies(detail -> {
+				assertThat(detail.createdByUserId()).isEqualTo(ownerDuty.id());
+				assertThat(detail.manageableByMe()).isTrue();
+			});
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), otherDuty.id()).manageableByMe())
+			.isFalse();
+
 		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), poll.id(), otherDuty.id()))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_ADMIN_FORBIDDEN)
@@ -2262,6 +2288,7 @@ class PollServiceTest {
 		clearInvocations(pollResponseRepository);
 
 		List<PollListItemResult> results = pollService.listPolls(campus.campusId(), member.id());
+		List<PollListItemResult> managerResults = pollService.listPolls(campus.campusId(), manager.id());
 
 		assertThat(results)
 			.extracting(PollListItemResult::id, PollListItemResult::responded)
@@ -2273,6 +2300,14 @@ class PollServiceTest {
 			);
 		verify(pollResponseRepository).findByPollIdInAndUserId(any(), eq(member.id()));
 		verify(pollResponseRepository, never()).findByPollIdAndUserId(anyLong(), anyLong());
+		assertThat(results).allSatisfy(result -> {
+			assertThat(result.createdByUserId()).isEqualTo(manager.id());
+			assertThat(result.manageableByMe()).isFalse();
+		});
+		assertThat(managerResults).allSatisfy(result -> {
+			assertThat(result.createdByUserId()).isEqualTo(manager.id());
+			assertThat(result.manageableByMe()).isTrue();
+		});
 	}
 
 	@Test
