@@ -34,10 +34,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class ChargeReminderService {
 
+	private static final Logger log = LoggerFactory.getLogger(ChargeReminderService.class);
 	private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
 	private static final int MAX_DETAIL_ITEM_TYPES = 5;
 
@@ -96,17 +99,22 @@ public class ChargeReminderService {
 		NotificationLockLease lease = notificationLockService.acquireManualLock(
 			NotificationLockKey.chargeReminder(campusId, requesterId, paymentCategory.name())
 		);
+		List<NotificationDeduplicationCommand> reservations = new ArrayList<>();
+		boolean releaseAfterCompletion = registerCompletionCleanup(lease, reservations);
 		try {
-			return requestWithLock(campusId, requesterId, paymentCategory);
+			return requestWithLock(campusId, requesterId, paymentCategory, reservations);
 		} finally {
-			notificationLockService.release(lease);
+			if (!releaseAfterCompletion) {
+				notificationLockService.release(lease);
+			}
 		}
 	}
 
 	private SendNotificationResult requestWithLock(
 		Long campusId,
 		Long requesterId,
-		PaymentCategory paymentCategory
+		PaymentCategory paymentCategory,
+		List<NotificationDeduplicationCommand> reservations
 	) {
 		List<PaymentAccount> accounts = paymentAccountRepository
 			.findByCampusIdAndOwnerUserIdAndAccountTypeOrderByIdAsc(
@@ -138,7 +146,6 @@ public class ChargeReminderService {
 		LocalDate businessDate = LocalDate.ofInstant(clock.instant(), SEOUL_ZONE);
 		int queuedCount = 0;
 		int skippedCount = 0;
-		List<NotificationDeduplicationCommand> reservations = new ArrayList<>();
 		try {
 			for (PaymentAccount account : accounts) {
 				Map<Long, List<ChargeItem>> chargesByUser = chargesByAccountAndUser.getOrDefault(account.id(), Map.of());
@@ -175,7 +182,6 @@ public class ChargeReminderService {
 					queuedCount++;
 				}
 			}
-			registerRollbackRelease(reservations);
 			if (queuedCount > 0) {
 				notificationDispatchPort.dispatch(requestId);
 			}
@@ -187,18 +193,30 @@ public class ChargeReminderService {
 		}
 	}
 
-	private void registerRollbackRelease(List<NotificationDeduplicationCommand> reservations) {
-		if (reservations.isEmpty() || !TransactionSynchronizationManager.isSynchronizationActive()) {
-			return;
+	private boolean registerCompletionCleanup(
+		NotificationLockLease lease,
+		List<NotificationDeduplicationCommand> reservations
+	) {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			return false;
 		}
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCompletion(int status) {
-				if (status != STATUS_COMMITTED) {
-					reservations.forEach(notificationDeduplicationService::releaseRequiredNotification);
+				try {
+					if (status != STATUS_COMMITTED) {
+						reservations.forEach(notificationDeduplicationService::releaseRequiredNotification);
+					}
+				} finally {
+					try {
+						notificationLockService.release(lease);
+					} catch (RuntimeException exception) {
+						log.error("Failed to release charge reminder lock after transaction completion.", exception);
+					}
 				}
 			}
 		});
+		return true;
 	}
 
 	private void requireActiveDutyForUpdate(Long campusId, Long requesterId, DutyType dutyType) {

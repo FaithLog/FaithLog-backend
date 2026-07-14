@@ -27,7 +27,6 @@ import com.faithlog.notification.domain.type.DeviceType;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
 import com.faithlog.notification.service.port.NotificationDispatchPort;
-import com.faithlog.notification.service.port.NotificationRedisOperationException;
 import com.faithlog.notification.service.result.SendNotificationResult;
 import com.faithlog.support.NotificationConcurrencyTestConfig;
 import com.faithlog.user.domain.entity.User;
@@ -283,23 +282,22 @@ class ChargeReminderServiceTest {
 	}
 
 	@Test
-	void manual_lock_release_failure_rolls_back_and_releases_reserved_daily_dedupe_for_retry() {
+	void manual_lock_release_failure_after_commit_preserves_queued_log_and_daily_dedupe() {
 		ReminderFixture fixture = createCoffeeReminderFixture("release-failure");
 		concurrencyPort.failLockRelease();
 
-		assertThatThrownBy(() -> chargeReminderService.requestCoffeeReminders(
-			fixture.campus().id(), fixture.duty().id()
-		))
-			.isInstanceOf(NotificationRedisOperationException.class)
-			.hasMessage("test lock release failure");
-		assertThat(notificationLogRepository.count()).isZero();
+		SendNotificationResult accepted = chargeReminderService.requestCoffeeReminders(
+			fixture.campus().id(), fixture.duty().id());
+
+		assertThat(accepted.queuedCount()).isEqualTo(1);
+		assertThat(notificationLogRepository.count()).isEqualTo(1);
 
 		concurrencyPort.allowLockRelease();
 		SendNotificationResult retried = chargeReminderService.requestCoffeeReminders(
 			fixture.campus().id(), fixture.duty().id()
 		);
-		assertThat(retried.queuedCount()).isEqualTo(1);
-		assertThat(retried.skippedCount()).isZero();
+		assertThat(retried.queuedCount()).isZero();
+		assertThat(retried.skippedCount()).isEqualTo(1);
 	}
 
 	private ReminderFixture createCoffeeReminderFixture(String suffix) {
