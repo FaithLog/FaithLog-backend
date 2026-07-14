@@ -12,6 +12,7 @@ import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
+import com.faithlog.poll.service.command.CreatePollCommand;
 import com.faithlog.poll.service.command.CreatePollTemplateCommand;
 import com.faithlog.poll.service.command.CreatePollTemplateOptionCommand;
 import com.faithlog.poll.service.PollService;
@@ -142,6 +143,22 @@ class PollAutomationServiceTest {
 	}
 
 	@Test
+	void createDuePolls_excludes_active_auto_enabled_coffee_template() {
+		User manager = saveUser("batch-coffee-excluded-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("batch-coffee-excluded-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200커피자동제외캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		PollTemplateResult template = createCoffeeTemplate(campus.campusId(), duty.id(), accountId);
+
+		int created = pollAutomationService.createDuePolls(mondayAt(11, 0).toInstant());
+
+		assertThat(created).isZero();
+		assertThat(pollRepository.findAll()).noneMatch(poll -> template.id().equals(poll.templateId()));
+	}
+
+	@Test
 	void createDuePolls_does_not_duplicate_same_campus_template_week() {
 		User manager = saveUser("batch-duplicate-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "24중복방지캠");
@@ -181,14 +198,11 @@ class PollAutomationServiceTest {
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
 		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
 		PollTemplateResult template = createCoffeeTemplate(campus.campusId(), duty.id(), accountId);
-		pollAutomationService.createDuePolls(mondayAt(11, 0).toInstant());
-		Poll poll = pollRepository.findAll().stream()
-			.filter(item -> template.id().equals(item.templateId()))
-			.findFirst()
-			.orElseThrow();
-		ReflectionTestUtils.setField(poll, "startsAt", Instant.now().minusSeconds(60));
-		ReflectionTestUtils.setField(poll, "endsAt", Instant.now().plusSeconds(3600));
-		pollRepository.saveAndFlush(poll);
+		Poll poll = pollRepository.findById(pollService.createPoll(new CreatePollCommand(
+			campus.campusId(), duty.id(), template.id(), "자동 마감 대상 커피 투표",
+			null, null, false, null, null, null, null,
+			Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600), List.of()
+		)).id()).orElseThrow();
 		Long optionId = pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id()).get(0).id();
 		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), member.id(), List.of(optionId), null));
 
