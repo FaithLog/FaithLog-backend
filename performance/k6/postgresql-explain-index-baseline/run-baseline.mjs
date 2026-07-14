@@ -104,14 +104,18 @@ async function run() {
 	let sourceIntegrity = null;
 	let composeIdentityBeforeLock = null;
 	let composeIdentityAfterLock = null;
+	let composeIdentityAfterDatabaseIdentity = null;
 	let composeIdentityAfterMeasurement = null;
 	let composeLockContinuity = null;
+	let composeDatabaseBindingContinuity = null;
 	let composeMeasurementContinuity = null;
 	const composeIdentityEvidence = () => ({
 		beforeLock: composeIdentityBeforeLock,
 		afterLock: composeIdentityAfterLock,
+		afterDatabaseIdentity: composeIdentityAfterDatabaseIdentity,
 		afterMeasurement: composeIdentityAfterMeasurement,
 		lockContinuity: composeLockContinuity,
+		databaseBindingContinuity: composeDatabaseBindingContinuity,
 		measurementContinuity: composeMeasurementContinuity,
 	});
 	try {
@@ -187,7 +191,17 @@ async function run() {
 			throw new Error('PostgreSQL container identity changed while acquiring the canonical runner lock; no psql or EXPLAIN was run.');
 		}
 		databaseIdentity = captureDatabaseIdentity();
-		validateDatabaseIdentity(composeIdentityAfterLock, databaseIdentity, process.env.PGDATABASE);
+		composeIdentityAfterDatabaseIdentity = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+		composeDatabaseBindingContinuity = validateComposeIdentityContinuity(composeIdentityAfterLock, composeIdentityAfterDatabaseIdentity);
+		if (!composeDatabaseBindingContinuity.stable) {
+			writeRejectedReport(reportPath, {
+				phase: 'start-integrity', reasons: composeDatabaseBindingContinuity.reasons, queryRunCount: 0,
+				composeIdentity: composeIdentityEvidence(), databaseIdentity, capturedSnapshot: null, sourceIdentity,
+				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID, crossIssueArtifacts,
+			});
+			throw new Error('PostgreSQL container identity changed around the DB identity capture; no schema, anchor, or EXPLAIN was run.');
+		}
+		validateDatabaseIdentity(composeIdentityAfterDatabaseIdentity, databaseIdentity, process.env.PGDATABASE);
 		schemaBefore = captureSchemaState(inventory.observedTables);
 		const schemaStartIntegrity = validateSchemaSnapshot(schemaBefore, inventory.observedTables);
 		if (!schemaStartIntegrity.adoptable) {
@@ -277,36 +291,13 @@ async function run() {
 		}
 		activityWindows.push(await stopActivityMonitor(measurementMonitor));
 		measurementMonitor = null;
-		composeIdentityAfterMeasurement = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
-		composeMeasurementContinuity = validateComposeIdentityContinuity(composeIdentityAfterLock, composeIdentityAfterMeasurement);
-		if (!composeMeasurementContinuity.stable) {
-			writeRejectedReport(reportPath, {
-				phase: 'runtime-failure', reasons: composeMeasurementContinuity.reasons,
-				queryRunCount: explainRunCount, composeIdentity: composeIdentityEvidence(), databaseIdentity,
-				capturedSnapshot: before, schemaState: schemaBefore, sourceIdentity,
-				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID,
-				crossIssueArtifacts, activityWindows,
-			});
-			throw new Error('PostgreSQL container identity changed during the measurement window.');
-		}
 		const measuredActivityIntegrity = validateActivityWindow(activityWindows[0], {
 			expectedLabels: measurementLabels,
 		});
-		if (!measuredActivityIntegrity.adoptable) {
-			writeRejectedReport(reportPath, {
-				phase: 'runtime-failure', reasons: measuredActivityIntegrity.reasons,
-				queryRunCount: explainRunCount, composeIdentity: composeIdentityEvidence(), databaseIdentity,
-				capturedSnapshot: before, schemaState: schemaBefore, sourceIdentity,
-				datasetId: process.env.DATASET_ID, fixtureRunId: process.env.FIXTURE_RUN_ID,
-				crossIssueArtifacts, activityWindows,
-			});
-			throw new Error('Transient external activity contaminated the continuous measurement window.');
-		}
 		const after = capturePlannerState(inventory.observedTables);
 		const schemaAfter = captureSchemaState(inventory.observedTables);
 		const schemaAfterIntegrity = validateSchemaSnapshot(schemaAfter, inventory.observedTables);
 		const databaseIdentityAfter = captureDatabaseIdentity();
-		validateDatabaseIdentity(composeIdentityAfterMeasurement, databaseIdentityAfter, process.env.PGDATABASE);
 		const controlSourcesAfter = loadSqlSources(scenarioRoot, ['inventory.json', 'report-contract.json', 'source-manifest.json']);
 		const sourceIdentityAfter = captureSourceIdentity(
 			inventory, sourceManifest, sourceManifestText, null, controlSourcesAfter
@@ -320,22 +311,27 @@ async function run() {
 			memberCount: crossIssueReport.memberCount,
 		});
 		const crossArtifactContinuity = validateArtifactContinuity(crossIssueArtifacts, crossIssueArtifactsAfter);
+		composeIdentityAfterMeasurement = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+		composeMeasurementContinuity = validateComposeIdentityContinuity(composeIdentityAfterDatabaseIdentity, composeIdentityAfterMeasurement);
+		validateDatabaseIdentity(composeIdentityAfterMeasurement, databaseIdentityAfter, process.env.PGDATABASE);
 		const finishedAt = new Date().toISOString();
 		const plannerIntegrity = validateMeasurementIntegrity(before, after, {
 			expectedTables: inventory.observedTables,
 		});
 		const databaseContinuity = validateDatabaseContinuity(databaseIdentity, databaseIdentityAfter);
 		const schemaContinuity = validateSchemaContinuity(schemaBefore, schemaAfter);
-		const activityIntegrity = combineActivityWindows(activityWindows, measurementLabels);
+		const activityIntegrity = measuredActivityIntegrity;
 		const measurementIntegrity = {
 			adoptable: plannerIntegrity.adoptable && databaseContinuity.stable
 				&& schemaContinuity.stable && schemaAfterIntegrity.adoptable && activityIntegrity.adoptable
 				&& sourceContinuity.stable && crossArtifactContinuity.stable
-				&& composeLockContinuity.stable && composeMeasurementContinuity.stable,
+				&& composeLockContinuity.stable && composeDatabaseBindingContinuity.stable
+				&& composeMeasurementContinuity.stable,
 			reasons: [...plannerIntegrity.reasons, ...databaseContinuity.reasons,
 				...schemaContinuity.reasons, ...schemaAfterIntegrity.reasons, ...activityIntegrity.reasons,
 				...sourceContinuity.reasons, ...crossArtifactContinuity.reasons,
-				...composeLockContinuity.reasons, ...composeMeasurementContinuity.reasons],
+				...composeLockContinuity.reasons, ...composeDatabaseBindingContinuity.reasons,
+				...composeMeasurementContinuity.reasons],
 		};
 		const evidenceGroups = groupEvidenceQueries(inventory.queries);
 		const productionBeforeEligibleQueryIds = inventory.queries
@@ -347,7 +343,8 @@ async function run() {
 			reportContract.evidenceClassification.productionBeforeEvidenceEnabled
 		);
 		if (!schemaContinuity.stable || !schemaAfterIntegrity.adoptable
-			|| !activityIntegrity.adoptable || !sourceContinuity.stable || !crossArtifactContinuity.stable) {
+			|| !activityIntegrity.adoptable || !sourceContinuity.stable || !crossArtifactContinuity.stable
+			|| !composeDatabaseBindingContinuity.stable || !composeMeasurementContinuity.stable) {
 			measurementOutcome = {
 				status: 'invalid-pending-runtime-failure',
 				productionBeforeAdoptable: false,
@@ -599,7 +596,7 @@ function capturePlannerState(observedTables) {
 				FROM pg_stat_activity
 				WHERE backend_type = 'client backend'
 					AND pid <> pg_backend_pid()
-					AND state <> 'idle'
+					AND state IS DISTINCT FROM 'idle'
 			)
 		);
 	`;
@@ -871,13 +868,6 @@ async function terminateChild(child, exitPromise) {
 		if (error.code === 'CHILD_NOT_REAPED') allChildrenReaped = false;
 		throw error;
 	}
-}
-
-function combineActivityWindows(windows, measurementLabels) {
-	const reasons = windows.flatMap((window) => validateActivityWindow(window, {
-		expectedLabels: measurementLabels,
-	}).reasons);
-	return { adoptable: reasons.length === 0, reasons: [...new Set(reasons)] };
 }
 
 function validateArtifactContinuity(before, after) {

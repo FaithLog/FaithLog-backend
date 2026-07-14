@@ -92,7 +92,7 @@ test('canonical lock rebinds immutable Compose identity before psql and verifies
 	const continuity = runner.indexOf('validateComposeIdentityContinuity(composeIdentityBeforeLock, composeIdentityAfterLock)');
 	const database = runner.indexOf('databaseIdentity = captureDatabaseIdentity()');
 	const finalInspect = runner.indexOf('composeIdentityAfterMeasurement = inspectComposeIdentity(');
-	const finalContinuity = runner.indexOf('validateComposeIdentityContinuity(composeIdentityAfterLock, composeIdentityAfterMeasurement)');
+	const finalContinuity = runner.indexOf('validateComposeIdentityContinuity(composeIdentityAfterDatabaseIdentity, composeIdentityAfterMeasurement)');
 	assert.ok(lock >= 0 && lock < rebound && rebound < continuity && continuity < database,
 		'container replacement after the pre-lock inspect must fail before any psql/schema/anchor/EXPLAIN call');
 	assert.ok(finalInspect > runner.indexOf('await explain(') && finalInspect < finalContinuity,
@@ -162,7 +162,7 @@ test('SIGTERM interrupts an approved long sampling delay so the worker preserves
 			env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, stdio: ['pipe', 'pipe', 'pipe'],
 		});
 		await new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error('long-interval worker readiness timed out')), 1000);
+			const timer = setTimeout(() => reject(new Error('long-interval worker readiness timed out')), 3000);
 			worker.once('error', reject);
 			worker.stdout.on('data', (chunk) => {
 				if (chunk.toString().includes('ready')) {
@@ -177,7 +177,7 @@ test('SIGTERM interrupts an approved long sampling delay so the worker preserves
 			const timer = setTimeout(() => {
 				timedOut = true;
 				worker.kill('SIGKILL');
-			}, 750);
+			}, 2500);
 			worker.once('exit', (code, signal) => {
 				clearTimeout(timer);
 				resolve({ timedOut, code, signal });

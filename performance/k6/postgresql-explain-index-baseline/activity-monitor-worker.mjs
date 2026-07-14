@@ -9,6 +9,7 @@ if (!outputPath || !measuredApplicationPrefix || !measuredDatabase) {
 const activitySampleIntervalMs = parseActivitySampleInterval(sampleIntervalInput);
 
 let stopping = false;
+let wakePendingDelay = null;
 let sampleCount = 0;
 let externalNotificationSent = false;
 const activeRegistrations = new Map();
@@ -17,7 +18,10 @@ const cancelledRegistrations = [];
 const sessions = new Map();
 const pendingPrefixedSessions = new Map();
 
-process.on('SIGTERM', () => { stopping = true; });
+process.on('SIGTERM', () => {
+	stopping = true;
+	wakePendingDelay?.();
+});
 process.stdin.setEncoding('utf8');
 let inputBuffer = '';
 process.stdin.on('data', (chunk) => {
@@ -33,7 +37,7 @@ process.stdin.on('data', (chunk) => {
 while (!stopping) {
 	recordSample(captureSample());
 	if (sampleCount === 1) process.stdout.write('ready\n');
-	await delay(activitySampleIntervalMs);
+	await interruptibleDelay(activitySampleIntervalMs);
 }
 
 recordSample(captureSample());
@@ -136,7 +140,7 @@ function captureSample() {
 		FROM pg_stat_activity
 		WHERE backend_type = 'client backend'
 			AND pid <> pg_backend_pid()
-			AND (state <> 'idle' OR application_name LIKE :'measured_prefix' || '%');
+			AND (state IS DISTINCT FROM 'idle' OR application_name LIKE :'measured_prefix' || '%');
 	`], {
 		encoding: 'utf8', env: { ...process.env, PGCONNECT_TIMEOUT: '2' },
 		maxBuffer: 4 * 1024 * 1024, timeout: 2000, killSignal: 'SIGKILL',
@@ -209,6 +213,18 @@ function sessionKey(session) {
 	return `${session.pid}:${session.backendStart ?? ''}:${session.queryStart ?? ''}`;
 }
 
-function delay(milliseconds) {
-	return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function interruptibleDelay(milliseconds) {
+	if (stopping) return Promise.resolve();
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = () => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			if (wakePendingDelay === finish) wakePendingDelay = null;
+			resolve();
+		};
+		const timer = setTimeout(finish, milliseconds);
+		wakePendingDelay = finish;
+	});
 }

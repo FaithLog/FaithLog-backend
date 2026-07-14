@@ -104,7 +104,7 @@ test('runner requires traceable fixture identity, exclusive lock, runtime creden
 	const reboundInspectIndex = runner.indexOf('composeIdentityAfterLock = inspectComposeIdentity');
 	const composeContinuityIndex = runner.indexOf('validateComposeIdentityContinuity(composeIdentityBeforeLock, composeIdentityAfterLock)');
 	const identityIndex = runner.indexOf('databaseIdentity = captureDatabaseIdentity');
-	const identityValidationIndex = runner.indexOf('validateDatabaseIdentity(composeIdentityAfterLock, databaseIdentity');
+	const identityValidationIndex = runner.indexOf('validateDatabaseIdentity(composeIdentityAfterDatabaseIdentity, databaseIdentity');
 	const schemaGateIndex = runner.indexOf('const schemaStartIntegrity = validateSchemaSnapshot');
 	const anchorDbGateIndex = runner.indexOf('const anchorIntegrity = validateAnchorPreflight');
 	const startGateIndex = runner.indexOf('const startIntegrity = validateMeasurementStart');

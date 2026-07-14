@@ -296,7 +296,7 @@ test('activity protocol binds ACK to a nonce and identity, unregisters every bac
 	assert.match(worker, /measured-unregistered:/);
 	assert.match(worker, /external-observed/);
 	assert.match(worker, /applicationName.*backendStart/s);
-	assert.match(worker, /state <> 'idle'[\s\S]*OR[\s\S]*application_name LIKE/i);
+	assert.match(worker, /state IS DISTINCT FROM 'idle'[\s\S]*OR[\s\S]*application_name LIKE/i);
 	assert.doesNotMatch(worker, /sampleCount - pending\.firstSample >= 20/);
 	assert.match(runner, /backendIdentityPromise[\s\S]*monitor\.contaminationPromise[\s\S]*monitor\.exitPromise/);
 	assert.match(runner, /monitor\.exitPromise\.then\(\(\) => \(\{ type: 'monitor-exited'/);

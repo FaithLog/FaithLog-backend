@@ -56,7 +56,8 @@
     "samplingIntervalApproval": "The user must approve and supply the positive integer for each measurement window; the scenario defines no methodology default.",
     "measuredIdentity": ["preparedRegistrationToken", "label", "applicationName", "boundPid", "boundBackendStart"],
     "lifecycleRule": "Application identity is prepared before psql spawn, then bound to the observed backend identity. Every expected label must be observed and explicitly unregistered; duplicate or incomplete registrations are invalid.",
-    "contaminationRule": "Transient external active activity or observer exit notifies the runner immediately, aborts the in-flight measured psql, preserves a partial rejected report, and exits non-zero."
+    "contaminationRule": "Transient external activity, including visibility-restricted client backends whose state is NULL, or observer exit notifies the runner immediately, aborts the in-flight measured psql, preserves a partial rejected report, and exits non-zero.",
+    "shutdownRule": "SIGTERM interrupts any remaining approved sampling delay so the worker can take its final sample and preserve the window report before the parent reap deadline."
   },
   "evidenceClassification": {
     "allowed": ["exact-current-production", "reconstructed-current-query", "synthetic-candidate"],
