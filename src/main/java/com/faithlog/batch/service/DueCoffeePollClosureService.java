@@ -7,6 +7,7 @@ import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.service.CoffeePollSettlementCommandService;
+import com.faithlog.poll.service.CoffeeOperationClassifier;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.global.exception.BusinessException;
@@ -57,6 +58,10 @@ public class DueCoffeePollClosureService {
 
 	private boolean closeCoffeePoll(Long pollId) {
 		PollRepository.PollLockScope lockScope = pollRepository.findLockScopeById(pollId).orElseThrow();
+		if (!CoffeeOperationClassifier.isConsistentConfiguration(
+			lockScope.getPollType(), lockScope.getChargeGenerationType(), lockScope.getPaymentCategory())) {
+			return false;
+		}
 		NotificationLockKey lockKey = new NotificationLockKey(
 			"coffee-poll-close",
 			lockScope.getCampusId(),

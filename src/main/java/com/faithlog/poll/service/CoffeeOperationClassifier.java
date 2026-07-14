@@ -26,13 +26,19 @@ public final class CoffeeOperationClassifier {
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory
 	) {
-		if (!isCoffeeOperation(pollType, chargeGenerationType, paymentCategory)) {
-			return;
-		}
-		if (pollType != PollType.COFFEE
-			|| chargeGenerationType != ChargeGenerationType.OPTION_PRICE
-			|| paymentCategory != PaymentCategory.COFFEE) {
+		if (!isConsistentConfiguration(pollType, chargeGenerationType, paymentCategory)) {
 			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED, "커피 투표 설정이 올바르지 않습니다.");
 		}
+	}
+
+	public static boolean isConsistentConfiguration(
+		PollType pollType,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory
+	) {
+		return !isCoffeeOperation(pollType, chargeGenerationType, paymentCategory)
+			|| (pollType == PollType.COFFEE
+				&& chargeGenerationType == ChargeGenerationType.OPTION_PRICE
+				&& paymentCategory == PaymentCategory.COFFEE);
 	}
 }
