@@ -29,6 +29,58 @@ class DutySettlementLockStructureTest {
 		assertThat(mealSettlement).contains("requireActiveMealDutyForUpdate");
 	}
 
+	@Test
+	void every_duty_gated_command_uses_the_same_pessimistic_duty_lock() throws IOException {
+		String pollAccess = read("poll/service/PollAccessService.java");
+		String pollCreation = read("poll/service/PollCreationCommandService.java");
+		String templateCommand = read("poll/service/PollTemplateCommandService.java");
+		String accountCommand = read("billing/service/PaymentAccountCommandService.java");
+		String chargeStatus = read("billing/service/ChargeStatusCommandService.java");
+		String reminder = read("notification/service/ChargeReminderService.java");
+		String mealAccount = read("billing/service/MealPaymentAccountService.java");
+		String mealPoll = read("poll/service/MealPollService.java");
+
+		assertThat(pollAccess).contains(
+			"requirePollCreatorForUpdate",
+			"requireCoffeeTemplateManagerForUpdate",
+			"requireCoffeePollOwnerForUpdate",
+			"findActiveByCampusIdAndDutyTypeAndUserIdForUpdate"
+		);
+		assertThat(pollCreation).contains("requirePollCreatorForUpdate");
+		assertThat(templateCommand).contains("requireCoffeeTemplateManagerForUpdate");
+		assertThat(accountCommand).contains("requireActiveCoffeeDutyForUpdate");
+		assertThat(chargeStatus).contains("requireActiveCoffeeDutyForUpdate");
+		assertThat(reminder).contains("findActiveByCampusIdAndDutyTypeAndUserIdForUpdate");
+		assertThat(mealAccount).contains("requireActiveMealDutyForUpdate");
+		assertThat(mealPoll).contains("requireActiveMealDutyForUpdate");
+	}
+
+	@Test
+	void manual_and_due_coffee_close_use_duty_then_poll_lock_order() throws IOException {
+		String pollStatus = read("poll/service/PollStatusCommandService.java");
+		String coffeeSettlement = read("poll/service/CoffeePollSettlementSupport.java");
+		String dueClosure = read("batch/service/DueCoffeePollClosureService.java");
+
+		assertBefore(pollStatus, "requireCoffeePollOwnerForUpdate", "getPollInCampusForUpdate");
+		assertBefore(
+			coffeeSettlement,
+			"findActiveByCampusIdAndDutyTypeAndUserIdForUpdate",
+			"findByIdAndCampusIdForUpdate"
+		);
+		assertBefore(
+			dueClosure,
+			"findActiveByCampusIdAndDutyTypeAndUserIdForUpdate",
+			"findByIdAndCampusIdForUpdate"
+		);
+	}
+
+	private void assertBefore(String source, String first, String second) {
+		assertThat(source.indexOf(first))
+			.as("%s 호출이 %s 호출보다 먼저여야 합니다.", first, second)
+			.isGreaterThanOrEqualTo(0)
+			.isLessThan(source.indexOf(second));
+	}
+
 	private String read(String relativePath) throws IOException {
 		return Files.readString(MAIN.resolve(relativePath));
 	}
