@@ -368,6 +368,12 @@ include::{snippets}/notification-send-coffee-charge-reminders/http-response.adoc
 
 include::{snippets}/notification-send-coffee-charge-reminders/response-fields.adoc[]
 
+==== Forbidden Response (`403`)
+
+include::{snippets}/notification-send-coffee-charge-reminders-forbidden/http-response.adoc[]
+
+include::{snippets}/notification-send-coffee-charge-reminders-forbidden/response-fields.adoc[]
+
 === Send Meal Charge Reminders
 
 `POST /api/v1/campuses/{campusId}/meal/charge-reminders`
@@ -393,6 +399,28 @@ include::{snippets}/notification-send-meal-charge-reminders/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/notification-send-meal-charge-reminders/response-fields.adoc[]
+
+==== Forbidden Response (`403`)
+
+include::{snippets}/notification-send-meal-charge-reminders-forbidden/http-response.adoc[]
+
+include::{snippets}/notification-send-meal-charge-reminders-forbidden/response-fields.adoc[]
+
+==== Concurrent Request Conflict (`409`)
+
+동일 담당자의 같은 범주 미납 알림 요청이 처리 중이면 `NOTIFICATION_LOCK_ALREADY_RUNNING`을 반환한다.
+
+include::{snippets}/notification-send-charge-reminders-conflict/http-response.adoc[]
+
+include::{snippets}/notification-send-charge-reminders-conflict/response-fields.adoc[]
+
+==== Redis Unavailable (`503`)
+
+중복 방지와 실행 잠금의 필수 Redis 작업을 수행할 수 없으면 `NOTIFICATION_REDIS_UNAVAILABLE`을 반환하고 알림 요청을 만들지 않는다.
+
+include::{snippets}/notification-send-charge-reminders-redis-unavailable/http-response.adoc[]
+
+include::{snippets}/notification-send-charge-reminders-redis-unavailable/response-fields.adoc[]
 
 === List Admin Notification Logs
 
@@ -695,6 +723,12 @@ include::{snippets}/admin-coffee-duty-revoke-success/path-parameters.adoc[]
 ==== Response
 
 include::{snippets}/admin-coffee-duty-revoke-success/http-response.adoc[]
+
+==== Unpaid Charge Conflict (`409`)
+
+include::{snippets}/admin-coffee-duty-revoke-unpaid-conflict/http-response.adoc[]
+
+include::{snippets}/admin-coffee-duty-revoke-unpaid-conflict/response-fields.adoc[]
 
 === Get My Coffee Duty Assignment
 
@@ -2876,6 +2910,11 @@ include::{snippets}/my-meal-duty-assignment-success/http-request.adoc[]
 include::{snippets}/my-meal-duty-assignment-success/http-response.adoc[]
 include::{snippets}/admin-meal-duty-revoke-success/http-request.adoc[]
 include::{snippets}/admin-meal-duty-revoke-success/http-response.adoc[]
+
+본인 소유 MEAL 계좌에 `UNPAID` 청구가 남아 있으면 `409 CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT`로 해제를 거부한다.
+
+include::{snippets}/admin-meal-duty-revoke-unpaid-conflict/http-response.adoc[]
+include::{snippets}/admin-meal-duty-revoke-unpaid-conflict/response-fields.adoc[]
 
 === My Meal Payment Accounts
 
