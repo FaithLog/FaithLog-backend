@@ -343,6 +343,45 @@ class BillingQueryServiceTest {
 	}
 
 	@Test
+	void coffee_duty_member_charge_detail_is_scoped_to_requester_owned_accounts_while_managers_keep_full_read() {
+		User manager = saveUser("query-member-scope-manager@example.com", UserRole.MANAGER, "관리자");
+		User firstDuty = saveUser("query-member-scope-first@example.com", UserRole.USER, "첫 담당");
+		User secondDuty = saveUser("query-member-scope-second@example.com", UserRole.USER, "둘째 담당");
+		User member = saveUser("query-member-scope-member@example.com", UserRole.USER, "청구 회원");
+		User admin = saveUser("query-member-scope-admin@example.com", UserRole.ADMIN, "전역 관리자");
+		CampusCreateResult campus = createCampus(manager, "200회원상세소유권캠");
+		campusService.joinCampus(new JoinCampusCommand(firstDuty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(secondDuty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), firstDuty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), secondDuty.id()));
+		PaymentAccountResult firstAccount = createAccount(
+			campus.campusId(), firstDuty.id(), PaymentCategory.COFFEE, "200-FIRST", firstDuty.id());
+		PaymentAccountResult secondAccount = createAccount(
+			campus.campusId(), secondDuty.id(), PaymentCategory.COFFEE, "200-SECOND", secondDuty.id());
+		ChargeItem firstCharge = saveCharge(
+			campus.campusId(), member.id(), firstAccount, PaymentCategory.COFFEE,
+			ChargeSourceType.POLL_RESPONSE, 20011L, "첫 담당 커피", 1800, ChargeStatus.UNPAID, null);
+		ChargeItem secondCharge = saveCharge(
+			campus.campusId(), member.id(), secondAccount, PaymentCategory.COFFEE,
+			ChargeSourceType.POLL_RESPONSE, 20012L, "둘째 담당 커피", 2300, ChargeStatus.UNPAID, null);
+
+		AdminMemberChargesResult dutyResult = billingQueryService.listAdminMemberCharges(
+			memberChargeQuery(campus.campusId(), member.id(), firstDuty.id(), PaymentCategory.COFFEE));
+		AdminMemberChargesResult managerResult = billingQueryService.listAdminMemberCharges(
+			memberChargeQuery(campus.campusId(), member.id(), manager.id(), PaymentCategory.COFFEE));
+		AdminMemberChargesResult adminResult = billingQueryService.listAdminMemberCharges(
+			memberChargeQuery(campus.campusId(), member.id(), admin.id(), PaymentCategory.COFFEE));
+
+		assertThat(dutyResult.items()).extracting(item -> item.id()).containsExactly(firstCharge.id());
+		assertThat(dutyResult.summary().totalAmount()).isEqualTo(1800);
+		assertThat(managerResult.items()).extracting(item -> item.id())
+			.containsExactlyInAnyOrder(firstCharge.id(), secondCharge.id());
+		assertThat(adminResult.items()).extracting(item -> item.id())
+			.containsExactlyInAnyOrder(firstCharge.id(), secondCharge.id());
+	}
+
+	@Test
 	void admin_campus_charges_can_filter_by_payment_account_with_existing_filters() {
 		User manager = saveUser("query-account-filter-manager@example.com", UserRole.MANAGER, "관리자");
 		User member = saveUser("query-account-filter-member@example.com", UserRole.USER, "계좌필터멤버");
@@ -571,6 +610,22 @@ class BillingQueryServiceTest {
 
 	private CampusCreateResult createCampus(User manager, String name) {
 		return campusService.createCampus(new CreateCampusCommand(manager.id(), name, "분당", "분당 " + name));
+	}
+
+	private AdminMemberChargeListQuery memberChargeQuery(
+		Long campusId,
+		Long memberId,
+		Long requesterId,
+		PaymentCategory paymentCategory
+	) {
+		return new AdminMemberChargeListQuery(
+			campusId,
+			memberId,
+			requesterId,
+			paymentCategory,
+			null,
+			PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"))
+		);
 	}
 
 	private PaymentAccountResult createAccount(
