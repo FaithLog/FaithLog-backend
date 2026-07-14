@@ -33,6 +33,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -208,6 +212,40 @@ class NotificationDeliveryWorkerTest {
 		List<NotificationLog> logs = notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId());
 		assertThat(logs).extracting(NotificationLog::sendStatus).containsExactly(SendStatus.PENDING);
 		assertThat(fakeFcmSendPort.attempts("lock-held-token")).isZero();
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void worker_reloads_pending_logs_after_dispatch_lock_to_avoid_stale_snapshot_duplicate_send() throws Exception {
+		Campus campus = saveCampus("알림잠금후재조회캠");
+		User minister = saveUser("notification-worker-reload-minister@example.com", UserRole.USER);
+		User target = saveUser("notification-worker-reload-target@example.com", UserRole.USER);
+		saveMinister(campus.id(), minister.id());
+		saveMember(campus.id(), target.id());
+		registerToken(target, "reload-after-lock-token", "reload-after-lock-client");
+		SendNotificationResult result = notificationService.requestNotification(new SendNotificationCommand(
+			campus.id(), minister.id(), NotificationType.CUSTOM, List.of(target.id()), null, null,
+			"잠금 후 재조회", "중복 발송 방지"
+		));
+		notificationConcurrencyPort.pauseNextLockAcquire();
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> first = executor.submit(() -> worker.processRequest(result.notificationRequestId()));
+			assertThat(notificationConcurrencyPort.awaitLockAcquireStarted()).isTrue();
+
+			Future<?> second = executor.submit(() -> worker.processRequest(result.notificationRequestId()));
+			second.get(5, TimeUnit.SECONDS);
+			notificationConcurrencyPort.allowLockAcquire();
+			first.get(5, TimeUnit.SECONDS);
+
+			assertThat(fakeFcmSendPort.attempts("reload-after-lock-token")).isEqualTo(1);
+			assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId()))
+				.extracting(NotificationLog::sendStatus)
+				.containsExactly(SendStatus.SENT);
+		} finally {
+			notificationConcurrencyPort.allowLockAcquire();
+			executor.shutdownNow();
+		}
 	}
 
 	@Test

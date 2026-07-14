@@ -31,6 +31,9 @@ public class NotificationConcurrencyTestConfig {
 		private boolean fail;
 		private boolean failLockRelease;
 		private boolean pauseDedupRelease;
+		private boolean pauseLockAcquire;
+		private CountDownLatch lockAcquireStarted = new CountDownLatch(1);
+		private CountDownLatch allowLockAcquire = new CountDownLatch(1);
 		private CountDownLatch dedupReleaseStarted = new CountDownLatch(1);
 		private CountDownLatch allowDedupRelease = new CountDownLatch(1);
 
@@ -63,6 +66,18 @@ public class NotificationConcurrencyTestConfig {
 		public Optional<NotificationLockLease> acquire(NotificationLockKey key, Duration ttl) {
 			if (fail) {
 				throw new com.faithlog.notification.service.port.NotificationRedisOperationException("test failure");
+			}
+			if (pauseLockAcquire) {
+				pauseLockAcquire = false;
+				lockAcquireStarted.countDown();
+				try {
+					if (!allowLockAcquire.await(5, TimeUnit.SECONDS)) {
+						throw new IllegalStateException("lock acquire timeout");
+					}
+				} catch (InterruptedException exception) {
+					Thread.currentThread().interrupt();
+					throw new IllegalStateException(exception);
+				}
 			}
 			if (!lockKeys.add(key.value())) {
 				return Optional.empty();
@@ -98,6 +113,20 @@ public class NotificationConcurrencyTestConfig {
 			this.allowDedupRelease = new CountDownLatch(1);
 		}
 
+		public void pauseNextLockAcquire() {
+			this.pauseLockAcquire = true;
+			this.lockAcquireStarted = new CountDownLatch(1);
+			this.allowLockAcquire = new CountDownLatch(1);
+		}
+
+		public boolean awaitLockAcquireStarted() throws InterruptedException {
+			return lockAcquireStarted.await(5, TimeUnit.SECONDS);
+		}
+
+		public void allowLockAcquire() {
+			allowLockAcquire.countDown();
+		}
+
 		public boolean awaitDedupReleaseStarted() throws InterruptedException {
 			return dedupReleaseStarted.await(5, TimeUnit.SECONDS);
 		}
@@ -110,9 +139,13 @@ public class NotificationConcurrencyTestConfig {
 			this.fail = false;
 			this.failLockRelease = false;
 			this.pauseDedupRelease = false;
+			this.pauseLockAcquire = false;
 			this.allowDedupRelease.countDown();
+			this.allowLockAcquire.countDown();
 			this.dedupReleaseStarted = new CountDownLatch(1);
 			this.allowDedupRelease = new CountDownLatch(1);
+			this.lockAcquireStarted = new CountDownLatch(1);
+			this.allowLockAcquire = new CountDownLatch(1);
 			this.dedupKeys.clear();
 			this.lockKeys.clear();
 		}
