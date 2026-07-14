@@ -23,7 +23,6 @@ public record PollDetailResponse(
 	Instant startsAt,
 	Instant endsAt,
 	PollStatus status,
-	Long createdByUserId,
 	boolean manageableByMe,
 	List<PollOptionResponse> options,
 	PollMyResponseResponse myResponse
@@ -44,7 +43,6 @@ public record PollDetailResponse(
 			result.poll().startsAt(),
 			result.poll().endsAt(),
 			result.poll().status(),
-			result.createdByUserId(),
 			result.manageableByMe(),
 			result.poll().options().stream().map(PollOptionResponse::from).toList(),
 			PollMyResponseResponse.from(result.myResponse())

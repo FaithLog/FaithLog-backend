@@ -17,7 +17,6 @@ public record PollListItemResult(
 	Instant endsAt,
 	PollStatus status,
 	boolean responded,
-	Long createdByUserId,
 	boolean manageableByMe
 ) {
 
@@ -33,7 +32,6 @@ public record PollListItemResult(
 			poll.endsAt(),
 			poll.status(),
 			responded,
-			poll.createdBy(),
 			manageableByMe
 		);
 	}

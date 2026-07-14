@@ -210,6 +210,15 @@ class PollAccessService {
 			.isPresent();
 	}
 
+	boolean isActiveMealDuty(Long campusId, Long userId) {
+		return campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
+			.filter(CampusMember::isActive)
+			.isPresent()
+			&& dutyAssignmentRepository
+				.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.MEAL, userId)
+				.isPresent();
+	}
+
 	private CampusUserLookupResult getActiveUser(Long userId) {
 		CampusUserLookupResult user = userLookupPort.findCampusUserById(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));

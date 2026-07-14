@@ -2,6 +2,7 @@ package com.faithlog.poll.service;
 
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.entity.PollResponse;
+import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
@@ -49,6 +50,7 @@ public class PollQueryService {
 		pollAccessService.requirePollReader(campusId, requesterId);
 		boolean adminWindow = pollAccessService.hasAdminVisibility(campusId, requesterId);
 		boolean activeCoffeeDuty = pollAccessService.isActiveCoffeeDuty(campusId, requesterId);
+		boolean activeMealDuty = pollAccessService.isActiveMealDuty(campusId, requesterId);
 		List<Poll> campusPolls = pollRepository.findByCampusIdOrderByIdDesc(campusId);
 		campusPolls.forEach(pollStatusSynchronizer::openScheduledPollIfCurrent);
 		List<Poll> visiblePolls = campusPolls.stream()
@@ -68,7 +70,7 @@ public class PollQueryService {
 			.map(poll -> PollListItemResult.of(
 				poll,
 				respondedPollIds.contains(poll.id()),
-				isManageableByRequester(poll, requesterId, adminWindow, activeCoffeeDuty)
+				isManageableByRequester(poll, requesterId, adminWindow, activeCoffeeDuty, activeMealDuty)
 			))
 			.toList();
 	}
@@ -88,16 +90,18 @@ public class PollQueryService {
 			poll,
 			requesterId,
 			pollAccessService.hasAdminVisibility(campusId, requesterId),
-			pollAccessService.isActiveCoffeeDuty(campusId, requesterId)
+			pollAccessService.isActiveCoffeeDuty(campusId, requesterId),
+			pollAccessService.isActiveMealDuty(campusId, requesterId)
 		);
-		return new PollDetailResult(pollResultAssembler.toResult(poll), myResponse, poll.createdBy(), manageableByMe);
+		return new PollDetailResult(pollResultAssembler.toResult(poll), myResponse, manageableByMe);
 	}
 
 	private boolean isManageableByRequester(
 		Poll poll,
 		Long requesterId,
 		boolean adminVisibility,
-		boolean activeCoffeeDuty
+		boolean activeCoffeeDuty,
+		boolean activeMealDuty
 	) {
 		if (CoffeeOperationClassifier.isCoffeeOperation(
 			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory()
@@ -105,6 +109,9 @@ public class PollQueryService {
 			return CoffeeOperationClassifier.isConsistentConfiguration(
 				poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory()
 			) && activeCoffeeDuty && requesterId.equals(poll.createdBy());
+		}
+		if (poll.pollType() == PollType.MEAL) {
+			return activeMealDuty;
 		}
 		return adminVisibility;
 	}
