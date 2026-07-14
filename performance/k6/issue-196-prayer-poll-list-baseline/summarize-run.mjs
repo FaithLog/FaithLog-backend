@@ -33,6 +33,17 @@ const EXPECTED_TABLE_FIELDS = [
 const EXPECTED_DATABASE_IDENTITY_KEYS = [
 	'currentDatabase', 'postmasterStartedAt', 'serverAddress', 'serverPort',
 ].sort();
+const MEMORY_UNIT_BYTES = Object.freeze({
+	B: 1,
+	kB: 1000,
+	MB: 1000 ** 2,
+	GB: 1000 ** 3,
+	TB: 1000 ** 4,
+	KiB: 1024,
+	MiB: 1024 ** 2,
+	GiB: 1024 ** 3,
+	TiB: 1024 ** 4,
+});
 const metadata = readJson(metadataPath);
 const k6ExitStatus = Number(metadata.runtime?.k6ExitStatus);
 const resourceSamplerExitStatus = Number(metadata.runtime?.resourceSamplerExitStatus);
@@ -376,6 +387,25 @@ function decimalOrZero(value) {
 	return strictDecimal(value) ?? 0n;
 }
 
+function parseMemoryBytes(value) {
+	if (typeof value !== 'string') return null;
+	const match = /^(0|[1-9][0-9]*)(?:\.([0-9]+))?(B|kB|MB|GB|TB|KiB|MiB|GiB|TiB)$/.exec(value);
+	if (!match) return null;
+	const numeric = Number(match[2] === undefined ? match[1] : `${match[1]}.${match[2]}`);
+	const bytes = Math.round(numeric * MEMORY_UNIT_BYTES[match[3]]);
+	return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
+}
+
+function parseMemoryUsage(value) {
+	if (typeof value !== 'string') return null;
+	const match = /^([^\s]+) \/ ([^\s]+)$/.exec(value);
+	if (!match) return null;
+	const usedBytes = parseMemoryBytes(match[1]);
+	const limitBytes = parseMemoryBytes(match[2]);
+	if (usedBytes === null || limitBytes === null || limitBytes <= 0 || usedBytes > limitBytes) return null;
+	return { usedBytes, limitBytes, canonicalPercent: (usedBytes / limitBytes) * 100 };
+}
+
 function validateResourceEvidence(tsv, runtime) {
 	const byContainer = new Map();
 	const rejectionReasons = [];
@@ -384,15 +414,15 @@ function validateResourceEvidence(tsv, runtime) {
 		const [capturedAt, container, cpuText, memoryText, memoryPercentText] = line.split('\t');
 		const cpuPercent = Number(cpuText?.replace('%', ''));
 		const memoryPercent = Number(memoryPercentText?.replace('%', ''));
-		const memoryUsed = memoryText?.split('/')[0]?.trim() || null;
+		const memory = parseMemoryUsage(memoryText);
 		if (!container || !Number.isFinite(cpuPercent) || cpuPercent < 0
-			|| !Number.isFinite(memoryPercent) || memoryPercent < 0
-			|| !memoryUsed || !isValidTimestamp(capturedAt)) {
+			|| !Number.isFinite(memoryPercent) || memoryPercent < 0 || memoryPercent > 100
+			|| !memory || !isValidTimestamp(capturedAt)) {
 			rejectionReasons.push('invalid-resource-sample');
 			continue;
 		}
 		if (!byContainer.has(container)) byContainer.set(container, []);
-		byContainer.get(container).push({ capturedAt, cpuPercent, memoryPercent, memoryUsed });
+		byContainer.get(container).push({ capturedAt, cpuPercent, reportedMemoryPercent: memoryPercent, ...memory });
 	}
 	const expectedContainers = [runtime?.appContainer, runtime?.dbContainer];
 	const expectedContainerSetValid = expectedContainers.every((container) => typeof container === 'string' && container.length > 0)
@@ -407,15 +437,19 @@ function validateResourceEvidence(tsv, runtime) {
 			rejectionReasons.push(reason);
 		}
 	}
-	const resources = [...byContainer.entries()].map(([container, samples]) => ({
-		container,
-		sampleCount: samples.length,
-		averageCpuPercent: average(samples.map((sample) => sample.cpuPercent)),
-		maxCpuPercent: Math.max(...samples.map((sample) => sample.cpuPercent)),
-		averageMemoryPercent: average(samples.map((sample) => sample.memoryPercent)),
-		maxMemoryPercent: Math.max(...samples.map((sample) => sample.memoryPercent)),
-		maxObservedMemory: samples.reduce((current, sample) => sample.memoryPercent >= current.memoryPercent ? sample : current).memoryUsed,
-	}));
+	const resources = [...byContainer.entries()].map(([container, samples]) => {
+		const maxMemorySample = samples.reduce((current, sample) => sample.usedBytes >= current.usedBytes ? sample : current);
+		return {
+			container,
+			sampleCount: samples.length,
+			averageCpuPercent: average(samples.map((sample) => sample.cpuPercent)),
+			maxCpuPercent: Math.max(...samples.map((sample) => sample.cpuPercent)),
+			averageMemoryPercent: average(samples.map((sample) => sample.canonicalPercent)),
+			maxMemoryPercent: Math.max(...samples.map((sample) => sample.canonicalPercent)),
+			maxObservedMemoryBytes: String(maxMemorySample.usedBytes),
+			memoryLimitBytes: String(maxMemorySample.limitBytes),
+		};
+	});
 	return { resources, rejectionReasons: [...new Set(rejectionReasons)] };
 }
 

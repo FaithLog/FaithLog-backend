@@ -12,8 +12,8 @@ Status: `scenario-ready / not-measured`
 - `shape-fixture.sh` atomically shapes all five Poll rows created by the current run. It verifies exact IDs/campus plus deterministic run titles, rejects an already-shaped manifest, and rolls back all five updates if any ownership check misses.
 - A 0600 `shape-attempted` receipt makes shaping one-shot even if the process stops after the database statement but before manifest persistence. Any shaping failure requires a new `fixtureRunId`.
 - Passwords, DB credentials, and Access Tokens are runtime-only. The manifest records IDs and generated test emails, but not credentials or tokens.
-- After app/DB label attestation, seed, shaping, and load all acquire the same canonical `/tmp/faithlog-performance-{actualComposeProject}.lock`. The path has no caller override, and the runner also refuses to start while another k6 process exists.
-- Seed, shaping, the baseline runner, and the direct k6 entrypoint have no target defaults. They require the approved loopback `BASE_URL`, app/DB container names, exact Compose service labels, and exact app image at runtime. Seed records the immutable app image ID and published target port; shaping and baseline require the same image ID, labels, image, and port before touching the fixture or measuring it.
+- After app/DB label attestation, seed, shaping, and load all acquire the same canonical `/tmp/faithlog-performance-{actualComposeProject}.lock`. The path has no caller override, and the runner also refuses to start while another k6 process exists. Each entrypoint captures app/DB container ID, image ID, `StartedAt`, Compose labels/config hash, the published endpoint, and PostgreSQL identity before lock acquisition, then requires an exact post-lock match before login, fixture mutation, or k6.
+- Seed, shaping, the baseline runner, and the direct k6 entrypoint have no target defaults. They require an explicit numeric loopback `BASE_URL` (`127.0.0.1` or `[::1]`), app/DB container names, exact Compose service labels, and exact app image at runtime. `localhost` and implicit host resolution are rejected pending a separate approved resolution rule. A shared validator requires exactly one same-address-family exact/wildcard Docker binding on the requested host port. Seed records the immutable runtime and published target; shaping and baseline require the same identity before touching the fixture or measuring it.
 - The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
 - Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory, and an existing path is never deleted, reused, or overwritten.
 - Sampling can detect observed conflicts but cannot prove that a short transient request never occurred. No exclusive-window boolean or sampling values have user approval as an adoption method yet, so every otherwise-clean report remains `accepted=false`, `automaticAdoption=false`, and `measurementStatus=conditional-not-adoptable` until a separate user decision changes that policy.
@@ -78,7 +78,7 @@ Each endpoint report includes:
 - exact endpoint custom k6 Trend: finite nonnegative `p50 <= p95 <= p99 <= max`, accepting both k6 v2 direct and `values` summary shapes;
 - exact endpoint custom request Counter: positive count and positive throughput/second;
 - exact endpoint custom failure Rate equal to zero;
-- application/PostgreSQL container CPU and RAM samples whose container set is exactly the two attested runtime names and whose CPU/memory percentages are finite and nonnegative;
+- application/PostgreSQL container CPU and RAM samples whose container set is exactly the two attested runtime names. CPU is finite/nonnegative; memory usage and limit use strict Docker byte units, are safe nonnegative byte counts with `limit > 0` and `used <= limit`, and reported memory percentage is finite in `0..100`. Reports derive canonical memory percent and exact decimal byte totals from parsed usage/limit rather than inventing a tolerance;
 - Hibernate SQL log query count and `queriesPerRequest`;
 - repeated normalized SQL patterns as loop/N+1 evidence;
 - per-table PostgreSQL estimated row counts plus monotonic `seq_scan`, `seq_tup_read`, `idx_scan`, `idx_tup_fetch`, and individually zero write-counter deltas;
@@ -112,6 +112,9 @@ EXPECTED_APP_IMAGE='<approved-exact-app-image>' \
 PERF_ADMIN_EMAIL='<runtime-admin-email>' \
 PERF_ADMIN_PASSWORD='<runtime-admin-password>' \
 PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \
+PERF_DB_USER='<runtime-db-user>' \
+PERF_DB_NAME='<runtime-db-name>' \
+PERF_DB_PASSWORD='<runtime-db-password>' \
 node performance/k6/issue-196-prayer-poll-list-baseline/seed-fixture.mjs
 ```
 
@@ -174,6 +177,7 @@ node --check performance/k6/issue-196-prayer-poll-list-baseline/seed-fixture.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/scenario.js
 node --check performance/k6/issue-196-prayer-poll-list-baseline/token-lifetime.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/activity-sample.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/validate-published-target.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh

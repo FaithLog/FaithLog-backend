@@ -457,7 +457,7 @@ test('DB and log evidence contract is endpoint-scoped and read-only', () => {
 	}
 });
 
-test('project-scoped lock blocks a fake same-project runner before login, DB, or k6', () => {
+test('project-scoped lock blocks a fake same-project runner before login, mutation/measurement DB, or k6', () => {
 	const runner = join(ROOT, 'run-baseline.sh');
 	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-lock-'));
 	const project = `faithlog-contract-${process.pid}`;
@@ -481,13 +481,18 @@ test('project-scoped lock blocks a fake same-project runner before login, DB, or
 			} },
 		}));
 		writeFileSync(join(bin, 'docker'), [
-			'#!/usr/bin/env bash', 'case "$*" in',
+			'#!/usr/bin/env bash',
+			`if [[ "$1" == exec && "$*" == *pg_postmaster_start_time* ]]; then printf '%s\\n' '{"currentDatabase":"faithlog","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:00.000Z"}'; exit 0; fi`,
+			'case "$*" in',
 			`*com.docker.compose.project*) echo "${project}" ;;`,
 			'*com.docker.compose.service*faithlog-backend*) echo app ;;',
 			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
 			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
 			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
 			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
+			'*"{{.Id}}"*faithlog-backend*) echo app-container-id ;;',
+			'*"{{.Id}}"*faithlog-postgres*) echo db-container-id ;;',
+			'*"{{.State.StartedAt}}"*) echo 2026-07-14T00:00:00.000Z ;;',
 			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
 			`*) echo "docker:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
@@ -502,7 +507,7 @@ test('project-scoped lock blocks a fake same-project runner before login, DB, or
 		const result = spawnSync('bash', [runner, 'prayer'], {
 			env: {
 				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: 'i196lock', EXECUTION_RUN_ID: 'exec-lock',
-				FIXTURE_MANIFEST: manifest, REPORT_ROOT: join(temporary, 'reports'), BASE_URL: 'http://localhost:18080',
+				FIXTURE_MANIFEST: manifest, REPORT_ROOT: join(temporary, 'reports'), BASE_URL: 'http://127.0.0.1:18080',
 				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s', VUS: '1', DURATION: '1s',
 				APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app',
 				EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'faithlog-latest',
@@ -579,7 +584,7 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		const result = spawnSync('bash', [runner, 'prayer'], {
 			env: {
 				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
-				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://localhost:18080',
+				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://127.0.0.1:18080',
 				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
 				APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app',
 				EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'faithlog-latest',
@@ -686,7 +691,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const result = spawnSync('bash', [runner, 'prayer'], {
 			env: {
 				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
-				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://localhost:18080',
+				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://127.0.0.1:18080',
 				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
 				APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app',
 				EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'faithlog-latest',
@@ -704,7 +709,9 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			assert.ok(observed.includes(marker), `missing fake orchestration marker ${marker}; stdout=${result.stdout}; stderr=${result.stderr}; observed=${observed.join(',')}`);
 		}
 		assert.equal(observed.some((line) => line.endsWith('scope-bad') || line === 'k6-token-missing' || line.startsWith('docker-unexpected')), false);
-		const report = JSON.parse(readFileSync(join(reportBase, executionRunId, 'prayer', 'prayer_current_season', 'report.json'), 'utf8'));
+		const reportPath = join(reportBase, executionRunId, 'prayer', 'prayer_current_season', 'report.json');
+		assert.equal(existsSync(reportPath), true, `missing report: stdout=${result.stdout}; stderr=${result.stderr}; calls=${observed.join(',')}`);
+		const report = JSON.parse(readFileSync(reportPath, 'utf8'));
 		assert.equal(report.accepted, false);
 		assert.equal(report.automaticAdoption, false);
 		assert.ok(['rejected', 'conditional-not-adoptable'].includes(report.measurementStatus));
@@ -717,7 +724,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			env: {
 				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId,
 				EXECUTION_RUN_ID: replacementExecutionRunId, FIXTURE_MANIFEST: manifest,
-				BASE_URL: 'http://localhost:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
+				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
 				MEASURED_VUS: '1', MEASURED_DURATION: '1s',
 				APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app',
 				EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'faithlog-latest',
@@ -808,6 +815,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		const pendingAdoptionProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, paths.report]);
 		assert.notEqual(pendingAdoptionProcess.status, 0, 'clean sampled evidence cannot auto-adopt before user policy approval');
+		assert.equal(existsSync(paths.report), true, `summarizer did not preserve its report: ${pendingAdoptionProcess.stderr?.toString()}`);
 		const report = JSON.parse(readFileSync(paths.report, 'utf8'));
 		assert.deepEqual(report.http, {
 			p50Ms: 10, p95Ms: 20, p99Ms: 30, maxMs: 40,

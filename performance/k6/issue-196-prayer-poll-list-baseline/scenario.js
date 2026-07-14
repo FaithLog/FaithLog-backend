@@ -470,8 +470,8 @@ function parseJson(response) {
 }
 
 function guardTarget() {
-	const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal|faithlog-backend|app)(?::\d+)?$/.test(BASE_URL);
+	const local = /^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(BASE_URL);
 	if (!local) {
-		fail('Issue #196 baseline is local-Docker-only; remote load is blocked.');
+		fail('Issue #196 baseline requires an explicit numeric loopback HTTP target; remote or implicit host resolution is blocked.');
 	}
 }

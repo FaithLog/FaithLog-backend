@@ -75,7 +75,7 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 - endpoint exact k6 custom Trend: direct k6 v2와 `values` shape를 모두 지원하는 finite/nonnegative `p50 <= p95 <= p99 <= max`
 - endpoint exact custom Counter: positive 요청 수와 positive 초당 throughput
 - endpoint exact custom Rate: 실패율 exact 0
-- application/PostgreSQL container CPU/RAM sample
+- application/PostgreSQL container CPU/RAM sample. RAM은 strict Docker byte unit으로 used/limit를 파싱해 safe nonnegative bytes, `limit > 0`, `used <= limit`, reported percent `0..100`을 요구하고 canonical percent와 exact decimal byte 값을 기록한다.
 - `org.hibernate.SQL` query count와 `queriesPerRequest`
 - normalized repeated SQL과 loop/N+1 신호
 - `pg_stat_user_tables` exact table set별 estimated row count와 monotonic scan/fetch 및 table/counter별 zero write delta
@@ -84,11 +84,11 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 
 각 endpoint는 explicit `WARMUP_VUS/WARMUP_DURATION`의 별도 k6 process를 먼저 끝내고 성공한 경우에만 explicit `MEASURED_VUS/MEASURED_DURATION` process를 시작한다. measured 직전에 token을 다시 발급하고 JWT `exp`가 phase duration과 safety margin을 덮는지 raw token 저장·출력 없이 검증한다. DB/log/resource/activity evidence window는 warmup 뒤에만 연다. caller의 stale token env는 시작 시 제거하고 login/DB child에만 필요한 credential을 inline 전달하며 k6에는 새 token만 전달한다. Docker metadata/summarizer 등 다른 child에는 credential/token을 상속하지 않는다.
 
-실제 app/DB Compose label 일치를 확인한 뒤 seed/shaper/runner 모두 `/tmp/faithlog-performance-{actualComposeProject}.lock`을 사용한다. caller lock override는 없다. mode도 runtime 필수이며 `all`은 명시했을 때만 전체 19 endpoint로 확장된다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리하고 app scheduler를 끈다.
+실제 app/DB Compose label 일치를 확인한 뒤 seed/shaper/runner 모두 `/tmp/faithlog-performance-{actualComposeProject}.lock`을 사용한다. lock 전 app/DB container ID·image ID·StartedAt, Compose project/service/config hash, published endpoint, PostgreSQL identity를 승인 snapshot으로 잡고 lock 직후 exact 재검증이 끝나기 전에는 login/API write/Poll UPDATE/k6를 시작하지 않는다. caller lock override는 없다. mode도 runtime 필수이며 `all`은 명시했을 때만 전체 19 endpoint로 확장된다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리하고 app scheduler를 끈다.
 
 sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transient 요청의 절대 부재를 단독 증명하지 못한다. sampling cadence/max-gap과 exclusive-window 채택 방식은 사용자 미승인 상태다. 입력값은 default 없이 runtime에서 받고 positive 및 `maxGap >= interval`과 실제 coverage에 exact 결속하며 1초/2초 상수를 강제하지 않는다. 따라서 현재 summarizer는 clean evidence에도 `accepted=false`, `automaticAdoption=false`, `measurementStatus=conditional-not-adoptable`과 `adoption-policy-pending-user-approval`을 기록하고 runner를 non-zero로 끝낸다.
 
-`BASE_URL`, app/DB container name, expected app/DB Compose service label, expected exact app image도 기본값 없는 runtime 승인 입력이다. seed/shape/run은 하나라도 없으면 API/Docker/DB 작업 전에 실패하고 direct k6도 request 전에 실패한다. actual target은 seed manifest의 Compose project/config hash/app image ID/port와 다시 exact 결속한다. Resource evidence는 metadata의 app/DB container exact 2개만 허용하고 CPU/memory percent가 finite/nonnegative가 아니거나 foreign container row가 있으면 rejected다.
+`BASE_URL`, app/DB container name, expected app/DB Compose service label, expected exact app image도 기본값 없는 runtime 승인 입력이다. seed/shape/run은 하나라도 없으면 API/Docker/DB 작업 전에 실패하고 direct k6도 request 전에 실패한다. `BASE_URL`은 explicit numeric loopback `127.0.0.1` 또는 `[::1]`만 허용하고 `localhost`는 승인된 해석 규칙이 없으므로 거부한다. 공통 validator가 같은 address family의 exact/wildcard Docker binding 중 requested host port와 맞는 항목이 exact 1개인지 확인하며, actual target은 seed manifest의 Compose/runtime identity와 다시 exact 결속한다. Resource evidence는 metadata의 app/DB container exact 2개만 허용하고 CPU가 finite/nonnegative가 아니거나 RAM used/limit unit·byte invariant·reported `0..100%`가 잘못됐거나 foreign container row가 있으면 rejected다.
 
 ## 정적 코드에서 확인한 측정 후보
 
@@ -117,5 +117,6 @@ sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transien
 - PM 2차 finding 재현: test-only commit에서 `12 tests / 9 pass / 3 fail` RED
 - PM 3차 finding 재현: test-only commit에서 `13 tests / 10 pass / 3 fail` RED
 - PM 4차 finding 재현: test-only commit에서 `14 tests / 11 pass / 3 fail` RED
-- 최종 계약: pending automatic adoption, seed/shape/run/direct k6 전체 runtime-required target, arbitrary approved sampling input 결속, exact app/DB resource set와 nonnegative metrics, `Number.MAX_SAFE_INTEGER` 경계 decimal-string/BigInt delta, lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 같은 이름의 container ID 교체 시 login/k6 0건, missing exact DB schema, sparse/긴 gap, vacuum drift, reversed percentile, existing report 보존 fake evidence를 포함한 `14 tests / 0 failures` GREEN
+- PM 5차 finding 재현: test-only commit에서 `16 tests / 11 pass / 5 fail` RED
+- 최종 계약: pending automatic adoption, seed/shape/run/direct k6 전체 runtime-required target, numeric loopback/published binding exact 결속, lock 전후 immutable runtime·PostgreSQL identity continuity, strict memory bytes/percent, arbitrary approved sampling input 결속, exact app/DB resource set, `Number.MAX_SAFE_INTEGER` 경계 decimal-string/BigInt delta, lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 같은 이름의 container ID 교체 시 login/API/SQL/k6 0건, missing exact DB schema, sparse/긴 gap, vacuum drift, reversed percentile, existing report 보존 fake evidence를 포함한 `16 tests / 0 failures` GREEN
 - Node/Bash syntax와 `git diff --check`를 수행한다. 이 검증은 실제 seed/k6/Docker/DB를 실행하지 않는다.

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${ROOT_DIR}/../../.." && pwd)"
+VALIDATE_TARGET="${ROOT_DIR}/validate-published-target.mjs"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
 BASE_URL="${BASE_URL:?BASE_URL is required at runtime}"
@@ -65,6 +66,17 @@ label() {
 	docker inspect --format "{{ index .Config.Labels \"$2\" }}" "$1"
 }
 
+capture_database_identity() {
+	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
+		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
+		-c "select json_build_object('currentDatabase', current_database(), 'serverAddress', inet_server_addr(), 'serverPort', inet_server_port(), 'postmasterStartedAt', pg_postmaster_start_time())"
+}
+
+app_container_id="$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")"
+app_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${APP_CONTAINER}")"
+db_container_id="$(docker inspect --format '{{.Id}}' "${DB_CONTAINER}")"
+db_image_id="$(docker inspect --format '{{.Image}}' "${DB_CONTAINER}")"
+db_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")"
 compose_project="$(label "${APP_CONTAINER}" com.docker.compose.project)"
 db_project="$(label "${DB_CONTAINER}" com.docker.compose.project)"
 app_service="$(label "${APP_CONTAINER}" com.docker.compose.service)"
@@ -73,12 +85,11 @@ app_hash="$(label "${APP_CONTAINER}" com.docker.compose.config-hash)"
 db_hash="$(label "${DB_CONTAINER}" com.docker.compose.config-hash)"
 app_image="$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")"
 app_image_id="$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")"
-base_target_port="$(BASE_URL_VALUE="${BASE_URL}" node -e '
-	const url = new URL(process.env.BASE_URL_VALUE);
-	if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) process.exit(2);
-	process.stdout.write(url.port || "80");
-')" || { echo "BASE_URL must be an explicit loopback HTTP target." >&2; exit 1; }
+database_identity="$(capture_database_identity)"
 published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
+base_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${published_ports}" \
+	node "${VALIDATE_TARGET}" --host-port)" \
+	|| { echo "BASE_URL and the app container published binding do not identify one approved numeric loopback target." >&2; exit 1; }
 if [[ -z "${compose_project}" || "${compose_project}" != "${db_project}" \
 	|| "${app_service}" != "${EXPECTED_APP_SERVICE}" || "${db_service}" != "${EXPECTED_DB_SERVICE}" \
 	|| -z "${app_hash}" || -z "${db_hash}" \
@@ -92,8 +103,7 @@ if [[ ! "${compose_project}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
 fi
 if [[ "${compose_project}" != "${seed_project}" || "${app_hash}" != "${seed_app_hash}" \
 	|| "${db_hash}" != "${seed_db_hash}" || "${app_image_id}" != "${seed_app_image_id}" \
-	|| "${base_target_port}" != "${seed_target_port}" ]] \
-	|| ! grep -Eq "(^|:|\\])${seed_target_port}$" <<<"${published_ports}"; then
+	|| "${base_target_port}" != "${seed_target_port}" ]]; then
 	echo "Refusing to shape: current Compose identity differs from the seed manifest." >&2
 	exit 1
 fi
@@ -104,6 +114,37 @@ if ! mkdir "${PERF_PROJECT_LOCK}" 2>/dev/null; then
 	exit 1
 fi
 trap 'rmdir "${PERF_PROJECT_LOCK}" 2>/dev/null || true' EXIT
+
+assert_post_lock_runtime_identity() {
+	local current_published_ports
+	local current_target_port
+	local current_database_identity
+	current_published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
+	current_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${current_published_ports}" \
+		node "${VALIDATE_TARGET}" --host-port)" || return 1
+	current_database_identity="$(capture_database_identity)" || return 1
+	[[ "$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")" == "${app_container_id}"
+		&& "$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")" == "${app_image_id}"
+		&& "$(docker inspect --format '{{.State.StartedAt}}' "${APP_CONTAINER}")" == "${app_container_started_at}"
+		&& "$(docker inspect --format '{{.Id}}' "${DB_CONTAINER}")" == "${db_container_id}"
+		&& "$(docker inspect --format '{{.Image}}' "${DB_CONTAINER}")" == "${db_image_id}"
+		&& "$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")" == "${db_container_started_at}"
+		&& "$(label "${APP_CONTAINER}" com.docker.compose.project)" == "${compose_project}"
+		&& "$(label "${DB_CONTAINER}" com.docker.compose.project)" == "${db_project}"
+		&& "$(label "${APP_CONTAINER}" com.docker.compose.service)" == "${app_service}"
+		&& "$(label "${DB_CONTAINER}" com.docker.compose.service)" == "${db_service}"
+		&& "$(label "${APP_CONTAINER}" com.docker.compose.config-hash)" == "${app_hash}"
+		&& "$(label "${DB_CONTAINER}" com.docker.compose.config-hash)" == "${db_hash}"
+		&& "$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")" == "${app_image}"
+		&& "${current_target_port}" == "${base_target_port}"
+		&& "${current_published_ports}" == "${published_ports}"
+		&& "${current_database_identity}" == "${database_identity}" ]]
+}
+
+if ! assert_post_lock_runtime_identity; then
+	echo "Runtime identity changed after project lock." >&2
+	exit 1
+fi
 
 shape_attempt="${FIXTURE_MANIFEST}.shape-attempted"
 SHAPE_ATTEMPT="${shape_attempt}" node -e '

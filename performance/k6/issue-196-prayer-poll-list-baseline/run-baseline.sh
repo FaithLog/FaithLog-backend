@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "${ROOT_DIR}/../../.." && pwd)"
 SCENARIO_FILE="${ROOT_DIR}/scenario.js"
 DB_STATS_SQL="${ROOT_DIR}/db-table-stats.sql"
 DB_ACTIVITY_SQL="${ROOT_DIR}/db-activity.sql"
+VALIDATE_TARGET="${ROOT_DIR}/validate-published-target.mjs"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
 EXECUTION_RUN_ID="${EXECUTION_RUN_ID:?EXECUTION_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
@@ -54,7 +55,7 @@ SAMPLING_INTERVAL_VALUE="${SAMPLING_INTERVAL_SECONDS}" SAMPLING_MAX_GAP_VALUE="$
 	if (!Number.isFinite(interval) || interval <= 0 || !Number.isFinite(maxGap) || maxGap < interval) process.exit(1);
 ' || { echo "Sampling values must be positive and max gap must be at least the interval." >&2; exit 1; }
 [[ -f "${FIXTURE_MANIFEST}" ]] || { echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2; exit 1; }
-[[ "${BASE_URL}" =~ ^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?$ ]] \
+[[ "${BASE_URL}" =~ ^http://(127\.0\.0\.1|\[::1\])(:[0-9]+)?$ ]] \
 	|| { echo "Issue #196 baseline is local-Docker-only." >&2; exit 1; }
 
 manifest_value() {
@@ -98,6 +99,17 @@ label() {
 	docker inspect --format "{{ index .Config.Labels \"$2\" }}" "$1"
 }
 
+capture_database_identity() {
+	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
+		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
+		-c "select json_build_object('currentDatabase', current_database(), 'serverAddress', inet_server_addr(), 'serverPort', inet_server_port(), 'postmasterStartedAt', pg_postmaster_start_time())"
+}
+
+app_container_id="$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")"
+app_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${APP_CONTAINER}")"
+db_container_id="$(docker inspect --format '{{.Id}}' "${DB_CONTAINER}")"
+db_image_id="$(docker inspect --format '{{.Image}}' "${DB_CONTAINER}")"
+db_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")"
 compose_project="$(label "${APP_CONTAINER}" com.docker.compose.project)"
 app_service="$(label "${APP_CONTAINER}" com.docker.compose.service)"
 db_project="$(label "${DB_CONTAINER}" com.docker.compose.project)"
@@ -106,20 +118,19 @@ app_config_hash="$(label "${APP_CONTAINER}" com.docker.compose.config-hash)"
 db_config_hash="$(label "${DB_CONTAINER}" com.docker.compose.config-hash)"
 app_image="$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")"
 app_image_id="$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")"
+app_client_addrs="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' "${APP_CONTAINER}")"
+app_client_addrs="${app_client_addrs//$'\n'/,}"
+app_client_addrs="${app_client_addrs%,}"
+database_identity="$(capture_database_identity)"
 seed_project="$(manifest_value composeRuntime.composeProject)"
 seed_app_hash="$(manifest_value composeRuntime.appConfigHash)"
 seed_db_hash="$(manifest_value composeRuntime.dbConfigHash)"
 seed_app_image_id="$(manifest_value composeRuntime.appImageId)"
 seed_target_port="$(manifest_value composeRuntime.targetPort)"
-base_target_port="$(BASE_URL_VALUE="${BASE_URL}" node -e '
-	const url = new URL(process.env.BASE_URL_VALUE);
-	if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) process.exit(2);
-	process.stdout.write(url.port || "80");
-')"
 published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
-app_client_addrs="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' "${APP_CONTAINER}")"
-app_client_addrs="${app_client_addrs//$'\n'/,}"
-app_client_addrs="${app_client_addrs%,}"
+base_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${published_ports}" \
+	node "${VALIDATE_TARGET}" --host-port)" \
+	|| { echo "BASE_URL and the app container published binding do not identify one approved numeric loopback target." >&2; exit 1; }
 
 [[ -n "${compose_project}" && "${compose_project}" == "${db_project}" ]] \
 	|| { echo "App/Postgres Compose project labels are missing or different." >&2; exit 1; }
@@ -137,8 +148,6 @@ app_client_addrs="${app_client_addrs%,}"
 	|| { echo "Current immutable app image differs from the seed manifest." >&2; exit 1; }
 [[ "${base_target_port}" == "${seed_target_port}" ]] \
 	|| { echo "BASE_URL port ${base_target_port} differs from the seed target port ${seed_target_port}." >&2; exit 1; }
-grep -Eq "(^|:|\\])${seed_target_port}$" <<<"${published_ports}" \
-	|| { echo "The attested app container no longer publishes target port ${seed_target_port}." >&2; exit 1; }
 [[ "${app_client_addrs}" =~ ^[0-9a-fA-F:.]+(,[0-9a-fA-F:.]+)*$ ]] \
 	|| { echo "Attested app container network addresses are missing or invalid." >&2; exit 1; }
 
@@ -149,22 +158,10 @@ if ! mkdir "${PERF_PROJECT_LOCK}" 2>/dev/null; then
 fi
 trap 'rmdir "${PERF_PROJECT_LOCK}" 2>/dev/null || true' EXIT
 
-app_container_id="$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")"
-app_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${APP_CONTAINER}")"
-db_container_id="$(docker inspect --format '{{.Id}}' "${DB_CONTAINER}")"
-db_image_id="$(docker inspect --format '{{.Image}}' "${DB_CONTAINER}")"
-db_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")"
-
-capture_database_identity() {
-	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
-		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
-		-c "select json_build_object('currentDatabase', current_database(), 'serverAddress', inet_server_addr(), 'serverPort', inet_server_port(), 'postmasterStartedAt', pg_postmaster_start_time())"
-}
-
-database_identity="$(capture_database_identity)"
-
 assert_runtime_continuity() {
 	local current_database_identity
+	local current_published_ports
+	local current_target_port
 	[[ "$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")" == "${app_container_id}" ]] \
 		|| { echo "App container ID changed during execution." >&2; return 1; }
 	[[ "$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")" == "${app_image_id}" ]] \
@@ -177,6 +174,8 @@ assert_runtime_continuity() {
 		|| { echo "PostgreSQL immutable image ID changed during execution." >&2; return 1; }
 	[[ "$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")" == "${db_container_started_at}" ]] \
 		|| { echo "PostgreSQL container start time changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")" == "${app_image}" ]] \
+		|| { echo "App configured image changed during execution." >&2; return 1; }
 	[[ "$(label "${APP_CONTAINER}" com.docker.compose.project)" == "${compose_project}"
 		&& "$(label "${DB_CONTAINER}" com.docker.compose.project)" == "${compose_project}"
 		&& "$(label "${APP_CONTAINER}" com.docker.compose.service)" == "${app_service}"
@@ -184,8 +183,12 @@ assert_runtime_continuity() {
 		&& "$(label "${APP_CONTAINER}" com.docker.compose.config-hash)" == "${app_config_hash}"
 		&& "$(label "${DB_CONTAINER}" com.docker.compose.config-hash)" == "${db_config_hash}" ]] \
 		|| { echo "Compose runtime labels changed during execution." >&2; return 1; }
-	grep -Eq "(^|:|\\])${seed_target_port}$" <<<"$(docker port "${APP_CONTAINER}" 8080/tcp)" \
-		|| { echo "App published port changed during execution." >&2; return 1; }
+	current_published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
+	current_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${current_published_ports}" \
+		node "${VALIDATE_TARGET}" --host-port)" \
+		|| { echo "App published target became invalid during execution." >&2; return 1; }
+	[[ "${current_target_port}" == "${base_target_port}" && "${current_published_ports}" == "${published_ports}" ]] \
+		|| { echo "App published target changed during execution." >&2; return 1; }
 	current_database_identity="$(capture_database_identity)"
 	EXPECTED_DB_IDENTITY="${database_identity}" CURRENT_DB_IDENTITY="${current_database_identity}" node -e '
 		const expected = JSON.parse(process.env.EXPECTED_DB_IDENTITY);
@@ -193,6 +196,11 @@ assert_runtime_continuity() {
 		if (JSON.stringify(expected) !== JSON.stringify(current)) process.exit(1);
 	' || { echo "PostgreSQL runtime identity changed during execution." >&2; return 1; }
 }
+
+if ! assert_runtime_continuity; then
+	echo "Runtime identity changed after project lock." >&2
+	exit 1
+fi
 
 if pgrep -f '[k]6 run' >/dev/null 2>&1; then
 	echo "Another k6 process is running outside the canonical project lock." >&2

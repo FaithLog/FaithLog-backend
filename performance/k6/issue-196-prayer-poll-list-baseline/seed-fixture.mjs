@@ -2,6 +2,7 @@ import { mkdirSync, rmdirSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { FIXTURE_CONTRACT, currentMonday, validateFixtureRunId } from './fixture-contract.mjs';
+import { validatePublishedTarget } from './validate-published-target.mjs';
 
 const BASE_URL = required('BASE_URL').replace(/\/$/, '');
 const DATASET_ID = process.env.DATASET_ID || FIXTURE_CONTRACT.datasetId;
@@ -17,6 +18,9 @@ const DB_CONTAINER = required('DB_CONTAINER');
 const EXPECTED_APP_SERVICE = required('EXPECTED_APP_SERVICE');
 const EXPECTED_DB_SERVICE = required('EXPECTED_DB_SERVICE');
 const EXPECTED_APP_IMAGE = required('EXPECTED_APP_IMAGE');
+const DB_USER = required('PERF_DB_USER');
+const DB_NAME = required('PERF_DB_NAME');
+const DB_PASSWORD = required('PERF_DB_PASSWORD');
 
 for (const name of ['PERF_ACCESS_TOKEN', 'PERF_ADMIN_ACCESS_TOKEN', 'PERF_MEMBER_ACCESS_TOKEN']) {
 	delete process.env[name];
@@ -30,6 +34,10 @@ const projectLock = `/tmp/faithlog-performance-${composeRuntime.composeProject}.
 acquireProjectLock(projectLock);
 
 try {
+	const postLockRuntime = verifyComposeRuntime();
+	if (!semanticEqual(composeRuntime, postLockRuntime)) {
+		throw new Error('Runtime identity changed after project lock.');
+	}
 	if (existsSync(MANIFEST_PATH)) {
 		throw new Error(`Manifest already exists for FIXTURE_RUN_ID=${FIXTURE_RUN_ID}. Use a new fixtureRunId; existing rows are never reused or cleaned up.`);
 	}
@@ -394,7 +402,7 @@ function creatorMember(session, campusId, userId) {
 }
 
 function guardLocalTarget() {
-	if (!/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(BASE_URL)) {
+	if (!/^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(BASE_URL)) {
 		throw new Error('Issue #196 fixture creation is local-Docker-only; remote targets are blocked.');
 	}
 }
@@ -406,6 +414,12 @@ function guardDatasetIdentity() {
 }
 
 function verifyComposeRuntime() {
+	const appContainerId = dockerInspect(APP_CONTAINER, '{{.Id}}');
+	const appImageId = dockerInspect(APP_CONTAINER, '{{.Image}}');
+	const appContainerStartedAt = dockerInspect(APP_CONTAINER, '{{.State.StartedAt}}');
+	const dbContainerId = dockerInspect(DB_CONTAINER, '{{.Id}}');
+	const dbImageId = dockerInspect(DB_CONTAINER, '{{.Image}}');
+	const dbContainerStartedAt = dockerInspect(DB_CONTAINER, '{{.State.StartedAt}}');
 	const appProject = dockerLabel(APP_CONTAINER, 'com.docker.compose.project');
 	const dbProject = dockerLabel(DB_CONTAINER, 'com.docker.compose.project');
 	const appService = dockerLabel(APP_CONTAINER, 'com.docker.compose.service');
@@ -413,19 +427,61 @@ function verifyComposeRuntime() {
 	const appConfigHash = dockerLabel(APP_CONTAINER, 'com.docker.compose.config-hash');
 	const dbConfigHash = dockerLabel(DB_CONTAINER, 'com.docker.compose.config-hash');
 	const appImage = dockerInspect(APP_CONTAINER, '{{.Config.Image}}');
-	const appImageId = dockerInspect(APP_CONTAINER, '{{.Image}}');
+	const databaseIdentity = captureDatabaseIdentity();
 	const publishedPorts = execFileSync('docker', ['port', APP_CONTAINER, '8080/tcp'], { encoding: 'utf8', env: sanitizedChildEnv() }).trim();
-	const targetPort = new URL(BASE_URL).port || '80';
+	const publishedTarget = validatePublishedTarget(BASE_URL, publishedPorts.split(/\r?\n/).filter(Boolean));
+	const targetPort = String(publishedTarget.hostPort);
 	if (!appProject || appProject !== dbProject || appService !== EXPECTED_APP_SERVICE || dbService !== EXPECTED_DB_SERVICE
 		|| !appConfigHash || !dbConfigHash
-		|| appImage !== EXPECTED_APP_IMAGE
-		|| !publishedPorts.split(/\r?\n/).some((binding) => binding.endsWith(`:${targetPort}`))) {
+		|| appImage !== EXPECTED_APP_IMAGE) {
 		throw new Error('Seed requires the approved app/PostgreSQL Compose project, service/config-hash labels, and app image.');
 	}
 	if (!/^[a-z0-9][a-z0-9_-]*$/.test(appProject)) {
 		throw new Error('Compose project label cannot be represented by the canonical project lock path.');
 	}
-	return { composeProject: appProject, appService, dbService, appConfigHash, dbConfigHash, appImage, appImageId, targetPort };
+	return {
+		composeProject: appProject,
+		appService,
+		dbService,
+		appConfigHash,
+		dbConfigHash,
+		appImage,
+		appContainerId,
+		appImageId,
+		appContainerStartedAt,
+		dbContainerId,
+		dbImageId,
+		dbContainerStartedAt,
+		databaseIdentity,
+		publishedTarget,
+		targetPort,
+	};
+}
+
+function captureDatabaseIdentity() {
+	const result = execFileSync('docker', [
+		'exec', '-e', 'PGPASSWORD', '-e', 'PGAPPNAME=faithlog_issue196_observer', DB_CONTAINER,
+		'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-U', DB_USER, '-d', DB_NAME, '-At',
+		'-c', "select json_build_object('currentDatabase', current_database(), 'serverAddress', inet_server_addr(), 'serverPort', inet_server_port(), 'postmasterStartedAt', pg_postmaster_start_time())",
+	], { encoding: 'utf8', env: { ...sanitizedChildEnv(), PGPASSWORD: DB_PASSWORD } }).trim();
+	const parsed = JSON.parse(result);
+	if (!parsed || typeof parsed.currentDatabase !== 'string' || typeof parsed.postmasterStartedAt !== 'string') {
+		throw new Error('PostgreSQL runtime identity is malformed.');
+	}
+	return parsed;
+}
+
+function semanticEqual(left, right) {
+	if (Object.is(left, right)) return true;
+	if (Array.isArray(left) && Array.isArray(right)) {
+		return left.length === right.length && left.every((value, index) => semanticEqual(value, right[index]));
+	}
+	if (left && right && typeof left === 'object' && typeof right === 'object') {
+		const leftKeys = Object.keys(left).sort();
+		const rightKeys = Object.keys(right).sort();
+		return semanticEqual(leftKeys, rightKeys) && leftKeys.every((key) => semanticEqual(left[key], right[key]));
+	}
+	return false;
 }
 
 function dockerLabel(container, label) {
