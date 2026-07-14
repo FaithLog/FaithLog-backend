@@ -135,7 +135,9 @@ test('scenario exposes required latency, throughput, failure, and exact correctn
 test('runner separates warmup and measured phases, serializes modes, records actual Compose labels and resources', () => {
 	const source = read(files.runner);
 
-	assert.match(source, /\/tmp\/faithlog-performance-runner\.lock/);
+	assert.match(source, /\/tmp\/faithlog-performance-\$\{COMPOSE_PROJECT\}\.lock/);
+	assert.match(source, /APP_PROJECT.*POSTGRES_PROJECT.*REDIS_PROJECT/s);
+	assert.match(source, /Compose project labels do not match/);
 	assert.match(source, /mkdir "\$LOCK_DIR"/);
 	assert.match(source, /trap cleanup EXIT/);
 	assert.match(source, /rmdir "\$LOCK_DIR"/);
@@ -184,6 +186,18 @@ test('DB evidence is read-only and captures counters, query evidence, analyze an
 		/\b(?:FROM|JOIN)\s+(?:users|campuses|campus_members|weekly_devotion_records|charge_items|polls|poll_responses)\b/i,
 	);
 	assert.match(correctnessSql, /issue199:evidence=correctness/);
+});
+
+test('counter evidence reports database-wide observer overhead separately from application-table counters', () => {
+	const counterSql = read(files.dbCounters);
+	const readme = read(files.readme);
+
+	assert.match(counterSql, /databaseWideCountersIncludeSnapshotTransaction/);
+	assert.match(counterSql, /databaseWideDeltaIsExactQueryCount/);
+	assert.match(counterSql, /appTableCountersReadApplicationTables/);
+	assert.match(readme, /pg_stat_database.*observer.*overhead/is);
+	assert.match(readme, /exact query count.*해석하지/is);
+	assert.match(readme, /pg_stat_user_tables.*app-table/is);
 });
 
 test('verifier enforces summary totals, status/category basis, poll response counts and campus isolation', () => {
@@ -256,141 +270,59 @@ test('k6 summary validator rejects non-zero failures and missing adoption metric
 	}
 });
 
-test('runner fake execution keeps bootstrap and correctness traffic outside the measured DB counter window', () => {
-	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-runner-'));
-	const fakeBin = path.join(temporaryDirectory, 'bin');
-	const fakeLog = path.join(temporaryDirectory, 'commands.log');
-	const fixtureRunId = `ISSUE_199_CONTRACT_${process.pid}`;
-	const generatedReport = path.join(issueRoot, 'reports', 'CONTRACT_DATASET', fixtureRunId);
-	fs.mkdirSync(fakeBin);
-
-	const manifest = {
-		issue: 199,
-		datasetId: 'CONTRACT_DATASET',
-		modes: {
-			empty: {
-				mode: 'empty',
-				fixtureRunId,
-				campusId: 101,
-				isolationCampusId: 102,
-				weekStartDate: '2026-07-13',
-				expected: expectedFixture(),
-			},
-		},
-	};
-	const manifestPath = path.join(temporaryDirectory, 'manifest.json');
-	fs.writeFileSync(manifestPath, JSON.stringify(manifest));
-
-	const fakeNode = path.join(fakeBin, 'node');
-	fs.writeFileSync(fakeNode, `#!/usr/bin/env bash
-printf 'node:%s\\n' "$*" >> "$FAKE_LOG"
-case "$1" in
-  *prepare-runtime-token.mjs) printf 'contract-runtime-token\\n'; exit 0 ;;
-  *verify-summary.mjs) printf '{"status":"api-correctness-verified"}\\n'; exit 0 ;;
-esac
-exec ${shellQuote(process.execPath)} "$@"
-`);
-	const fakeDocker = path.join(fakeBin, 'docker');
-	fs.writeFileSync(fakeDocker, `#!/usr/bin/env bash
-case "$1" in
-  inspect)
-    if [[ "$*" == *com.docker.compose.project* ]]; then printf 'contract-project\\n';
-    elif [[ "$*" == *com.docker.compose.service* ]]; then printf 'contract-service\\n';
-    fi
-    exit 0
-    ;;
-  stats)
-    printf 'docker:stats\\n' >> "$FAKE_LOG"
-    printf '{"Name":"contract","CPUPerc":"0%%","MemUsage":"0B / 0B"}\\n'
-    exit 0
-    ;;
-  exec)
-    sql="$(</dev/stdin)"
-    if [[ "$sql" == *issue199:evidence=correctness* ]]; then
-      printf 'docker:db-correctness\\n' >> "$FAKE_LOG"
-      printf '%s\\n' "$FAKE_DB_EVIDENCE_JSON"
-    elif [[ "$sql" == *issue199:evidence=counters* ]]; then
-      printf 'docker:db-counters\\n' >> "$FAKE_LOG"
-      printf '{"kind":"counter-snapshot"}\\n'
-    else
-      printf 'docker:db-context\\n' >> "$FAKE_LOG"
-      printf 'context evidence\\n'
-    fi
-    exit 0
-    ;;
-esac
-exit 1
-`);
-	const fakeK6 = path.join(fakeBin, 'k6');
-	fs.writeFileSync(fakeK6, `#!/usr/bin/env bash
-printf 'k6:%s:%s\\n' "$PHASE" "$PERF_ACCESS_TOKEN" >> "$FAKE_LOG"
-[[ "$PERF_ACCESS_TOKEN" == 'contract-runtime-token' ]]
-[[ -z "\${PERF_ADMIN_PASSWORD:-}" ]]
-[[ -z "\${PERF_DB_PASSWORD:-}" ]]
-while [[ $# -gt 0 ]]; do
-  if [[ "$1" == '--summary-export' ]]; then summary_path="$2"; shift 2; else shift; fi
-done
-printf '%s\\n' "$FAKE_K6_SUMMARY_JSON" > "$summary_path"
-`);
-	for (const executable of [fakeNode, fakeDocker, fakeK6]) {
-		fs.chmodSync(executable, 0o755);
-	}
-
-	const summary = {
-		metrics: {
-			admin_dashboard_duration: {'p(50)': 1, 'p(95)': 2, 'p(99)': 3, max: 4},
-			admin_dashboard_requests: {count: 2, rate: 2},
-			admin_dashboard_failure_rate: {rate: 0},
-		},
-	};
-	const result = spawnSync('bash', [files.runner], {
-		encoding: 'utf8',
-		env: {
-			...process.env,
-			PATH: `${fakeBin}:${process.env.PATH}`,
-			FAKE_LOG: fakeLog,
-			FAKE_DB_EVIDENCE_JSON: JSON.stringify(expectedFixture()),
-			FAKE_K6_SUMMARY_JSON: JSON.stringify(summary),
-			INPUT_MANIFEST: manifestPath,
-			DATASET_MODES: 'empty',
-			WARMUP_VUS: '1',
-			WARMUP_DURATION: '1s',
-			MEASURED_VUS: '1',
-			MEASURED_DURATION: '1s',
-			EXTERNAL_ACTIVITY: 'contract-test-none',
-			PERF_ADMIN_EMAIL: 'runtime-only@example.com',
-			PERF_ADMIN_PASSWORD: 'runtime-only-secret',
-			PERF_DB_USER: 'runtime-only-db-user',
-			PERF_DB_PASSWORD: 'runtime-only-db-secret',
-			PERF_DB_NAME: 'runtime-only-db-name',
-		},
-	});
-
+test('runner fake execution refreshes the token per mode and keeps bootstrap outside each measured DB counter window', () => {
+	const harness = createFakeRunnerHarness();
 	try {
+		const result = harness.run({DATASET_MODES: 'empty,small'});
 		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-		const log = fs.readFileSync(fakeLog, 'utf8').trim().split('\n');
-		const tokenIndex = findLog(log, 'prepare-runtime-token.mjs');
-		const measuredIndex = findLog(log, 'k6:measured:contract-runtime-token');
-		const preCounterIndex = findNthLog(log, 'docker:db-counters', 1);
-		const postCounterIndex = findNthLog(log, 'docker:db-counters', 2);
-		assert.ok(tokenIndex >= 0 && tokenIndex < preCounterIndex);
-		assert.ok(findLog(log, 'docker:db-correctness') < preCounterIndex);
-		assert.ok(preCounterIndex < measuredIndex && measuredIndex < postCounterIndex);
-		assert.equal(
-			log.slice(preCounterIndex + 1, postCounterIndex).filter((line) => line.startsWith('docker:db-')).length,
-			0,
-			'no correctness/context DB query may run inside the measured counter window',
-		);
-	} finally {
-		fs.rmSync(generatedReport, {recursive: true, force: true});
-		try {
-			fs.rmdirSync(path.dirname(generatedReport));
-		} catch (error) {
-			if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY') {
-				throw error;
-			}
+		const log = harness.log();
+		assert.equal(Number(fs.readFileSync(harness.tokenCountPath, 'utf8')), 2);
+		for (const [mode, token, counterOccurrence] of [
+			['empty', 'contract-runtime-token-1', 1],
+			['small', 'contract-runtime-token-2', 3],
+		]) {
+			const tokenIndex = findLog(log, `token:${mode}:`);
+			const measuredIndex = findLog(log, `k6:${mode}:measured:${token}`);
+			const preCounterIndex = findNthLog(log, 'docker:db-counters', counterOccurrence);
+			const postCounterIndex = findNthLog(log, 'docker:db-counters', counterOccurrence + 1);
+			assert.ok(tokenIndex >= 0 && tokenIndex < preCounterIndex);
+			assert.ok(preCounterIndex < measuredIndex && measuredIndex < postCounterIndex);
+			assert.equal(
+				log.slice(preCounterIndex + 1, postCounterIndex).filter((line) => line.startsWith('docker:db-')).length,
+				0,
+				`${mode}: no correctness/context DB query may run inside the measured counter window`,
+			);
 		}
-		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+		assert.match(log.find((line) => line.startsWith('token:small:')), /:1901$/);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('runner rejects mismatched Compose project labels before credential bootstrap', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const result = harness.run({DATASET_MODES: 'empty', FAKE_LABEL_MODE: 'mismatch'});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /Compose project labels do not match/);
+		assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('runner uses the shared Compose-project lock and rejects a lock held by another issue', () => {
+	const harness = createFakeRunnerHarness();
+	const lockDirectory = `/tmp/faithlog-performance-${harness.composeProject}.lock`;
+	fs.mkdirSync(lockDirectory);
+	try {
+		const result = harness.run({DATASET_MODES: 'empty'});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /Another performance/);
+		assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
+	} finally {
+		fs.rmdirSync(lockDirectory);
+		harness.cleanup();
 	}
 });
 
@@ -467,4 +399,158 @@ function findNthLog(log, fragment, occurrence) {
 		}
 	}
 	return -1;
+}
+
+function createFakeRunnerHarness() {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-runner-'));
+	const fakeBin = path.join(temporaryDirectory, 'bin');
+	const fakeLog = path.join(temporaryDirectory, 'commands.log');
+	const tokenCountPath = path.join(temporaryDirectory, 'token-count');
+	const fakeClockPath = path.join(temporaryDirectory, 'clock');
+	const fixtureRunId = `ISSUE_199_CONTRACT_${process.pid}_${path.basename(temporaryDirectory)}`;
+	const generatedReport = path.join(issueRoot, 'reports', 'CONTRACT_DATASET', fixtureRunId);
+	const composeProject = `contract-${process.pid}-${path.basename(temporaryDirectory).replace(/[^A-Za-z0-9._-]/g, '-')}`;
+	fs.mkdirSync(fakeBin);
+	fs.writeFileSync(fakeClockPath, '0');
+
+	const modes = {};
+	for (const mode of ['empty', 'small']) {
+		modes[mode] = {
+			mode,
+			fixtureRunId,
+			campusId: 101,
+			isolationCampusId: 102,
+			weekStartDate: '2026-07-13',
+			expected: expectedFixture(),
+		};
+	}
+	const manifestPath = path.join(temporaryDirectory, 'manifest.json');
+	fs.writeFileSync(manifestPath, JSON.stringify({issue: 199, datasetId: 'CONTRACT_DATASET', modes}));
+
+	const fakeNode = path.join(fakeBin, 'node');
+	fs.writeFileSync(fakeNode, `#!/usr/bin/env bash
+printf 'node:%s\\n' "$*" >> "$FAKE_LOG"
+case "$1" in
+  *prepare-runtime-token.mjs)
+    count=0
+    [[ -f "$FAKE_TOKEN_COUNT_PATH" ]] && count="$(<"$FAKE_TOKEN_COUNT_PATH")"
+    count=$((count + 1))
+    printf '%s' "$count" > "$FAKE_TOKEN_COUNT_PATH"
+    clock="$(<"$FAKE_CLOCK_PATH")"
+    printf 'token:%s:%s:%s\\n' "$DATASET_MODES" "$count" "$clock" >> "$FAKE_LOG"
+    printf 'contract-runtime-token-%s\\n' "$count"
+    exit 0
+    ;;
+  *verify-summary.mjs) printf '{"status":"api-correctness-verified"}\\n'; exit 0 ;;
+esac
+exec ${shellQuote(process.execPath)} "$@"
+`);
+	const fakeDocker = path.join(fakeBin, 'docker');
+	fs.writeFileSync(fakeDocker, `#!/usr/bin/env bash
+case "$1" in
+  inspect)
+    container="\${!#}"
+    if [[ "$*" == *com.docker.compose.project* ]]; then
+      if [[ "\${FAKE_LABEL_MODE:-}" == mismatch && "$container" == *redis* ]]; then
+        printf '%s-other\\n' "$FAKE_COMPOSE_PROJECT"
+      else
+        printf '%s\\n' "$FAKE_COMPOSE_PROJECT"
+      fi
+    elif [[ "$*" == *com.docker.compose.service* ]]; then printf '%s-service\\n' "$container";
+    fi
+    exit 0
+    ;;
+  stats)
+    printf 'docker:stats\\n' >> "$FAKE_LOG"
+    printf '{"Name":"contract","CPUPerc":"0%%","MemUsage":"0B / 0B"}\\n'
+    exit 0
+    ;;
+  exec)
+    sql="$(</dev/stdin)"
+    if [[ "$sql" == *issue199:evidence=correctness* ]]; then
+      printf 'docker:db-correctness\\n' >> "$FAKE_LOG"
+      printf '%s\\n' "$FAKE_DB_EVIDENCE_JSON"
+    elif [[ "$sql" == *issue199:evidence=counters* ]]; then
+      printf 'docker:db-counters\\n' >> "$FAKE_LOG"
+      printf '{"kind":"counter-snapshot"}\\n'
+    else
+      printf 'docker:db-context\\n' >> "$FAKE_LOG"
+      printf 'context evidence\\n'
+    fi
+    exit 0
+    ;;
+esac
+exit 1
+`);
+	const fakeK6 = path.join(fakeBin, 'k6');
+	fs.writeFileSync(fakeK6, `#!/usr/bin/env bash
+printf 'k6:%s:%s:%s\\n' "$DATASET_MODE" "$PHASE" "$PERF_ACCESS_TOKEN" >> "$FAKE_LOG"
+[[ -n "$PERF_ACCESS_TOKEN" ]]
+[[ -z "\${PERF_ADMIN_PASSWORD:-}" ]]
+[[ -z "\${PERF_DB_PASSWORD:-}" ]]
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == '--summary-export' ]]; then summary_path="$2"; shift 2; else shift; fi
+done
+printf '%s\\n' "$FAKE_K6_SUMMARY_JSON" > "$summary_path"
+if [[ "$PHASE" == measured ]]; then
+  clock="$(<"$FAKE_CLOCK_PATH")"
+  printf '%s' "$((clock + 1901))" > "$FAKE_CLOCK_PATH"
+fi
+`);
+	for (const executable of [fakeNode, fakeDocker, fakeK6]) {
+		fs.chmodSync(executable, 0o755);
+	}
+
+	const summary = {
+		metrics: {
+			admin_dashboard_duration: {'p(50)': 1, 'p(95)': 2, 'p(99)': 3, max: 4},
+			admin_dashboard_requests: {count: 2, rate: 2},
+			admin_dashboard_failure_rate: {rate: 0},
+		},
+	};
+	const baseEnvironment = {
+		...process.env,
+		PATH: `${fakeBin}:${process.env.PATH}`,
+		FAKE_LOG: fakeLog,
+		FAKE_TOKEN_COUNT_PATH: tokenCountPath,
+		FAKE_CLOCK_PATH: fakeClockPath,
+		FAKE_COMPOSE_PROJECT: composeProject,
+		FAKE_DB_EVIDENCE_JSON: JSON.stringify(expectedFixture()),
+		FAKE_K6_SUMMARY_JSON: JSON.stringify(summary),
+		INPUT_MANIFEST: manifestPath,
+		WARMUP_VUS: '1',
+		WARMUP_DURATION: '1s',
+		MEASURED_VUS: '1',
+		MEASURED_DURATION: '1s',
+		EXTERNAL_ACTIVITY: 'contract-test-none',
+		PERF_ADMIN_EMAIL: 'runtime-only@example.com',
+		PERF_ADMIN_PASSWORD: 'runtime-only-secret',
+		PERF_DB_USER: 'runtime-only-db-user',
+		PERF_DB_PASSWORD: 'runtime-only-db-secret',
+		PERF_DB_NAME: 'runtime-only-db-name',
+	};
+
+	return {
+		composeProject,
+		tokenCountPath,
+		run(environment = {}) {
+			return spawnSync('bash', [files.runner], {
+				encoding: 'utf8',
+				env: {...baseEnvironment, ...environment},
+			});
+		},
+		log() {
+			if (!fs.existsSync(fakeLog)) return [];
+			return fs.readFileSync(fakeLog, 'utf8').trim().split('\n').filter(Boolean);
+		},
+		cleanup() {
+			fs.rmSync(generatedReport, {recursive: true, force: true});
+			try {
+				fs.rmdirSync(path.dirname(generatedReport));
+			} catch (error) {
+				if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY') throw error;
+			}
+			fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+		},
+	};
 }
