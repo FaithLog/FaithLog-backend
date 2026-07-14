@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -71,10 +72,11 @@ public class AdminCampusController {
 	@GetMapping("/{campusId}/duty-assignments")
 	public ApiResponse<List<DutyAssignmentResponse>> getDutyAssignments(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-		@PathVariable Long campusId
+		@PathVariable Long campusId,
+		@RequestParam(defaultValue = "false") boolean staleOnly
 	) {
 		List<DutyAssignmentResponse> responses = campusDutyAssignmentService
-			.getDutyAssignments(campusId, authenticatedUser.userId())
+			.getDutyAssignments(campusId, authenticatedUser.userId(), staleOnly)
 			.stream()
 			.map(DutyAssignmentResponse::from)
 			.toList();

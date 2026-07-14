@@ -52,13 +52,21 @@ public class CampusDutyAssignmentService {
 
 	@Transactional(readOnly = true)
 	public List<DutyAssignmentResult> getDutyAssignments(Long campusId, Long requesterId) {
+		return getDutyAssignments(campusId, requesterId, false);
+	}
+
+	@Transactional(readOnly = true)
+	public List<DutyAssignmentResult> getDutyAssignments(Long campusId, Long requesterId, boolean staleOnly) {
 		campusAccessPolicy.requireCampusManager(
 			campusId,
 			requesterId,
 			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
 			"커피 담당자 관리 권한이 없습니다."
 		);
-		return dutyAssignmentRepository.findActiveWithActiveMemberByCampusIdOrderByIdAsc(campusId)
+		List<CampusDutyAssignment> assignments = staleOnly
+			? dutyAssignmentRepository.findActiveWithInactiveMemberByCampusIdOrderByIdAsc(campusId)
+			: dutyAssignmentRepository.findActiveWithActiveMemberByCampusIdOrderByIdAsc(campusId);
+		return assignments
 			.stream()
 			.map(assignment -> DutyAssignmentResult.of(
 				assignment,

@@ -1,9 +1,9 @@
 package com.faithlog.user.service;
 
 import com.faithlog.campus.domain.entity.CampusMember;
-import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
 import com.faithlog.user.domain.entity.User;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -13,14 +13,9 @@ class AccountSoftDeletionSupport {
 
 	private static final String DELETED_USER_NAME = "탈퇴한 사용자";
 
-	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final PasswordEncoder passwordEncoder;
 
-	AccountSoftDeletionSupport(
-		CampusMemberRepositoryPort campusMemberRepository,
-		PasswordEncoder passwordEncoder
-	) {
-		this.campusMemberRepository = campusMemberRepository;
+	AccountSoftDeletionSupport(PasswordEncoder passwordEncoder) {
 		this.passwordEncoder = passwordEncoder;
 	}
 
@@ -28,8 +23,8 @@ class AccountSoftDeletionSupport {
 		return passwordEncoder.matches(rawPassword, passwordHash);
 	}
 
-	void deactivateCampusMemberships(Long userId) {
-		for (CampusMember member : campusMemberRepository.findByUserIdOrderByIdAsc(userId)) {
+	void deactivateCampusMemberships(List<CampusMember> memberships) {
+		for (CampusMember member : memberships) {
 			member.deactivate();
 		}
 	}

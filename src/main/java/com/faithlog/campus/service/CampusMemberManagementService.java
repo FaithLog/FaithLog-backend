@@ -82,14 +82,19 @@ public class CampusMemberManagementService {
 	@Transactional
 	public AdminCampusMemberResult changeCampusRole(ChangeCampusRoleCommand command) {
 		CampusUserLookupResult requester = campusAccessPolicy.getActiveUser(command.requesterId());
+		CampusMemberLockScope targetScope = campusMemberRepository
+			.findLockScopeByCampusIdAndId(command.campusId(), command.campusMemberId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
+		campusRepository.findByIdForUpdate(command.campusId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 		CampusMember targetMember = campusMemberRepository
-			.findByCampusIdAndId(command.campusId(), command.campusMemberId())
+			.findByCampusIdAndIdForUpdate(command.campusId(), command.campusMemberId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_MEMBER_NOT_FOUND));
 
 		if (!requester.isAdmin()) {
 			CampusMember requesterMembership = campusMemberRepository
-				.findByCampusIdAndUserId(command.campusId(), requester.userId())
+				.findByCampusIdAndUserIdForUpdate(command.campusId(), requester.userId())
 				.filter(CampusMember::isActive)
 				.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_ROLE_CHANGE_FORBIDDEN));
 			CampusRolePolicy.requireRoleChangeAllowed(
@@ -99,7 +104,7 @@ public class CampusMemberManagementService {
 			);
 		}
 
-		CampusUserLookupResult targetUser = campusAccessPolicy.getUserOrThrow(targetMember.userId());
+		CampusUserLookupResult targetUser = campusAccessPolicy.getUserOrThrow(targetScope.userId());
 		if (targetMember.campusRole() != command.campusRole()) {
 			targetMember.changeCampusRole(command.campusRole());
 			userTokenVersionPort.increaseTokenVersion(targetMember.userId());

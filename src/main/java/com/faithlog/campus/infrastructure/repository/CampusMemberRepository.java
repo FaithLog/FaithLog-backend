@@ -37,6 +37,18 @@ public interface CampusMemberRepository extends JpaRepository<CampusMember, Long
 		@Param("membershipId") Long membershipId
 	);
 
+	@Query("""
+		select new com.faithlog.campus.service.port.CampusMemberLockScope(
+			member.id,
+			member.campusId,
+			member.userId
+		)
+		from CampusMember member
+		where member.userId = :userId
+		order by member.campusId asc, member.id asc
+		""")
+	List<CampusMemberLockScope> findLockScopesByUserIdOrderByCampusIdAsc(@Param("userId") Long userId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select member

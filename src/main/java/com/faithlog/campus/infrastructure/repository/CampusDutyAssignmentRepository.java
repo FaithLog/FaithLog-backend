@@ -69,4 +69,22 @@ public interface CampusDutyAssignmentRepository extends
 	List<CampusDutyAssignment> findActiveWithActiveMemberByCampusIdOrderByIdAsc(
 		@Param("campusId") Long campusId
 	);
+
+	@Query("""
+		select assignment
+		from CampusDutyAssignment assignment
+		where assignment.campusId = :campusId
+		  and assignment.isActive = true
+		  and exists (
+			select member.id
+			from CampusMember member
+			where member.campusId = assignment.campusId
+			  and member.userId = assignment.userId
+			  and member.status = com.faithlog.campus.domain.type.CampusMemberStatus.INACTIVE
+		  )
+		order by assignment.id asc
+		""")
+	List<CampusDutyAssignment> findActiveWithInactiveMemberByCampusIdOrderByIdAsc(
+		@Param("campusId") Long campusId
+	);
 }
