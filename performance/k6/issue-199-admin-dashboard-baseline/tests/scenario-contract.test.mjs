@@ -87,25 +87,28 @@ test('manifest separates empty, small, and 1000-member modes and references shar
 
 test('scenario reproduces frontend session entry order before isolated summary measurement', () => {
 	const source = read(files.scenario);
-	const login = source.indexOf("name: 'frontend_login'");
-	const currentUser = source.indexOf("name: 'frontend_users_me'");
-	const campuses = source.indexOf("name: 'frontend_campuses_me'");
+	const bootstrap = read(files.runtimeToken);
+	const login = bootstrap.indexOf('/api/v1/auth/login');
+	const currentUser = bootstrap.indexOf('/api/v1/users/me');
+	const campuses = bootstrap.indexOf('/api/v1/campuses/me');
 	const summary = source.indexOf("name: 'admin_dashboard_summary'");
 
 	assert.ok(login >= 0);
 	assert.ok(currentUser > login);
 	assert.ok(campuses > login);
-	assert.ok(summary > currentUser);
-	assert.ok(summary > campuses);
-	assert.match(source, /http\.batch\(/);
-	assert.match(source, /\/api\/v1\/users\/me/);
-	assert.match(source, /\/api\/v1\/campuses\/me/);
+	assert.ok(summary >= 0);
+	assert.match(bootstrap, /Promise\.all\(/);
+	assert.match(bootstrap, /\/api\/v1\/users\/me/);
+	assert.match(bootstrap, /\/api\/v1\/campuses\/me/);
+	assert.match(source, /PERF_ACCESS_TOKEN/);
+	assert.doesNotMatch(source, /\/api\/v1\/auth\/login|\/api\/v1\/users\/me|\/api\/v1\/campuses\/me/);
 	assert.match(source, /\/api\/v1\/admin\/campuses\/\$\{dataset\.campusId\}\/dashboard\/summary\?weekStartDate=/);
 	assert.doesNotMatch(source, /\/members|duty-assignments|prayers\/weeks/);
 });
 
 test('scenario exposes required latency, throughput, failure, and exact correctness checks', () => {
 	const source = read(files.scenario);
+	const verifier = read(files.verifier);
 	const contract = JSON.parse(read(files.contract));
 
 	assert.deepEqual(contract.metrics, ['p50', 'p95', 'p99', 'max', 'throughput', 'failureRate']);
@@ -113,6 +116,8 @@ test('scenario exposes required latency, throughput, failure, and exact correctn
 	assert.match(source, /new Counter\('admin_dashboard_requests'/);
 	assert.match(source, /new Rate\('admin_dashboard_failure_rate'/);
 	assert.match(source, /summaryTrendStats:\s*\['p\(50\)', 'p\(95\)', 'p\(99\)', 'max'\]/);
+	assert.match(source, /admin_dashboard_failure_rate:\s*\['rate==0'\]/);
+	assert.doesNotMatch(source, /admin_dashboard_duration:\s*\[/);
 	for (const invariant of [
 		'members.activeCount', 'members.inactiveCount', 'members.adminCount',
 		'devotion.submittedCount', 'devotion.missingCount', 'devotion.submitRate',
@@ -123,7 +128,7 @@ test('scenario exposes required latency, throughput, failure, and exact correctn
 	}
 	assert.match(source, /PENALTY/);
 	assert.match(source, /COFFEE/);
-	assert.match(source, /ADMIN_DASHBOARD_ACCESS_FORBIDDEN/);
+	assert.match(verifier, /ADMIN_DASHBOARD_ACCESS_FORBIDDEN/);
 	assert.match(source, /fail\(/);
 });
 
@@ -132,7 +137,8 @@ test('runner separates warmup and measured phases, serializes modes, records act
 
 	assert.match(source, /\/tmp\/faithlog-performance-runner\.lock/);
 	assert.match(source, /mkdir "\$LOCK_DIR"/);
-	assert.match(source, /trap .*rmdir "\$LOCK_DIR"/);
+	assert.match(source, /trap cleanup EXIT/);
+	assert.match(source, /rmdir "\$LOCK_DIR"/);
 	assert.match(source, /DATASET_MODES:-empty,small,thousand/);
 	assert.match(source, /PHASE=warmup/);
 	assert.match(source, /PHASE=measured/);
@@ -150,7 +156,10 @@ test('runner separates warmup and measured phases, serializes modes, records act
 });
 
 test('DB evidence is read-only and captures counters, query evidence, analyze and planner state', () => {
-	const sql = read(files.dbEvidence);
+	const contextSql = read(files.dbEvidence);
+	const counterSql = read(files.dbCounters);
+	const correctnessSql = read(files.dbCorrectness);
+	const sql = `${contextSql}\n${counterSql}\n${correctnessSql}`;
 
 	for (const table of [
 		'users', 'campuses', 'campus_members', 'weekly_devotion_records', 'charge_items',
@@ -169,13 +178,22 @@ test('DB evidence is read-only and captures counters, query evidence, analyze an
 	assert.match(sql, /poll_response_count/);
 	assert.match(sql, /missing_response_count/);
 	assert.doesNotMatch(sql, /\b(?:INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE|VACUUM|ANALYZE)\b/i);
+	assert.match(counterSql, /issue199:evidence=counters/);
+	assert.doesNotMatch(
+		counterSql,
+		/\b(?:FROM|JOIN)\s+(?:users|campuses|campus_members|weekly_devotion_records|charge_items|polls|poll_responses)\b/i,
+	);
+	assert.match(correctnessSql, /issue199:evidence=correctness/);
 });
 
 test('verifier enforces summary totals, status/category basis, poll response counts and campus isolation', () => {
 	const source = read(files.verifier);
+	const tokenSource = read(files.runtimeToken);
+	const dbValidator = read(files.dbCorrectnessValidator);
 
-	assert.match(source, /process\.env\.PERF_ADMIN_EMAIL/);
-	assert.match(source, /process\.env\.PERF_ADMIN_PASSWORD/);
+	assert.match(tokenSource, /process\.env\.PERF_ADMIN_EMAIL/);
+	assert.match(tokenSource, /process\.env\.PERF_ADMIN_PASSWORD/);
+	assert.match(source, /process\.env\.PERF_ACCESS_TOKEN/);
 	assert.match(source, /process\.env\.INPUT_MANIFEST/);
 	assert.match(source, /statusBasis/);
 	assert.match(source, /UNPAID/);
@@ -187,7 +205,9 @@ test('verifier enforces summary totals, status/category basis, poll response cou
 	assert.match(source, /missingCount/);
 	assert.match(source, /isolationCampusId/);
 	assert.match(source, /ADMIN_DASHBOARD_ACCESS_FORBIDDEN/);
-	assert.doesNotMatch(source, /password\s*[:=]\s*['"][^'"]+['"]/i);
+	assert.match(dbValidator, /assert\.deepEqual/);
+	assert.match(dbValidator, /pollResponseCounts/);
+	assert.doesNotMatch(`${source}\n${tokenSource}`, /password\s*[:=]\s*['"][^'"]+['"]/i);
 });
 
 test('README and report path keep this issue scenario-ready/not-measured and prohibit writes and shared lifecycle changes', () => {
@@ -288,7 +308,7 @@ case "$1" in
     sql="$(</dev/stdin)"
     if [[ "$sql" == *issue199:evidence=correctness* ]]; then
       printf 'docker:db-correctness\\n' >> "$FAKE_LOG"
-      printf '%%s\\n' "$FAKE_DB_EVIDENCE_JSON"
+      printf '%s\\n' "$FAKE_DB_EVIDENCE_JSON"
     elif [[ "$sql" == *issue199:evidence=counters* ]]; then
       printf 'docker:db-counters\\n' >> "$FAKE_LOG"
       printf '{"kind":"counter-snapshot"}\\n'
@@ -306,10 +326,11 @@ exit 1
 printf 'k6:%s:%s\\n' "$PHASE" "$PERF_ACCESS_TOKEN" >> "$FAKE_LOG"
 [[ "$PERF_ACCESS_TOKEN" == 'contract-runtime-token' ]]
 [[ -z "\${PERF_ADMIN_PASSWORD:-}" ]]
+[[ -z "\${PERF_DB_PASSWORD:-}" ]]
 while [[ $# -gt 0 ]]; do
   if [[ "$1" == '--summary-export' ]]; then summary_path="$2"; shift 2; else shift; fi
 done
-printf '%%s\\n' "$FAKE_K6_SUMMARY_JSON" > "$summary_path"
+printf '%s\\n' "$FAKE_K6_SUMMARY_JSON" > "$summary_path"
 `);
 	for (const executable of [fakeNode, fakeDocker, fakeK6]) {
 		fs.chmodSync(executable, 0o755);
@@ -362,6 +383,13 @@ printf '%%s\\n' "$FAKE_K6_SUMMARY_JSON" > "$summary_path"
 		);
 	} finally {
 		fs.rmSync(generatedReport, {recursive: true, force: true});
+		try {
+			fs.rmdirSync(path.dirname(generatedReport));
+		} catch (error) {
+			if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY') {
+				throw error;
+			}
+		}
 		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
 	}
 });

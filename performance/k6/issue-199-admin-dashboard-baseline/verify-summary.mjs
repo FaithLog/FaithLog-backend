@@ -5,11 +5,10 @@ import path from 'node:path';
 const BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:28080').replace(/\/$/, '');
 const INPUT_MANIFEST = process.env.INPUT_MANIFEST;
 const DATASET_MODE = process.env.DATASET_MODE || 'thousand';
-const PERF_ADMIN_EMAIL = process.env.PERF_ADMIN_EMAIL;
-const PERF_ADMIN_PASSWORD = process.env.PERF_ADMIN_PASSWORD;
+const PERF_ACCESS_TOKEN = process.env.PERF_ACCESS_TOKEN;
 
-if (!INPUT_MANIFEST || !PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD) {
-	throw new Error('INPUT_MANIFEST, PERF_ADMIN_EMAIL, and PERF_ADMIN_PASSWORD are required at runtime.');
+if (!INPUT_MANIFEST || !PERF_ACCESS_TOKEN) {
+	throw new Error('INPUT_MANIFEST and the runtime-only PERF_ACCESS_TOKEN are required.');
 }
 
 if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]|host\.docker\.internal)(?::\d+)?$/.test(BASE_URL)) {
@@ -31,28 +30,9 @@ assert.ok(dataset.weekStartDate);
 validateFixtureReferences();
 validateExpectedArithmetic();
 
-const login = await request('/api/v1/auth/login', {
-	method: 'POST',
-	body: {email: PERF_ADMIN_EMAIL, password: PERF_ADMIN_PASSWORD},
-});
-assert.equal(login.status, 200, 'login must succeed');
-assert.ok(login.body.data?.accessToken, 'login must return an access token');
-const token = login.body.data.accessToken;
-
-const [currentUser, campuses] = await Promise.all([
-	request('/api/v1/users/me', {token}),
-	request('/api/v1/campuses/me', {token}),
-]);
-assert.equal(currentUser.status, 200, 'users/me must succeed before admin entry');
-assert.equal(campuses.status, 200, 'campuses/me must succeed before admin entry');
-assert.ok(
-	(campuses.body.data || []).some((campus) => campus.campusId === dataset.campusId && campus.status === 'ACTIVE'),
-	'campuses/me must contain the ACTIVE measured campus',
-);
-
 const summary = await request(
 	`/api/v1/admin/campuses/${dataset.campusId}/dashboard/summary?weekStartDate=${dataset.weekStartDate}`,
-	{token},
+	{token: PERF_ACCESS_TOKEN},
 );
 assert.equal(summary.status, 200, 'dashboard summary must succeed');
 assert.equal(summary.body.success, true, 'dashboard summary must use the success envelope');
@@ -60,7 +40,7 @@ assert.deepEqual(summary.body.data, toExpectedResponse(dataset.expected));
 
 const isolation = await request(
 	`/api/v1/admin/campuses/${dataset.isolationCampusId}/dashboard/summary?weekStartDate=${dataset.weekStartDate}`,
-	{token},
+	{token: PERF_ACCESS_TOKEN},
 );
 assert.equal(isolation.status, 403, 'other-campus dashboard must be forbidden for the campus-scoped manager actor');
 assert.equal(isolation.body.code, 'ADMIN_DASHBOARD_ACCESS_FORBIDDEN');

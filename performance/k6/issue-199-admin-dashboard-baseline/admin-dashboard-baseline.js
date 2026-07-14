@@ -8,8 +8,7 @@ const DATASET_MODE = __ENV.DATASET_MODE || 'thousand';
 const PHASE = __ENV.PHASE || 'measured';
 const VUS = Number(__ENV.VUS || 0);
 const DURATION = __ENV.DURATION || '0s';
-const PERF_ADMIN_EMAIL = __ENV.PERF_ADMIN_EMAIL;
-const PERF_ADMIN_PASSWORD = __ENV.PERF_ADMIN_PASSWORD;
+const PERF_ACCESS_TOKEN = __ENV.PERF_ACCESS_TOKEN;
 
 if (!INPUT_MANIFEST) {
 	throw new Error('INPUT_MANIFEST is required.');
@@ -36,55 +35,15 @@ export const options = {
 		phase: PHASE,
 		dataset_mode: DATASET_MODE,
 	},
+	thresholds: {
+		admin_dashboard_failure_rate: ['rate==0'],
+	},
 };
 
 export function setup() {
 	guardLocalTarget();
 	validateInput();
-
-	const loginResponse = http.post(
-		`${BASE_URL}/api/v1/auth/login`,
-		JSON.stringify({email: PERF_ADMIN_EMAIL, password: PERF_ADMIN_PASSWORD}),
-		jsonParams({name: 'frontend_login', measured: 'false'}),
-	);
-	const loginBody = parseJson(loginResponse);
-	if (!check(loginResponse, {
-		'frontend login status is 200': (response) => response.status === 200,
-		'frontend login returns access token': () => Boolean(loginBody.data?.accessToken),
-	})) {
-		fail(`Frontend login failed: status=${loginResponse.status}`);
-	}
-
-	const token = loginBody.data.accessToken;
-	const sessionResponses = http.batch([
-		{
-			method: 'GET',
-			url: `${BASE_URL}/api/v1/users/me`,
-			params: authParams(token, {name: 'frontend_users_me', measured: 'false'}),
-		},
-		{
-			method: 'GET',
-			url: `${BASE_URL}/api/v1/campuses/me`,
-			params: authParams(token, {name: 'frontend_campuses_me', measured: 'false'}),
-		},
-	]);
-	const currentUserResponse = sessionResponses[0];
-	const campusesResponse = sessionResponses[1];
-	const campusesBody = parseJson(campusesResponse);
-	if (!check(currentUserResponse, {
-		'frontend users me status is 200': (response) => response.status === 200,
-		'frontend users me success envelope': (response) => parseJson(response).success === true,
-	}) || !check(campusesResponse, {
-		'frontend campuses me status is 200': (response) => response.status === 200,
-		'frontend campuses me includes measured campus': () => (campusesBody.data || []).some(
-			(campus) => campus.campusId === dataset.campusId && campus.status === 'ACTIVE',
-		),
-	})) {
-		fail('Frontend session establishment contract failed.');
-	}
-
-	verifyCampusIsolation(token);
-	return {token};
+	return {token: PERF_ACCESS_TOKEN};
 }
 
 export default function ({token}) {
@@ -127,8 +86,8 @@ export default function ({token}) {
 }
 
 function validateInput() {
-	if (!PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD) {
-		fail('PERF_ADMIN_EMAIL and PERF_ADMIN_PASSWORD are required at runtime.');
+	if (!PERF_ACCESS_TOKEN) {
+		fail('PERF_ACCESS_TOKEN must be prepared in runtime memory before k6 starts.');
 	}
 	if (!Number.isInteger(VUS) || VUS < 1 || !/^\d+(?:\.\d+)?(?:ms|s|m|h)$/.test(DURATION) || DURATION === '0s') {
 		fail('VUS and DURATION must be explicitly set to user-approved positive values.');
@@ -162,30 +121,9 @@ function validateInput() {
 	}
 }
 
-function verifyCampusIsolation(token) {
-	const response = http.get(
-		`${BASE_URL}/api/v1/admin/campuses/${dataset.isolationCampusId}/dashboard/summary?weekStartDate=${dataset.weekStartDate}`,
-		authParams(token, {name: 'admin_dashboard_isolation_guard', measured: 'false'}),
-	);
-	const body = parseJson(response);
-	if (!check(response, {
-		'other campus dashboard is forbidden': (result) => result.status === 403,
-		'other campus dashboard uses ADMIN_DASHBOARD_ACCESS_FORBIDDEN': () => body.code === 'ADMIN_DASHBOARD_ACCESS_FORBIDDEN',
-	})) {
-		fail('Campus isolation guard failed; use a campus-scoped manager credential, not a service ADMIN credential.');
-	}
-}
-
 function authParams(token, tags) {
 	return {
 		headers: {Authorization: `Bearer ${token}`},
-		tags,
-	};
-}
-
-function jsonParams(tags) {
-	return {
-		headers: {'Content-Type': 'application/json'},
 		tags,
 	};
 }

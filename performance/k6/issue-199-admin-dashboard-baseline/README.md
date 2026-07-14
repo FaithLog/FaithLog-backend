@@ -29,7 +29,7 @@ FaithLog frontend `develop`의 `aba1ab07bcb54c1df85ecf53238f4cb0484c2df3`에서 
 2. `src/auth/session.ts`의 `establishSession`이 `GET /api/v1/users/me`와 `GET /api/v1/campuses/me`를 `Promise.all`로 병렬 호출한다.
 3. `src/admin/AdminScreen.tsx`의 초기 `loadAdmin`은 dashboard summary, campus members, duty assignments, prayer board를 병렬 호출하고 campus detail 기반 invite code 조회도 시작한다.
 
-#199는 집계 endpoint의 before 비용을 독립 측정해야 한다. 따라서 k6 setup은 1~2번 순서를 재현하고, measured iteration은 3번 fan-out 중 dashboard summary 하나만 호출한다. members/duty/prayer/invite 호출은 실제 프론트 동작 근거로 문서화하지만 #199 latency와 DB counter를 오염시키지 않도록 측정 부하에서 제외한다.
+#199는 집계 endpoint의 before 비용을 독립 측정해야 한다. `prepare-runtime-token.mjs`가 1~2번 순서를 재현하고 Access Token을 report/file이 아닌 runner의 shell memory에만 반환한다. 이후 warmup/measured k6 setup은 HTTP 요청 없이 이 토큰을 받아, iteration에서 3번 fan-out 중 dashboard summary 하나만 호출한다. members/duty/prayer/invite 호출은 실제 프론트 동작 근거로 문서화하지만 #199 latency와 DB counter를 오염시키지 않도록 측정 부하에서 제외한다.
 
 ## 입력 manifest와 dataset mode
 
@@ -77,18 +77,20 @@ EXTERNAL_ACTIVITY='none; frontend QA stopped; no deploy or manual DB work' \
 performance/k6/issue-199-admin-dashboard-baseline/run-baseline.sh
 ```
 
-credential과 Access Token은 environment/runtime memory에서만 사용한다. manifest, README, report, git에는 저장하지 않는다.
+credential과 Access Token은 runtime memory에서만 사용한다. login credential은 토큰 발급 직후 runner environment에서 unset하고, 토큰은 각 검증/k6 process에만 전달한 뒤 종료 trap에서 제거한다. manifest, README, report, log, git에는 저장하지 않는다.
 
 runner는 global directory lock `/tmp/faithlog-performance-runner.lock`을 잡고 `empty -> small -> thousand`를 순차 실행한다. 다른 성능 baseline, frontend QA, 수동 부하, 배포, DB 유지보수와 병렬 실행을 금지한다. shared Docker lifecycle의 `up`, `build`, `restart`, `down`, `rm`, prune을 호출하지 않는다.
 
 각 mode는 다음 순서로 분리된다.
 
-1. API exact correctness + campus isolation 사전 검증
-2. DB/analyze/planner-state 사전 evidence
-3. warmup k6
-4. measured 직전 DB evidence와 Docker CPU/RAM snapshot
-5. measured k6
-6. Docker CPU/RAM snapshot, DB evidence, API exact correctness 사후 검증
+1. 프론트 login → users/me·campuses/me 순서 재현 및 runtime-only token 준비
+2. DB machine-readable correctness + API exact correctness/campus isolation + DB context 사전 검증
+3. warmup k6와 failure/request/latency/throughput 채택 게이트
+4. warmup 후 correctness/context 재검증
+5. 마지막 별도 DB pure counter snapshot과 Docker CPU/RAM snapshot
+6. setup traffic 없이 dashboard summary만 measured k6 실행 및 채택 게이트
+7. Docker CPU/RAM snapshot과 첫 DB 작업인 pure counter snapshot
+8. DB/API correctness와 DB context 사후 검증
 
 warmup과 measured 결과는 별도 디렉터리에 둔다. cache reset은 하지 않으므로 첫 observation을 진짜 cold-cache 결과라고 부르지 않는다. environment report는 `cacheResetPerformed=false`, external activity 선언, 실제 Compose label을 함께 남긴다. `last_analyze`, `last_autoanalyze`, `n_mod_since_analyze`, `analyze_count`, `autoanalyze_count`를 전후 비교해 측정 중 planner 통계 상태 변화도 확인한다.
 
@@ -100,18 +102,22 @@ k6 custom metric:
 - `admin_dashboard_requests`: count와 rate를 통한 throughput
 - `admin_dashboard_failure_rate`: HTTP/envelope/정확성 실패율
 
+warmup과 measured 모두 `admin_dashboard_failure_rate == 0`, request count/rate > 0, p50/p95/p99/max 값 존재를 `validate-k6-summary.mjs`로 강제한다. failure rate에는 k6 `rate==0` threshold도 중복 적용한다. 사용자가 승인하지 않은 latency/throughput 품질 threshold는 만들지 않는다.
+
 Docker:
 
 - app/PostgreSQL/Redis의 `docker stats --no-stream` CPU/RAM 전후 snapshot
 
 PostgreSQL read-only evidence:
 
-- `pg_stat_database`: transaction/block/tuple/temp/deadlock counter
-- `pg_stat_user_tables`: scan/live/dead/analyze/autoanalyze counter
-- dashboard 관련 table row count와 exact aggregate evidence
-- OPEN poll별 `poll_response_count`와 aggregate `missing_response_count`
+- `collect-db-counters.sql`: app table을 조회하지 않는 `pg_stat_database`와 `pg_stat_user_tables` pure snapshot. 모든 사전 검증 뒤 마지막 DB invocation과 measured 뒤 첫 DB invocation으로 실행한다.
+- `collect-correctness-evidence.sql`: dashboard 관련 exact aggregate를 한 줄 JSON으로 만들며 pure counter window 밖에서만 실행한다.
+- `validate-db-correctness.mjs`: summary 전체와 OPEN poll별 실제 `pollId/responseCount` 집합을 manifest와 exact 비교하고, DB-derived aggregate `missingResponseCount`도 함께 고정한다.
+- `collect-db-evidence.sql`: row count, analyze/autoanalyze, planner/query context를 pure counter window 밖에서 기록한다.
 - `pg_settings` planner state
 - 설치된 경우 `pg_stat_statements`; 없으면 unavailable 상태를 명시
+
+따라서 pre/post pure DB counter 사이에는 measured dashboard summary 요청만 존재한다. login, users/me, campuses/me, isolation/API correctness, fixture aggregate/context SQL은 모두 pre snapshot 전에 끝나거나 post snapshot 뒤에 시작한다.
 
 ## report 경로
 
@@ -121,15 +127,23 @@ PostgreSQL read-only evidence:
 performance/k6/issue-199-admin-dashboard-baseline/reports/
   <datasetId>/<fixtureRunId>/<mode>/
     environment.json
-    correctness-before.json
-    correctness-after.json
-    pre-warmup-db-evidence.txt
-    pre-measured-db-evidence.txt
-    post-measured-db-evidence.txt
+    api-correctness-before.json
+    api-correctness-pre-measured.json
+    api-correctness-after.json
+    db-correctness-before.json
+    db-correctness-pre-measured.json
+    db-correctness-after.json
+    db-context-before.txt
+    db-context-pre-measured.txt
+    db-context-after.txt
     warmup/summary.json
+    warmup/adoption-gate.json
     warmup/k6.log
     measured/summary.json
+    measured/adoption-gate.json
     measured/k6.log
+    measured/db-counters-before.json
+    measured/db-counters-after.json
     measured/docker-stats-before.jsonl
     measured/docker-stats-after.jsonl
 ```

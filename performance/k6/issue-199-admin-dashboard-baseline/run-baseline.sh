@@ -15,12 +15,14 @@ PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?Set the runtime-only campus manager 
 PERF_DB_USER="${PERF_DB_USER:?Set the runtime-only PostgreSQL user.}"
 PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?Set the runtime-only PostgreSQL password.}"
 PERF_DB_NAME="${PERF_DB_NAME:?Set the runtime-only PostgreSQL database.}"
+export -n PERF_DB_USER PERF_DB_PASSWORD PERF_DB_NAME
 APP_CONTAINER="${APP_CONTAINER:-faithlog-latest-app}"
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-faithlog-latest-postgres}"
 REDIS_CONTAINER="${REDIS_CONTAINER:-faithlog-latest-redis}"
 CONTAINER_ALIAS="${CONTAINER_ALIAS:-faithlog-latest}"
 LOCK_DIR="/tmp/faithlog-performance-runner.lock"
 REPORT_ROOT="$ISSUE_ROOT/reports"
+RUNTIME_ACCESS_TOKEN=""
 
 for command_name in node k6 docker; do
 	command -v "$command_name" >/dev/null || {
@@ -33,7 +35,12 @@ if ! mkdir "$LOCK_DIR"; then
 	echo "Another performance, frontend QA, or load run may be active: $LOCK_DIR" >&2
 	exit 1
 fi
-trap 'rmdir "$LOCK_DIR"' EXIT
+cleanup() {
+	RUNTIME_ACCESS_TOKEN=""
+	unset RUNTIME_ACCESS_TOKEN PERF_ACCESS_TOKEN PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD
+	rmdir "$LOCK_DIR"
+}
+trap cleanup EXIT
 
 case "$BASE_URL" in
 	http://127.0.0.1:*|http://localhost:*|http://host.docker.internal:*) ;;
@@ -46,6 +53,20 @@ esac
 for container in "$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER"; do
 	docker inspect "$container" >/dev/null
 done
+
+RUNTIME_ACCESS_TOKEN="$(
+	INPUT_MANIFEST="$INPUT_MANIFEST" \
+	DATASET_MODES="$DATASET_MODES" \
+	BASE_URL="$BASE_URL" \
+	PERF_ADMIN_EMAIL="$PERF_ADMIN_EMAIL" \
+	PERF_ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD" \
+	node "$ISSUE_ROOT/prepare-runtime-token.mjs"
+)"
+if [[ -z "$RUNTIME_ACCESS_TOKEN" ]]; then
+	echo "Runtime access token preparation returned an empty value." >&2
+	exit 1
+fi
+unset PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD
 
 manifest_value() {
 	local mode="$1"
@@ -119,7 +140,8 @@ record_environment() {
 collect_db_evidence() {
 	local campus_id="$1"
 	local week_start_date="$2"
-	local output_file="$3"
+	local sql_file="$3"
+	local output_file="$4"
 	docker exec -i \
 		-e PGPASSWORD="$PERF_DB_PASSWORD" \
 		"$POSTGRES_CONTAINER" \
@@ -128,7 +150,51 @@ collect_db_evidence() {
 		-d "$PERF_DB_NAME" \
 		-v campus_id="$campus_id" \
 		-v week_start_date="$week_start_date" \
-		-f - < "$ISSUE_ROOT/collect-db-evidence.sql" > "$output_file"
+		-f - < "$sql_file" > "$output_file"
+}
+
+collect_db_machine_evidence() {
+	local campus_id="$1"
+	local week_start_date="$2"
+	local sql_file="$3"
+	local output_file="$4"
+	docker exec -i \
+		-e PGPASSWORD="$PERF_DB_PASSWORD" \
+		"$POSTGRES_CONTAINER" \
+		psql -X -qAt -v ON_ERROR_STOP=1 \
+		-U "$PERF_DB_USER" \
+		-d "$PERF_DB_NAME" \
+		-v campus_id="$campus_id" \
+		-v week_start_date="$week_start_date" \
+		-f - < "$sql_file" > "$output_file"
+}
+
+collect_db_context() {
+	collect_db_evidence "$1" "$2" "$ISSUE_ROOT/collect-db-evidence.sql" "$3"
+}
+
+collect_db_correctness() {
+	collect_db_machine_evidence "$1" "$2" "$ISSUE_ROOT/collect-correctness-evidence.sql" "$3"
+}
+
+collect_db_counters() {
+	collect_db_machine_evidence "$1" "$2" "$ISSUE_ROOT/collect-db-counters.sql" "$3"
+}
+
+validate_db_correctness() {
+	local mode="$1"
+	local evidence_file="$2"
+	node "$ISSUE_ROOT/validate-db-correctness.mjs" "$INPUT_MANIFEST" "$mode" "$evidence_file" >/dev/null
+}
+
+verify_api_correctness() {
+	local mode="$1"
+	local output_file="$2"
+	INPUT_MANIFEST="$INPUT_MANIFEST" \
+	BASE_URL="$BASE_URL" \
+	PERF_ACCESS_TOKEN="$RUNTIME_ACCESS_TOKEN" \
+	DATASET_MODE="$mode" \
+	node "$ISSUE_ROOT/verify-summary.mjs" > "$output_file"
 }
 
 run_k6_phase() {
@@ -142,8 +208,7 @@ run_k6_phase() {
 	DATASET_MODE="$mode" \
 	INPUT_MANIFEST="$INPUT_MANIFEST" \
 	BASE_URL="$BASE_URL" \
-	PERF_ADMIN_EMAIL="$PERF_ADMIN_EMAIL" \
-	PERF_ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD" \
+	PERF_ACCESS_TOKEN="$RUNTIME_ACCESS_TOKEN" \
 	VUS="$vus" \
 	DURATION="$duration" \
 	k6 run \
@@ -172,29 +237,32 @@ for raw_mode in "${modes[@]}"; do
 	mkdir -p "$mode_report_dir/warmup" "$mode_report_dir/measured"
 
 	record_environment "$mode_report_dir" "$dataset_id" "$fixture_run_id" "$mode"
-	INPUT_MANIFEST="$INPUT_MANIFEST" \
-	BASE_URL="$BASE_URL" \
-	PERF_ADMIN_EMAIL="$PERF_ADMIN_EMAIL" \
-	PERF_ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD" \
-	DATASET_MODE="$mode" \
-	node "$ISSUE_ROOT/verify-summary.mjs" > "$mode_report_dir/correctness-before.json"
-	collect_db_evidence "$campus_id" "$week_start_date" "$mode_report_dir/pre-warmup-db-evidence.txt"
+	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-before.json"
+	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-before.json"
+	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-before.json"
+	collect_db_context "$campus_id" "$week_start_date" "$mode_report_dir/db-context-before.txt"
 
 	PHASE=warmup run_k6_phase warmup "$mode" "$WARMUP_VUS" "$WARMUP_DURATION" "$mode_report_dir/warmup"
 	test -f "$mode_report_dir/warmup/summary.json"
-	collect_db_evidence "$campus_id" "$week_start_date" "$mode_report_dir/pre-measured-db-evidence.txt"
+	node "$ISSUE_ROOT/validate-k6-summary.mjs" "$mode_report_dir/warmup/summary.json" \
+		> "$mode_report_dir/warmup/adoption-gate.json"
+	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-pre-measured.json"
+	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-pre-measured.json"
+	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-pre-measured.json"
+	collect_db_context "$campus_id" "$week_start_date" "$mode_report_dir/db-context-pre-measured.txt"
+	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-before.json"
 	docker stats --no-stream --format '{{json .}}' \
 		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$mode_report_dir/measured/docker-stats-before.jsonl"
 
 	PHASE=measured run_k6_phase measured "$mode" "$MEASURED_VUS" "$MEASURED_DURATION" "$mode_report_dir/measured"
 	test -f "$mode_report_dir/measured/summary.json"
+	node "$ISSUE_ROOT/validate-k6-summary.mjs" "$mode_report_dir/measured/summary.json" \
+		> "$mode_report_dir/measured/adoption-gate.json"
 	docker stats --no-stream --format '{{json .}}' \
 		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$mode_report_dir/measured/docker-stats-after.jsonl"
-	collect_db_evidence "$campus_id" "$week_start_date" "$mode_report_dir/post-measured-db-evidence.txt"
-	INPUT_MANIFEST="$INPUT_MANIFEST" \
-	BASE_URL="$BASE_URL" \
-	PERF_ADMIN_EMAIL="$PERF_ADMIN_EMAIL" \
-	PERF_ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD" \
-	DATASET_MODE="$mode" \
-	node "$ISSUE_ROOT/verify-summary.mjs" > "$mode_report_dir/correctness-after.json"
+	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-after.json"
+	collect_db_context "$campus_id" "$week_start_date" "$mode_report_dir/db-context-after.txt"
+	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-after.json"
+	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-after.json"
+	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-after.json"
 done

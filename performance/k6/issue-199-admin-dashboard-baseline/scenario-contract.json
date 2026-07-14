@@ -38,7 +38,7 @@
       "prayer weekly board",
       "campus detail for invite code"
     ],
-    "measurementIsolation": "Only dashboard summary is measured; sibling requests are documented but excluded from Issue #199 latency."
+    "measurementIsolation": "Runtime token bootstrap completes before the pure DB counter snapshot. Measured k6 setup performs no HTTP, and only dashboard summary is measured."
   },
   "dataset": {
     "modes": [
@@ -69,6 +69,13 @@
     "throughput",
     "failureRate"
   ],
+  "adoptionGate": {
+    "warmupAndMeasuredFailureRate": 0,
+    "requestCountMustBePositive": true,
+    "throughputMustExistAndBePositive": true,
+    "requiredLatencyStatistics": ["p50", "p95", "p99", "max"],
+    "latencyThreshold": "not-user-approved"
+  },
   "correctness": [
     "member active/inactive/admin counts",
     "devotion submitted/missing/rate",
@@ -80,8 +87,9 @@
   "evidence": [
     "warmup and measured k6 summaries",
     "Docker CPU and RAM snapshots",
-    "pg_stat_database counters",
-    "pg_stat_user_tables analyze/autoanalyze counters",
+    "pure pre/post pg_stat_database and pg_stat_user_tables counter snapshots",
+    "machine-readable DB correctness with exact per-OPEN-poll response counts",
+    "out-of-window analyze/autoanalyze and fixture context",
     "optional pg_stat_statements query evidence",
     "planner settings",
     "external activity declaration",
