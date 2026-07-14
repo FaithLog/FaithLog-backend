@@ -6,12 +6,12 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.type.ChargeGenerationType;
 import com.faithlog.poll.domain.type.PollType;
 
-final class CoffeeOperationClassifier {
+public final class CoffeeOperationClassifier {
 
 	private CoffeeOperationClassifier() {
 	}
 
-	static boolean isCoffeeOperation(
+	public static boolean isCoffeeOperation(
 		PollType pollType,
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory
@@ -21,7 +21,7 @@ final class CoffeeOperationClassifier {
 			|| paymentCategory == PaymentCategory.COFFEE;
 	}
 
-	static void requireConsistentConfiguration(
+	public static void requireConsistentConfiguration(
 		PollType pollType,
 		ChargeGenerationType chargeGenerationType,
 		PaymentCategory paymentCategory

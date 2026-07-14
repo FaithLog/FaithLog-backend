@@ -34,7 +34,8 @@ public class PollTemplateQueryService {
 		}
 		return pollTemplateRepository.findByCampusIdAndIsActiveTrueOrderByIdAsc(campusId)
 			.stream()
-			.filter(template -> manager || template.pollType() == com.faithlog.poll.domain.type.PollType.COFFEE)
+			.filter(template -> manager || CoffeeOperationClassifier.isCoffeeOperation(
+				template.pollType(), template.chargeGenerationType(), template.paymentCategory()))
 			.map(this::toResult)
 			.toList();
 	}
@@ -49,7 +50,8 @@ public class PollTemplateQueryService {
 		if (pollAccessService.hasAdminVisibility(campusId, requesterId)) {
 			return toResult(template);
 		}
-		if (template.pollType() != com.faithlog.poll.domain.type.PollType.COFFEE) {
+		if (!CoffeeOperationClassifier.isCoffeeOperation(
+			template.pollType(), template.chargeGenerationType(), template.paymentCategory())) {
 			throw new BusinessException(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
 		}
 		pollAccessService.requireCoffeeTemplateManager(campusId, requesterId);

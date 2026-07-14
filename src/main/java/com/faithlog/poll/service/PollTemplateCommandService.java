@@ -75,7 +75,7 @@ public class PollTemplateCommandService {
 		requirePersistedTemplateManageAccess(
 			command.campusId(),
 			command.requesterId(),
-			template.pollType()
+			template
 		);
 		requireTemplateManageAccess(
 			command.campusId(), command.requesterId(), template.pollType(),
@@ -109,7 +109,8 @@ public class PollTemplateCommandService {
 		PollTemplate template = pollTemplateRepository.findById(templateId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND));
 		requireSameCampusScope(template, campusId);
-		if (template.pollType() == PollType.COFFEE) {
+		if (CoffeeOperationClassifier.isCoffeeOperation(
+			template.pollType(), template.chargeGenerationType(), template.paymentCategory())) {
 			pollAccessService.requireCoffeeTemplateManagerForUpdate(campusId, requesterId);
 		} else {
 			pollAccessService.requireTemplateManager(campusId, requesterId);
@@ -147,9 +148,10 @@ public class PollTemplateCommandService {
 	private void requirePersistedTemplateManageAccess(
 		Long campusId,
 		Long requesterId,
-		PollType persistedPollType
+		PollTemplate template
 	) {
-		if (persistedPollType == PollType.COFFEE) {
+		if (CoffeeOperationClassifier.isCoffeeOperation(
+			template.pollType(), template.chargeGenerationType(), template.paymentCategory())) {
 			pollAccessService.requireCoffeeTemplateManagerForUpdate(campusId, requesterId);
 			return;
 		}
