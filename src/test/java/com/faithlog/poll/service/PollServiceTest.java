@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -82,6 +83,12 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
@@ -130,13 +137,13 @@ class PollServiceTest {
 	@Autowired
 	private CoffeeBrandRepository coffeeBrandRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private CoffeeMenuCatalogRepository coffeeMenuCatalogRepository;
 
 	@Autowired
 	private PollTemplateRepository pollTemplateRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private PollTemplateOptionRepository pollTemplateOptionRepository;
 
 	@Autowired
@@ -433,6 +440,106 @@ class PollServiceTest {
 		));
 
 		assertThat(poll.paymentAccountId()).isEqualTo(accountId);
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void shared_coffee_template_updates_by_different_duties_are_serialized_on_the_template() throws Exception {
+		SharedTemplateFixture fixture = createSharedTemplateFixture("concurrent-update");
+		Long menuId = menuId("AMERICANO_HOT");
+		CountDownLatch firstUpdatePaused = new CountDownLatch(1);
+		CountDownLatch allowFirstUpdate = new CountDownLatch(1);
+		pauseMenuLookup("template-update-a", menuId, firstUpdatePaused, allowFirstUpdate);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> firstUpdate = executor.submit(() -> {
+				Thread.currentThread().setName("template-update-a");
+				updateCoffeeTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.firstDutyId(), fixture.firstAccountId());
+			});
+			assertThat(firstUpdatePaused.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> secondUpdate = executor.submit(() -> {
+				Thread.currentThread().setName("template-update-b");
+				updateCoffeeTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.secondDutyId(), fixture.secondAccountId());
+			});
+
+			assertThatThrownBy(() -> secondUpdate.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowFirstUpdate.countDown();
+			firstUpdate.get(5, TimeUnit.SECONDS);
+			secondUpdate.get(5, TimeUnit.SECONDS);
+		} finally {
+			allowFirstUpdate.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void shared_coffee_template_update_and_deactivate_are_serialized_on_the_template() throws Exception {
+		SharedTemplateFixture fixture = createSharedTemplateFixture("update-deactivate");
+		Long menuId = menuId("AMERICANO_HOT");
+		CountDownLatch updatePaused = new CountDownLatch(1);
+		CountDownLatch allowUpdate = new CountDownLatch(1);
+		pauseMenuLookup("template-update", menuId, updatePaused, allowUpdate);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> update = executor.submit(() -> {
+				Thread.currentThread().setName("template-update");
+				updateCoffeeTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.firstDutyId(), fixture.firstAccountId());
+			});
+			assertThat(updatePaused.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> deactivate = executor.submit(() -> {
+				Thread.currentThread().setName("template-deactivate");
+				pollTemplateService.deactivateTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.secondDutyId());
+			});
+
+			assertThatThrownBy(() -> deactivate.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowUpdate.countDown();
+			update.get(5, TimeUnit.SECONDS);
+			deactivate.get(5, TimeUnit.SECONDS);
+		} finally {
+			allowUpdate.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void shared_coffee_template_create_and_update_are_serialized_on_the_template() throws Exception {
+		SharedTemplateFixture fixture = createSharedTemplateFixture("create-update");
+		CountDownLatch createPaused = new CountDownLatch(1);
+		CountDownLatch allowCreate = new CountDownLatch(1);
+		pauseTemplateOptionLookup("template-create", fixture.templateId(), createPaused, allowCreate);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> create = executor.submit(() -> {
+				Thread.currentThread().setName("template-create");
+				pollService.createPoll(new CreatePollCommand(
+					fixture.campusId(), fixture.firstDutyId(), fixture.templateId(), "공유 템플릿 생성",
+					null, null, false, null, null, fixture.firstAccountId(),
+					Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600), List.of()));
+			});
+			assertThat(createPaused.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> update = executor.submit(() -> {
+				Thread.currentThread().setName("template-update-during-create");
+				updateCoffeeTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.secondDutyId(), fixture.secondAccountId());
+			});
+
+			assertThatThrownBy(() -> update.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowCreate.countDown();
+			create.get(5, TimeUnit.SECONDS);
+			update.get(5, TimeUnit.SECONDS);
+		} finally {
+			allowCreate.countDown();
+			executor.shutdownNow();
+		}
 	}
 
 	@Test
@@ -2612,6 +2719,66 @@ class PollServiceTest {
 			template.id(), "아이스 아메리카노", "AMERICANO_ICE", 1800, 1
 		));
 		return template;
+	}
+
+	private SharedTemplateFixture createSharedTemplateFixture(String suffix) {
+		User manager = saveUser("poll-200-template-" + suffix + "-manager@example.com", UserRole.MANAGER);
+		User firstDuty = saveUser("poll-200-template-" + suffix + "-first@example.com", UserRole.USER);
+		User secondDuty = saveUser("poll-200-template-" + suffix + "-second@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200공유템플릿" + suffix + "캠");
+		joinCampus(campus, firstDuty);
+		joinCampus(campus, secondDuty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), firstDuty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), secondDuty.id()));
+		Long firstAccountId = createCoffeeAccount(campus.campusId(), firstDuty.id(), firstDuty.id());
+		Long secondAccountId = createCoffeeAccount(campus.campusId(), secondDuty.id(), secondDuty.id());
+		PollTemplate template = saveAccountNeutralCoffeeTemplate(campus.campusId(), "공유 동시성 템플릿");
+		return new SharedTemplateFixture(
+			campus.campusId(), template.id(), firstDuty.id(), secondDuty.id(), firstAccountId, secondAccountId);
+	}
+
+	private void pauseMenuLookup(
+		String threadName,
+		Long menuId,
+		CountDownLatch paused,
+		CountDownLatch proceed
+	) {
+		doAnswer(invocation -> {
+			if (Thread.currentThread().getName().equals(threadName)) {
+				paused.countDown();
+				if (!proceed.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("Timed out while coordinating template update.");
+				}
+			}
+			return invocation.callRealMethod();
+		}).when(coffeeMenuCatalogRepository).findById(menuId);
+	}
+
+	private void pauseTemplateOptionLookup(
+		String threadName,
+		Long templateId,
+		CountDownLatch paused,
+		CountDownLatch proceed
+	) {
+		doAnswer(invocation -> {
+			if (Thread.currentThread().getName().equals(threadName)) {
+				paused.countDown();
+				if (!proceed.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("Timed out while coordinating template create.");
+				}
+			}
+			return invocation.callRealMethod();
+		}).when(pollTemplateOptionRepository).findByTemplateIdOrderBySortOrderAsc(templateId);
+	}
+
+	private record SharedTemplateFixture(
+		Long campusId,
+		Long templateId,
+		Long firstDutyId,
+		Long secondDutyId,
+		Long firstAccountId,
+		Long secondAccountId
+	) {
 	}
 
 	private void assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(
