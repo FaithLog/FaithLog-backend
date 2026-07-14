@@ -13,6 +13,7 @@ import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.domain.type.ChargeGenerationType;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.poll.domain.entity.Poll;
+import com.faithlog.poll.infrastructure.repository.PollRepository;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -106,6 +107,17 @@ class PollAccessService {
 	void requireCoffeePollOwnerForUpdate(Long campusId, Long requesterId, Poll poll) {
 		requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
 		if (!requesterId.equals(poll.createdBy())) {
+			throw new BusinessException(ErrorCode.POLL_ADMIN_FORBIDDEN);
+		}
+	}
+
+	void requireCoffeePollOwnerForUpdate(
+		Long campusId,
+		Long requesterId,
+		PollRepository.PollLockScope poll
+	) {
+		requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
+		if (!requesterId.equals(poll.getCreatedBy())) {
 			throw new BusinessException(ErrorCode.POLL_ADMIN_FORBIDDEN);
 		}
 	}

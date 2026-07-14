@@ -3,6 +3,8 @@ package com.faithlog.poll.infrastructure.repository;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.type.PollType;
+import com.faithlog.poll.domain.type.ChargeGenerationType;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +41,18 @@ public interface PollRepository extends JpaRepository<Poll, Long> {
 
 	Optional<Poll> findByIdAndCampusId(Long id, Long campusId);
 
+	@Query("""
+		select poll.campusId as campusId,
+			poll.createdBy as createdBy,
+			poll.pollType as pollType,
+			poll.status as status,
+			poll.chargeGenerationType as chargeGenerationType,
+			poll.paymentCategory as paymentCategory
+		from Poll poll
+		where poll.id = :id
+		""")
+	Optional<PollLockScope> findLockScopeById(@Param("id") Long id);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select poll from Poll poll where poll.id = :id and poll.campusId = :campusId")
 	Optional<Poll> findByIdAndCampusIdForUpdate(@Param("id") Long id, @Param("campusId") Long campusId);
@@ -68,4 +82,19 @@ public interface PollRepository extends JpaRepository<Poll, Long> {
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("delete from Poll poll where poll.id in :pollIds")
 	int deleteByIdIn(@Param("pollIds") List<Long> pollIds);
+
+	interface PollLockScope {
+
+		Long getCampusId();
+
+		Long getCreatedBy();
+
+		PollType getPollType();
+
+		PollStatus getStatus();
+
+		ChargeGenerationType getChargeGenerationType();
+
+		PaymentCategory getPaymentCategory();
+	}
 }

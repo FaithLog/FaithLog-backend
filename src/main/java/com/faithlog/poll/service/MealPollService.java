@@ -49,7 +49,7 @@ public class MealPollService {
 
 	@Transactional
 	public PollResult create(CreateMealPollCommand command) {
-		mealDutyAccessService.requireActiveMealDuty(command.campusId(), command.requesterId());
+		mealDutyAccessService.requireActiveMealDutyForUpdate(command.campusId(), command.requesterId());
 		validateCreateCommand(command);
 		Instant now = clock.instant();
 		if (!command.endsAt().isAfter(now)) {
@@ -73,7 +73,7 @@ public class MealPollService {
 
 	@Transactional
 	public PollResult close(Long campusId, Long pollId, Long requesterId) {
-		mealDutyAccessService.requireActiveMealDuty(campusId, requesterId);
+		mealDutyAccessService.requireActiveMealDutyForUpdate(campusId, requesterId);
 		Poll poll = findMealPollForUpdate(campusId, pollId);
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);

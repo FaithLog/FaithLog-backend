@@ -32,7 +32,7 @@ public class MealPaymentAccountService {
 
 	@Transactional
 	public PaymentAccountResult create(CreateMealPaymentAccountCommand command) {
-		mealDutyAccessService.requireActiveMealDuty(command.campusId(), command.requesterId());
+		mealDutyAccessService.requireActiveMealDutyForUpdate(command.campusId(), command.requesterId());
 		campusRepository.findByIdForUpdate(command.campusId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 		paymentAccountRepository.findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNull(
@@ -55,7 +55,7 @@ public class MealPaymentAccountService {
 
 	@Transactional(readOnly = true)
 	public List<PaymentAccountResult> listMine(Long campusId, Long requesterId, boolean includeInactive) {
-		mealDutyAccessService.requireActiveMealDuty(campusId, requesterId);
+		mealDutyAccessService.requireActiveMealDutyForUpdate(campusId, requesterId);
 		List<PaymentAccount> accounts = includeInactive
 			? paymentAccountRepository.findByCampusIdAndOwnerUserIdAndAccountTypeAndDeletedAtIsNullOrderByIdAsc(
 				campusId, requesterId, PaymentCategory.MEAL)

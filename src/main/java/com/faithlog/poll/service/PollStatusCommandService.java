@@ -5,6 +5,7 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.type.PollType;
+import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.service.result.PollResult;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
@@ -32,15 +33,16 @@ public class PollStatusCommandService {
 
 	@Transactional
 	public PollResult closePoll(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupSupport.getPollInCampusForUpdate(campusId, pollId);
-		if (poll.pollType() == PollType.MEAL) {
+		PollRepository.PollLockScope pollSnapshot = pollLookupSupport.getPollLockScopeInCampus(campusId, pollId);
+		if (pollSnapshot.getPollType() == PollType.MEAL) {
 			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
 		}
-		if (poll.pollType() == PollType.COFFEE) {
-			pollAccessService.requireCoffeePollOwner(campusId, requesterId, poll);
+		if (pollSnapshot.getPollType() == PollType.COFFEE) {
+			pollAccessService.requireCoffeePollOwnerForUpdate(campusId, requesterId, pollSnapshot);
 		} else {
-			pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
+			pollAccessService.requirePollAdmin(campusId, requesterId, pollSnapshot.getPollType());
 		}
+		Poll poll = pollLookupSupport.getPollInCampusForUpdate(campusId, pollId);
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}

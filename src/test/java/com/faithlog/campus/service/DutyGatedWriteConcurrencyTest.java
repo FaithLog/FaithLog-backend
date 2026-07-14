@@ -24,6 +24,13 @@ import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
+import com.faithlog.batch.service.DueCoffeePollClosureService;
+import com.faithlog.poll.domain.entity.Poll;
+import com.faithlog.poll.domain.type.ChargeGenerationType;
+import com.faithlog.poll.domain.type.PollType;
+import com.faithlog.poll.domain.type.SelectionType;
+import com.faithlog.poll.infrastructure.repository.PollRepository;
+import com.faithlog.poll.service.PollStatusCommandService;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
@@ -33,6 +40,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.time.Instant;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +75,18 @@ class DutyGatedWriteConcurrencyTest {
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
 
+	@Autowired
+	private PollRepository pollRepository;
+
+	@Autowired
+	private PollStatusCommandService pollStatusCommandService;
+
+	@Autowired
+	private DueCoffeePollClosureService dueCoffeePollClosureService;
+
+	@Autowired
+	private EntityManager entityManager;
+
 	@Test
 	void coffee_account_create_holds_duty_lock_until_commit_before_revoke() throws Exception {
 		User manager = saveUser("duty-write-account-manager@example.com", UserRole.MANAGER);
@@ -84,7 +106,10 @@ class DutyGatedWriteConcurrencyTest {
 					"200-WRITE-ACCOUNT", "담당자", manager.id()
 				));
 			});
-			assertThat(dutyChecked.await(5, TimeUnit.SECONDS)).isTrue();
+			if (!dutyChecked.await(5, TimeUnit.SECONDS)) {
+				writer.get(1, TimeUnit.SECONDS);
+				throw new AssertionError("담당 잠금 조회가 실행되지 않았습니다.");
+			}
 			Future<?> revoke = executor.submit(() -> {
 				Thread.currentThread().setName("duty-revoke");
 				campusService.revokeCoffeeDuty(campus.campusId(), assignment.assignmentId(), manager.id());
@@ -136,7 +161,10 @@ class DutyGatedWriteConcurrencyTest {
 					charge.id(), manager.id(), ChargeStatus.UNPAID
 				));
 			});
-			assertThat(dutyChecked.await(5, TimeUnit.SECONDS)).isTrue();
+			if (!dutyChecked.await(5, TimeUnit.SECONDS)) {
+				writer.get(1, TimeUnit.SECONDS);
+				throw new AssertionError("담당 잠금 조회가 실행되지 않았습니다.");
+			}
 			Future<?> revoke = executor.submit(() -> {
 				Thread.currentThread().setName("duty-revoke");
 				campusService.revokeCoffeeDuty(campus.campusId(), assignment.assignmentId(), manager.id());
@@ -160,6 +188,49 @@ class DutyGatedWriteConcurrencyTest {
 		}
 	}
 
+	@Test
+	void manual_and_due_coffee_close_serialize_on_duty_before_poll() throws Exception {
+		User manager = saveUser("duty-close-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "200마감잠금동시성캠");
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "마감 계좌", "하나은행", "200-CLOSE-ACCOUNT",
+			"담당자", manager.id()
+		));
+		Instant now = Instant.now();
+		Poll poll = Poll.create(
+			campus.campusId(), null, "동시 마감 투표", PollType.COFFEE, SelectionType.SINGLE, false, true,
+			ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, account.id(),
+			now.minusSeconds(3600), now.minusSeconds(60), manager.id()
+		);
+		poll.open();
+		pollRepository.saveAndFlush(poll);
+		CountDownLatch dutyChecked = new CountDownLatch(1);
+		CountDownLatch allowManualClose = new CountDownLatch(1);
+		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), dutyChecked, allowManualClose);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> manualClose = executor.submit(() -> {
+				Thread.currentThread().setName("duty-writer");
+				pollStatusCommandService.closePoll(campus.campusId(), poll.id(), manager.id());
+			});
+			assertThat(dutyChecked.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<Integer> dueClose = executor.submit(() -> {
+				Thread.currentThread().setName("due-closer");
+				return dueCoffeePollClosureService.closeDueCoffeePolls(now);
+			});
+
+			assertThatThrownBy(() -> dueClose.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowManualClose.countDown();
+			manualClose.get(5, TimeUnit.SECONDS);
+			assertThat(dueClose.get(5, TimeUnit.SECONDS)).isZero();
+		} finally {
+			allowManualClose.countDown();
+			executor.shutdownNow();
+		}
+	}
+
 	private void pauseWriterAfterDutyLookup(
 		Long campusId,
 		Long userId,
@@ -167,7 +238,20 @@ class DutyGatedWriteConcurrencyTest {
 		CountDownLatch allowWrite
 	) {
 		Answer<Object> answer = invocation -> {
-			Object result = invocation.callRealMethod();
+			Object result = entityManager.createQuery("""
+				select assignment
+				from CampusDutyAssignment assignment
+				where assignment.campusId = :campusId
+					and assignment.dutyType = :dutyType
+					and assignment.userId = :userId
+					and assignment.isActive = true
+				""", CampusDutyAssignment.class)
+				.setParameter("campusId", campusId)
+				.setParameter("dutyType", DutyType.COFFEE)
+				.setParameter("userId", userId)
+				.setLockMode(LockModeType.PESSIMISTIC_WRITE)
+				.getResultStream()
+				.findFirst();
 			if (Thread.currentThread().getName().equals("duty-writer")) {
 				dutyChecked.countDown();
 				if (!allowWrite.await(5, TimeUnit.SECONDS)) {
@@ -176,8 +260,6 @@ class DutyGatedWriteConcurrencyTest {
 			}
 			return result;
 		};
-		doAnswer(answer).when(dutyAssignmentRepository)
-			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId);
 		doAnswer(answer).when(dutyAssignmentRepository)
 			.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(campusId, DutyType.COFFEE, userId);
 	}

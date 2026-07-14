@@ -7,6 +7,10 @@ import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.service.CoffeePollSettlementCommandService;
+import com.faithlog.campus.domain.type.DutyType;
+import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
+import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -19,17 +23,20 @@ public class DueCoffeePollClosureService {
 	private final PollRepository pollRepository;
 	private final CoffeePollSettlementCommandService coffeePollSettlementCommandService;
 	private final NotificationLockService notificationLockService;
+	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 	private final TransactionTemplate transactionTemplate;
 
 	public DueCoffeePollClosureService(
 		PollRepository pollRepository,
 		CoffeePollSettlementCommandService coffeePollSettlementCommandService,
 		NotificationLockService notificationLockService,
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
 		PlatformTransactionManager transactionManager
 	) {
 		this.pollRepository = pollRepository;
 		this.coffeePollSettlementCommandService = coffeePollSettlementCommandService;
 		this.notificationLockService = notificationLockService;
+		this.dutyAssignmentRepository = dutyAssignmentRepository;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
@@ -49,17 +56,20 @@ public class DueCoffeePollClosureService {
 	}
 
 	private boolean closeCoffeePoll(Long pollId) {
-		Poll lockScope = pollRepository.findById(pollId).orElseThrow();
+		PollRepository.PollLockScope lockScope = pollRepository.findLockScopeById(pollId).orElseThrow();
 		NotificationLockKey lockKey = new NotificationLockKey(
 			"coffee-poll-close",
-			lockScope.campusId(),
-			"poll:" + lockScope.id()
+			lockScope.getCampusId(),
+			"poll:" + pollId
 		);
 		return notificationLockService.acquireScheduledLock(lockKey)
 			.map(lease -> {
 				try {
 					return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
-						Poll poll = pollRepository.findById(pollId).orElseThrow();
+						dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+							lockScope.getCampusId(), DutyType.COFFEE, lockScope.getCreatedBy()
+						).orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+						Poll poll = pollRepository.findByIdAndCampusIdForUpdate(pollId, lockScope.getCampusId()).orElseThrow();
 						if (poll.status() != PollStatus.OPEN) {
 							return false;
 						}

@@ -83,6 +83,7 @@ public class PaymentAccountCommandService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
 		requirePaymentAccountManager(account.campusId(), requesterId, account.accountType());
+		account = lockCoffeeAccountIfNeeded(account);
 
 		account.deactivate();
 		return PaymentAccountResult.from(account);
@@ -117,6 +118,7 @@ public class PaymentAccountCommandService {
 		PaymentAccount account = findPaymentAccountInCampus(campusId, paymentAccountId);
 		requireCoffeeAccountOwnerIfNeeded(account, requesterId);
 		requirePaymentAccountManager(campusId, requesterId, account.accountType());
+		account = lockCoffeeAccountIfNeeded(account);
 		if (account.isActive()) {
 			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_ACTIVE_DELETE_FORBIDDEN);
 		}
@@ -185,7 +187,7 @@ public class PaymentAccountCommandService {
 			campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 				.filter(CampusMember::isActive)
 				.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN));
-			if (!isActiveCoffeeDuty(campusId, requester.userId())) {
+			if (!requireActiveCoffeeDutyForUpdate(campusId, requester.userId())) {
 				throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN);
 			}
 			return;
@@ -199,10 +201,18 @@ public class PaymentAccountCommandService {
 		BillingAccessPolicy.requirePaymentAccountManager(requesterMembership);
 	}
 
-	private boolean isActiveCoffeeDuty(Long campusId, Long userId) {
+	private boolean requireActiveCoffeeDutyForUpdate(Long campusId, Long userId) {
 		return dutyAssignmentRepository
-			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId)
+			.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(campusId, DutyType.COFFEE, userId)
 			.isPresent();
+	}
+
+	private PaymentAccount lockCoffeeAccountIfNeeded(PaymentAccount account) {
+		if (account.accountType() != PaymentCategory.COFFEE) {
+			return account;
+		}
+		return paymentAccountRepository.findByIdForUpdate(account.id())
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 	}
 
 	private CampusUserLookupResult getActiveUser(Long userId) {

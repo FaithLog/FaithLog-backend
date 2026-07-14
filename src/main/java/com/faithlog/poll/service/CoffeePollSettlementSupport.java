@@ -53,21 +53,29 @@ class CoffeePollSettlementSupport {
 	}
 
 	SettlementContext prepare(Long campusId, Long pollId) {
-		Poll poll = pollRepository.findById(pollId)
+		PollRepository.PollLockScope scope = pollRepository.findLockScopeById(pollId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
-		if (!poll.campusId().equals(campusId)) {
+		if (!scope.getCampusId().equals(campusId)) {
 			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
 		}
+		if (scope.getStatus() != PollStatus.CLOSED) {
+			throw new BusinessException(ErrorCode.POLL_SETTLEMENT_NOT_CLOSED);
+		}
+		if (!isCoffeeSettlementTarget(scope)) {
+			return null;
+		}
+
+		dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campusId, DutyType.COFFEE, scope.getCreatedBy())
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+		Poll poll = pollRepository.findByIdAndCampusIdForUpdate(pollId, campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
 		if (poll.status() != PollStatus.CLOSED) {
 			throw new BusinessException(ErrorCode.POLL_SETTLEMENT_NOT_CLOSED);
 		}
 		if (!isCoffeeSettlementTarget(poll)) {
 			return null;
 		}
-
-		dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
-			campusId, DutyType.COFFEE, poll.createdBy())
-			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
 		if (poll.paymentAccountId() == null) {
 			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
 		}
@@ -109,6 +117,12 @@ class CoffeePollSettlementSupport {
 		return poll.pollType() == PollType.COFFEE
 			&& poll.chargeGenerationType() == ChargeGenerationType.OPTION_PRICE
 			&& poll.paymentCategory() == PaymentCategory.COFFEE;
+	}
+
+	private boolean isCoffeeSettlementTarget(PollRepository.PollLockScope poll) {
+		return poll.getPollType() == PollType.COFFEE
+			&& poll.getChargeGenerationType() == ChargeGenerationType.OPTION_PRICE
+			&& poll.getPaymentCategory() == PaymentCategory.COFFEE;
 	}
 
 	private Map<Long, PollOption> optionsById(Long pollId) {

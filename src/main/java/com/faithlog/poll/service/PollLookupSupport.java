@@ -45,6 +45,15 @@ class PollLookupSupport {
 		return poll;
 	}
 
+	PollRepository.PollLockScope getPollLockScopeInCampus(Long campusId, Long pollId) {
+		PollRepository.PollLockScope scope = pollRepository.findLockScopeById(pollId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
+		if (!scope.getCampusId().equals(campusId)) {
+			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
+		}
+		return scope;
+	}
+
 	Poll getPollInCampusForUpdate(Long campusId, Long pollId) {
 		return pollRepository.findByIdAndCampusIdForUpdate(pollId, campusId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));

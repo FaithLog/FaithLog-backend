@@ -6,8 +6,16 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 public interface PaymentAccountRepository extends JpaRepository<PaymentAccount, Long>, PaymentAccountRepositoryPort {
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select account from PaymentAccount account where account.id = :accountId")
+	Optional<PaymentAccount> findByIdForUpdate(@Param("accountId") Long accountId);
 
 	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(Long campusId, PaymentCategory accountType);
 

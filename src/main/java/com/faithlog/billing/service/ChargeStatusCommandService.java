@@ -72,16 +72,18 @@ public class ChargeStatusCommandService {
 
 	@Transactional
 	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
-		ChargeItem chargeItem = chargeItemRepository.findChargeItemByIdForUpdate(command.chargeItemId())
+		ChargeItem chargeSnapshot = chargeItemRepository.findChargeItemById(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
-		if (chargeItem.paymentCategory() == PaymentCategory.MEAL) {
+		if (chargeSnapshot.paymentCategory() == PaymentCategory.MEAL) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND);
 		}
-		if (chargeItem.paymentCategory() == PaymentCategory.COFFEE) {
-			requireOwnedCoffeeChargeManager(chargeItem, command.requesterId());
+		if (chargeSnapshot.paymentCategory() == PaymentCategory.COFFEE) {
+			requireOwnedCoffeeChargeManagerForUpdate(chargeSnapshot, command.requesterId());
 		} else {
-			requireChargeStatusManager(chargeItem.campusId(), command.requesterId());
+			requireChargeStatusManager(chargeSnapshot.campusId(), command.requesterId());
 		}
+		ChargeItem chargeItem = chargeItemRepository.findChargeItemByIdForUpdate(command.chargeItemId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
 		ChargeStatusPolicy.applyAdminStatusChange(chargeItem, command.status());
 		if (shouldReopenWeeklyDevotion(chargeItem, command.status())) {
 			devotionChargeReopenPort.reopenWeeklyDevotion(
@@ -111,12 +113,12 @@ public class ChargeStatusCommandService {
 		BillingAccessPolicy.requireChargeStatusManager(requesterMembership);
 	}
 
-	private void requireOwnedCoffeeChargeManager(ChargeItem chargeItem, Long requesterId) {
+	private void requireOwnedCoffeeChargeManagerForUpdate(ChargeItem chargeItem, Long requesterId) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		requireActiveCampusMember(
 			chargeItem.campusId(), requester.userId(), ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
-		if (dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
-			chargeItem.campusId(), DutyType.COFFEE, requester.userId()).isEmpty()) {
+		if (!requireActiveCoffeeDutyForUpdate(
+			chargeItem.campusId(), requester.userId())) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
 		}
 		boolean ownsAccount = paymentAccountRepository.findById(chargeItem.paymentAccountId())
@@ -127,6 +129,11 @@ public class ChargeStatusCommandService {
 		if (!ownsAccount) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
 		}
+	}
+
+	private boolean requireActiveCoffeeDutyForUpdate(Long campusId, Long requesterId) {
+		return dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campusId, DutyType.COFFEE, requesterId).isPresent();
 	}
 
 	private void requireActiveCampusMember(Long campusId, Long userId, ErrorCode errorCode) {
