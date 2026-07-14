@@ -86,7 +86,6 @@ if (k6ExitStatus !== 0) rejectionReasons.push(`k6-exit-${k6ExitStatus}`);
 if (resourceSamplerExitStatus !== 0) rejectionReasons.push(`resource-sampler-exit-${resourceSamplerExitStatus}`);
 if (integritySamplerExitStatus !== 0) rejectionReasons.push(`integrity-sampler-exit-${integritySamplerExitStatus}`);
 if (runtimeContinuityExitStatus !== 0) rejectionReasons.push(`runtime-continuity-exit-${runtimeContinuityExitStatus}`);
-if (metadata.runtime?.exclusiveWindowConfirmed !== true) rejectionReasons.push('exclusive-window-not-confirmed');
 if (fixtureWindowExitStatus !== 0) rejectionReasons.push('fixture-window-crossed');
 if (logCaptureExitStatus !== 0) rejectionReasons.push(`log-capture-exit-${logCaptureExitStatus}`);
 if (afterDbSnapshotExitStatus !== 0) rejectionReasons.push(`after-db-snapshot-exit-${afterDbSnapshotExitStatus}`);
@@ -121,9 +120,9 @@ for (const container of [metadata.runtime?.appContainer, metadata.runtime?.dbCon
 	}
 }
 const writeCounters = tableCounterDelta.reduce((sum, table) => (
-	sum + table.n_tup_ins + table.n_tup_upd + table.n_tup_del
-), 0);
-const accepted = k6ExitStatus === 0
+	sum + BigInt(table.n_tup_ins) + BigInt(table.n_tup_upd) + BigInt(table.n_tup_del)
+), 0n).toString();
+const evidenceValid = k6ExitStatus === 0
 	&& warmupExitStatus === 0
 	&& resourceSamplerExitStatus === 0
 	&& integritySamplerExitStatus === 0
@@ -135,10 +134,13 @@ const accepted = k6ExitStatus === 0
 	&& Number.isFinite(failureRate)
 	&& failureRate === 0
 	&& rejectionReasons.length === 0;
+const accepted = false;
+addReason('adoption-policy-pending-user-approval');
 
 const report = {
 	accepted,
-	measurementStatus: accepted ? 'measured' : 'rejected',
+	automaticAdoption: false,
+	measurementStatus: evidenceValid ? 'conditional-not-adoptable' : 'rejected',
 	rejectionReasons,
 	toolPreparationStatus: TOOL_STATUS,
 	endpoint,
@@ -180,10 +182,12 @@ const report = {
 
 mkdirSync(dirname(resolve(outputPath)), { recursive: true });
 writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
-if (!accepted) {
+if (evidenceValid) {
+	console.error('Endpoint evidence was preserved as conditional-not-adoptable; automatic adoption is pending user approval.');
+} else {
 	console.error(`Endpoint evidence was rejected (${rejectionReasons.join(', ')}); rejected report was preserved.`);
-	process.exitCode = 2;
 }
+process.exitCode = 2;
 
 function readJson(path) {
 	return JSON.parse(readFileSync(path, 'utf8'));
@@ -243,14 +247,14 @@ function diffTableCounters(beforeTables, afterTables) {
 		const previous = beforeByName.get(table.relname) || {};
 		const delta = {
 			table: table.relname,
-			estimatedRowsBefore: Number(previous.n_live_tup || 0),
-			estimatedRowsAfter: Number(table.n_live_tup || 0),
+			estimatedRowsBefore: decimalOrZero(previous.n_live_tup).toString(),
+			estimatedRowsAfter: decimalOrZero(table.n_live_tup).toString(),
 		};
 		for (const counter of counters) {
-			delta[counter] = Number(table[counter] || 0) - Number(previous[counter] || 0);
+			delta[counter] = (decimalOrZero(table[counter]) - decimalOrZero(previous[counter])).toString();
 		}
 		return delta;
-	}).filter((table) => counters.some((counter) => table[counter] !== 0));
+	}).filter((table) => counters.some((counter) => table[counter] !== '0'));
 }
 
 function validateTableEvidence(before, after) {
@@ -300,15 +304,15 @@ function validateTableEvidence(before, after) {
 		const rows = [previous, current];
 		if (!previous || rows.some((row) => !isExactObject(row, EXPECTED_TABLE_FIELDS)
 			|| row.schemaname !== 'public' || row.relname !== current.relname
-			|| TABLE_COUNTER_FIELDS.some((field) => strictNumber(row[field]) === null || row[field] < 0)
+			|| TABLE_COUNTER_FIELDS.some((field) => strictDecimal(row[field]) === null)
 			|| MAINTENANCE_TIMESTAMP_FIELDS.some((field) => row[field] !== null && !isValidTimestamp(row[field])))) {
 			rejectionReasons.push('invalid-db-table-snapshot');
 			continue;
 		}
 		for (const counter of [...cumulativeCounters, 'analyze_count', 'autoanalyze_count', 'vacuum_count', 'autovacuum_count']) {
-			const delta = current[counter] - previous[counter];
-			if (delta < 0) rejectionReasons.push('counter-regression');
-			if (['n_tup_ins', 'n_tup_upd', 'n_tup_del'].includes(counter) && delta !== 0) {
+			const delta = strictDecimal(current[counter]) - strictDecimal(previous[counter]);
+			if (delta < 0n) rejectionReasons.push('counter-regression');
+			if (['n_tup_ins', 'n_tup_upd', 'n_tup_del'].includes(counter) && delta !== 0n) {
 				rejectionReasons.push(`write-counter-delta:${current.relname}:${counter}:${delta}`);
 			}
 		}
@@ -362,6 +366,14 @@ function semanticEqual(left, right) {
 
 function strictNumber(value) {
 	return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function strictDecimal(value) {
+	return typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value) ? BigInt(value) : null;
+}
+
+function decimalOrZero(value) {
+	return strictDecimal(value) ?? 0n;
 }
 
 function validateResourceEvidence(tsv, runtime) {

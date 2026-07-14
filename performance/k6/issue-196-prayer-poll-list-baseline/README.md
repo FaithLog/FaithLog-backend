@@ -16,7 +16,8 @@ Status: `scenario-ready / not-measured`
 - The approved `faithlog-latest` tag is fixed, not caller-overridable. Seed records the immutable app image ID and published target port; shaping and baseline require the same image ID, Compose project/service/config-hash labels, and `BASE_URL` port before touching the fixture or measuring it.
 - The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
 - Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory, and an existing path is never deleted, reused, or overwritten.
-- The operator must explicitly set `EXCLUSIVE_WINDOW_CONFIRMED=true` only after reserving the shared stack from frontend, QA, and other request traffic. Sampling can detect observed conflicts but cannot prove that a short transient request never occurred; this declaration is therefore an additional adoption gate, not a replacement for the canonical lock or activity evidence.
+- Sampling can detect observed conflicts but cannot prove that a short transient request never occurred. No exclusive-window boolean or sampling values have user approval as an adoption method yet, so every otherwise-clean report remains `accepted=false`, `automaticAdoption=false`, and `measurementStatus=conditional-not-adoptable` until a separate user decision changes that policy.
+- `BASE_URL`, app/DB container names, expected Compose service labels, and expected app image are runtime-required approval inputs. Missing input fails before Docker inspection or login; actual labels/image/port and the seed manifest must match exactly.
 
 ## Fixture contract
 
@@ -66,8 +67,8 @@ Every load response is checked, not merely timed.
 - Cross-campus Poll ID through the primary campus path: `404 POLL_NOT_FOUND`.
 - A primary-only member querying the isolation campus and its Poll directly: `403 POLL_ACCESS_FORBIDDEN`.
 - Exact `startsAt`/`endsAt` values match the atomically shaped manifest. The runner checks all five windows at global preflight and immediately before and after every endpoint phase; crossing a boundary rejects that endpoint report.
-- DB snapshots must contain the exact required table set and exact field schema, increasing `capturedAt`, all eight required non-empty planner settings, and a stable database/server/postmaster identity. Analyze, autoanalyze, vacuum, and autovacuum counts/timestamps must be present (`null` or a valid timestamp) and unchanged. Every numeric counter must be finite/nonnegative, cumulative counters must be monotonic, and every table's `n_tup_ins`, `n_tup_upd`, and `n_tup_del` delta must individually equal zero; missing fields, counter reset, or cross-table/cross-counter cancellation cannot pass.
-- Runtime-integrity and per-container resource samples use the recorded 1-second sampling contract with a 2-second maximum gap. Their timestamps must be valid, strictly increasing, inside the measured window, cover both boundaries within the maximum gap, and meet the duration-derived minimum count. A one-sample window or an unsampled middle gap is non-adoptable.
+- DB snapshots must contain the exact required table set and exact field schema, increasing `capturedAt`, all eight required non-empty planner settings, and a stable database/server/postmaster identity. Analyze, autoanalyze, vacuum, and autovacuum counts/timestamps must be present (`null` or a valid timestamp) and unchanged. PostgreSQL counters are emitted as strict nonnegative decimal strings and compared with `BigInt`; deltas are also decimal strings, so values beyond `Number.MAX_SAFE_INTEGER` cannot collapse. Cumulative counters must be monotonic, and every table's `n_tup_ins`, `n_tup_upd`, and `n_tup_del` delta must individually equal zero.
+- Runtime-integrity and per-container resource sampling interval/max-gap have no defaults and require explicit runtime approval inputs. Given inputs are recorded and used for timestamp order, measured-window boundary coverage, maximum gap, and duration-derived minimum count validation. These checks prepare evidence only and do not enable automatic adoption while the adoption policy is pending.
 - Any response correctness failure uses an immutable zero-failure threshold. A non-zero warmup, k6, resource-sampler, activity-sampler, fixture-window, log-capture, or after-DB-snapshot status writes or preserves non-adoptable evidence; missing or malformed latency/throughput/table/resource/activity evidence and any read-path write delta are listed in `rejectionReasons`. Every rejected report stops the sequential runner with a non-zero status.
 
 ## Measurement evidence
@@ -122,16 +123,23 @@ bash performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 
 ### 3. Run endpoint phases sequentially
 
-Warmup and measured VUS/duration have no hidden defaults. The approved measurement session must provide all four values, a new `executionRunId`, and an explicit mode. Every endpoint finishes warmup before measured DB/log/resource/activity evidence begins. Warmup failure starts no measured phase. Fresh tokens are issued for each phase and their JWT `exp` must cover that phase plus a fixed safety margin; raw tokens are neither printed nor persisted.
+Warmup/measured VUS/duration, sampling interval/max-gap, and target identity have no hidden defaults. A future approved measurement session must provide those values, a new `executionRunId`, and an explicit mode. The current runner still exits non-zero after preserving otherwise-clean evidence because automatic adoption is pending user approval.
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
 EXECUTION_RUN_ID=i196-exec-20260714-a \
+BASE_URL='<approved-loopback-base-url>' \
+APP_CONTAINER='<approved-app-container>' \
+DB_CONTAINER='<approved-db-container>' \
+EXPECTED_APP_SERVICE='<approved-app-service-label>' \
+EXPECTED_DB_SERVICE='<approved-db-service-label>' \
+EXPECTED_APP_IMAGE='<approved-exact-app-image>' \
 WARMUP_VUS='<approved-warmup-vus>' \
 WARMUP_DURATION='<approved-warmup-duration>' \
 MEASURED_VUS='<approved-measured-vus>' \
 MEASURED_DURATION='<approved-measured-duration>' \
-EXCLUSIVE_WINDOW_CONFIRMED=true \
+SAMPLING_INTERVAL_SECONDS='<approved-sampling-interval>' \
+SAMPLING_MAX_GAP_SECONDS='<approved-sampling-max-gap>' \
 PERF_ADMIN_EMAIL='<runtime-admin-email>' \
 PERF_ADMIN_PASSWORD='<runtime-admin-password>' \
 PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \

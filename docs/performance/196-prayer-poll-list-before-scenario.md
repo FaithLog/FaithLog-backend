@@ -66,8 +66,8 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 - non-anonymous respondent 800명 노출, anonymous respondent identity 0명 노출
 - comments 200개 ID 오름차순, templates ID 오름차순/option sortOrder 오름차순
 - missing-members 200명 membership 순서
-- DB before/after의 exact required table/field schema, timestamp 증가, 8개 non-empty planner 설정과 database/address/port/postmaster identity 불변, analyze/autoanalyze/vacuum/autovacuum count·null-or-valid timestamp 불변, 각 numeric counter의 finite/nonnegative 및 cumulative counter monotonic, table별 `n_tup_ins/upd/del` delta 개별 exact 0
-- runtime/resource sample의 1초 sampling contract, 2초 maximum gap, measured 시작·종료 boundary coverage, timestamp strict monotonic/window 포함, duration 기반 minimum sample count. 10분 1표본과 시작·종료 사이 긴 무표본 구간은 non-adoptable
+- DB before/after의 exact required table/field schema, timestamp 증가, 8개 non-empty planner 설정과 database/address/port/postmaster identity 불변, analyze/autoanalyze/vacuum/autovacuum count·null-or-valid timestamp 불변. PostgreSQL counter는 strict nonnegative decimal string으로 수집해 BigInt exact 비교하며 delta도 decimal string으로 기록한다. cumulative counter monotonic과 table별 `n_tup_ins/upd/del` delta 개별 exact 0을 요구한다.
+- runtime/resource sampling interval과 maximum gap은 기본값 없는 runtime 승인 입력이다. 입력값에 따라 measured 시작·종료 boundary coverage, timestamp strict monotonic/window 포함, maximum gap, duration 기반 minimum sample count를 검증하지만 사용자 채택 정책 승인 전에는 clean evidence도 자동 채택하지 않는다.
 - correctness failure 0건 고정 gate, warmup/k6/resource/activity sampler/time-window/log/after-DB-snapshot 실패 report의 `accepted=false`/`measurementStatus=rejected`, 필수 latency/throughput/table/resource/activity evidence 및 read-path write delta rejection reason, 모든 rejected report의 runner 비정상 종료
 
 ## endpoint별 evidence 계약
@@ -86,7 +86,9 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 
 실제 app/DB Compose label 일치를 확인한 뒤 seed/shaper/runner 모두 `/tmp/faithlog-performance-{actualComposeProject}.lock`을 사용한다. caller lock override는 없다. mode도 runtime 필수이며 `all`은 명시했을 때만 전체 19 endpoint로 확장된다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리하고 app scheduler를 끈다.
 
-실제 측정 operator는 frontend/QA/다른 요청 주체가 없는 exclusive window를 확보한 뒤에만 runtime 필수 `EXCLUSIVE_WINDOW_CONFIRMED=true`를 전달한다. polling evidence는 관찰된 외부 activity를 거부하지만 짧은 transient 요청의 절대 부재를 단독 증명하지 못하므로, 이 선언은 canonical lock·activity sample과 함께 쓰는 추가 채택 gate다.
+sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transient 요청의 절대 부재를 단독 증명하지 못한다. sampling cadence/max-gap과 exclusive-window 채택 방식은 사용자 미승인 상태다. 따라서 현재 summarizer는 clean evidence에도 `accepted=false`, `automaticAdoption=false`, `measurementStatus=conditional-not-adoptable`과 `adoption-policy-pending-user-approval`을 기록하고 runner를 non-zero로 끝낸다.
+
+`BASE_URL`, app/DB container name, expected app/DB Compose service label, expected exact app image도 기본값 없는 runtime 승인 입력이며 하나라도 없으면 Docker inspect/login 전에 실패한다. actual target은 seed manifest의 Compose project/config hash/app image ID/port와 다시 exact 결속한다.
 
 ## 정적 코드에서 확인한 측정 후보
 
@@ -113,5 +115,6 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 - 최초 scenario 계약: production 변경 전 `7 tests / 7 failures` RED 후 1차 `8 tests / 0 failures` GREEN
 - PM finding 재현: test-only commit에서 `10 tests / 3 pass / 7 fail` RED
 - PM 2차 finding 재현: test-only commit에서 `12 tests / 9 pass / 3 fail` RED
-- 최종 계약: lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 같은 이름의 container ID 교체 시 login/k6 0건, missing exact DB schema, 10분 1표본/긴 gap, vacuum drift, 다른 k6 PID, reversed percentile, existing report 보존 fake evidence를 포함한 `12 tests / 0 failures` GREEN
+- PM 3차 finding 재현: test-only commit에서 `13 tests / 10 pass / 3 fail` RED
+- 최종 계약: pending automatic adoption, runtime-required target/sampling inputs, `Number.MAX_SAFE_INTEGER` 경계 decimal-string/BigInt delta, lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 같은 이름의 container ID 교체 시 login/k6 0건, missing exact DB schema, sparse/긴 gap, vacuum drift, reversed percentile, existing report 보존 fake evidence를 포함한 `13 tests / 0 failures` GREEN
 - Node/Bash syntax와 `git diff --check`를 수행한다. 이 검증은 실제 seed/k6/Docker/DB를 실행하지 않는다.

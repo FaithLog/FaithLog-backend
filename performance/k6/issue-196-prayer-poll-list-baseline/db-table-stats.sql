@@ -22,23 +22,23 @@ from (
   select
     schemaname,
     relname,
-    seq_scan,
-    seq_tup_read,
-    idx_scan,
-    idx_tup_fetch,
-    n_tup_ins,
-    n_tup_upd,
-    n_tup_del,
-    n_live_tup,
-    n_dead_tup,
+    seq_scan::text as seq_scan,
+    seq_tup_read::text as seq_tup_read,
+    idx_scan::text as idx_scan,
+    idx_tup_fetch::text as idx_tup_fetch,
+    n_tup_ins::text as n_tup_ins,
+    n_tup_upd::text as n_tup_upd,
+    n_tup_del::text as n_tup_del,
+    n_live_tup::text as n_live_tup,
+    n_dead_tup::text as n_dead_tup,
     last_analyze,
     last_autoanalyze,
-    analyze_count,
-    autoanalyze_count,
+    analyze_count::text as analyze_count,
+    autoanalyze_count::text as autoanalyze_count,
     last_vacuum,
     last_autovacuum,
-    vacuum_count,
-    autovacuum_count
+    vacuum_count::text as vacuum_count,
+    autovacuum_count::text as autovacuum_count
   from pg_stat_user_tables
   where schemaname = 'public'
 ) stats;

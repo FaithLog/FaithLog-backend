@@ -10,32 +10,30 @@ FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
 EXECUTION_RUN_ID="${EXECUTION_RUN_ID:?EXECUTION_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
 REPORT_ROOT="${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/${EXECUTION_RUN_ID}"
-BASE_URL="${BASE_URL:-http://localhost:8080}"
+BASE_URL="${BASE_URL:?BASE_URL is required at runtime}"
 WARMUP_VUS="${WARMUP_VUS:?WARMUP_VUS must be explicitly approved and supplied}"
 WARMUP_DURATION="${WARMUP_DURATION:?WARMUP_DURATION must be explicitly approved and supplied}"
 MEASURED_VUS="${MEASURED_VUS:?MEASURED_VUS must be explicitly approved and supplied}"
 MEASURED_DURATION="${MEASURED_DURATION:?MEASURED_DURATION must be explicitly approved and supplied}"
-EXCLUSIVE_WINDOW_CONFIRMED="${EXCLUSIVE_WINDOW_CONFIRMED:?EXCLUSIVE_WINDOW_CONFIRMED=true is required at runtime}"
+SAMPLING_INTERVAL_SECONDS="${SAMPLING_INTERVAL_SECONDS:?SAMPLING_INTERVAL_SECONDS requires explicit user approval}"
+SAMPLING_MAX_GAP_SECONDS="${SAMPLING_MAX_GAP_SECONDS:?SAMPLING_MAX_GAP_SECONDS requires explicit user approval}"
 PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL:?PERF_ADMIN_EMAIL is required at runtime}"
 PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?PERF_ADMIN_PASSWORD is required at runtime}"
 PERF_MEMBER_PASSWORD="${PERF_MEMBER_PASSWORD:?PERF_MEMBER_PASSWORD is required at runtime}"
 PERF_DB_USER="${PERF_DB_USER:?PERF_DB_USER is required at runtime}"
 PERF_DB_NAME="${PERF_DB_NAME:?PERF_DB_NAME is required at runtime}"
 PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?PERF_DB_PASSWORD is required at runtime}"
-APP_CONTAINER="${APP_CONTAINER:-faithlog-backend}"
-DB_CONTAINER="${DB_CONTAINER:-faithlog-postgres}"
-EXPECTED_APP_IMAGE="faithlog-latest"
+APP_CONTAINER="${APP_CONTAINER:?APP_CONTAINER is required at runtime}"
+DB_CONTAINER="${DB_CONTAINER:?DB_CONTAINER is required at runtime}"
+EXPECTED_APP_SERVICE="${EXPECTED_APP_SERVICE:?EXPECTED_APP_SERVICE is required at runtime}"
+EXPECTED_DB_SERVICE="${EXPECTED_DB_SERVICE:?EXPECTED_DB_SERVICE is required at runtime}"
+EXPECTED_APP_IMAGE="${EXPECTED_APP_IMAGE:?EXPECTED_APP_IMAGE is required at runtime}"
 SQL_LOG_MARKER="org.hibernate.SQL"
 REQUESTED_MODE="${1:?Mode is required: all, prayer, poll-member, or poll-admin}"
 MODE_SEQUENCE=(prayer poll-member poll-admin)
-SAMPLING_INTERVAL_SECONDS=1
-SAMPLING_MAX_GAP_SECONDS=2
 
-export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD EXCLUSIVE_WINDOW_CONFIRMED
+export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD
 unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN
-
-[[ "${EXCLUSIVE_WINDOW_CONFIRMED}" == "true" ]] \
-	|| { echo "EXCLUSIVE_WINDOW_CONFIRMED must be exactly true after the operator reserves an exclusive window." >&2; exit 1; }
 
 if [[ ! "${FIXTURE_RUN_ID}" =~ ^[a-z0-9][a-z0-9_-]{7,31}$ ]]; then
 	echo "FIXTURE_RUN_ID must be 8-32 lowercase characters." >&2
@@ -50,6 +48,11 @@ fi
 for command in node k6 docker lsof; do
 	command -v "${command}" >/dev/null || { echo "Missing command: ${command}" >&2; exit 1; }
 done
+SAMPLING_INTERVAL_VALUE="${SAMPLING_INTERVAL_SECONDS}" SAMPLING_MAX_GAP_VALUE="${SAMPLING_MAX_GAP_SECONDS}" node -e '
+	const interval = Number(process.env.SAMPLING_INTERVAL_VALUE);
+	const maxGap = Number(process.env.SAMPLING_MAX_GAP_VALUE);
+	if (!Number.isFinite(interval) || interval <= 0 || !Number.isFinite(maxGap) || maxGap < interval) process.exit(1);
+' || { echo "Sampling values must be positive and max gap must be at least the interval." >&2; exit 1; }
 [[ -f "${FIXTURE_MANIFEST}" ]] || { echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2; exit 1; }
 [[ "${BASE_URL}" =~ ^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?$ ]] \
 	|| { echo "Issue #196 baseline is local-Docker-only." >&2; exit 1; }
@@ -122,11 +125,11 @@ app_client_addrs="${app_client_addrs%,}"
 	|| { echo "App/Postgres Compose project labels are missing or different." >&2; exit 1; }
 [[ "${compose_project}" =~ ^[a-z0-9][a-z0-9_-]*$ ]] \
 	|| { echo "Compose project label cannot be represented by the canonical lock path." >&2; exit 1; }
-[[ "${app_service}" == "app" && "${db_service}" == "postgres" ]] \
+[[ "${app_service}" == "${EXPECTED_APP_SERVICE}" && "${db_service}" == "${EXPECTED_DB_SERVICE}" ]] \
 	|| { echo "Unexpected Compose service labels: app=${app_service}, db=${db_service}." >&2; exit 1; }
 [[ -n "${app_config_hash}" && -n "${db_config_hash}" ]] \
 	|| { echo "Compose config-hash labels must be present on app and PostgreSQL." >&2; exit 1; }
-[[ "${app_image}" == "${EXPECTED_APP_IMAGE}" || "${app_image}" == "${EXPECTED_APP_IMAGE}:"* ]] \
+[[ "${app_image}" == "${EXPECTED_APP_IMAGE}" ]] \
 	|| { echo "Expected app image ${EXPECTED_APP_IMAGE}, actual ${app_image}." >&2; exit 1; }
 [[ "${compose_project}" == "${seed_project}" && "${app_config_hash}" == "${seed_app_hash}" && "${db_config_hash}" == "${seed_db_hash}" ]] \
 	|| { echo "Current Compose identity differs from the seed manifest." >&2; exit 1; }
@@ -245,7 +248,7 @@ sample_resources() {
 			"${APP_CONTAINER}" "${DB_CONTAINER}" \
 			| while IFS= read -r sample; do printf '%s\t%s\n' "${captured_at}" "${sample}"; done \
 			>> "${output}"
-		sleep 0.25
+		sleep "${SAMPLING_INTERVAL_SECONDS}"
 	done
 }
 
@@ -268,7 +271,7 @@ sample_runtime_integrity() {
 			-v app_client_addrs="${app_client_addrs}" -f - < "${DB_ACTIVITY_SQL}")"
 		LSOF_TEXT="${lsof_text}" DB_ACTIVITY_JSON="${db_activity}" K6_PID="${k6_pid}" \
 			node "${ROOT_DIR}/activity-sample.mjs" >> "${output}"
-		sleep 0.25
+		sleep "${SAMPLING_INTERVAL_SECONDS}"
 	done
 }
 
@@ -413,6 +416,7 @@ run_endpoint() {
 	MODE_VALUE="${mode}" ENDPOINT_VALUE="${endpoint}" DATASET_VALUE="${dataset_id}" \
 	FIXTURE_VALUE="${FIXTURE_RUN_ID}" EXECUTION_VALUE="${EXECUTION_RUN_ID}" PROJECT_VALUE="${compose_project}" \
 	APP_SERVICE_VALUE="${app_service}" DB_SERVICE_VALUE="${db_service}" \
+	EXPECTED_APP_SERVICE_VALUE="${EXPECTED_APP_SERVICE}" EXPECTED_DB_SERVICE_VALUE="${EXPECTED_DB_SERVICE}" \
 	APP_HASH_VALUE="${app_config_hash}" DB_HASH_VALUE="${db_config_hash}" \
 	APP_IMAGE_VALUE="${app_image}" EXPECTED_IMAGE_VALUE="${EXPECTED_APP_IMAGE}" \
 	APP_IMAGE_ID_VALUE="${app_image_id}" TARGET_PORT_VALUE="${seed_target_port}" \
@@ -422,7 +426,7 @@ run_endpoint() {
 	DB_STARTED_AT_VALUE="${db_container_started_at}" DB_IDENTITY_VALUE="${database_identity}" \
 	K6_STATUS_VALUE="${k6_status}" SAMPLER_STATUS_VALUE="${sampler_status}" \
 	INTEGRITY_STATUS_VALUE="${integrity_status}" WARMUP_STATUS_VALUE="${warmup_status}" \
-	CONTINUITY_STATUS_VALUE="${runtime_continuity_status}" EXCLUSIVE_WINDOW_VALUE="${EXCLUSIVE_WINDOW_CONFIRMED}" \
+	CONTINUITY_STATUS_VALUE="${runtime_continuity_status}" \
 	WINDOW_STATUS_VALUE="${fixture_window_status}" \
 	LOG_STATUS_VALUE="${log_capture_status}" AFTER_DB_STATUS_VALUE="${after_snapshot_status}" \
 	STARTED_AT_VALUE="${log_since}" ENDED_AT_VALUE="${log_until}" \
@@ -447,6 +451,8 @@ run_endpoint() {
 				appImage: process.env.APP_IMAGE_VALUE,
 				appImageId: process.env.APP_IMAGE_ID_VALUE,
 				expectedAppImage: process.env.EXPECTED_IMAGE_VALUE,
+				expectedAppService: process.env.EXPECTED_APP_SERVICE_VALUE,
+				expectedDbService: process.env.EXPECTED_DB_SERVICE_VALUE,
 				targetPort: process.env.TARGET_PORT_VALUE,
 				appContainer: process.env.APP_CONTAINER_VALUE,
 				dbContainer: process.env.DB_CONTAINER_VALUE,
@@ -461,7 +467,8 @@ run_endpoint() {
 				integritySamplerExitStatus: Number(process.env.INTEGRITY_STATUS_VALUE),
 				warmupExitStatus: Number(process.env.WARMUP_STATUS_VALUE),
 				runtimeContinuityExitStatus: Number(process.env.CONTINUITY_STATUS_VALUE),
-				exclusiveWindowConfirmed: process.env.EXCLUSIVE_WINDOW_VALUE === "true",
+				automaticAdoption: false,
+				adoptionPolicyStatus: "pending-user-approval",
 				fixtureWindowExitStatus: Number(process.env.WINDOW_STATUS_VALUE),
 				logCaptureExitStatus: Number(process.env.LOG_STATUS_VALUE),
 				afterDbSnapshotExitStatus: Number(process.env.AFTER_DB_STATUS_VALUE),
@@ -485,7 +492,7 @@ run_endpoint() {
 	summarize_status=$?
 	set -e
 	if (( summarize_status != 0 )); then
-		echo "Evidence summarization rejected ${mode}/${endpoint}; see ${report_file}." >&2
+		echo "Evidence report is non-adoptable for ${mode}/${endpoint}; see ${report_file}." >&2
 		return "${summarize_status}"
 	fi
 	if (( k6_status != 0 )); then
