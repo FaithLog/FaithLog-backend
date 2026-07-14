@@ -187,9 +187,9 @@ class NotificationControllerTest {
 		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
 			campus.id(), PaymentCategory.COFFEE, "담당자 커피 계좌", "하나은행", "200-COFFEE", "커피담당", duty.id()
 		));
-		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20011L, 1800));
-		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20012L, 2200));
-		ChargeItem paid = charge(campus.id(), target.id(), account, 20013L, 5000);
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20011L, "아이스 아메리카노", 1800));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20012L, "카페라떼", 2200));
+		ChargeItem paid = charge(campus.id(), target.id(), account, 20013L, "결제 완료 메뉴", 5000);
 		paid.markPaid();
 		chargeItemRepository.saveAndFlush(paid);
 		PaymentAccount otherOwnerAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
@@ -201,9 +201,9 @@ class NotificationControllerTest {
 		PaymentAccount otherCampusAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
 			otherCampus.id(), PaymentCategory.COFFEE, "다른 캠퍼스 계좌", "농협은행", "200-OTHER-CAMPUS", "커피담당", duty.id()
 		));
-		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), otherOwnerAccount, 20014L, 9000));
-		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), penaltyAccount, 20015L, 8000));
-		chargeItemRepository.saveAndFlush(charge(otherCampus.id(), target.id(), otherCampusAccount, 20016L, 7000));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), otherOwnerAccount, 20014L, "다른 담당자 메뉴", 9000));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), penaltyAccount, 20015L, "벌금", 8000));
+		chargeItemRepository.saveAndFlush(charge(otherCampus.id(), target.id(), otherCampusAccount, 20016L, "다른 캠퍼스 메뉴", 7000));
 		registerToken(target, "notification-200-coffee-token", "notification-200-coffee-client");
 
 		String firstBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/coffee/charge-reminders", campus.id())
@@ -218,7 +218,9 @@ class NotificationControllerTest {
 			.singleElement()
 			.satisfies(log -> {
 				assertThat(log.title()).isEqualTo("커피 미납 청구 안내");
-				assertThat(log.body()).isEqualTo("커피 미납 금액은 총 4000원입니다. 확인 후 납부해 주세요.");
+				assertThat(log.body()).isEqualTo(
+					"커피 미납: 아이스 아메리카노 1건 1800원, 카페라떼 1건 2200원 / 총 4000원입니다. 확인 후 납부해 주세요."
+				);
 				assertThat(log.userId()).isEqualTo(target.id());
 			});
 
@@ -245,7 +247,7 @@ class NotificationControllerTest {
 		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
 			campus.id(), PaymentCategory.MEAL, "담당자 밥 계좌", "국민은행", "200-MEAL", "밥담당", duty.id()
 		));
-		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20021L, 7000));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20021L, "주일 점심", 7000));
 		registerToken(target, "notification-200-meal-token", "notification-200-meal-client");
 
 		String responseBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/charge-reminders", campus.id())
@@ -259,7 +261,9 @@ class NotificationControllerTest {
 			.singleElement()
 			.satisfies(log -> {
 				assertThat(log.title()).isEqualTo("밥 미납 청구 안내");
-				assertThat(log.body()).isEqualTo("밥 미납 금액은 총 7000원입니다. 확인 후 납부해 주세요.");
+				assertThat(log.body()).isEqualTo(
+					"밥 미납: 주일 점심 1건 7000원 / 총 7000원입니다. 확인 후 납부해 주세요."
+				);
 			});
 
 		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/charge-reminders", campus.id())
@@ -283,10 +287,17 @@ class NotificationControllerTest {
 		assertThat(notificationLogRepository.count()).isZero();
 	}
 
-	private ChargeItem charge(Long campusId, Long userId, PaymentAccount account, Long sourceId, int amount) {
+	private ChargeItem charge(
+		Long campusId,
+		Long userId,
+		PaymentAccount account,
+		Long sourceId,
+		String title,
+		int amount
+	) {
 		return ChargeItem.create(
 			campusId, userId, account.accountType(), account.id(), account.bankName(), account.accountNumber(),
-			account.accountHolder(), ChargeSourceType.POLL_RESPONSE, sourceId, "미납 청구", "미납", amount, null
+			account.accountHolder(), ChargeSourceType.POLL_RESPONSE, sourceId, title, "미납", amount, null
 		);
 	}
 

@@ -75,6 +75,7 @@ class ChargeReminderServiceTest {
 	@BeforeEach
 	void resetConcurrencyState() {
 		concurrencyPort.reset();
+		notificationLogRepository.deleteAll();
 	}
 
 	@Test
@@ -109,5 +110,42 @@ class ChargeReminderServiceTest {
 		SendNotificationResult retried = chargeReminderService.requestCoffeeReminders(campus.id(), duty.id());
 		assertThat(retried.queuedCount()).isEqualTo(1);
 		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(retried.notificationRequestId())).hasSize(1);
+	}
+
+	@Test
+	void reminder_body_groups_same_titles_and_limits_details_to_five_distinct_items() {
+		User duty = userRepository.saveAndFlush(User.create(
+			"밥담당", "notification-200-details-duty@example.com", "encoded"));
+		User target = userRepository.saveAndFlush(User.create(
+			"대상자", "notification-200-details-target@example.com", "encoded"));
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"200알림상세캠", "분당", "알림 상세", "INV-200-DETAILS"));
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(campus.id(), duty.id()));
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(campus.id(), target.id()));
+		dutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignMeal(campus.id(), duty.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.MEAL, "상세 계좌", "하나은행", "200-DETAILS", "밥담당", duty.id()
+		));
+		String[] titles = {"월요일 점심", "월요일 점심", "화요일 점심", "수요일 점심", "목요일 점심", "금요일 점심", "주일 점심"};
+		int[] amounts = {3000, 4000, 5000, 6000, 7000, 8000, 9000};
+		for (int index = 0; index < titles.length; index++) {
+			chargeItemRepository.saveAndFlush(ChargeItem.create(
+				campus.id(), target.id(), PaymentCategory.MEAL, account.id(), account.bankName(), account.accountNumber(),
+				account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20100L + index, titles[index], "상세 검증",
+				amounts[index], null
+			));
+		}
+		fcmTokenService.registerToken(new RegisterFcmTokenCommand(
+			target.id(), "notification-200-details-token", "notification-200-details-client", DeviceType.IOS, "1.0.0"
+		));
+
+		SendNotificationResult result = chargeReminderService.requestMealReminders(campus.id(), duty.id());
+
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId()))
+			.singleElement()
+			.satisfies(log -> assertThat(log.body()).isEqualTo(
+				"밥 미납: 월요일 점심 2건 7000원, 화요일 점심 1건 5000원, 수요일 점심 1건 6000원, "
+					+ "목요일 점심 1건 7000원, 금요일 점심 1건 8000원, 외 1종 / 총 42000원입니다. 확인 후 납부해 주세요."
+			));
 	}
 }
