@@ -9,6 +9,7 @@ import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.policy.BillingAccessPolicy;
 import com.faithlog.billing.service.policy.ChargeStatusPolicy;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
+import com.faithlog.billing.service.port.ChargeItemLockScope;
 import com.faithlog.billing.service.port.DevotionChargeReopenPort;
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.billing.service.result.ChargeItemResult;
@@ -72,18 +73,19 @@ public class ChargeStatusCommandService {
 
 	@Transactional
 	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
-		ChargeItem chargeSnapshot = chargeItemRepository.findChargeItemById(command.chargeItemId())
+		ChargeItemLockScope chargeScope = chargeItemRepository.findChargeItemLockScopeById(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
-		if (chargeSnapshot.paymentCategory() == PaymentCategory.MEAL) {
+		if (chargeScope.getPaymentCategory() == PaymentCategory.MEAL) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND);
 		}
-		if (chargeSnapshot.paymentCategory() == PaymentCategory.COFFEE) {
-			requireOwnedCoffeeChargeManagerForUpdate(chargeSnapshot, command.requesterId());
+		if (chargeScope.getPaymentCategory() == PaymentCategory.COFFEE) {
+			requireOwnedCoffeeChargeManagerForUpdate(chargeScope, command.requesterId());
 		} else {
-			requireChargeStatusManager(chargeSnapshot.campusId(), command.requesterId());
+			requireChargeStatusManager(chargeScope.getCampusId(), command.requesterId());
 		}
 		ChargeItem chargeItem = chargeItemRepository.findChargeItemByIdForUpdate(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
+		requireLockedChargeWithinAuthorizedScope(chargeScope, chargeItem, command.requesterId());
 		ChargeStatusPolicy.applyAdminStatusChange(chargeItem, command.status());
 		if (shouldReopenWeeklyDevotion(chargeItem, command.status())) {
 			devotionChargeReopenPort.reopenWeeklyDevotion(
@@ -113,18 +115,41 @@ public class ChargeStatusCommandService {
 		BillingAccessPolicy.requireChargeStatusManager(requesterMembership);
 	}
 
-	private void requireOwnedCoffeeChargeManagerForUpdate(ChargeItem chargeItem, Long requesterId) {
+	private void requireOwnedCoffeeChargeManagerForUpdate(ChargeItemLockScope chargeItem, Long requesterId) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		requireActiveCampusMember(
-			chargeItem.campusId(), requester.userId(), ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
+			chargeItem.getCampusId(), requester.userId(), ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
 		if (!requireActiveCoffeeDutyForUpdate(
-			chargeItem.campusId(), requester.userId())) {
+			chargeItem.getCampusId(), requester.userId())) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
 		}
-		boolean ownsAccount = paymentAccountRepository.findById(chargeItem.paymentAccountId())
-			.filter(account -> account.campusId().equals(chargeItem.campusId()))
+		requireOwnedCoffeeAccount(
+			chargeItem.getCampusId(), chargeItem.getPaymentAccountId(), requester.userId());
+	}
+
+	private void requireLockedChargeWithinAuthorizedScope(
+		ChargeItemLockScope authorizedScope,
+		ChargeItem lockedCharge,
+		Long requesterId
+	) {
+		if (!lockedCharge.campusId().equals(authorizedScope.getCampusId())
+			|| lockedCharge.paymentCategory() != authorizedScope.getPaymentCategory()) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
+		}
+		if (lockedCharge.paymentCategory() == PaymentCategory.COFFEE) {
+			requireOwnedCoffeeAccount(
+				lockedCharge.campusId(), lockedCharge.paymentAccountId(), requesterId);
+		}
+	}
+
+	private void requireOwnedCoffeeAccount(Long campusId, Long paymentAccountId, Long requesterId) {
+		if (paymentAccountId == null) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
+		}
+		boolean ownsAccount = paymentAccountRepository.findById(paymentAccountId)
+			.filter(account -> account.campusId().equals(campusId))
 			.filter(account -> account.accountType() == PaymentCategory.COFFEE)
-			.filter(account -> requester.userId().equals(account.ownerUserId()))
+			.filter(account -> requesterId.equals(account.ownerUserId()))
 			.isPresent();
 		if (!ownsAccount) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
