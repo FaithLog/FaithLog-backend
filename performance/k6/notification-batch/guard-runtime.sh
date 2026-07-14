@@ -40,6 +40,7 @@ guard_notification_batch_runtime() {
 		echo "Container names must contain only safe Docker name characters." >&2
 		return 2
 	fi
+	export POSTGRES_CONTAINER REDIS_CONTAINER
 
 	local postgres_project
 	local redis_project
@@ -59,22 +60,7 @@ guard_notification_batch_runtime() {
 		return 2
 	fi
 
-	local postgres_host_port
-	local redis_host_port
-	postgres_host_port="$(docker inspect --format '{{ (index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort }}' "${POSTGRES_CONTAINER}")"
-	redis_host_port="$(docker inspect --format '{{ (index (index .NetworkSettings.Ports "6379/tcp") 0).HostPort }}' "${REDIS_CONTAINER}")"
-	if [[ ! "${postgres_host_port}" =~ ^[1-9][0-9]*$ || ! "${redis_host_port}" =~ ^[1-9][0-9]*$ ]]; then
-		echo "Dedicated PostgreSQL and Redis must publish numeric host ports." >&2
-		return 2
-	fi
-
 	export PERF_COMPOSE_PROJECT="${postgres_project}"
-	export PERF_POSTGRES_HOST_PORT="${postgres_host_port}"
-	export PERF_REDIS_HOST_PORT="${redis_host_port}"
-	export PERF_POSTGRES_IMAGE_ID
-	export PERF_REDIS_IMAGE_ID
-	PERF_POSTGRES_IMAGE_ID="$(docker inspect --format '{{.Image}}' "${POSTGRES_CONTAINER}")"
-	PERF_REDIS_IMAGE_ID="$(docker inspect --format '{{.Image}}' "${REDIS_CONTAINER}")"
 }
 
 acquire_notification_batch_locks() {
@@ -91,6 +77,41 @@ acquire_notification_batch_locks() {
 		return 2
 	fi
 	export PERF_GLOBAL_LOCK_DIR PERF_PROJECT_LOCK_DIR
+}
+
+verify_notification_batch_runtime_after_lock() {
+	: "${PERF_PROJECT_LOCK_DIR:?Canonical project lock must be acquired before runtime verification.}"
+	: "${PERF_GLOBAL_LOCK_DIR:?Host-global lock must be acquired before runtime verification.}"
+	local output_path="${1:?Locked runtime identity output path is required.}"
+	if [[ ! -d "${PERF_PROJECT_LOCK_DIR}" || ! -d "${PERF_GLOBAL_LOCK_DIR}" ]]; then
+		echo "Both performance locks must still be held during post-lock runtime verification." >&2
+		return 2
+	fi
+	local guard_script_dir
+	guard_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+	if ! bash "${guard_script_dir}/capture-runtime-identity.sh" "${output_path}"; then
+		return 2
+	fi
+	local locked_exports
+	if ! locked_exports="$(node -e '
+		const fs = require("node:fs");
+		const identity = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+		const values = {
+			PERF_POSTGRES_CONTAINER_ID: identity.postgres.container.id,
+			PERF_REDIS_CONTAINER_ID: identity.redis.container.id,
+			PERF_POSTGRES_IMAGE_ID: identity.postgres.container.imageId,
+			PERF_REDIS_IMAGE_ID: identity.redis.container.imageId,
+			PERF_POSTGRES_HOST_PORT: identity.postgres.container.hostPort,
+			PERF_REDIS_HOST_PORT: identity.redis.container.hostPort,
+		};
+		for (const [key, value] of Object.entries(values)) {
+			if (!String(value).match(/^[A-Za-z0-9:_.-]+$/)) throw new Error(`Unsafe locked runtime value: ${key}`);
+			process.stdout.write(`export ${key}=${value}\n`);
+		}
+	' "${output_path}")"; then
+		return 2
+	fi
+	eval "${locked_exports}"
 }
 
 release_notification_batch_locks() {

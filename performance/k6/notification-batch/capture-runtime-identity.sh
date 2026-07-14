@@ -30,20 +30,24 @@ inspect_value() {
 
 export PG_CONTAINER_ID PG_CONTAINER_IMAGE_ID PG_CONTAINER_STARTED_AT
 export PG_COMPOSE_PROJECT PG_COMPOSE_SERVICE PG_COMPOSE_CONFIG_HASH
+export PG_CONTAINER_HOST_PORT
 export REDIS_CONTAINER_ID REDIS_CONTAINER_IMAGE_ID REDIS_CONTAINER_STARTED_AT
 export REDIS_COMPOSE_PROJECT REDIS_COMPOSE_SERVICE REDIS_COMPOSE_CONFIG_HASH
+export REDIS_CONTAINER_HOST_PORT
 PG_CONTAINER_ID="$(inspect_value '{{.Id}}' "${POSTGRES_CONTAINER}")"
 PG_CONTAINER_IMAGE_ID="$(inspect_value '{{.Image}}' "${POSTGRES_CONTAINER}")"
 PG_CONTAINER_STARTED_AT="$(inspect_value '{{.State.StartedAt}}' "${POSTGRES_CONTAINER}")"
 PG_COMPOSE_PROJECT="$(inspect_value '{{ index .Config.Labels "com.docker.compose.project" }}' "${POSTGRES_CONTAINER}")"
 PG_COMPOSE_SERVICE="$(inspect_value '{{ index .Config.Labels "com.docker.compose.service" }}' "${POSTGRES_CONTAINER}")"
 PG_COMPOSE_CONFIG_HASH="$(inspect_value '{{ index .Config.Labels "com.docker.compose.config-hash" }}' "${POSTGRES_CONTAINER}")"
+PG_CONTAINER_HOST_PORT="$(inspect_value '{{ (index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort }}' "${POSTGRES_CONTAINER}")"
 REDIS_CONTAINER_ID="$(inspect_value '{{.Id}}' "${REDIS_CONTAINER}")"
 REDIS_CONTAINER_IMAGE_ID="$(inspect_value '{{.Image}}' "${REDIS_CONTAINER}")"
 REDIS_CONTAINER_STARTED_AT="$(inspect_value '{{.State.StartedAt}}' "${REDIS_CONTAINER}")"
 REDIS_COMPOSE_PROJECT="$(inspect_value '{{ index .Config.Labels "com.docker.compose.project" }}' "${REDIS_CONTAINER}")"
 REDIS_COMPOSE_SERVICE="$(inspect_value '{{ index .Config.Labels "com.docker.compose.service" }}' "${REDIS_CONTAINER}")"
 REDIS_COMPOSE_CONFIG_HASH="$(inspect_value '{{ index .Config.Labels "com.docker.compose.config-hash" }}' "${REDIS_CONTAINER}")"
+REDIS_CONTAINER_HOST_PORT="$(inspect_value '{{ (index (index .NetworkSettings.Ports "6379/tcp") 0).HostPort }}' "${REDIS_CONTAINER}")"
 
 if [[ "${PG_COMPOSE_PROJECT}" != "${PERF_COMPOSE_PROJECT}" \
 	|| "${REDIS_COMPOSE_PROJECT}" != "${PERF_COMPOSE_PROJECT}" ]]; then
@@ -80,6 +84,8 @@ node -e '
 	assert.equal(postgresServer.database, process.env.POSTGRES_DB);
 	assert.match(postgresServer.address, /^\d{1,3}(\.\d{1,3}){3}$|^[0-9a-f:]+$/i);
 	assert.ok(Number.isInteger(postgresServer.port) && postgresServer.port > 0);
+	assert.match(process.env.PG_CONTAINER_HOST_PORT, /^[1-9][0-9]*$/);
+	assert.match(process.env.REDIS_CONTAINER_HOST_PORT, /^[1-9][0-9]*$/);
 	assert.ok(Number.isFinite(Date.parse(postgresServer.postmasterStartTime)));
 	const identity = {
 		capturedAt: new Date().toISOString(),
@@ -92,6 +98,7 @@ node -e '
 				composeProject: process.env.PG_COMPOSE_PROJECT,
 				composeService: process.env.PG_COMPOSE_SERVICE,
 				composeConfigHash: process.env.PG_COMPOSE_CONFIG_HASH,
+				hostPort: Number(process.env.PG_CONTAINER_HOST_PORT),
 			},
 			server: postgresServer,
 		},
@@ -104,6 +111,7 @@ node -e '
 				composeProject: process.env.REDIS_COMPOSE_PROJECT,
 				composeService: process.env.REDIS_COMPOSE_SERVICE,
 				composeConfigHash: process.env.REDIS_COMPOSE_CONFIG_HASH,
+				hostPort: Number(process.env.REDIS_CONTAINER_HOST_PORT),
 			},
 			server: {
 				runId: redisValue("run_id"),

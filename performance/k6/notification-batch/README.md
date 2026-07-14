@@ -51,7 +51,7 @@ cron cadence와 upstream target discovery 자체는 duration에 포함하지 않
 
 각 user category count는 실행자가 명시하며 모두 1 이상이고 합계가 1,000이어야 한다. mixed-token sentinel은 success category의 첫 사용자에게 permanent dummy token 1개를 추가하는 고정 correctness probe이며 category 사용자 수를 바꾸지 않는다. 이 때문에 active token 있음/없음 비율과 injected failure 비율이 manifest에 명확하게 남고, 시나리오가 임의 비율을 결정하지 않는다.
 
-재측정 시 이전 `PERFORMANCE_198_DUMMY:` active token만 inactive로 바꾼 뒤 새로운 fixtureRunId dummy token을 추가한다. 실제 token 또는 다른 fixture token은 수정하지 않으며, 선택 사용자에 dummy가 아닌 active token이 하나라도 있으면 preparation이 fail closed한다. permanent cohort를 먼저 배치하고 뒤에 success cohort가 오도록 해 permanent failure 이후에도 후속 사용자가 SENT가 되는지를 관찰한다. 생성되는 notification log의 title/body에도 fixtureRunId와 test-only 표식을 넣는다. token 원문, 비밀번호, credential은 report에 쓰지 않는다.
+재측정 시 이전 `PERFORMANCE_198_DUMMY:` exact prefix의 active token만 inactive로 바꾼 뒤 새로운 fixtureRunId dummy token을 추가한다. SQL wildcard `LIKE`를 사용하지 않으므로 `PERFORMANCEX198XDUMMY:` 같은 near-prefix 실제 token은 dummy로 분류하거나 수정하지 않는다. 실제 token 또는 다른 fixture token은 수정하지 않으며, 선택 사용자에 dummy가 아닌 active token이 하나라도 있으면 preparation이 fail closed한다. permanent cohort를 먼저 배치하고 뒤에 success cohort가 오도록 해 permanent failure 이후에도 후속 사용자가 SENT가 되는지를 관찰한다. 생성되는 notification log의 title/body에도 fixtureRunId와 test-only 표식을 넣는다. token 원문, 비밀번호, credential은 report에 쓰지 않는다.
 
 manifest에는 실제 Compose project와 PostgreSQL database도 기록한다. runner는 현재 guard가 확인한 project/database와 manifest가 정확히 일치하지 않으면 실행을 거부하므로, 다른 전용 stack에서 fixture manifest를 재사용할 수 없다.
 
@@ -66,6 +66,7 @@ build/reports/k6/notification-batch/
     scenario-result.json
     verification-report.json
     runtime-continuity-report.json
+    runtime-identity-locked.json
     runtime-identity-initial.json
     runtime-identity-before.json
     runtime-identity-after.json
@@ -115,6 +116,7 @@ POSTGRES_CONTAINER=<dedicated-postgres-container> \
 REDIS_CONTAINER=<dedicated-redis-container> \
 PERF_BUSINESS_DATE=<YYYY-MM-DD> \
 PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS=<user-approved-1-to-60> \
+PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS=<user-approved-cadence-to-300000> \
 RUN_ID=<fresh-run-id> \
 MANIFEST_PATH=build/reports/k6/notification-batch/fixtures/<fixtureRunId>/manifest.json \
 bash performance/k6/notification-batch/run-before.sh
@@ -122,9 +124,11 @@ bash performance/k6/notification-batch/run-before.sh
 
 fixture preparation과 runner는 #198 전용 host-global `/tmp/faithlog-performance-global.lock`과 저장소 performance runner의 canonical `/tmp/faithlog-performance-${actualComposeProject}.lock`을 같은 순서로 함께 획득한다. 실제 Compose project 검증 뒤 canonical lock 획득에 실패하면 fixture SQL 또는 Gradle을 시작하지 않는다. 따라서 같은 Compose project를 쓰는 다른 issue runner와 상호 배제되며, global lock은 서로 다른 #198 worktree/project의 동시 실행까지 막는 추가 안전장치일 뿐 canonical project lock을 대체하지 않는다. 별도 project가 실제로 같은 외부 자원을 공유하는 구성은 lock만으로 판별할 수 있으므로 실행자는 병렬 부하 부재를 계속 확인한다. runner는 clean index/worktree만 허용하고 run ID가 이미 있으면 overwrite하지 않고 즉시 거부한다.
 
-lock 획득 후 runner는 workload의 initial/before/after/final 네 시점에서 PostgreSQL/Redis container `.Id`, image ID, `.State.StartedAt`, Compose project/service/config hash를 기록한다. PostgreSQL은 current database, server address/port, postmaster start time을, Redis는 run ID, port, monotonic uptime을 함께 고정한다. 네 시점 identity가 다르면 verifier 실행 전에 `runtime-continuity` 실패로 종료한다. 같은 container 이름과 image/project를 유지한 재생성도 container ID 또는 server identity가 달라 실패한다.
+lock 획득 직후 fixture prep과 runner는 published host port를 포함한 PostgreSQL/Redis container `.Id`, image ID, `.State.StartedAt`, Compose project/service/config hash와 server identity를 다시 읽고 post-lock truth로 고정한다. pre-lock 값은 canonical lock 이름을 찾는 project discovery에만 사용한다. runner는 locked/initial/before/after/final 다섯 시점, fixture prep은 locked/before-fixture 두 시점을 exact 비교하므로 guard와 lock 사이 또는 SQL/workload 직전의 same-name 교체는 mutation 전에 실패한다. PostgreSQL은 current database, server address/port, postmaster start time을, Redis는 run ID, port, monotonic uptime을 함께 고정한다. 같은 container 이름과 image/project를 유지한 재생성도 container ID, host port 또는 server identity가 달라 실패한다.
 
-PostgreSQL/Redis counter와 Docker stats의 window는 Gradle 실행, Spring startup, measured method, correctness replay/postflight를 모두 포함하는 `gradle-spring-harness-lifecycle`이다. creation/delivery phase duration 또는 per-user Hibernate prepared statements와 직접 대응시키지 않으며 harness-wide 보조 evidence로만 집계한다. PostgreSQL snapshot은 exact current database, non-null `stats_reset`, ordered `capturedAt`, database counter set과 `campus_members|user_fcm_tokens|notification_logs` exact table set을 요구한다. Redis snapshot은 exact run ID/uptime/port/DBSIZE/SET count schema를 요구한다. 누락·null·문자열 counter, reset, 감소, under/over-count는 실패한다. Docker CSV는 approved runtime cadence, immutable ID가 일치하는 PostgreSQL+Redis 두 row의 sample instant가 최소 2개 있어야 하고 workload 시작 전부터 종료 후까지 덮어야 한다. 다른 container, 한 시점 sample, 순서·cadence·coverage 위반은 실패한다. Redis SET은 creation+replay 2,000회와 delivery lock 1회의 exact count를 요구한다.
+Docker stats는 container 이름이 아니라 locked immutable container ID를 조회 대상으로 사용하며, 각 sample 직전에 실제 `.Id`를 다시 읽어 expected ID와 대조한 값만 CSV에 기록한다. Redis `cmdstat_set` 누락은 0으로 보정하지 않고 capture 단계에서 실패한다. runner는 `EXIT`뿐 아니라 HUP/INT/TERM도 명시적으로 처리해 background sampler를 종료·wait하고 marker와 두 lock을 해제한다.
+
+PostgreSQL/Redis counter와 Docker stats의 window는 Gradle 실행, Spring startup, measured method, correctness replay/postflight를 모두 포함하는 `gradle-spring-harness-lifecycle`이다. creation/delivery phase duration 또는 per-user Hibernate prepared statements와 직접 대응시키지 않으며 harness-wide 보조 evidence로만 집계한다. PostgreSQL snapshot은 exact current database, non-null `stats_reset`, ordered `capturedAt`, database counter set과 `campus_members|user_fcm_tokens|notification_logs` exact table set을 요구한다. Redis snapshot은 exact run ID/uptime/port/DBSIZE/SET count schema를 요구한다. 누락·null·문자열 counter, reset, 감소, under/over-count는 실패한다. Docker CSV는 approved runtime cadence와 별도의 runtime-approved maximum gap, immutable ID가 일치하는 PostgreSQL+Redis 두 row의 sample instant가 최소 2개 있어야 하고 workload 시작 전부터 종료 후까지 덮어야 한다. 임의 tolerance default는 없으며 `PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS`도 실제 baseline 전에 사용자가 정해야 한다. 다른 container, 한 시점 sample, 순서·maximum-gap·coverage 위반은 실패한다. Redis SET은 creation+replay 2,000회와 delivery lock 1회의 exact count를 요구한다.
 
 ## p50/p95/p99/max 집계 — 지금은 실행 금지
 

@@ -18,6 +18,7 @@ function readScenario(name) {
 
 test('runtime guard rejects shared Docker and every Firebase-capable profile', () => {
 	const guard = readScenario('guard-runtime.sh');
+	const capture = readScenario('capture-runtime-identity.sh');
 
 	assert.match(guard, /SPRING_PROFILE/);
 	assert.match(guard, /PERF_SPRING_PROFILE.*local/);
@@ -25,8 +26,8 @@ test('runtime guard rejects shared Docker and every Firebase-capable profile', (
 	assert.match(guard, /faithlog-latest/);
 	assert.match(guard, /com\.docker\.compose\.project/);
 	assert.match(guard, /PERF_EXPECTED_COMPOSE_PROJECT/);
-	assert.match(guard, /5432\/tcp/);
-	assert.match(guard, /6379\/tcp/);
+	assert.match(capture, /5432\/tcp/);
+	assert.match(capture, /6379\/tcp/);
 	assert.match(guard, /PERF_FCM_ADAPTER.*fake/);
 	assert.match(guard, /FIREBASE_CONFIG_(JSON|PATH)/);
 	assert.doesNotMatch(
@@ -69,13 +70,14 @@ test('fixture contract separates datasetId and fixtureRunId and permits dummy no
 test('runner keeps fixture preparation separate, holds global and canonical project locks, and records labels', () => {
 	const runner = readScenario('run-before.sh');
 	const guard = readScenario('guard-runtime.sh');
+	const dockerCapture = readScenario('capture-docker-stats.sh');
 
 	assert.match(runner, /acquire_notification_batch_locks/);
 	assert.match(guard, /faithlog-performance-\$\{PERF_COMPOSE_PROJECT\}\.lock/);
 	assert.match(runner, /status --porcelain --untracked-files=all/);
 	assert.match(runner, /NotificationBatchBeforeScenarioTest/);
 	assert.match(runner, /--no-daemon/);
-	assert.match(runner, /docker stats/);
+	assert.match(dockerCapture, /docker stats/);
 	assert.match(runner, /redis-cli.*INFO.*commandstats/is);
 	assert.match(runner, /redis-cli.*DBSIZE/is);
 	assert.match(runner, /issue198MarkerLogsTotal/);
@@ -251,6 +253,7 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 			warmupScope: 'external-postgres-redis-cache-only',
 			externalEvidenceWindow: 'gradle-spring-harness-lifecycle',
 			dockerStatsSampleIntervalSeconds: 60,
+			dockerStatsMaxGapMilliseconds: 60000,
 			sharedStack: false,
 			externalFcm: false,
 		};
@@ -334,6 +337,7 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 			workloadStartedAt: '2026-07-14T00:01:10.000Z',
 			workloadFinishedAt: '2026-07-14T00:01:50.000Z',
 			dockerStatsSampleIntervalSeconds: 60,
+			dockerStatsMaxGapMilliseconds: 60000,
 		})}\n`);
 		writeFileSync(
 			join(runDir, 'docker-stats.csv'),

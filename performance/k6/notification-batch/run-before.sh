@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 source "${SCRIPT_DIR}/guard-runtime.sh"
+source "${SCRIPT_DIR}/runner-lifecycle.sh"
 
 POSTGRES_USER="${POSTGRES_USER:-faithlog}"
 POSTGRES_DB="${POSTGRES_DB:-faithlog}"
@@ -73,6 +74,7 @@ fi
 
 : "${PERF_BUSINESS_DATE:?Set an explicit YYYY-MM-DD business date for the dedupe key.}"
 : "${PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS:?Set the user-approved Docker sampling cadence.}"
+: "${PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS:?Set the user-approved maximum Docker sampling gap.}"
 if [[ ! "${PERF_BUSINESS_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
 	echo "PERF_BUSINESS_DATE must use YYYY-MM-DD." >&2
 	exit 2
@@ -80,6 +82,12 @@ fi
 if [[ ! "${PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
 	|| (( PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS > 60 )); then
 	echo "PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS must be an approved integer from 1 through 60." >&2
+	exit 2
+fi
+if [[ ! "${PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS}" =~ ^[1-9][0-9]*$ ]] \
+	|| (( PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS < PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS * 1000 )) \
+	|| (( PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS > 300000 )); then
+	echo "PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS must be an approved integer from cadence through 300000." >&2
 	exit 2
 fi
 
@@ -92,32 +100,26 @@ acquire_notification_batch_locks
 
 SAMPLER_MARKER=""
 SAMPLER_PID=""
-cleanup() {
-	if [[ -n "${SAMPLER_MARKER}" ]]; then
-		rm -f "${SAMPLER_MARKER}"
-	fi
-	if [[ -n "${SAMPLER_PID}" ]]; then
-		wait "${SAMPLER_PID}" 2>/dev/null || true
-	fi
-	release_notification_batch_locks
-}
-trap cleanup EXIT
+install_notification_batch_runner_traps
 
 mkdir -p "${REPORT_ROOT}/runs"
 if ! mkdir "${RUN_DIR}" 2>/dev/null; then
 	echo "RUN_ID already exists; use a fresh run ID instead of merging evidence." >&2
 	exit 2
 fi
+verify_notification_batch_runtime_after_lock "${RUN_DIR}/runtime-identity-locked.json"
 cp "${MANIFEST_PATH}" "${RUN_DIR}/manifest.json"
 printf '%s\n' "${RUN_DIR}" > "${REPORT_ROOT}/latest-run.txt"
 GIT_COMMIT="$(git -C "${REPOSITORY_ROOT}" rev-parse HEAD)"
 
 bash "${SCRIPT_DIR}/capture-runtime-identity.sh" "${RUN_DIR}/runtime-identity-initial.json"
+RUNTIME_IDENTITY_PHASES=locked,initial RUN_DIR="${RUN_DIR}" \
+	node "${SCRIPT_DIR}/assert-runtime-continuity.mjs"
 PERF_POSTGRES_CONTAINER_ID="$(node -p \
 	'require(process.argv[1]).postgres.container.id' "${RUN_DIR}/runtime-identity-initial.json")"
 PERF_REDIS_CONTAINER_ID="$(node -p \
 	'require(process.argv[1]).redis.container.id' "${RUN_DIR}/runtime-identity-initial.json")"
-printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","postgresContainerId":"%s","redisContainer":"%s","redisContainerId":"%s","dockerProject":"%s","composeLabel":"com.docker.compose.project","postgresHost":"127.0.0.1","postgresHostPort":%s,"postgresDatabase":"%s","redisHost":"127.0.0.1","redisHostPort":%s,"postgresImageId":"%s","redisImageId":"%s","gitCommit":"%s","businessDate":"%s","executionModel":"cold-jvm-per-sample","warmupScope":"external-postgres-redis-cache-only","externalEvidenceWindow":"gradle-spring-harness-lifecycle","dockerStatsSampleIntervalSeconds":%s,"sharedStack":false,"externalFcm":false}\n' \
+printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","postgresContainerId":"%s","redisContainer":"%s","redisContainerId":"%s","dockerProject":"%s","composeLabel":"com.docker.compose.project","postgresHost":"127.0.0.1","postgresHostPort":%s,"postgresDatabase":"%s","redisHost":"127.0.0.1","redisHostPort":%s,"postgresImageId":"%s","redisImageId":"%s","gitCommit":"%s","businessDate":"%s","executionModel":"cold-jvm-per-sample","warmupScope":"external-postgres-redis-cache-only","externalEvidenceWindow":"gradle-spring-harness-lifecycle","dockerStatsSampleIntervalSeconds":%s,"dockerStatsMaxGapMilliseconds":%s,"sharedStack":false,"externalFcm":false}\n' \
 	"${PERF_SPRING_PROFILE}" \
 	"${PERF_FCM_ADAPTER}" \
 	"${POSTGRES_CONTAINER}" \
@@ -133,6 +135,7 @@ printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","postgr
 	"${GIT_COMMIT}" \
 	"${PERF_BUSINESS_DATE}" \
 	"${PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS}" \
+	"${PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS}" \
 	> "${RUN_DIR}/environment.json"
 
 snapshot_postgres() {
@@ -160,11 +163,12 @@ snapshot_postgres() {
 				'userFcmTokensTotal', (SELECT count(*) FROM user_fcm_tokens),
 				'activeTokensTotal', (SELECT count(*) FROM user_fcm_tokens WHERE is_active = TRUE),
 				'issue198DummyTokensTotal', (
-					SELECT count(*) FROM user_fcm_tokens WHERE token LIKE 'PERFORMANCE_198_DUMMY:%'
+					SELECT count(*) FROM user_fcm_tokens
+					WHERE starts_with(token, 'PERFORMANCE_198_DUMMY:')
 				),
 				'issue198ActiveDummyTokens', (
 					SELECT count(*) FROM user_fcm_tokens
-					WHERE is_active = TRUE AND token LIKE 'PERFORMANCE_198_DUMMY:%'
+					WHERE is_active = TRUE AND starts_with(token, 'PERFORMANCE_198_DUMMY:')
 				),
 				'notificationLogsTotal', (SELECT count(*) FROM notification_logs),
 				'issue198MarkerLogsTotal', (
@@ -187,30 +191,7 @@ snapshot_redis() {
 	captured_at="$(node -p 'new Date().toISOString()')"
 	REDIS_DBSIZE="${dbsize}" REDIS_SERVER_INFO="${server_info}" \
 	REDIS_COMMANDSTATS="${commandstats}" REDIS_CAPTURED_AT="${captured_at}" \
-	node -e '
-		const assert = require("node:assert/strict");
-		const value = (text, name) => {
-			const match = text.match(new RegExp(`^${name}:(.+)\\r?$`, "m"));
-			assert.ok(match, `Redis evidence missing ${name}`);
-			return match[1].trim();
-		};
-		const integer = (raw, name, minimum = 0) => {
-			assert.match(raw, /^[0-9]+$/, `${name} must be numeric`);
-			const parsed = Number(raw);
-			assert.ok(Number.isSafeInteger(parsed) && parsed >= minimum, `${name} is invalid`);
-			return parsed;
-		};
-		const setCalls = process.env.REDIS_COMMANDSTATS.match(/^cmdstat_set:calls=(\d+),/m)?.[1] ?? "0";
-		const snapshot = {
-			capturedAt: process.env.REDIS_CAPTURED_AT,
-			runId: value(process.env.REDIS_SERVER_INFO, "run_id"),
-			uptimeSeconds: integer(value(process.env.REDIS_SERVER_INFO, "uptime_in_seconds"), "uptime", 1),
-			tcpPort: integer(value(process.env.REDIS_SERVER_INFO, "tcp_port"), "tcp_port", 1),
-			dbSize: integer(process.env.REDIS_DBSIZE, "DBSIZE"),
-			commands: { set: integer(setCalls, "SET calls") },
-		};
-		process.stdout.write(`${JSON.stringify(snapshot)}\n`);
-	' > "${output}"
+	REDIS_EVIDENCE_OUTPUT_PATH="${output}" node "${SCRIPT_DIR}/parse-redis-evidence.mjs"
 }
 
 timestamp_now() {
@@ -219,16 +200,7 @@ timestamp_now() {
 
 append_docker_stats() {
 	local output="$1"
-	local captured_at postgres_stats redis_stats
-	captured_at="$(timestamp_now)"
-	postgres_stats="$(docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}},{{.MemPerc}}' \
-		"${POSTGRES_CONTAINER}")"
-	redis_stats="$(docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}},{{.MemPerc}}' \
-		"${REDIS_CONTAINER}")"
-	printf '%s,%s,%s,%s\n' "${captured_at}" "${POSTGRES_CONTAINER}" \
-		"${PERF_POSTGRES_CONTAINER_ID}" "${postgres_stats}" >> "${output}"
-	printf '%s,%s,%s,%s\n' "${captured_at}" "${REDIS_CONTAINER}" \
-		"${PERF_REDIS_CONTAINER_ID}" "${redis_stats}" >> "${output}"
+	bash "${SCRIPT_DIR}/capture-docker-stats.sh" "${output}"
 }
 
 sample_docker_stats() {
@@ -283,9 +255,10 @@ wait "${SAMPLER_PID}"
 SAMPLER_MARKER=""
 SAMPLER_PID=""
 append_docker_stats "${RUN_DIR}/docker-stats.csv"
-printf '{"workloadStartedAt":"%s","workloadFinishedAt":"%s","dockerStatsSampleIntervalSeconds":%s}\n' \
+printf '{"workloadStartedAt":"%s","workloadFinishedAt":"%s","dockerStatsSampleIntervalSeconds":%s,"dockerStatsMaxGapMilliseconds":%s}\n' \
 	"${WORKLOAD_STARTED_AT}" "${WORKLOAD_FINISHED_AT}" \
-	"${PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS}" > "${RUN_DIR}/evidence-window.json"
+	"${PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS}" \
+	"${PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS}" > "${RUN_DIR}/evidence-window.json"
 
 snapshot_postgres "${RUN_DIR}/postgres-after.json"
 snapshot_redis "${RUN_DIR}/redis-after.json"

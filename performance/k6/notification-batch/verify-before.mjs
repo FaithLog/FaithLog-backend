@@ -176,7 +176,10 @@ const redisCommandCallDelta = exactNumericDelta(
 );
 
 exactKeys(evidenceWindow,
-	['workloadStartedAt', 'workloadFinishedAt', 'dockerStatsSampleIntervalSeconds'], 'evidenceWindow');
+	[
+		'workloadStartedAt', 'workloadFinishedAt', 'dockerStatsSampleIntervalSeconds',
+		'dockerStatsMaxGapMilliseconds',
+	], 'evidenceWindow');
 const workloadStartedAt = assertIsoTimestamp(evidenceWindow.workloadStartedAt, 'workloadStartedAt');
 const workloadFinishedAt = assertIsoTimestamp(evidenceWindow.workloadFinishedAt, 'workloadFinishedAt');
 assert.ok(workloadStartedAt < workloadFinishedAt, 'Workload evidence window must be strictly ordered');
@@ -186,6 +189,12 @@ assert.ok(Number.isSafeInteger(evidenceWindow.dockerStatsSampleIntervalSeconds)
 'Docker stats cadence must be an approved integer from 1 through 60 seconds');
 assert.equal(evidenceWindow.dockerStatsSampleIntervalSeconds, environment.dockerStatsSampleIntervalSeconds,
 	'Docker stats cadence must match the runtime environment');
+assert.ok(Number.isSafeInteger(evidenceWindow.dockerStatsMaxGapMilliseconds)
+	&& evidenceWindow.dockerStatsMaxGapMilliseconds >= evidenceWindow.dockerStatsSampleIntervalSeconds * 1000
+	&& evidenceWindow.dockerStatsMaxGapMilliseconds <= 300000,
+'Docker stats maximum gap must be an approved integer from cadence through 300000 milliseconds');
+assert.equal(evidenceWindow.dockerStatsMaxGapMilliseconds, environment.dockerStatsMaxGapMilliseconds,
+	'Docker stats maximum gap must match the runtime environment');
 
 const dockerLines = dockerStats.trim().split(/\r?\n/);
 assert.equal(dockerLines.shift(),
@@ -235,8 +244,8 @@ for (const [capturedAt, containers] of dockerSamples) {
 for (let index = 1; index < dockerTimestamps.length; index += 1) {
 	const gapMs = Date.parse(dockerTimestamps[index]) - Date.parse(dockerTimestamps[index - 1]);
 	assert.ok(gapMs > 0, 'Docker sample timestamps must be strictly monotonic');
-	assert.ok(gapMs <= (evidenceWindow.dockerStatsSampleIntervalSeconds * 1000) + 5000,
-		'Docker sample gap exceeds the approved cadence tolerance');
+	assert.ok(gapMs <= evidenceWindow.dockerStatsMaxGapMilliseconds,
+		'Docker sample gap exceeds the runtime-approved maximum');
 }
 assert.ok(Date.parse(dockerTimestamps[0]) <= workloadStartedAt,
 	'Docker sampling must begin before the workload');
@@ -323,6 +332,7 @@ const verification = {
 		dockerSampleCount: dockerRows.length,
 		dockerSampleInstantCount: dockerSamples.size,
 		dockerStatsSampleIntervalSeconds: evidenceWindow.dockerStatsSampleIntervalSeconds,
+		dockerStatsMaxGapMilliseconds: evidenceWindow.dockerStatsMaxGapMilliseconds,
 		evidenceWindow: {
 			workloadStartedAt: evidenceWindow.workloadStartedAt,
 			workloadFinishedAt: evidenceWindow.workloadFinishedAt,

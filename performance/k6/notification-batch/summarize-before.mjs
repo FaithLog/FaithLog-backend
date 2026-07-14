@@ -95,6 +95,7 @@ const workloadSignature = (sample) => JSON.stringify({
 	warmupScope: sample.environment.warmupScope,
 	externalEvidenceWindow: sample.environment.externalEvidenceWindow,
 	dockerStatsSampleIntervalSeconds: sample.environment.dockerStatsSampleIntervalSeconds,
+	dockerStatsMaxGapMilliseconds: sample.environment.dockerStatsMaxGapMilliseconds,
 	javaRuntimeVersion: sample.result.javaRuntimeVersion,
 	notificationType: sample.result.notificationType,
 	retryBackoffPolicy: sample.result.retryBackoffPolicy,

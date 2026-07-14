@@ -424,7 +424,9 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 		const binDir = join(root, 'bin');
 		mkdirSync(binDir);
 		mkdirSync(syntheticScenario, { recursive: true });
-		for (const name of ['guard-runtime.sh', 'prepare-fixtures.sh', 'prepare-fixtures.sql', 'run-before.sh']) {
+		for (const name of [
+			'guard-runtime.sh', 'runner-lifecycle.sh', 'prepare-fixtures.sh', 'prepare-fixtures.sql', 'run-before.sh',
+		]) {
 			copyFileSync(scenarioPath(name), join(syntheticScenario, name));
 		}
 		const tracePath = join(root, 'docker.trace');
@@ -469,6 +471,7 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 			PERF_NO_TOKEN_COUNT: '100',
 			PERF_BUSINESS_DATE: '2026-07-14',
 			PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS: '60',
+			PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS: '60000',
 		};
 		const prepare = spawnSync('bash', [join(syntheticScenario, 'prepare-fixtures.sh')], {
 			env: commonEnv, encoding: 'utf8',
@@ -495,7 +498,7 @@ test('runtime continuity rejects same-name container replacement before verifica
 	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-runtime-continuity-'));
 	try {
 		const runner = readFileSync(scenarioPath('run-before.sh'), 'utf8');
-		for (const phase of ['initial', 'before', 'after', 'final']) {
+		for (const phase of ['locked', 'initial', 'before', 'after', 'final']) {
 			assert.match(runner, new RegExp(`runtime-identity-${phase}\\.json`));
 		}
 		assert.ok(
@@ -508,6 +511,7 @@ test('runtime continuity rejects same-name container replacement before verifica
 				container: {
 					name: 'pg-198', id: 'pg-id-198', imageId: 'sha256:pg', startedAt: '2026-07-14T00:00:00Z',
 					composeProject: 'faithlog-perf-198', composeService: 'postgres', composeConfigHash: 'pg-config',
+					hostPort: 15432,
 				},
 				server: {
 					database: 'faithlog', address: '127.0.0.1', port: 5432,
@@ -518,11 +522,13 @@ test('runtime continuity rejects same-name container replacement before verifica
 				container: {
 					name: 'redis-198', id: 'redis-id-198', imageId: 'sha256:redis', startedAt: '2026-07-14T00:00:00Z',
 					composeProject: 'faithlog-perf-198', composeService: 'redis', composeConfigHash: 'redis-config',
+					hostPort: 16379,
 				},
 				server: { runId: 'redis-run-198', uptimeSeconds, port: 6379 },
 			},
 		});
 		const phases = [
+			['locked', '2026-07-14T00:00:59Z', 99],
 			['initial', '2026-07-14T00:01:00Z', 100],
 			['before', '2026-07-14T00:01:01Z', 101],
 			['after', '2026-07-14T00:02:00Z', 160],
@@ -541,10 +547,11 @@ test('runtime continuity rejects same-name container replacement before verifica
 			}
 		};
 		const mutations = [];
-		for (const phase of ['before', 'after', 'final']) {
+		for (const phase of ['initial', 'before', 'after', 'final']) {
 			for (const side of ['postgres', 'redis']) {
 				for (const field of [
 					'name', 'id', 'imageId', 'startedAt', 'composeProject', 'composeService', 'composeConfigHash',
+					'hostPort',
 				]) {
 					mutations.push({
 						name: `${phase} ${side} container ${field}`,
@@ -578,7 +585,7 @@ test('runtime continuity rejects same-name container replacement before verifica
 			assertFails(runNode('assert-runtime-continuity.mjs', { RUN_DIR: root }),
 				`${mutation.name} change must fail continuity`);
 		}
-		for (const phase of ['before', 'after', 'final']) {
+		for (const phase of ['initial', 'before', 'after', 'final']) {
 			writeValidPhases();
 			const phaseIndex = phases.findIndex(([name]) => name === phase);
 			const [, capturedAt] = phases[phaseIndex];
@@ -665,14 +672,55 @@ verify_notification_batch_runtime_after_lock "${join(root, 'runtime-identity-loc
 test('dummy-token classification uses an exact prefix and sampling is immutable fail-closed', () => {
 	const sql = readFileSync(scenarioPath('prepare-fixtures.sql'), 'utf8');
 	const runner = readFileSync(scenarioPath('run-before.sh'), 'utf8');
+	const redisParser = readFileSync(scenarioPath('parse-redis-evidence.mjs'), 'utf8');
+	const dockerCapture = readFileSync(scenarioPath('capture-docker-stats.sh'), 'utf8');
 	assert.doesNotMatch(sql, /LIKE\s+'PERFORMANCE_198_DUMMY:/i);
 	assert.doesNotMatch(runner, /LIKE\s+'PERFORMANCE_198_DUMMY:/i);
 	assert.match(sql, /starts_with\(token\.token,\s*'PERFORMANCE_198_DUMMY:'\)/i);
-	assert.match(sql, /starts_with\(token\.client_instance_id,\s*'PERFORMANCE_198_DUMMY:'\s*\|\|\s*config\.fixture_run_id\s*\|\|\s*':'\)/i);
-	assert.match(runner, /docker stats[\s\S]*PERF_POSTGRES_CONTAINER_ID/);
-	assert.match(runner, /docker stats[\s\S]*PERF_REDIS_CONTAINER_ID/);
-	assert.doesNotMatch(runner, /cmdstat_set[\s\S]{0,120}\?\?\s*["']0["']/);
-	assert.match(runner, /Redis evidence missing cmdstat_set/);
+	assert.match(sql, /starts_with\(\s*token\.client_instance_id,\s*'PERFORMANCE_198_DUMMY:'\s*\|\|\s*config\.fixture_run_id\s*\|\|\s*':'\s*\)/i);
+	assert.match(dockerCapture, /POSTGRES_OBSERVED_ID=.*PERF_POSTGRES_CONTAINER_ID/);
+	assert.match(dockerCapture, /REDIS_OBSERVED_ID=.*PERF_REDIS_CONTAINER_ID/);
+	assert.match(dockerCapture, /docker stats[\s\S]*POSTGRES_OBSERVED_ID/);
+	assert.match(dockerCapture, /docker stats[\s\S]*REDIS_OBSERVED_ID/);
+	assert.doesNotMatch(redisParser, /cmdstat_set[\s\S]{0,120}\?\?\s*["']0["']/);
+	assert.match(redisParser, /Redis evidence missing cmdstat_set/);
+	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-missing-redis-set-'));
+	try {
+		const outputPath = join(root, 'redis.json');
+		const result = runNode('parse-redis-evidence.mjs', {
+			REDIS_EVIDENCE_OUTPUT_PATH: outputPath,
+			REDIS_DBSIZE: '0',
+			REDIS_SERVER_INFO: 'run_id:redis-run-198\nuptime_in_seconds:100\ntcp_port:6379\n',
+			REDIS_COMMANDSTATS: 'cmdstat_get:calls=1,usec=1,usec_per_call=1.00\n',
+			REDIS_CAPTURED_AT: '2026-07-14T00:00:00.000Z',
+		});
+		assertFails(result, 'missing Redis cmdstat_set must fail at capture time');
+		assert.equal(existsSync(outputPath), false);
+		const binDir = join(root, 'bin');
+		mkdirSync(binDir);
+		const tracePath = join(root, 'docker.trace');
+		const dockerPath = join(binDir, 'docker');
+		writeFileSync(dockerPath, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "$TRACE_PATH"\nif [[ "$*" == *inspect* ]]; then printf 'replacement-id\\n'; exit 0; fi\nexit 91\n`);
+		chmodSync(dockerPath, 0o755);
+		const statsOutput = join(root, 'docker-stats.csv');
+		const replacement = spawnSync('bash', [scenarioPath('capture-docker-stats.sh'), statsOutput], {
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH}`,
+				TRACE_PATH: tracePath,
+				POSTGRES_CONTAINER: 'pg-198',
+				REDIS_CONTAINER: 'redis-198',
+				PERF_POSTGRES_CONTAINER_ID: 'pg-id-198',
+				PERF_REDIS_CONTAINER_ID: 'redis-id-198',
+			},
+			encoding: 'utf8',
+		});
+		assertFails(replacement, 'transient same-name replacement must fail before Docker stats capture');
+		assert.doesNotMatch(readFileSync(tracePath, 'utf8'), /stats/);
+		assert.equal(existsSync(statsOutput), false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 test('runner lifecycle cleans its sampler marker and both locks on TERM', async () => {

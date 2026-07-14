@@ -47,13 +47,16 @@ SELECT 1 / CASE WHEN NOT EXISTS (
 	FROM user_fcm_tokens token
 	JOIN perf_198_members member ON member.user_id = token.user_id
 	WHERE token.is_active = TRUE
-		AND token.token NOT LIKE 'PERFORMANCE_198_DUMMY:%'
+		AND NOT starts_with(token.token, 'PERFORMANCE_198_DUMMY:')
 ) THEN 1 ELSE 0 END AS existing_active_token_guard;
 SELECT 1 / CASE WHEN NOT EXISTS (
 	SELECT 1
 	FROM user_fcm_tokens token
 	JOIN perf_198_config config
-		ON token.client_instance_id LIKE 'PERFORMANCE_198_DUMMY:' || config.fixture_run_id || ':%'
+		ON starts_with(
+			token.client_instance_id,
+			'PERFORMANCE_198_DUMMY:' || config.fixture_run_id || ':'
+		)
 ) THEN 1 ELSE 0 END AS fresh_fixture_run_guard;
 
 UPDATE user_fcm_tokens token
@@ -64,7 +67,7 @@ SET
 FROM perf_198_members member
 WHERE token.user_id = member.user_id
 	AND token.is_active = TRUE
-	AND token.token LIKE 'PERFORMANCE_198_DUMMY:%';
+	AND starts_with(token.token, 'PERFORMANCE_198_DUMMY:');
 
 WITH categorized AS (
 	SELECT
@@ -170,7 +173,10 @@ SELECT json_build_object(
 	'insertedDummyTokenCount', (
 		SELECT count(*)
 		FROM user_fcm_tokens token
-		WHERE token.client_instance_id LIKE 'PERFORMANCE_198_DUMMY:' || config.fixture_run_id || ':%'
+		WHERE starts_with(
+			token.client_instance_id,
+			'PERFORMANCE_198_DUMMY:' || config.fixture_run_id || ':'
+		)
 	),
 	'fixturePolicy', 'dummy-token-and-generated-log-only',
 	'credentialRecorded', false

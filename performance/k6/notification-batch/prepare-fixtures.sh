@@ -8,6 +8,7 @@ source "${SCRIPT_DIR}/guard-runtime.sh"
 PERF_MEMBER_COUNT="${PERF_MEMBER_COUNT:-1000}"
 POSTGRES_USER="${POSTGRES_USER:-faithlog}"
 POSTGRES_DB="${POSTGRES_DB:-faithlog}"
+export POSTGRES_USER POSTGRES_DB
 
 : "${PERF_DATASET_ID:?Set the existing PERFORMANCE datasetId.}"
 : "${PERF_FIXTURE_RUN_ID:?Set a fresh fixtureRunId.}"
@@ -71,6 +72,9 @@ TEMP_MANIFEST_PATH="${REPORT_DIR}/.manifest.json.tmp.$$"
 cleanup() {
 	rm -f "${TEMP_MANIFEST_PATH}"
 	if [[ ! -f "${MANIFEST_PATH}" ]]; then
+		rm -f "${REPORT_DIR}/runtime-identity-locked.json" \
+			"${REPORT_DIR}/runtime-identity-before-fixture.json" \
+			"${REPORT_DIR}/runtime-continuity-report.json"
 		rmdir "${REPORT_DIR}" 2>/dev/null || true
 	fi
 	release_notification_batch_locks
@@ -81,6 +85,10 @@ if ! mkdir "${REPORT_DIR}" 2>/dev/null; then
 	echo "PERF_FIXTURE_RUN_ID report directory already exists; use a fresh fixtureRunId." >&2
 	exit 2
 fi
+verify_notification_batch_runtime_after_lock "${REPORT_DIR}/runtime-identity-locked.json"
+bash "${SCRIPT_DIR}/capture-runtime-identity.sh" "${REPORT_DIR}/runtime-identity-before-fixture.json"
+RUNTIME_IDENTITY_PHASES=locked,before-fixture RUN_DIR="${REPORT_DIR}" \
+	node "${SCRIPT_DIR}/assert-runtime-continuity.mjs"
 
 docker exec -i "${POSTGRES_CONTAINER}" psql \
 	-U "${POSTGRES_USER}" \
