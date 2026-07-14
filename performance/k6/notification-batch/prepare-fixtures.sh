@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 source "${SCRIPT_DIR}/guard-runtime.sh"
 
 PERF_MEMBER_COUNT="${PERF_MEMBER_COUNT:-1000}"
@@ -18,10 +19,16 @@ POSTGRES_DB="${POSTGRES_DB:-faithlog}"
 : "${PERF_INACTIVE_COUNT:?Set the inactive-token-only count.}"
 : "${PERF_NO_TOKEN_COUNT:?Set the no-token count.}"
 
-guard_notification_batch_runtime
-
 if [[ ! "${PERF_DATASET_ID}" =~ ^PERFORMANCE_[A-Za-z0-9_-]+$ ]]; then
 	echo "PERF_DATASET_ID must be a PERFORMANCE_ identifier." >&2
+	exit 2
+fi
+if [[ "${PERF_MEMBER_COUNT}" != "1000" ]]; then
+	echo "PERF_MEMBER_COUNT must be exactly 1000 before fixture mutation." >&2
+	exit 2
+fi
+if [[ ! "${PERF_CAMPUS_ID}" =~ ^[1-9][0-9]*$ ]]; then
+	echo "PERF_CAMPUS_ID must be a positive integer." >&2
 	exit 2
 fi
 if [[ ! "${PERF_FIXTURE_RUN_ID}" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; then
@@ -30,6 +37,11 @@ if [[ ! "${PERF_FIXTURE_RUN_ID}" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; then
 fi
 if [[ "${PERF_SAMPLE_KIND}" != "warmup" && "${PERF_SAMPLE_KIND}" != "measured" ]]; then
 	echo "PERF_SAMPLE_KIND must be warmup or measured." >&2
+	exit 2
+fi
+if [[ ! "${POSTGRES_USER}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ \
+	|| ! "${POSTGRES_DB}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+	echo "POSTGRES_USER and POSTGRES_DB must be safe PostgreSQL identifiers." >&2
 	exit 2
 fi
 for count in \
@@ -49,8 +61,22 @@ if (( PERF_SUCCESS_COUNT + PERF_TRANSIENT_COUNT + PERF_PERMANENT_COUNT \
 	exit 2
 fi
 
-REPORT_DIR="build/reports/k6/notification-batch/fixtures/${PERF_FIXTURE_RUN_ID}"
+guard_notification_batch_runtime
+
+LOCK_DIR="/tmp/faithlog-performance-${PERF_COMPOSE_PROJECT}.lock"
+if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+	echo "Another fixture or performance measurement is active for this Compose project." >&2
+	exit 2
+fi
+
+REPORT_DIR="${REPOSITORY_ROOT}/build/reports/k6/notification-batch/fixtures/${PERF_FIXTURE_RUN_ID}"
 MANIFEST_PATH="${REPORT_DIR}/manifest.json"
+TEMP_MANIFEST_PATH="${REPORT_DIR}/.manifest.json.tmp.$$"
+cleanup() {
+	rm -f "${TEMP_MANIFEST_PATH}"
+	rmdir "${LOCK_DIR}" 2>/dev/null || true
+}
+trap cleanup EXIT
 mkdir -p "${REPORT_DIR}"
 
 docker exec -i "${POSTGRES_CONTAINER}" psql \
@@ -60,6 +86,8 @@ docker exec -i "${POSTGRES_CONTAINER}" psql \
 	-v dataset_id="${PERF_DATASET_ID}" \
 	-v fixture_run_id="${PERF_FIXTURE_RUN_ID}" \
 	-v sample_kind="${PERF_SAMPLE_KIND}" \
+	-v compose_project="${PERF_COMPOSE_PROJECT}" \
+	-v postgres_database="${POSTGRES_DB}" \
 	-v campus_id="${PERF_CAMPUS_ID}" \
 	-v member_count="${PERF_MEMBER_COUNT}" \
 	-v success_count="${PERF_SUCCESS_COUNT}" \
@@ -68,16 +96,20 @@ docker exec -i "${POSTGRES_CONTAINER}" psql \
 	-v inactive_count="${PERF_INACTIVE_COUNT}" \
 	-v no_token_count="${PERF_NO_TOKEN_COUNT}" \
 	< "${SCRIPT_DIR}/prepare-fixtures.sql" \
-	| tail -n 1 > "${MANIFEST_PATH}"
+	| tail -n 1 > "${TEMP_MANIFEST_PATH}"
 
 node -e '
 	const fs = require("node:fs");
 	const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 	if (manifest.memberCount !== 1000
 		|| manifest.insertedDummyTokenCount !== manifest.memberCount - manifest.noTokenCount
+		|| manifest.composeProject !== process.argv[2]
+		|| manifest.postgresDatabase !== process.argv[3]
 		|| manifest.credentialRecorded !== false) {
 		throw new Error("Fixture manifest violates the #198 contract.");
 	}
-' "${MANIFEST_PATH}"
+	' "${TEMP_MANIFEST_PATH}" "${PERF_COMPOSE_PROJECT}" "${POSTGRES_DB}"
+
+mv "${TEMP_MANIFEST_PATH}" "${MANIFEST_PATH}"
 
 echo "Fixture manifest: ${MANIFEST_PATH}"

@@ -10,6 +10,11 @@ assert.ok(runDir, 'RUN_DIR is required');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 const result = JSON.parse(readFileSync(join(runDir, 'scenario-result.json'), 'utf8'));
 const environment = JSON.parse(readFileSync(join(runDir, 'environment.json'), 'utf8'));
+const postgresBefore = JSON.parse(readFileSync(join(runDir, 'postgres-before.json'), 'utf8'));
+const postgresAfter = JSON.parse(readFileSync(join(runDir, 'postgres-after.json'), 'utf8'));
+const redisBefore = readFileSync(join(runDir, 'redis-commandstats-before.txt'), 'utf8');
+const redisAfter = readFileSync(join(runDir, 'redis-commandstats-after.txt'), 'utf8');
+const dockerStats = readFileSync(join(runDir, 'docker-stats.csv'), 'utf8');
 
 const expectedPending = manifest.successCount + manifest.transientCount + manifest.permanentCount;
 const expectedSkipped = manifest.inactiveCount + manifest.noTokenCount;
@@ -39,12 +44,22 @@ assert.equal(result.creation.tokenLookupCount, manifest.memberCount);
 assert.equal(result.delivery.tokenUpdateCount, manifest.permanentCount);
 assert.equal(result.delivery.fakeSendAttemptCount, expectedSendAttempts);
 assert.equal(result.correctness.duplicateReplayCreatedCount, 0);
-assert.equal(result.correctness.crossCampusMutationCount, 0);
+assert.equal(result.correctness.unexpectedRequestLogCount, 0);
 assert.equal(result.correctness.nonFixtureTokenMutationCount, 0);
 assert.equal(result.correctness.partialFailureContinued, true);
+assert.equal(result.requestServiceRevalidatesCampusMembership, false);
 assert.equal(result.externalFcmUsed, false);
 assert.equal(environment.externalFcm, false);
 assert.equal(environment.sharedStack, false);
+assert.equal(environment.springProfile, 'local');
+assert.equal(environment.fcmAdapter, 'fake');
+assert.equal(environment.postgresHost, '127.0.0.1');
+assert.equal(environment.redisHost, '127.0.0.1');
+assert.match(environment.dockerProject, /^(?!.*faithlog-latest)[A-Za-z0-9_-]+$/);
+assert.ok(Number.isInteger(environment.postgresHostPort) && environment.postgresHostPort > 0);
+assert.ok(Number.isInteger(environment.redisHostPort) && environment.redisHostPort > 0);
+assert.ok(result.endToEnd.durationMs > 0);
+assert.ok(result.endToEnd.throughputPerSecond > 0);
 
 for (const phase of [result.creation, result.delivery]) {
 	assert.ok(phase.durationMs > 0, 'durationMs must be positive');
@@ -52,6 +67,68 @@ for (const phase of [result.creation, result.delivery]) {
 	assert.ok(phase.dbPreparedStatements >= 0, 'dbPreparedStatements must be non-negative');
 	assert.ok(phase.perUserDbCalls >= 0, 'perUserDbCalls must be non-negative');
 }
+
+const numericDelta = (before, after) => {
+	const resultDelta = {};
+	for (const [key, afterValue] of Object.entries(after ?? {})) {
+		const beforeValue = before?.[key];
+		if (typeof afterValue === 'number') {
+			resultDelta[key] = afterValue - Number(beforeValue ?? 0);
+		} else if (afterValue && typeof afterValue === 'object') {
+			resultDelta[key] = numericDelta(beforeValue, afterValue);
+		}
+	}
+	return resultDelta;
+};
+
+const assertFiniteNonNegativeNumbers = (value, path = 'evidence') => {
+	for (const [key, nested] of Object.entries(value ?? {})) {
+		const nestedPath = `${path}.${key}`;
+		if (typeof nested === 'number') {
+			assert.ok(Number.isFinite(nested) && nested >= 0, `${nestedPath} must be finite and non-negative`);
+		} else if (nested && typeof nested === 'object') {
+			assertFiniteNonNegativeNumbers(nested, nestedPath);
+		}
+	}
+};
+
+const redisCalls = (text) => Object.fromEntries(
+	text.split(/\r?\n/)
+		.filter((line) => line.startsWith('cmdstat_'))
+		.map((line) => {
+			const [name, values] = line.split(':', 2);
+			const calls = values.split(',').find((value) => value.startsWith('calls='));
+			return [name.slice('cmdstat_'.length), Number(calls?.slice('calls='.length) ?? 0)];
+		}),
+);
+
+const redisBeforeCalls = redisCalls(redisBefore);
+const redisAfterCalls = redisCalls(redisAfter);
+const redisCommandCallDelta = Object.fromEntries(
+	Object.entries(redisAfterCalls).map(([command, calls]) => [command, calls - (redisBeforeCalls[command] ?? 0)]),
+);
+const dockerRows = dockerStats.trim().split(/\r?\n/).slice(1).filter(Boolean);
+assert.ok(dockerRows.length > 0, 'docker-stats.csv must contain measured samples');
+const dockerPeakByContainer = {};
+for (const row of dockerRows) {
+	const [, container, cpuPercent, , memoryPercent] = row.split(',');
+	assert.ok(container && cpuPercent && memoryPercent, `Invalid docker stats row: ${row}`);
+	const cpu = Number(cpuPercent.replace('%', ''));
+	const memory = Number(memoryPercent.replace('%', ''));
+	assert.ok(Number.isFinite(cpu) && cpu >= 0, `Invalid Docker CPU sample: ${row}`);
+	assert.ok(Number.isFinite(memory) && memory >= 0, `Invalid Docker memory sample: ${row}`);
+	const peak = dockerPeakByContainer[container] ?? { cpuPercent: 0, memoryPercent: 0, sampleCount: 0 };
+	peak.cpuPercent = Math.max(peak.cpuPercent, cpu);
+	peak.memoryPercent = Math.max(peak.memoryPercent, memory);
+	peak.sampleCount += 1;
+	dockerPeakByContainer[container] = peak;
+}
+
+const postgresDelta = numericDelta(postgresBefore, postgresAfter);
+assertFiniteNonNegativeNumbers(postgresDelta, 'postgresDelta');
+assertFiniteNonNegativeNumbers(redisCommandCallDelta, 'redisCommandCallDelta');
+assert.ok(postgresDelta.tables?.notification_logs, 'notification_logs PostgreSQL evidence is required');
+assert.ok(postgresDelta.tables?.user_fcm_tokens, 'user_fcm_tokens PostgreSQL evidence is required');
 
 const verification = {
 	status: 'verified',
@@ -64,7 +141,13 @@ const verification = {
 	statusCounts: result.delivery.statusCounts,
 	tokenUpdateCount: result.delivery.tokenUpdateCount,
 	duplicateReplayCreatedCount: result.correctness.duplicateReplayCreatedCount,
-	crossCampusMutationCount: result.correctness.crossCampusMutationCount,
+	unexpectedRequestLogCount: result.correctness.unexpectedRequestLogCount,
+	evidence: {
+		postgresDelta,
+		redisCommandCallDelta,
+		dockerSampleCount: dockerRows.length,
+		dockerPeakByContainer,
+	},
 	checkedAt: new Date().toISOString(),
 };
 writeFileSync(join(runDir, 'verification-report.json'), `${JSON.stringify(verification, null, 2)}\n`);

@@ -7,13 +7,26 @@ SELECT
 	:'dataset_id'::text AS dataset_id,
 	:'fixture_run_id'::text AS fixture_run_id,
 	:'sample_kind'::text AS sample_kind,
-	:campus_id::bigint AS campus_id,
-	:member_count::integer AS member_count,
-	:success_count::integer AS success_count,
-	:transient_count::integer AS transient_count,
-	:permanent_count::integer AS permanent_count,
-	:inactive_count::integer AS inactive_count,
-	:no_token_count::integer AS no_token_count;
+	:'compose_project'::text AS compose_project,
+	:'postgres_database'::text AS postgres_database,
+	:'campus_id'::bigint AS campus_id,
+	:'member_count'::integer AS member_count,
+	:'success_count'::integer AS success_count,
+	:'transient_count'::integer AS transient_count,
+	:'permanent_count'::integer AS permanent_count,
+	:'inactive_count'::integer AS inactive_count,
+	:'no_token_count'::integer AS no_token_count;
+
+SELECT 1 / CASE WHEN (
+	SELECT member_count = 1000
+		AND success_count > 0
+		AND transient_count > 0
+		AND permanent_count > 0
+		AND inactive_count > 0
+		AND no_token_count > 0
+		AND success_count + transient_count + permanent_count + inactive_count + no_token_count = 1000
+	FROM perf_198_config
+) THEN 1 ELSE 0 END AS exact_workload_contract_guard;
 
 CREATE TEMP TABLE perf_198_members AS
 SELECT
@@ -63,12 +76,12 @@ WITH categorized AS (
 		config.permanent_count,
 		config.inactive_count,
 		CASE
-			WHEN member.member_order <= config.success_count THEN 'success'
-			WHEN member.member_order <= config.success_count + config.transient_count THEN 'transient'
-			WHEN member.member_order <= config.success_count + config.transient_count + config.permanent_count
-				THEN 'permanent'
-			WHEN member.member_order <= config.success_count + config.transient_count
-				+ config.permanent_count + config.inactive_count THEN 'inactive'
+			WHEN member.member_order <= config.permanent_count THEN 'permanent'
+			WHEN member.member_order <= config.permanent_count + config.transient_count THEN 'transient'
+			WHEN member.member_order <= config.permanent_count + config.transient_count + config.success_count
+				THEN 'success'
+			WHEN member.member_order <= config.permanent_count + config.transient_count
+				+ config.success_count + config.inactive_count THEN 'inactive'
 			ELSE 'no-token'
 		END AS outcome
 	FROM perf_198_members member
@@ -108,6 +121,8 @@ SELECT json_build_object(
 	'datasetId', config.dataset_id,
 	'fixtureRunId', config.fixture_run_id,
 	'sampleKind', config.sample_kind,
+	'composeProject', config.compose_project,
+	'postgresDatabase', config.postgres_database,
 	'campusId', config.campus_id,
 	'memberCount', config.member_count,
 	'successCount', config.success_count,

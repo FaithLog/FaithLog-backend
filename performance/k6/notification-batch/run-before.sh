@@ -7,19 +7,34 @@ source "${SCRIPT_DIR}/guard-runtime.sh"
 
 POSTGRES_USER="${POSTGRES_USER:-faithlog}"
 POSTGRES_DB="${POSTGRES_DB:-faithlog}"
-REPORT_ROOT="${REPORT_ROOT:-build/reports/k6/notification-batch}"
+REPORT_ROOT="${REPOSITORY_ROOT}/build/reports/k6/notification-batch"
 MANIFEST_PATH="${MANIFEST_PATH:-}"
-RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
+RUN_ID="${RUN_ID:-}"
 RUN_DIR="${REPORT_ROOT}/runs/${RUN_ID}"
-LOCK_DIR="build/reports/k6/active-measurement.lock"
 
 guard_notification_batch_runtime
 
+if [[ ! "${POSTGRES_USER}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ \
+	|| ! "${POSTGRES_DB}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+	echo "POSTGRES_USER and POSTGRES_DB must be safe PostgreSQL identifiers." >&2
+	exit 2
+fi
+if [[ ! "${RUN_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$ ]]; then
+	echo "RUN_ID must be an explicit fresh 1-80 character safe identifier." >&2
+	exit 2
+fi
 if [[ -z "${MANIFEST_PATH}" || ! -f "${MANIFEST_PATH}" ]]; then
 	echo "MANIFEST_PATH must reference a prepared #198 fixture manifest." >&2
 	exit 2
 fi
 MANIFEST_PATH="$(cd "$(dirname "${MANIFEST_PATH}")" && pwd)/$(basename "${MANIFEST_PATH}")"
+case "${MANIFEST_PATH}" in
+	"${REPORT_ROOT}/fixtures/"*) ;;
+	*)
+		echo "MANIFEST_PATH must stay under the ignored Issue #198 fixture report directory." >&2
+		exit 2
+		;;
+esac
 
 eval "$(node -e '
 	const fs = require("node:fs");
@@ -28,6 +43,8 @@ eval "$(node -e '
 		PERF_DATASET_ID: manifest.datasetId,
 		PERF_FIXTURE_RUN_ID: manifest.fixtureRunId,
 		PERF_SAMPLE_KIND: manifest.sampleKind,
+		PERF_MANIFEST_COMPOSE_PROJECT: manifest.composeProject,
+		PERF_MANIFEST_POSTGRES_DATABASE: manifest.postgresDatabase,
 		PERF_CAMPUS_ID: manifest.campusId,
 		PERF_MEMBER_COUNT: manifest.memberCount,
 		PERF_SUCCESS_COUNT: manifest.successCount,
@@ -44,12 +61,22 @@ eval "$(node -e '
 	}
 ' "${MANIFEST_PATH}")"
 
+if [[ ! "${PERF_DATASET_ID}" =~ ^PERFORMANCE_[A-Za-z0-9_-]+$ \
+	|| "${PERF_MEMBER_COUNT}" != "1000" \
+	|| ! "${PERF_CAMPUS_ID}" =~ ^[1-9][0-9]*$ \
+	|| "${PERF_MANIFEST_COMPOSE_PROJECT}" != "${PERF_COMPOSE_PROJECT}" \
+	|| "${PERF_MANIFEST_POSTGRES_DATABASE}" != "${POSTGRES_DB}" ]]; then
+	echo "Manifest dataset, campus, Compose project, or database violates the Issue #198 contract." >&2
+	exit 2
+fi
+
 : "${PERF_BUSINESS_DATE:?Set an explicit YYYY-MM-DD business date for the dedupe key.}"
 if [[ ! "${PERF_BUSINESS_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
 	echo "PERF_BUSINESS_DATE must use YYYY-MM-DD." >&2
 	exit 2
 fi
 
+LOCK_DIR="/tmp/faithlog-performance-${PERF_COMPOSE_PROJECT}.lock"
 if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
 	echo "Another performance measurement lock exists; do not run shared load tests in parallel." >&2
 	exit 2
@@ -68,15 +95,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "${RUN_DIR}"
+mkdir -p "${REPORT_ROOT}/runs"
+if ! mkdir "${RUN_DIR}" 2>/dev/null; then
+	echo "RUN_ID already exists; use a fresh run ID instead of merging evidence." >&2
+	exit 2
+fi
 cp "${MANIFEST_PATH}" "${RUN_DIR}/manifest.json"
 printf '%s\n' "${RUN_DIR}" > "${REPORT_ROOT}/latest-run.txt"
-printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","redisContainer":"%s","dockerProject":"%s","composeLabel":"com.docker.compose.project","sharedStack":false,"externalFcm":false}\n' \
+GIT_COMMIT="$(git -C "${REPOSITORY_ROOT}" rev-parse HEAD)"
+printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","redisContainer":"%s","dockerProject":"%s","composeLabel":"com.docker.compose.project","postgresHost":"127.0.0.1","postgresHostPort":%s,"postgresDatabase":"%s","redisHost":"127.0.0.1","redisHostPort":%s,"postgresImageId":"%s","redisImageId":"%s","gitCommit":"%s","sharedStack":false,"externalFcm":false}\n' \
 	"${PERF_SPRING_PROFILE}" \
 	"${PERF_FCM_ADAPTER}" \
 	"${POSTGRES_CONTAINER}" \
 	"${REDIS_CONTAINER}" \
 	"${PERF_COMPOSE_PROJECT}" \
+	"${PERF_POSTGRES_HOST_PORT}" \
+	"${POSTGRES_DB}" \
+	"${PERF_REDIS_HOST_PORT}" \
+	"${PERF_POSTGRES_IMAGE_ID}" \
+	"${PERF_REDIS_IMAGE_ID}" \
+	"${GIT_COMMIT}" \
 	> "${RUN_DIR}/environment.json"
 
 snapshot_postgres() {
@@ -131,12 +169,18 @@ set +e
 (
 	cd "${REPOSITORY_ROOT}"
 	export ALLOW_NOTIFICATION_BATCH_BASELINE=true
-	export PERF_SPRING_PROFILE PERF_FCM_ADAPTER PERF_COMPOSE_PROJECT
+	export PERF_SPRING_PROFILE PERF_FCM_ADAPTER PERF_COMPOSE_PROJECT PERF_EXPECTED_COMPOSE_PROJECT
+	export PERF_POSTGRES_HOST_PORT PERF_REDIS_HOST_PORT POSTGRES_DB
 	export PERF_DATASET_ID PERF_FIXTURE_RUN_ID PERF_CAMPUS_ID PERF_MEMBER_COUNT
 	export PERF_SAMPLE_KIND
 	export PERF_SUCCESS_COUNT PERF_TRANSIENT_COUNT PERF_PERMANENT_COUNT
 	export PERF_INACTIVE_COUNT PERF_NO_TOKEN_COUNT PERF_BUSINESS_DATE
-	export PERF_REPORT_DIR="${REPOSITORY_ROOT}/${RUN_DIR}"
+	export PERF_REPORT_DIR="${RUN_DIR}"
+	export SPRING_DATASOURCE_URL="jdbc:postgresql://127.0.0.1:${PERF_POSTGRES_HOST_PORT}/${POSTGRES_DB}"
+	export SPRING_DATA_REDIS_HOST="127.0.0.1"
+	export SPRING_DATA_REDIS_PORT="${PERF_REDIS_HOST_PORT}"
+	export SPRING_JPA_HIBERNATE_DDL_AUTO="validate"
+	export SPRING_FLYWAY_ENABLED="false"
 	./gradlew --no-daemon --rerun-tasks test \
 		--tests com.faithlog.performance.notification.NotificationBatchBeforeScenarioTest
 ) > "${RUN_DIR}/gradle-scenario.log" 2>&1
@@ -152,11 +196,22 @@ snapshot_postgres "${RUN_DIR}/postgres-after.json"
 snapshot_redis "${RUN_DIR}/redis-commandstats-after.txt"
 
 if [[ ${GRADLE_STATUS} -ne 0 ]]; then
+	printf '{"status":"failed","phase":"gradle-scenario","exitCode":%s}\n' \
+		"${GRADLE_STATUS}" > "${RUN_DIR}/run-status.json"
 	echo "#198 scenario failed; inspect ${RUN_DIR}/gradle-scenario.log" >&2
 	exit "${GRADLE_STATUS}"
 fi
 
+set +e
 MANIFEST_PATH="${RUN_DIR}/manifest.json" RUN_DIR="${RUN_DIR}" \
 	node "${SCRIPT_DIR}/verify-before.mjs"
+VERIFY_STATUS=$?
+set -e
+if [[ ${VERIFY_STATUS} -ne 0 ]]; then
+	printf '{"status":"failed","phase":"verification","exitCode":%s}\n' \
+		"${VERIFY_STATUS}" > "${RUN_DIR}/run-status.json"
+	exit "${VERIFY_STATUS}"
+fi
+printf '{"status":"verified","phase":"complete","exitCode":0}\n' > "${RUN_DIR}/run-status.json"
 
 echo "Before reports: ${RUN_DIR}"

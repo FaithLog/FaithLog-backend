@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const runDirsFile = process.env.RUN_DIRS_FILE;
@@ -12,15 +12,19 @@ const runDirs = readFileSync(runDirsFile, 'utf8')
 	.map((line) => line.trim())
 	.filter(Boolean);
 assert.ok(runDirs.length > 0, 'At least one run directory is required');
+assert.equal(new Set(runDirs).size, runDirs.length, 'Duplicate run directories are forbidden');
 
 const samples = runDirs.map((runDir) => ({
 	runDir,
 	manifest: JSON.parse(readFileSync(join(runDir, 'manifest.json'), 'utf8')),
 	result: JSON.parse(readFileSync(join(runDir, 'scenario-result.json'), 'utf8')),
 	verification: JSON.parse(readFileSync(join(runDir, 'verification-report.json'), 'utf8')),
+	environment: JSON.parse(readFileSync(join(runDir, 'environment.json'), 'utf8')),
+	runStatus: JSON.parse(readFileSync(join(runDir, 'run-status.json'), 'utf8')),
 }));
 for (const sample of samples) {
 	assert.equal(sample.verification.status, 'verified');
+	assert.equal(sample.runStatus.status, 'verified');
 	assert.equal(sample.manifest.fixtureRunId, sample.result.fixtureRunId);
 	assert.equal(sample.manifest.sampleKind, sample.result.sampleKind);
 }
@@ -29,6 +33,30 @@ const measured = samples.filter((sample) => sample.manifest.sampleKind === 'meas
 const warmups = samples.filter((sample) => sample.manifest.sampleKind === 'warmup');
 assert.ok(measured.length > 0, 'At least one measured fixtureRunId is required');
 assert.equal(new Set(measured.map((sample) => sample.result.datasetId)).size, 1);
+assert.equal(new Set(samples.map((sample) => sample.result.fixtureRunId)).size, samples.length,
+	'Duplicate fixtureRunIds are forbidden');
+
+const workloadSignature = (sample) => JSON.stringify({
+	datasetId: sample.manifest.datasetId,
+	campusId: sample.manifest.campusId,
+	memberCount: sample.manifest.memberCount,
+	successCount: sample.manifest.successCount,
+	transientCount: sample.manifest.transientCount,
+	permanentCount: sample.manifest.permanentCount,
+	inactiveCount: sample.manifest.inactiveCount,
+	noTokenCount: sample.manifest.noTokenCount,
+	springProfile: sample.environment.springProfile,
+	fcmAdapter: sample.environment.fcmAdapter,
+	dockerProject: sample.environment.dockerProject,
+	postgresHostPort: sample.environment.postgresHostPort,
+	redisHostPort: sample.environment.redisHostPort,
+	postgresImageId: sample.environment.postgresImageId,
+	redisImageId: sample.environment.redisImageId,
+	gitCommit: sample.environment.gitCommit,
+	javaRuntimeVersion: sample.result.javaRuntimeVersion,
+});
+assert.equal(new Set(samples.map(workloadSignature)).size, 1,
+	'Warmup and measured samples must share one workload and runtime fingerprint');
 
 const percentile = (values, percentileValue) => {
 	const sorted = [...values].sort((left, right) => left - right);
@@ -63,6 +91,49 @@ const phaseSummary = (phaseName) => {
 	};
 };
 
+const endToEndSummary = {
+	durationMs: distribution(measured.map((sample) => sample.result.endToEnd.durationMs)),
+	throughputPerSecond: distribution(measured.map((sample) => sample.result.endToEnd.throughputPerSecond)),
+};
+
+const addNumericObjects = (left, right) => {
+	const result = { ...left };
+	for (const [key, value] of Object.entries(right ?? {})) {
+		if (typeof value === 'number') {
+			result[key] = (result[key] ?? 0) + value;
+		} else if (value && typeof value === 'object') {
+			result[key] = addNumericObjects(result[key] ?? {}, value);
+		}
+	}
+	return result;
+};
+
+const mergeDockerPeaks = (left, right) => {
+	const containers = new Set([...Object.keys(left ?? {}), ...Object.keys(right ?? {})]);
+	return Object.fromEntries([...containers].map((container) => {
+		const previous = left?.[container] ?? {};
+		const current = right?.[container] ?? {};
+		return [container, {
+			cpuPercent: Math.max(previous.cpuPercent ?? 0, current.cpuPercent ?? 0),
+			memoryPercent: Math.max(previous.memoryPercent ?? 0, current.memoryPercent ?? 0),
+			sampleCount: (previous.sampleCount ?? 0) + (current.sampleCount ?? 0),
+		}];
+	}));
+};
+
+const evidenceTotals = measured.reduce((totals, sample) => ({
+	postgresDelta: addNumericObjects(totals.postgresDelta, sample.verification.evidence.postgresDelta),
+	redisCommandCallDelta: addNumericObjects(
+		totals.redisCommandCallDelta,
+		sample.verification.evidence.redisCommandCallDelta,
+	),
+	dockerSampleCount: totals.dockerSampleCount + sample.verification.evidence.dockerSampleCount,
+	dockerPeakByContainer: mergeDockerPeaks(
+		totals.dockerPeakByContainer,
+		sample.verification.evidence.dockerPeakByContainer,
+	),
+}), { postgresDelta: {}, redisCommandCallDelta: {}, dockerSampleCount: 0, dockerPeakByContainer: {} });
+
 const totals = measured.reduce((accumulator, sample) => {
 	const statuses = sample.result.delivery.statusCounts;
 	accumulator.targets += sample.manifest.memberCount;
@@ -95,13 +166,16 @@ const summary = {
 	fixtureRunIds: measured.map((sample) => sample.result.fixtureRunId),
 	creation: phaseSummary('creation'),
 	delivery: phaseSummary('delivery'),
+	endToEnd: endToEndSummary,
 	providerFakeFailureRate: totals.pending === 0 ? 0 : totals.failed / totals.pending,
-	scenarioFailureRate: 0,
+	workloadFingerprint: workloadSignature(measured[0]),
+	evidenceTotals,
 	totals,
 	externalFcmUsed: false,
 	generatedAt: new Date().toISOString(),
 };
 
+mkdirSync(dirname(outputPath), { recursive: true });
 writeFileSync(outputPath, `${JSON.stringify(summary, null, 2)}\n`);
 writeFileSync(
 	join(dirname(outputPath), 'baseline-summary.md'),
@@ -112,8 +186,8 @@ writeFileSync(
 		`- warmups excluded: ${summary.warmupCount}`,
 		`- creation duration p50/p95/p99/max (ms): ${Object.values(summary.creation.durationMs).join(' / ')}`,
 		`- delivery duration p50/p95/p99/max (ms): ${Object.values(summary.delivery.durationMs).join(' / ')}`,
+		`- end-to-end duration p50/p95/p99/max (ms): ${Object.values(summary.endToEnd.durationMs).join(' / ')}`,
 		`- provider fake failure rate: ${summary.providerFakeFailureRate}`,
-		`- scenario failure rate: ${summary.scenarioFailureRate}`,
 		'- external FCM used: false',
 		'',
 	].join('\n'),

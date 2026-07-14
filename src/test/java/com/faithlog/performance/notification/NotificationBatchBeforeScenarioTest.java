@@ -3,9 +3,11 @@ package com.faithlog.performance.notification;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusMemberStatus;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.campus.service.port.CampusRepositoryPort;
 import com.faithlog.notification.domain.entity.NotificationLog;
 import com.faithlog.notification.domain.entity.UserFcmToken;
 import com.faithlog.notification.domain.type.NotificationType;
@@ -15,7 +17,6 @@ import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepositor
 import com.faithlog.notification.service.FcmSendException;
 import com.faithlog.notification.service.NotificationDeliveryWorker;
 import com.faithlog.notification.service.NotificationRequestCommandService;
-import com.faithlog.notification.service.NotificationRetryBackoff;
 import com.faithlog.notification.service.command.AutomaticNotificationRequestCommand;
 import com.faithlog.notification.service.port.FcmSendCommand;
 import com.faithlog.notification.service.port.FcmSendFailureType;
@@ -72,6 +73,9 @@ class NotificationBatchBeforeScenarioTest {
 	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
+	private CampusRepositoryPort campusRepository;
+
+	@Autowired
 	private UserFcmTokenRepository userFcmTokenRepository;
 
 	@Autowired
@@ -99,6 +103,8 @@ class NotificationBatchBeforeScenarioTest {
 		dispatchPort.reset();
 		fakeFcmSendPort.reset();
 
+		Campus campus = campusRepository.findById(config.campusId()).orElseThrow();
+		assertThat(campus.name()).isIn(config.datasetId(), config.datasetId() + " Campus");
 		List<CampusMember> members = campusMemberRepository.findByCampusIdAndStatusOrderByIdAsc(
 			config.campusId(),
 			CampusMemberStatus.ACTIVE
@@ -127,7 +133,7 @@ class NotificationBatchBeforeScenarioTest {
 		String title = "PERFORMANCE #198 " + config.fixtureRunId();
 		AutomaticNotificationRequestCommand command = new AutomaticNotificationRequestCommand(
 			config.campusId(),
-			NotificationType.CUSTOM,
+			NotificationType.PAYMENT_UNPAID,
 			null,
 			null,
 			targetUserIds,
@@ -191,9 +197,10 @@ class NotificationBatchBeforeScenarioTest {
 			.filter(token -> FAILURE_REASON.equals(token.lastFailureReason()))
 			.count();
 		long nonFixtureTokenMutationCount = nonFixtureMutationCount(nonFixtureTokensBefore, nonFixtureTokensAfter);
-		long crossCampusMutationCount = deliveredLogs.stream()
+		long unexpectedRequestLogCount = deliveredLogs.stream()
 			.filter(log -> !log.campusId().equals(config.campusId()) || !targetUserIdSet.contains(log.userId()))
 			.count();
+		boolean partialFailureContinued = fakeFcmSendPort.permanentFailurePrecededLaterSuccess();
 
 		assertThat(creationStatuses.getOrDefault(SendStatus.PENDING, 0L)).isEqualTo(pendingExpected);
 		assertThat(creationStatuses.getOrDefault(SendStatus.SKIPPED, 0L)).isEqualTo(skippedExpected);
@@ -207,8 +214,9 @@ class NotificationBatchBeforeScenarioTest {
 		assertThat(fakeFcmSendPort.totalAttemptCount()).isEqualTo(sendAttemptsExpected);
 		assertThat(duplicateCreatedCount).isZero();
 		assertThat(dispatchPort.requestIds()).containsExactly(requestId);
-		assertThat(crossCampusMutationCount).isZero();
+		assertThat(unexpectedRequestLogCount).isZero();
 		assertThat(nonFixtureTokenMutationCount).isZero();
+		assertThat(partialFailureContinued).isTrue();
 
 		Map<String, Object> report = new LinkedHashMap<>();
 		report.put("datasetId", config.datasetId());
@@ -217,9 +225,14 @@ class NotificationBatchBeforeScenarioTest {
 		report.put("campusId", config.campusId());
 		report.put("requestId", requestId.toString());
 		report.put("externalFcmUsed", false);
-		report.put("springProfile", "local");
+		report.put("springProfile", environment.getActiveProfiles()[0]);
 		report.put("fcmAdapter", "deterministic-test-fake");
+		report.put("notificationType", NotificationType.PAYMENT_UNPAID.name());
+		report.put("retryBackoffPolicy", "production-thread-sleep-1s-5s-30s");
+		report.put("javaRuntimeVersion", Runtime.version().toString());
 		report.put("dedupeKeyShape", "notificationType + campusId + scopeId + targetUserId + businessDate");
+		report.put("targetIsolationBoundary", "scheduler-supplied same-campus ACTIVE member IDs");
+		report.put("requestServiceRevalidatesCampusMembership", false);
 		report.put("creation", phaseReport(
 			creationDurationNanos,
 			config.memberCount(),
@@ -248,13 +261,18 @@ class NotificationBatchBeforeScenarioTest {
 				"fakeSendAttemptCount", fakeFcmSendPort.totalAttemptCount()
 			)
 		));
+		double endToEndDurationMs = nanosToMillis(creationDurationNanos + deliveryDurationNanos);
+		report.put("endToEnd", Map.of(
+			"durationMs", endToEndDurationMs,
+			"throughputPerSecond", config.memberCount() / (endToEndDurationMs / 1000.0)
+		));
 		report.put("correctness", Map.of(
 			"duplicateReplayCreatedCount", duplicateCreatedCount,
 			"duplicateReplayDurationMs", nanosToMillis(duplicateDurationNanos),
 			"duplicateReplayDbPreparedStatements", duplicatePreparedStatements,
-			"crossCampusMutationCount", crossCampusMutationCount,
+			"unexpectedRequestLogCount", unexpectedRequestLogCount,
 			"nonFixtureTokenMutationCount", nonFixtureTokenMutationCount,
-			"partialFailureContinued", failedExpected > 0 && sentExpected > 0
+			"partialFailureContinued", partialFailureContinued
 		));
 		report.put("capturedAt", Instant.now().toString());
 
@@ -265,9 +283,15 @@ class NotificationBatchBeforeScenarioTest {
 
 	private void requireSafeRuntime(ScenarioConfig config) {
 		assertThat(environment.getActiveProfiles()).containsExactly("local");
+		assertThat(requiredEnvironment("PERF_SPRING_PROFILE")).isEqualTo("local");
 		assertThat(environment.getProperty("spring.datasource.url"))
-			.startsWith("jdbc:postgresql:");
+			.isEqualTo("jdbc:postgresql://127.0.0.1:" + config.postgresHostPort() + "/" + config.postgresDatabase());
+		assertThat(environment.getProperty("spring.data.redis.host")).isEqualTo("127.0.0.1");
+		assertThat(environment.getProperty("spring.data.redis.port")).isEqualTo(String.valueOf(config.redisHostPort()));
+		assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
+		assertThat(environment.getProperty("spring.flyway.enabled")).isEqualTo("false");
 		assertThat(config.composeProject()).doesNotContain("faithlog-latest");
+		assertThat(config.composeProject()).isEqualTo(requiredEnvironment("PERF_EXPECTED_COMPOSE_PROJECT"));
 		assertThat(requiredEnvironment("PERF_FCM_ADAPTER")).isEqualTo("fake");
 		assertEnvironmentVariableBlank("FIREBASE_CONFIG_JSON");
 		assertEnvironmentVariableBlank("FIREBASE_CONFIG_PATH");
@@ -412,6 +436,9 @@ class NotificationBatchBeforeScenarioTest {
 		int noTokenCount,
 		LocalDate businessDate,
 		String composeProject,
+		int postgresHostPort,
+		String postgresDatabase,
+		int redisHostPort,
 		Path reportDirectory
 	) {
 
@@ -429,6 +456,9 @@ class NotificationBatchBeforeScenarioTest {
 				Integer.parseInt(requiredEnvironment("PERF_NO_TOKEN_COUNT")),
 				LocalDate.parse(requiredEnvironment("PERF_BUSINESS_DATE")),
 				requiredEnvironment("PERF_COMPOSE_PROJECT"),
+				Integer.parseInt(requiredEnvironment("PERF_POSTGRES_HOST_PORT")),
+				requiredEnvironment("POSTGRES_DB"),
+				Integer.parseInt(requiredEnvironment("PERF_REDIS_HOST_PORT")),
 				Path.of(requiredEnvironment("PERF_REPORT_DIR"))
 			);
 		}
@@ -445,13 +475,6 @@ class NotificationBatchBeforeScenarioTest {
 		@Primary
 		FakeFcmSendPort fakeFcmSendPort() {
 			return new FakeFcmSendPort();
-		}
-
-		@Bean
-		@Primary
-		NotificationRetryBackoff notificationRetryBackoff() {
-			return retryNumber -> {
-			};
 		}
 
 		@Bean
@@ -487,6 +510,7 @@ class NotificationBatchBeforeScenarioTest {
 	static class FakeFcmSendPort implements FcmSendPort {
 
 		private final Map<String, Integer> attempts = new ConcurrentHashMap<>();
+		private final List<String> attemptOrder = new CopyOnWriteArrayList<>();
 		private final Set<String> transientRetriedTokens = ConcurrentHashMap.newKeySet();
 		private final Set<String> permanentlyFailedTokens = ConcurrentHashMap.newKeySet();
 
@@ -495,6 +519,7 @@ class NotificationBatchBeforeScenarioTest {
 			if (!command.token().startsWith(TOKEN_PREFIX)) {
 				throw new IllegalStateException("Only Issue #198 dummy tokens may reach the fake sender");
 			}
+			attemptOrder.add(command.token());
 			int attempt = attempts.merge(command.token(), 1, Integer::sum);
 			if (command.token().contains(":permanent:")) {
 				permanentlyFailedTokens.add(command.token());
@@ -521,8 +546,24 @@ class NotificationBatchBeforeScenarioTest {
 			return attempts.values().stream().mapToLong(Integer::longValue).sum();
 		}
 
+		boolean permanentFailurePrecededLaterSuccess() {
+			int permanentIndex = -1;
+			for (int index = 0; index < attemptOrder.size(); index++) {
+				if (attemptOrder.get(index).contains(":permanent:")) {
+					permanentIndex = index;
+					break;
+				}
+			}
+			if (permanentIndex < 0) {
+				return false;
+			}
+			return attemptOrder.subList(permanentIndex + 1, attemptOrder.size()).stream()
+				.anyMatch(token -> token.contains(":success:") || token.contains(":transient:"));
+		}
+
 		void reset() {
 			attempts.clear();
+			attemptOrder.clear();
 			transientRetriedTokens.clear();
 			permanentlyFailedTokens.clear();
 		}
