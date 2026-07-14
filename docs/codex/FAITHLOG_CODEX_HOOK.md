@@ -454,10 +454,7 @@ MVP seed 기준:
 
 컴포즈커피 전체 메뉴 seed 목록과 가격은 개발 전에 공식 메뉴판 또는 사용자가 승인한 최신 자료로 검증해야 하며, Codex가 임의로 추측해서 채우지 않는다.
 
-커피 담당자는 기본 커피 투표 템플릿의 아래 시간을 설정할 수 있다.
-
-- 매주 커피 투표가 자동 생성되는 시간
-- 생성된 커피 투표가 마감되는 시간
+COFFEE 투표는 scheduler 자동 생성 대상에서 제외한다. 기존 템플릿의 시간 필드와 API 계약은 삭제하거나 변경하지 않지만 `autoCreateEnabled=true`인 COFFEE 템플릿도 자동 투표를 만들지 않는다. ACTIVE COFFEE 담당자가 투표를 수동 생성하며, 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산은 유지한다.
 
 COFFEE 투표와 COFFEE 투표 템플릿 생성/수정은 현재 활성 COFFEE 담당자만 수행할 수 있다. 캠퍼스 관리자 또는 전역 ADMIN이라도 현재 활성 COFFEE 담당자가 아니면 `pollType=COFFEE`, `paymentCategory=COFFEE`, 또는 `chargeGenerationType=OPTION_PRICE`와 `paymentCategory=COFFEE` 생성/수정은 403으로 거절한다.
 
@@ -556,7 +553,7 @@ CampusDutyAssignment
 DutyType.COFFEE
 ```
 
-캠퍼스당 활성 `DutyType.COFFEE` 담당자는 1명만 둔다.
+캠퍼스에는 여러 ACTIVE `DutyType.COFFEE` 담당자를 둘 수 있다. 동일 캠퍼스·담당 유형·사용자의 ACTIVE 중복 지정만 금지하며, 기존 `PUT` 지정 API는 다른 담당자를 해제하지 않는 additive/idempotent 동작이다.
 
 Issue #30 커피 담당자 API 기준:
 

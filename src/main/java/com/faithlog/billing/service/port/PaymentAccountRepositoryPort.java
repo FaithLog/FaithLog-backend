@@ -48,4 +48,10 @@ public interface PaymentAccountRepositoryPort {
 		Long ownerUserId,
 		PaymentCategory accountType
 	);
+
+	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndAccountTypeOrderByIdAsc(
+		Long campusId,
+		Long ownerUserId,
+		PaymentCategory accountType
+	);
 }

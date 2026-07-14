@@ -1,5 +1,9 @@
 package com.faithlog.campus.service;
 
+import com.faithlog.billing.domain.type.ChargeStatus;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
+import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.campus.domain.entity.CampusDutyAssignment;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.DutyType;
@@ -15,6 +19,8 @@ import com.faithlog.campus.service.result.MyDutyAssignmentResult;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,17 +31,23 @@ public class CampusDutyAssignmentService {
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 	private final CampusAccessPolicy campusAccessPolicy;
+	private final PaymentAccountRepositoryPort paymentAccountRepository;
+	private final ChargeItemRepositoryPort chargeItemRepository;
 
 	public CampusDutyAssignmentService(
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
-		CampusAccessPolicy campusAccessPolicy
+		CampusAccessPolicy campusAccessPolicy,
+		PaymentAccountRepositoryPort paymentAccountRepository,
+		ChargeItemRepositoryPort chargeItemRepository
 	) {
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
 		this.campusAccessPolicy = campusAccessPolicy;
+		this.paymentAccountRepository = paymentAccountRepository;
+		this.chargeItemRepository = chargeItemRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -62,9 +74,8 @@ public class CampusDutyAssignmentService {
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_VIEW_FORBIDDEN));
 		boolean active = dutyAssignmentRepository
-			.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-			.map(assignment -> assignment.userId().equals(requester.userId()))
-			.orElse(false);
+			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, requester.userId())
+			.isPresent();
 		return new MyDutyAssignmentResult(requester.userId(), campusId, DutyType.COFFEE.name(), active);
 	}
 
@@ -98,11 +109,12 @@ public class CampusDutyAssignmentService {
 				"커피 담당자로 지정할 캠퍼스 멤버를 찾을 수 없습니다."
 			));
 
-		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(command.campusId(), DutyType.COFFEE)
-			.ifPresent(CampusDutyAssignment::revoke);
-		CampusDutyAssignment assignment = dutyAssignmentRepository.save(
-			CampusDutyAssignment.assignCoffee(command.campusId(), targetMember.userId())
-		);
+		CampusDutyAssignment assignment = dutyAssignmentRepository
+			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+				command.campusId(), DutyType.COFFEE, targetMember.userId())
+			.orElseGet(() -> dutyAssignmentRepository.save(
+				CampusDutyAssignment.assignCoffee(command.campusId(), targetMember.userId())
+			));
 		return DutyAssignmentResult.of(
 			assignment,
 			campusAccessPolicy.getUserOrThrow(assignment.userId())
@@ -148,6 +160,7 @@ public class CampusDutyAssignmentService {
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.COFFEE, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND));
+		requireNoOwnedUnpaidCharges(assignment, PaymentCategory.COFFEE, ErrorCode.CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT);
 		assignment.revoke();
 	}
 
@@ -163,6 +176,28 @@ public class CampusDutyAssignmentService {
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.MEAL, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND));
+		requireNoOwnedUnpaidCharges(assignment, PaymentCategory.MEAL, ErrorCode.CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT);
 		assignment.revoke();
+	}
+
+	private void requireNoOwnedUnpaidCharges(
+		CampusDutyAssignment assignment,
+		PaymentCategory paymentCategory,
+		ErrorCode errorCode
+	) {
+		Set<Long> ownedAccountIds = paymentAccountRepository
+			.findByCampusIdAndOwnerUserIdAndAccountTypeOrderByIdAsc(
+				assignment.campusId(), assignment.userId(), paymentCategory)
+			.stream()
+			.map(account -> account.id())
+			.collect(Collectors.toSet());
+		boolean hasUnpaidCharge = chargeItemRepository
+			.findByCampusIdAndPaymentCategoryAndStatus(
+				assignment.campusId(), paymentCategory, ChargeStatus.UNPAID)
+			.stream()
+			.anyMatch(charge -> ownedAccountIds.contains(charge.paymentAccountId()));
+		if (hasUnpaidCharge) {
+			throw new BusinessException(errorCode);
+		}
 	}
 }

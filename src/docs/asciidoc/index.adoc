@@ -342,6 +342,58 @@ include::{snippets}/notification-send-admin-notification/http-response.adoc[]
 
 include::{snippets}/notification-send-admin-notification/response-fields.adoc[]
 
+=== Send Coffee Charge Reminders
+
+`POST /api/v1/campuses/{campusId}/coffee/charge-reminders`
+
+요청 body 없이 호출하며, ACTIVE `COFFEE` 담당자 본인 소유 계좌에 연결된 모든 `UNPAID` 커피 청구를 계좌·수신자별로 합산해 알림을 큐잉한다. 같은 계좌·수신자는 `Asia/Seoul` 날짜 기준 하루 1회만 생성한다.
+
+==== Request
+
+include::{snippets}/notification-send-coffee-charge-reminders/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/notification-send-coffee-charge-reminders/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/notification-send-coffee-charge-reminders/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/notification-send-coffee-charge-reminders/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/notification-send-coffee-charge-reminders/response-fields.adoc[]
+
+=== Send Meal Charge Reminders
+
+`POST /api/v1/campuses/{campusId}/meal/charge-reminders`
+
+요청 body 없이 호출하며, ACTIVE `MEAL` 담당자 본인 소유 계좌에 연결된 모든 `UNPAID` 밥 청구를 계좌·수신자별로 합산해 알림을 큐잉한다. 같은 계좌·수신자는 `Asia/Seoul` 날짜 기준 하루 1회만 생성한다.
+
+==== Request
+
+include::{snippets}/notification-send-meal-charge-reminders/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/notification-send-meal-charge-reminders/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/notification-send-meal-charge-reminders/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/notification-send-meal-charge-reminders/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/notification-send-meal-charge-reminders/response-fields.adoc[]
+
 === List Admin Notification Logs
 
 `GET /api/v1/admin/campuses/{campusId}/notification-logs`
@@ -596,7 +648,7 @@ include::{snippets}/admin-duty-assignments-list-success/response-fields.adoc[]
 
 `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee`
 
-캠퍼스당 활성 `DutyType.COFFEE` 담당자는 1명만 유지한다. 새 담당자를 지정하면 기존 활성 커피 담당자 배정은 inactive 처리된다.
+캠퍼스에 여러 ACTIVE `DutyType.COFFEE` 담당자를 둘 수 있다. 이 `PUT`은 기존 담당자를 해제하지 않는 additive 지정이며, 같은 캠퍼스·사용자·업무 유형의 ACTIVE 배정이 이미 있으면 기존 배정을 그대로 반환하는 idempotent 요청이다.
 
 ==== Request
 
@@ -626,7 +678,7 @@ include::{snippets}/admin-coffee-duty-assign-success/response-fields.adoc[]
 
 `DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}`
 
-커피 담당자 배정을 inactive 처리하고 `204 No Content`를 반환한다.
+커피 담당자 배정을 inactive 처리하고 `204 No Content`를 반환한다. 담당자 본인 소유 COFFEE 계좌(비활성 포함)에 연결된 `UNPAID` 청구가 하나라도 있으면 `409 CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT`로 해제를 거부한다.
 
 ==== Request
 
@@ -1076,7 +1128,7 @@ include::{snippets}/penalty-rule-invalid-negative-value/response-fields.adoc[]
 
 `POST /api/v1/admin/campuses/{campusId}/payment-accounts`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`은 `PENALTY` 계좌를 등록할 수 있다. `PENALTY`의 `ownerUserId`는 등록자/관리 담당자 메타데이터이며 생략 시 requester userId를 저장하고, 명시하면 해당 값을 저장한다. 캠퍼스 관리자와 활성 `COFFEE` 담당자는 본인 소유 `COFFEE` 계좌를 등록할 수 있다. `PENALTY` 활성 계좌는 캠퍼스 단위로 1개만 유지하고, `COFFEE` 활성 계좌는 `campusId + accountType + ownerUserId` 기준으로 유지한다. 같은 사용자가 새 `COFFEE` 계좌를 등록하면 그 사용자의 기존 active `COFFEE` 계좌만 비활성화되며, 다른 사용자의 `COFFEE` 계좌와 기존 COFFEE 청구는 재연결하지 않는다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`은 `PENALTY` 계좌를 등록할 수 있다. `PENALTY`의 `ownerUserId`는 등록자/관리 담당자 메타데이터이며 생략 시 requester userId를 저장하고, 명시하면 해당 값을 저장한다. `COFFEE` 계좌 등록은 ACTIVE `COFFEE` 담당자만 가능하며 본인 소유 계좌만 등록할 수 있다. `PENALTY` 활성 계좌는 캠퍼스 단위로 1개만 유지하고, `COFFEE` 활성 계좌는 `campusId + accountType + ownerUserId` 기준으로 유지한다. 같은 사용자가 새 `COFFEE` 계좌를 등록하면 그 사용자의 기존 active `COFFEE` 계좌만 비활성화되며, 다른 사용자의 `COFFEE` 계좌와 기존 COFFEE 청구는 재연결하지 않는다.
 
 ==== Request
 
@@ -1222,7 +1274,7 @@ include::{snippets}/payment-account-admin-list-include-inactive-success/response
 
 `PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate`
 
-캠퍼스 관리자는 기존 미납 청구가 있어도 납부 계좌를 비활성화할 수 있다. 활성 `COFFEE` 담당자는 본인 소유 `COFFEE` 계좌만 비활성화할 수 있고, `PENALTY` 계좌 비활성화는 기존 캠퍼스 관리자/전역 ADMIN 권한을 유지한다. 새 `PENALTY` 활성 계좌 등록 시 기존 `UNPAID` PENALTY 청구는 새 계좌로 재연결되고 snapshot이 갱신되며, `PAID`, `WAIVED`, `CANCELED` 청구 snapshot은 과거 기록으로 유지된다. 새 `COFFEE` 계좌 등록은 기존 `UNPAID` COFFEE 청구를 재연결하지 않는다.
+활성 `COFFEE` 담당자는 본인 소유 `COFFEE` 계좌만 비활성화할 수 있다. 비담당 캠퍼스 관리자와 전역 `ADMIN`은 COFFEE 계좌를 변경할 수 없고, `PENALTY` 계좌 비활성화는 기존 캠퍼스 관리자/전역 ADMIN 권한을 유지한다. 새 `PENALTY` 활성 계좌 등록 시 기존 `UNPAID` PENALTY 청구는 새 계좌로 재연결되고 snapshot이 갱신되며, `PAID`, `WAIVED`, `CANCELED` 청구 snapshot은 과거 기록으로 유지된다. 새 `COFFEE` 계좌 등록은 기존 `UNPAID` COFFEE 청구를 재연결하지 않는다.
 
 ==== Request
 
@@ -1846,7 +1898,7 @@ include::{snippets}/coffee-brand-menus-list-success/response-fields.adoc[]
 
 `POST /api/v1/admin/campuses/{campusId}/poll-templates`
 
-`COFFEE` 템플릿의 모든 선택지는 active backend catalog `menuId`가 필수다. 요청의 `content`와 `priceAmount`는 호환을 위해 받을 수 있지만, 저장 snapshot은 항상 catalog의 메뉴명, 메뉴 코드, 가격을 사용한다. persisted `COFFEE` 템플릿 수정에도 동일한 정책을 적용한다.
+`COFFEE` 템플릿의 모든 선택지는 active backend catalog `menuId`가 필수다. 요청의 `content`와 `priceAmount`는 호환을 위해 받을 수 있지만, 저장 snapshot은 항상 catalog의 메뉴명, 메뉴 코드, 가격을 사용한다. persisted `COFFEE` 템플릿 수정에도 동일한 정책을 적용한다. 기존 요청 필드 호환을 위해 `autoCreateEnabled`와 시간 필드는 유지하지만, scheduler는 COFFEE 템플릿으로 투표를 자동 생성하지 않는다. ACTIVE COFFEE 담당자가 투표를 수동 생성하며, 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산은 유지한다.
 
 ==== Request
 
@@ -1984,7 +2036,7 @@ include::{snippets}/poll-template-deactivate-success/http-response.adoc[]
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
 
-`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. 캠퍼스 관리자와 활성 `COFFEE` 담당자는 `pollType=COFFEE` 투표를 생성할 수 있다. 단, `COFFEE` 투표는 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`와 각 선택지의 active backend catalog `menuId`가 필수다. 요청의 `content`/`priceAmount`와 무관하게 catalog 메뉴명/코드/가격만 snapshot한다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한과 custom content/0원 계약을 유지한다.
+`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. `pollType=COFFEE` 투표 생성은 ACTIVE `COFFEE` 담당자만 가능하다. `COFFEE` 투표는 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`와 각 선택지의 active backend catalog `menuId`가 필수다. 요청의 `content`/`priceAmount`와 무관하게 catalog 메뉴명/코드/가격만 snapshot한다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한과 custom content/0원 계약을 유지한다.
 
 ==== Request
 
@@ -2032,7 +2084,7 @@ include::{snippets}/poll-create-coffee-menu-required-error/response-fields.adoc[
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
 
-캠퍼스 관리자 또는 활성 `COFFEE` 담당자가 직접 `COFFEE` 투표를 생성한다. `paymentAccountId`는 필수이며 requester 본인 소유 active `COFFEE` 계좌여야 한다. 직접 `COFFEE` 투표를 생성할 때 `allowUserOptionAdd`를 생략하면 기본값은 `true`이며, 명시적으로 `false`를 보내면 사용자 항목 추가를 비활성화한다.
+ACTIVE `COFFEE` 담당자가 직접 `COFFEE` 투표를 생성한다. `paymentAccountId`는 필수이며 requester 본인 소유 active `COFFEE` 계좌여야 한다. 직접 `COFFEE` 투표를 생성할 때 `allowUserOptionAdd`를 생략하면 기본값은 `true`이며, 명시적으로 `false`를 보내면 사용자 항목 추가를 비활성화한다.
 
 ==== Request
 
@@ -2176,7 +2228,7 @@ include::{snippets}/poll-user-option-add-coffee-content-only-error/response-fiel
 
 `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/close`
 
-관리자가 OPEN 투표를 수동 종료한다. CUSTOM 등 커피 외 투표는 종료만 수행한다. COFFEE 투표는 종료 후 같은 트랜잭션에서 CLOSED 커피 투표 정산을 실행해 최종 응답 기준 `COFFEE` 청구를 생성 또는 갱신한다.
+OPEN 투표를 수동 종료한다. CUSTOM 등 커피 외 투표는 기존 관리자 권한으로 종료한다. COFFEE 투표는 해당 투표를 만든 ACTIVE `COFFEE` 담당자만 종료할 수 있고, 종료 후 같은 트랜잭션에서 CLOSED 커피 투표 정산을 실행해 최종 응답 기준 `COFFEE` 청구를 생성 또는 갱신한다.
 
 ==== Request
 

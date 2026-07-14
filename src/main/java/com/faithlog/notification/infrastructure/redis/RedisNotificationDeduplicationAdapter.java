@@ -28,4 +28,13 @@ public class RedisNotificationDeduplicationAdapter implements NotificationDedupl
 			throw new NotificationRedisOperationException("Notification deduplication Redis operation failed", exception);
 		}
 	}
+
+	@Override
+	public void release(NotificationDeduplicationKey key) {
+		try {
+			redisTemplate.delete(key.value());
+		} catch (RuntimeException exception) {
+			throw new NotificationRedisOperationException("Notification deduplication Redis release failed", exception);
+		}
+	}
 }

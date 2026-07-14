@@ -10,11 +10,14 @@ import com.faithlog.billing.service.policy.BillingAccessPolicy;
 import com.faithlog.billing.service.policy.ChargeStatusPolicy;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.service.port.DevotionChargeReopenPort;
+import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.service.port.CampusUserLookupPort;
 import com.faithlog.campus.service.port.CampusUserLookupResult;
+import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
+import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import org.springframework.stereotype.Service;
@@ -27,17 +30,23 @@ public class ChargeStatusCommandService {
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
 	private final DevotionChargeReopenPort devotionChargeReopenPort;
+	private final PaymentAccountRepositoryPort paymentAccountRepository;
+	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 
 	public ChargeStatusCommandService(
 		ChargeItemRepositoryPort chargeItemRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusUserLookupPort userLookupPort,
-		DevotionChargeReopenPort devotionChargeReopenPort
+		DevotionChargeReopenPort devotionChargeReopenPort,
+		PaymentAccountRepositoryPort paymentAccountRepository,
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
 		this.devotionChargeReopenPort = devotionChargeReopenPort;
+		this.paymentAccountRepository = paymentAccountRepository;
+		this.dutyAssignmentRepository = dutyAssignmentRepository;
 	}
 
 	@Transactional
@@ -68,7 +77,11 @@ public class ChargeStatusCommandService {
 		if (chargeItem.paymentCategory() == PaymentCategory.MEAL) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND);
 		}
-		requireChargeStatusManager(chargeItem.campusId(), command.requesterId());
+		if (chargeItem.paymentCategory() == PaymentCategory.COFFEE) {
+			requireOwnedCoffeeChargeManager(chargeItem, command.requesterId());
+		} else {
+			requireChargeStatusManager(chargeItem.campusId(), command.requesterId());
+		}
 		ChargeStatusPolicy.applyAdminStatusChange(chargeItem, command.status());
 		if (shouldReopenWeeklyDevotion(chargeItem, command.status())) {
 			devotionChargeReopenPort.reopenWeeklyDevotion(
@@ -96,6 +109,24 @@ public class ChargeStatusCommandService {
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN));
 		BillingAccessPolicy.requireChargeStatusManager(requesterMembership);
+	}
+
+	private void requireOwnedCoffeeChargeManager(ChargeItem chargeItem, Long requesterId) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		requireActiveCampusMember(
+			chargeItem.campusId(), requester.userId(), ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
+		if (dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+			chargeItem.campusId(), DutyType.COFFEE, requester.userId()).isEmpty()) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
+		}
+		boolean ownsAccount = paymentAccountRepository.findById(chargeItem.paymentAccountId())
+			.filter(account -> account.campusId().equals(chargeItem.campusId()))
+			.filter(account -> account.accountType() == PaymentCategory.COFFEE)
+			.filter(account -> requester.userId().equals(account.ownerUserId()))
+			.isPresent();
+		if (!ownsAccount) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
+		}
 	}
 
 	private void requireActiveCampusMember(Long campusId, Long userId, ErrorCode errorCode) {

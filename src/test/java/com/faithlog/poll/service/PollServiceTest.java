@@ -46,6 +46,7 @@ import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.entity.CampusDutyAssignment;
 import com.faithlog.campus.domain.type.CampusRole;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
@@ -1105,7 +1106,7 @@ class PollServiceTest {
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN)
 			);
 
 		PollTemplateResult template = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
@@ -1743,7 +1744,7 @@ class PollServiceTest {
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CREATE_FORBIDDEN)
 			);
 
 		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
@@ -2294,7 +2295,8 @@ class PollServiceTest {
 		PollResult missingDutyPoll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "담당자 누락 커피 투표");
 		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), missingDutyPoll.id(), member.id(), List.of(missingDutyPoll.options().get(0).id()), null));
 		closePoll(missingDutyPoll.id());
-		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campus.campusId(), DutyType.COFFEE)
+		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+			campus.campusId(), DutyType.COFFEE, manager.id())
 			.orElseThrow()
 			.revoke();
 
@@ -2387,6 +2389,10 @@ class PollServiceTest {
 	}
 
 	private Long createCoffeeAccount(Long campusId, Long requesterId, Long ownerUserId) {
+		if (dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+			campusId, DutyType.COFFEE, requesterId).isEmpty()) {
+			dutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(campusId, requesterId));
+		}
 		return billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
 			requesterId,

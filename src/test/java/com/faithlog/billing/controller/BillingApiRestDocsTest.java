@@ -598,6 +598,7 @@ class BillingApiRestDocsTest {
 				))
 				));
 
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), manager.id()));
 		long managerCoffeeAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
 			manager.id(),

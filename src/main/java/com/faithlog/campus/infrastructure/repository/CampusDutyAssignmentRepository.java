@@ -11,8 +11,6 @@ public interface CampusDutyAssignmentRepository extends
 	JpaRepository<CampusDutyAssignment, Long>,
 	CampusDutyAssignmentRepositoryPort {
 
-	Optional<CampusDutyAssignment> findByCampusIdAndDutyTypeAndIsActiveTrue(Long campusId, DutyType dutyType);
-
 	Optional<CampusDutyAssignment> findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
 		Long campusId,
 		DutyType dutyType,

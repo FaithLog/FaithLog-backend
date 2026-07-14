@@ -10,6 +10,7 @@ import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.type.PollType;
+import com.faithlog.poll.domain.entity.Poll;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -39,12 +40,12 @@ class PollAccessService {
 	}
 
 	void requireCoffeeTemplateManager(Long campusId, Long requesterId) {
-		requireCampusManagerOrCoffeeDuty(campusId, requesterId, PollType.COFFEE, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
+		requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
 	}
 
 	void requirePollCreator(Long campusId, Long requesterId, PollType pollType) {
 		if (pollType == PollType.COFFEE) {
-			requireCampusManagerOrCoffeeDuty(campusId, requesterId, pollType, ErrorCode.POLL_CREATE_FORBIDDEN);
+			requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
 			return;
 		}
 		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
@@ -73,6 +74,13 @@ class PollAccessService {
 
 	void requirePollAdmin(Long campusId, Long requesterId, PollType pollType) {
 		requireCampusManagerOrCoffeeDuty(campusId, requesterId, pollType, ErrorCode.POLL_ADMIN_FORBIDDEN);
+	}
+
+	void requireCoffeePollOwner(Long campusId, Long requesterId, Poll poll) {
+		requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
+		if (!requesterId.equals(poll.createdBy())) {
+			throw new BusinessException(ErrorCode.POLL_ADMIN_FORBIDDEN);
+		}
 	}
 
 	boolean hasAdminVisibility(Long campusId, Long requesterId) {
@@ -147,9 +155,9 @@ class PollAccessService {
 	}
 
 	boolean isActiveCoffeeDuty(Long campusId, Long userId) {
-		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-			.map(assignment -> assignment.userId().equals(userId))
-			.orElse(false);
+		return dutyAssignmentRepository
+			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId)
+			.isPresent();
 	}
 
 	private CampusUserLookupResult getActiveUser(Long userId) {

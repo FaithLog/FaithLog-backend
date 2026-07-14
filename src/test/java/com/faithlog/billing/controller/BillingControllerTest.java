@@ -371,6 +371,7 @@ class BillingControllerTest {
 		User manager = userRepository.findByEmail("billing-http-116-coffee-manager@example.com").orElseThrow();
 		JsonNode campus = createCampus(managerToken, "116커피활성화HTTP캠");
 		long campusId = campus.path("campusId").asLong();
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), manager.id()));
 		PaymentAccountResult coffee = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId, manager.id(), PaymentCategory.COFFEE, "커피 계좌", "하나은행", "116-HTTP-COFFEE", "커피회계", manager.id()
 		));
@@ -743,6 +744,7 @@ class BillingControllerTest {
 		User member = userRepository.findByEmail("billing-http-112-member@example.com").orElseThrow();
 		joinCampus(memberToken, campus.path("inviteCode").asText());
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), duty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), manager.id()));
 		long managerAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId, manager.id(), PaymentCategory.COFFEE, "관리자 커피 계좌", "하나은행", "112-HTTP-1", "관리회계", manager.id()
 		)).id();

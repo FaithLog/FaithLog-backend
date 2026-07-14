@@ -82,6 +82,11 @@ class NotificationDeduplicationServiceTest {
 			return reservedKeys.add(key.value());
 		}
 
+		@Override
+		public void release(NotificationDeduplicationKey key) {
+			reservedKeys.remove(key.value());
+		}
+
 		private NotificationDeduplicationKey lastKey() {
 			return lastKey;
 		}

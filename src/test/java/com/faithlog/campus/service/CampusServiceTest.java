@@ -590,12 +590,26 @@ class CampusServiceTest {
 		));
 		coffeeAccount.deactivate();
 		mealAccount.deactivate();
-		chargeItemRepository.saveAndFlush(ChargeItem.create(
+		ChargeItem coffeeUnpaid = chargeItemRepository.saveAndFlush(ChargeItem.create(
 			campus.campusId(), target.id(), PaymentCategory.COFFEE, coffeeAccount.id(), coffeeAccount.bankName(),
 			coffeeAccount.accountNumber(), coffeeAccount.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20001L,
 			"커피 미납", "커피", 1800, null
 		));
-		chargeItemRepository.saveAndFlush(ChargeItem.create(
+		ChargeItem coffeeWaived = ChargeItem.create(
+			campus.campusId(), target.id(), PaymentCategory.COFFEE, coffeeAccount.id(), coffeeAccount.bankName(),
+			coffeeAccount.accountNumber(), coffeeAccount.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20003L,
+			"커피 면제", "커피", 2000, null
+		);
+		coffeeWaived.waive();
+		chargeItemRepository.saveAndFlush(coffeeWaived);
+		ChargeItem coffeeCanceled = ChargeItem.create(
+			campus.campusId(), target.id(), PaymentCategory.COFFEE, coffeeAccount.id(), coffeeAccount.bankName(),
+			coffeeAccount.accountNumber(), coffeeAccount.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20004L,
+			"커피 취소", "커피", 2500, null
+		);
+		coffeeCanceled.cancel();
+		chargeItemRepository.saveAndFlush(coffeeCanceled);
+		ChargeItem mealUnpaid = chargeItemRepository.saveAndFlush(ChargeItem.create(
 			campus.campusId(), target.id(), PaymentCategory.MEAL, mealAccount.id(), mealAccount.bankName(),
 			mealAccount.accountNumber(), mealAccount.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20002L,
 			"밥 미납", "밥", 7000, null
@@ -611,6 +625,16 @@ class CampusServiceTest {
 		))
 			.isInstanceOf(BusinessException.class)
 			.hasMessage("소유한 밥 계좌에 미납 청구가 있어 담당자를 해제할 수 없습니다.");
+
+		coffeeUnpaid.markPaid();
+		mealUnpaid.cancel();
+		chargeItemRepository.saveAndFlush(coffeeUnpaid);
+		chargeItemRepository.saveAndFlush(mealUnpaid);
+		campusService.revokeCoffeeDuty(campus.campusId(), coffeeAssignment.assignmentId(), manager.id());
+		campusService.revokeMealDuty(campus.campusId(), mealAssignment.assignmentId(), manager.id());
+		assertThat(campusService.getDutyAssignments(campus.campusId(), manager.id()))
+			.extracting(DutyAssignmentResult::assignmentId)
+			.doesNotContain(coffeeAssignment.assignmentId(), mealAssignment.assignmentId());
 	}
 
 	private void updateCampusRole(Long membershipId, CampusRole campusRole) {

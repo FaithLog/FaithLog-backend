@@ -17,6 +17,9 @@ class FlywayMigrationContractTest {
 	private static final Path MEAL_SETTLEMENT_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V8__add_meal_poll_settlement.sql"
 	);
+	private static final Path MULTIPLE_COFFEE_DUTY_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V9__allow_multiple_active_coffee_duties.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -233,5 +236,19 @@ class FlywayMigrationContractTest {
 		assertThat(sql).doesNotContain("DELETE FROM", "UPDATE ");
 		assertThat(Files.readString(MIGRATION)).doesNotContain("MEAL");
 		assertThat(Files.readString(POSITIVE_CHARGE_MIGRATION)).doesNotContain("MEAL");
+	}
+
+	@Test
+	void v9MigrationAllowsMultipleCoffeeDutiesAndKeepsPerUserActiveIdempotency() throws IOException {
+		assertThat(MULTIPLE_COFFEE_DUTY_MIGRATION).exists();
+		String sql = Files.readString(MULTIPLE_COFFEE_DUTY_MIGRATION);
+
+		assertThat(sql).contains(
+			"DROP INDEX uk_campus_duty_assignments_active_coffee",
+			"CREATE UNIQUE INDEX uk_campus_duty_assignments_active_coffee_user",
+			"(campus_id, duty_type, user_id)",
+			"WHERE is_active = TRUE AND duty_type = 'COFFEE'"
+		);
+		assertThat(sql).doesNotContain("DELETE FROM", "UPDATE ");
 	}
 }

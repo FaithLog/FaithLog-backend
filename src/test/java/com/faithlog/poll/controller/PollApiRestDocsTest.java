@@ -1527,7 +1527,7 @@ class PollApiRestDocsTest {
 
 		long coffeeChargeCountBeforeClose = chargeItemRepository.count();
 		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/close", campusId, coffeePollId)
-				.header("Authorization", "Bearer " + managerToken))
+				.header("Authorization", "Bearer " + memberToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.status").value("CLOSED"))
 			.andDo(document("poll-close-coffee-settlement-success",

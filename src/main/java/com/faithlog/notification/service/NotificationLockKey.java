@@ -22,6 +22,11 @@ public record NotificationLockKey(String value) {
 		return new NotificationLockKey("manual-admin-notification", campusId, "requester:" + requesterId);
 	}
 
+	public static NotificationLockKey chargeReminder(Long campusId, Long requesterId, String category) {
+		return new NotificationLockKey(
+			"charge-reminder", campusId, "requester:" + requesterId + ":category:" + category);
+	}
+
 	public static NotificationLockKey dispatch(Long campusId, java.util.UUID requestId) {
 		return new NotificationLockKey("dispatch", campusId, requestId.toString());
 	}

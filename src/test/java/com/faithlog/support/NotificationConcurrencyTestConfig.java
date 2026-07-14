@@ -37,6 +37,11 @@ public class NotificationConcurrencyTestConfig {
 		}
 
 		@Override
+		public void release(NotificationDeduplicationKey key) {
+			dedupKeys.remove(key.value());
+		}
+
+		@Override
 		public Optional<NotificationLockLease> acquire(NotificationLockKey key, Duration ttl) {
 			if (fail) {
 				throw new com.faithlog.notification.service.port.NotificationRedisOperationException("test failure");

@@ -77,6 +77,7 @@ class BillingQueryServiceTest {
 		User member = saveUser("query-my-member@example.com", UserRole.USER, "멤버");
 		CampusCreateResult campus = createCampus(manager, "60캠");
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 		PaymentAccountResult penaltyAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.PENALTY, "111-111");
 		PaymentAccountResult coffeeAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.COFFEE, "222-222");
 		ChargeItem unpaidPenalty = saveCharge(
@@ -121,6 +122,7 @@ class BillingQueryServiceTest {
 		User member = saveUser("query-my-combination-member@example.com", UserRole.USER, "멤버");
 		CampusCreateResult campus = createCampus(manager, "60조합캠");
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 		PaymentAccountResult penaltyAccount = createAccount(
 			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "111-COMBINATION-PENALTY"
 		);
@@ -167,6 +169,7 @@ class BillingQueryServiceTest {
 		User member = saveUser("query-summary-member@example.com", UserRole.USER, "멤버");
 		CampusCreateResult campus = createCampus(manager, "61캠");
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 		PaymentAccountResult penaltyAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.PENALTY, "333-333");
 		PaymentAccountResult coffeeAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.COFFEE, "444-444");
 		ChargeItem junePaid = saveCharge(campus.campusId(), member.id(), penaltyAccount, PaymentCategory.PENALTY,
@@ -347,6 +350,7 @@ class BillingQueryServiceTest {
 		CampusCreateResult campus = createCampus(manager, "112계좌필터캠");
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
 		campusService.joinCampus(new JoinCampusCommand(otherMember.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 		PaymentAccountResult firstCoffeeAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.COFFEE, "112-001");
 		PaymentAccountResult secondCoffeeAccount = createAccount(campus.campusId(), manager.id(), PaymentCategory.COFFEE, "112-002");
 		saveCharge(campus.campusId(), member.id(), firstCoffeeAccount, PaymentCategory.COFFEE, ChargeSourceType.POLL_RESPONSE,
@@ -390,6 +394,8 @@ class BillingQueryServiceTest {
 			.orElseThrow();
 		ReflectionTestUtils.setField(otherManagerMembership, "campusRole", CampusRole.ELDER);
 		campusMemberRepository.saveAndFlush(otherManagerMembership);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), otherManager.id()));
 		PaymentAccountResult penaltyAccount = createAccount(
 			campus.campusId(),
 			manager.id(),
@@ -523,6 +529,7 @@ class BillingQueryServiceTest {
 			.orElseThrow();
 		ReflectionTestUtils.setField(otherDutyMembership, "campusRole", CampusRole.ELDER);
 		campusMemberRepository.saveAndFlush(otherDutyMembership);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), otherDuty.id()));
 		PaymentAccountResult otherAccount = createAccount(campus.campusId(), otherDuty.id(), PaymentCategory.COFFEE, "112-102", otherDuty.id());
 		PaymentAccountResult dutyAccount = createAccount(campus.campusId(), duty.id(), PaymentCategory.COFFEE, "112-101", duty.id());
 		saveCharge(campus.campusId(), member.id(), dutyAccount, PaymentCategory.COFFEE, ChargeSourceType.POLL_RESPONSE,

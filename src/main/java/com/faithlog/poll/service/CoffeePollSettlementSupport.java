@@ -1,6 +1,8 @@
 package com.faithlog.poll.service;
 
 import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.domain.entity.PaymentAccount;
+import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.global.exception.BusinessException;
@@ -32,19 +34,22 @@ class CoffeePollSettlementSupport {
 	private final PollResponseRepository pollResponseRepository;
 	private final PollResponseOptionRepository pollResponseOptionRepository;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
+	private final PaymentAccountRepositoryPort paymentAccountRepository;
 
 	CoffeePollSettlementSupport(
 		PollRepository pollRepository,
 		PollOptionRepository pollOptionRepository,
 		PollResponseRepository pollResponseRepository,
 		PollResponseOptionRepository pollResponseOptionRepository,
-		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
+		PaymentAccountRepositoryPort paymentAccountRepository
 	) {
 		this.pollRepository = pollRepository;
 		this.pollOptionRepository = pollOptionRepository;
 		this.pollResponseRepository = pollResponseRepository;
 		this.pollResponseOptionRepository = pollResponseOptionRepository;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
+		this.paymentAccountRepository = paymentAccountRepository;
 	}
 
 	SettlementContext prepare(Long campusId, Long pollId) {
@@ -60,8 +65,21 @@ class CoffeePollSettlementSupport {
 			return null;
 		}
 
-		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
+		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+			campusId, DutyType.COFFEE, poll.createdBy())
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+		if (poll.paymentAccountId() == null) {
+			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
+		}
+		PaymentAccount account = paymentAccountRepository.findById(poll.paymentAccountId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
+		if (account.isDeleted()
+			|| !account.isActive()
+			|| !account.campusId().equals(campusId)
+			|| account.accountType() != PaymentCategory.COFFEE
+			|| !poll.createdBy().equals(account.ownerUserId())) {
+			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
+		}
 
 		Map<Long, PollOption> optionsById = optionsById(poll.id());
 		List<PollResponse> responses = pollResponseRepository.findByPollIdOrderByIdAsc(poll.id());

@@ -177,15 +177,33 @@ class NotificationControllerTest {
 		String dutyToken = signupAndLogin("notification-200-coffee-duty@example.com", UserRole.USER);
 		User duty = userRepository.findByEmail("notification-200-coffee-duty@example.com").orElseThrow();
 		User target = saveUser("notification-200-coffee-target@example.com", UserRole.USER);
+		User otherDuty = saveUser("notification-200-coffee-other-duty@example.com", UserRole.USER);
 		Campus campus = saveCampus("알림200커피캠");
+		Campus otherCampus = saveCampus("알림200다른캠");
 		saveMember(campus.id(), duty.id());
 		saveMember(campus.id(), target.id());
+		saveMember(campus.id(), otherDuty.id());
 		campusDutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(campus.id(), duty.id()));
 		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
 			campus.id(), PaymentCategory.COFFEE, "담당자 커피 계좌", "하나은행", "200-COFFEE", "커피담당", duty.id()
 		));
 		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20011L, 1800));
 		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), account, 20012L, 2200));
+		ChargeItem paid = charge(campus.id(), target.id(), account, 20013L, 5000);
+		paid.markPaid();
+		chargeItemRepository.saveAndFlush(paid);
+		PaymentAccount otherOwnerAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.COFFEE, "다른 담당자 계좌", "국민은행", "200-OTHER", "다른담당", otherDuty.id()
+		));
+		PaymentAccount penaltyAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.PENALTY, "벌금 계좌", "신한은행", "200-PENALTY", "벌금담당", duty.id()
+		));
+		PaymentAccount otherCampusAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			otherCampus.id(), PaymentCategory.COFFEE, "다른 캠퍼스 계좌", "농협은행", "200-OTHER-CAMPUS", "커피담당", duty.id()
+		));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), otherOwnerAccount, 20014L, 9000));
+		chargeItemRepository.saveAndFlush(charge(campus.id(), target.id(), penaltyAccount, 20015L, 8000));
+		chargeItemRepository.saveAndFlush(charge(otherCampus.id(), target.id(), otherCampusAccount, 20016L, 7000));
 		registerToken(target, "notification-200-coffee-token", "notification-200-coffee-client");
 
 		String firstBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/coffee/charge-reminders", campus.id())
@@ -247,6 +265,22 @@ class NotificationControllerTest {
 		mockMvc.perform(post("/api/v1/campuses/{campusId}/meal/charge-reminders", campus.id())
 				.header("Authorization", "Bearer " + managerToken))
 			.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void charge_reminder_fails_without_creating_logs_when_redis_is_unavailable() throws Exception {
+		String dutyToken = signupAndLogin("notification-200-redis-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("notification-200-redis-duty@example.com").orElseThrow();
+		Campus campus = saveCampus("알림200Redis캠");
+		saveMember(campus.id(), duty.id());
+		campusDutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(campus.id(), duty.id()));
+		notificationConcurrencyPort.fail();
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/coffee/charge-reminders", campus.id())
+				.header("Authorization", "Bearer " + dutyToken))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(jsonPath("$.code").value("NOTIFICATION_REDIS_UNAVAILABLE"));
+		assertThat(notificationLogRepository.count()).isZero();
 	}
 
 	private ChargeItem charge(Long campusId, Long userId, PaymentAccount account, Long sourceId, int amount) {

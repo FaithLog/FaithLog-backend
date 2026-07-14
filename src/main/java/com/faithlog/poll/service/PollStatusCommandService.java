@@ -36,7 +36,11 @@ public class PollStatusCommandService {
 		if (poll.pollType() == PollType.MEAL) {
 			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
 		}
-		pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
+		if (poll.pollType() == PollType.COFFEE) {
+			pollAccessService.requireCoffeePollOwner(campusId, requesterId, poll);
+		} else {
+			pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
+		}
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}

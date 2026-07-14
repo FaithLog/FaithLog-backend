@@ -187,9 +187,10 @@ Redis TTL policy:
 
 - Coffee duty is not a `CampusRole`.
 - Coffee duty uses `CampusDutyAssignment` with `DutyType.COFFEE`.
-- A campus has at most one active `DutyType.COFFEE` assignee.
-- Issue #30 assigns or replaces the active coffee assignee with `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee`.
+- A campus can have multiple active `DutyType.COFFEE` assignees; only duplicate active rows for the same campus, duty type, and user are prohibited.
+- `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee` adds an assignee idempotently without revoking other active assignees.
 - Issue #30 revokes the active coffee assignee with `DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}`.
+- COFFEE or MEAL duty revocation fails with `409` when an owned account, including an inactive account, still has an `UNPAID` charge.
 - Active campus members can check their own coffee duty status with `GET /api/v1/campuses/{campusId}/duty-assignments/me`.
 - The my-duty response is `userId`, `campusId`, `dutyType=COFFEE`, and `isActive`.
 - A non-duty ACTIVE member receives `200 OK` with `isActive=false`; non-members and inactive members are forbidden.
@@ -205,6 +206,15 @@ Admin notification APIs:
 
 - `POST /api/v1/admin/campuses/{campusId}/notifications`
 - `GET /api/v1/admin/campuses/{campusId}/notification-logs`
+
+Duty charge reminder APIs:
+
+- `POST /api/v1/campuses/{campusId}/coffee/charge-reminders`
+- `POST /api/v1/campuses/{campusId}/meal/charge-reminders`
+- The request has no body and returns `202 Accepted` with `notificationRequestId`, `queuedCount`, and `skippedCount`.
+- Only the matching ACTIVE duty assignee may request reminders. Admin and campus-manager roles do not bypass duty authorization.
+- The server selects every `UNPAID` charge linked to an account owned by the requester in the matching category; clients do not submit charge IDs.
+- The server groups by owned account and recipient, includes the recipient's unpaid total in the fixed category-specific message, and deduplicates each account-recipient pair once per `Asia/Seoul` date.
 
 Do not use:
 
@@ -374,8 +384,9 @@ Issue #39 is P0.
 - One poll settlement must be all-or-nothing in a single transaction.
 - Duplicate charge prevention must be covered by a unique index test.
 - Poll must not directly reference Billing Entity. Keep the flow in the application layer.
-- COFFEE poll setup no longer requires the requester to be the active `DutyType.COFFEE` assignee when the requester is a campus manager. It does require a selected active same-campus `COFFEE` account owned by the requester.
+- COFFEE poll setup requires the requester to be an active `DutyType.COFFEE` assignee. Campus-manager and service-admin roles do not bypass this write boundary.
 - The account used for settlement is `polls.payment_account_id`; it must belong to the same campus, have `account_type = COFFEE`, be active at poll/template creation time, and be owned by the requester who creates the paid COFFEE poll/template.
+- Scheduler poll creation excludes every `poll_type = COFFEE` template even when `auto_create_enabled = true`. Existing template fields remain compatible; active COFFEE duty assignees create COFFEE polls manually. Scheduled close and CLOSED settlement remain enabled for manually created COFFEE polls.
 - Issue #37 provides the coffee brand/menu catalog used by coffee poll templates.
 - MVP coffee ordering is limited to Compose Coffee.
 - Coffee menu names and prices must not be frontend-only data or Java enum constants because they affect billing.
@@ -406,10 +417,10 @@ Issue #34 is P0.
   - `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`
 - All active campus members can list payment accounts for their campus.
 - Campus admin roles and service-level `ADMIN` can create or deactivate `PENALTY` payment accounts.
-- Campus admin roles and active COFFEE duty assignees can create their own `COFFEE` payment accounts. Normal members without active COFFEE duty cannot create `COFFEE` accounts.
+- Only active COFFEE duty assignees can create their own `COFFEE` payment accounts. Campus-manager and service-admin roles do not bypass this write boundary.
 - PENALTY account `ownerUserId` is registration/management metadata. If `ownerUserId` is null when creating a PENALTY account, store the requester user ID; if present, store the supplied value.
 - COFFEE account creation is requester-owned. If `ownerUserId` is null, the owner is the requester. If `ownerUserId` is present and different from the requester, reject the request with `403 BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN`.
-- Non-service-admin users can deactivate only their own `COFFEE` payment account. Active COFFEE duty alone must not create or deactivate `PENALTY` accounts.
+- Active COFFEE duty assignees can deactivate only their own `COFFEE` payment account. Campus managers and service admins without the matching active duty cannot change COFFEE accounts. Active COFFEE duty alone must not create or deactivate `PENALTY` accounts.
 - `PENALTY` payment account creation/deactivation keeps the existing campus admin or service admin permission.
 - `GET /api/v1/admin/campuses/{campusId}/payment-accounts` returns manager-facing metadata including `ownerUserId`, `isActive`, `createdAt`, and `deactivatedAt`. Campus managers and service-level `ADMIN` can see all campus accounts. Active COFFEE duty users can see only active COFFEE accounts they own.
 - `GET /api/v1/admin/campuses/{campusId}/charges` supports optional `paymentAccountId`; when present, `summary + members[]` must include only charge items linked to that payment account and must compose with existing filters. Campus managers and COFFEE duty users can filter COFFEE accounts only when the account is their own; service-level `ADMIN` can access all.
@@ -459,11 +470,12 @@ Issue #34 is P0.
 - Compose Coffee menu catalog seed data should come from official Compose Coffee sources first. If official verification is not possible, a latest menu/price source explicitly approved by the user may be used; Issue #37 used the user-approved 2026 Compose Coffee menu/price source.
 - Poll results are visible to all active campus members.
 - Poll result lookup is a single poll-level API: `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`.
-- Active COFFEE duty assignees can create and manage only `pollType=COFFEE` polls in their own campus.
+- Active COFFEE duty assignees can create and manage only their own `pollType=COFFEE` polls in their campus.
 - Coffee-external poll types such as `CUSTOM`, `WED_SERVICE`, and `SATURDAY_LEADER` keep the existing campus admin or service admin permission.
-- COFFEE poll and COFFEE poll template creation/update allow campus managers or active `DutyType.COFFEE` assignees.
+- COFFEE poll and COFFEE poll template creation/update require an active `DutyType.COFFEE` assignment. COFFEE templates are jointly managed by all active COFFEE duty assignees in the campus, while each COFFEE poll is managed only by its creator.
 - Selected COFFEE `paymentAccountId` values are required and must point to an active same-campus COFFEE account owned by the requester. Null, inactive, other-campus, PENALTY, and another user's COFFEE account must fail with a clear billing account error.
 - New campus creation must not automatically provision default COFFEE poll templates or recurring coffee polls. Existing auto-created templates are retained unless a separate cleanup issue is approved.
+- Scheduler poll creation excludes COFFEE templates even when `autoCreateEnabled=true`. This does not change the template API fields, and manually created COFFEE polls keep scheduled close and CLOSED settlement behavior.
 - When a direct `pollType=COFFEE` poll omits `allowUserOptionAdd`, the backend defaults it to true regardless of whether the requester is the active COFFEE duty assignee. Explicit `allowUserOptionAdd=false` is preserved. Other direct poll creation defaults omitted `allowUserOptionAdd` to false.
 - The user-option-add API keeps `{ "content": "새 항목" }` for non-COFFEE polls and requires `menuId` without client `content` for COFFEE polls. COFFEE user-added options snapshot the active catalog name, menu code, and price.
 - Do not create option-level poll result endpoints for MVP.

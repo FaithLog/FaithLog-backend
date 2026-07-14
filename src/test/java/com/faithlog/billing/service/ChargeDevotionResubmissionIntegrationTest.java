@@ -19,6 +19,7 @@ import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import com.faithlog.campus.service.CampusService;
+import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
@@ -117,6 +118,7 @@ class ChargeDevotionResubmissionIntegrationTest {
 		User member = saveUser("190-admin-paid-member@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "190관리자납부캠");
 		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 		PaymentAccountResult coffeeAccount = createAccount(
 			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "190-COFFEE"
 		);
@@ -203,6 +205,9 @@ class ChargeDevotionResubmissionIntegrationTest {
 			.isNotNull();
 
 		SubmittedDevotion coffeeFixture = submitPenaltyDevotion("190-coffee-unaffected");
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			coffeeFixture.campus().campusId(), coffeeFixture.manager().id(), coffeeFixture.manager().id()
+		));
 		PaymentAccountResult coffeeAccount = createAccount(
 			coffeeFixture.campus().campusId(), coffeeFixture.manager().id(), PaymentCategory.COFFEE, "190-COFFEE-UNAFFECTED"
 		);

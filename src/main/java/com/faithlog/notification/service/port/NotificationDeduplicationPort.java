@@ -6,4 +6,6 @@ import java.time.Duration;
 public interface NotificationDeduplicationPort {
 
 	boolean reserve(NotificationDeduplicationKey key, Duration ttl);
+
+	void release(NotificationDeduplicationKey key);
 }

@@ -166,9 +166,6 @@ public class PaymentAccountCommandService {
 			return;
 		}
 		CampusUserLookupResult requester = getActiveUser(requesterId);
-		if (requester.isAdmin()) {
-			return;
-		}
 		if (!requester.userId().equals(account.ownerUserId())) {
 			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN);
 		}
@@ -184,22 +181,28 @@ public class PaymentAccountCommandService {
 
 	private void requirePaymentAccountManager(Long campusId, Long requesterId, PaymentCategory accountType) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (accountType == PaymentCategory.COFFEE) {
+			campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+				.filter(CampusMember::isActive)
+				.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN));
+			if (!isActiveCoffeeDuty(campusId, requester.userId())) {
+				throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN);
+			}
+			return;
+		}
 		if (requester.isAdmin()) {
 			return;
 		}
 		CampusMember requesterMembership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN));
-		if (accountType == PaymentCategory.COFFEE && isActiveCoffeeDuty(campusId, requester.userId())) {
-			return;
-		}
 		BillingAccessPolicy.requirePaymentAccountManager(requesterMembership);
 	}
 
 	private boolean isActiveCoffeeDuty(Long campusId, Long userId) {
-		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-			.map(assignment -> assignment.userId().equals(userId))
-			.orElse(false);
+		return dutyAssignmentRepository
+			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId)
+			.isPresent();
 	}
 
 	private CampusUserLookupResult getActiveUser(Long userId) {

@@ -1,5 +1,7 @@
 package com.faithlog.notification.service;
 
+import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.notification.service.command.NotificationDeduplicationCommand;
 import com.faithlog.notification.service.port.NotificationDeduplicationPort;
 import com.faithlog.notification.service.port.NotificationRedisOperationException;
@@ -24,6 +26,22 @@ public class NotificationDeduplicationService {
 
 	public boolean reserveWeeklyAutomaticNotification(NotificationDeduplicationCommand command) {
 		return reserveAutomaticNotification(command, WEEKLY_DEDUP_TTL);
+	}
+
+	public boolean reserveDailyRequiredNotification(NotificationDeduplicationCommand command) {
+		try {
+			return deduplicationPort.reserve(NotificationDeduplicationKey.automatic(command), DAILY_DEDUP_TTL);
+		} catch (NotificationRedisOperationException exception) {
+			throw new BusinessException(ErrorCode.NOTIFICATION_REDIS_UNAVAILABLE);
+		}
+	}
+
+	public void releaseRequiredNotification(NotificationDeduplicationCommand command) {
+		try {
+			deduplicationPort.release(NotificationDeduplicationKey.automatic(command));
+		} catch (NotificationRedisOperationException ignored) {
+			// Preserve the original transactional failure while allowing the short TTL to expire safely.
+		}
 	}
 
 	private boolean reserveAutomaticNotification(NotificationDeduplicationCommand command, Duration ttl) {

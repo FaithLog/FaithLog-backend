@@ -21,11 +21,19 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.entity.CampusDutyAssignment;
+import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.notification.service.FcmTokenService;
 import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
 import com.faithlog.notification.domain.type.DeviceType;
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.entity.PaymentAccount;
+import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
@@ -68,6 +76,15 @@ class NotificationApiRestDocsTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private CampusDutyAssignmentRepository campusDutyAssignmentRepository;
+
+	@Autowired
+	private PaymentAccountRepository paymentAccountRepository;
+
+	@Autowired
+	private ChargeItemRepository chargeItemRepository;
 
 	@Test
 	void registerFcmTokenDocs() throws Exception {
@@ -224,6 +241,87 @@ class NotificationApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void sendCoffeeChargeRemindersDocs() throws Exception {
+		ChargeReminderFixture fixture = chargeReminderFixture(
+			"notification-docs-coffee-reminder", PaymentCategory.COFFEE, 4000);
+
+		documentChargeReminder(
+			fixture,
+			"/api/v1/campuses/{campusId}/coffee/charge-reminders",
+			"notification-send-coffee-charge-reminders",
+			"커피"
+		);
+	}
+
+	@Test
+	void sendMealChargeRemindersDocs() throws Exception {
+		ChargeReminderFixture fixture = chargeReminderFixture(
+			"notification-docs-meal-reminder", PaymentCategory.MEAL, 7000);
+
+		documentChargeReminder(
+			fixture,
+			"/api/v1/campuses/{campusId}/meal/charge-reminders",
+			"notification-send-meal-charge-reminders",
+			"밥"
+		);
+	}
+
+	private void documentChargeReminder(
+		ChargeReminderFixture fixture,
+		String path,
+		String snippetName,
+		String categoryLabel
+	) throws Exception {
+		mockMvc.perform(post(path, fixture.campusId())
+				.header("Authorization", "Bearer " + fixture.dutyToken()))
+			.andExpect(status().isAccepted())
+			.andDo(document(
+				snippetName,
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authorizationHeader(),
+				pathParameters(parameterWithName("campusId").description(categoryLabel + " 미납 알림을 발송할 캠퍼스 ID")),
+				responseFields(successEnvelopeData(
+					fieldWithPath("data.notificationRequestId").type(JsonFieldType.STRING)
+						.description("notification_logs.request_id 값"),
+					fieldWithPath("data.queuedCount").type(JsonFieldType.NUMBER)
+						.description("PENDING으로 큐잉된 계좌·수신자 수"),
+					fieldWithPath("data.skippedCount").type(JsonFieldType.NUMBER)
+						.description("일일 중복 또는 활성 FCM 토큰 없음으로 스킵된 계좌·수신자 수")
+				))
+			));
+	}
+
+	private ChargeReminderFixture chargeReminderFixture(
+		String prefix,
+		PaymentCategory paymentCategory,
+		int amount
+	) throws Exception {
+		String dutyToken = signupAndLogin(prefix + "-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail(prefix + "-duty@example.com").orElseThrow();
+		User target = saveUser(prefix + "-target@example.com", UserRole.USER);
+		Campus campus = saveCampus(prefix + "-campus");
+		saveMember(campus.id(), duty.id());
+		saveMember(campus.id(), target.id());
+		CampusDutyAssignment assignment = paymentCategory == PaymentCategory.COFFEE
+			? CampusDutyAssignment.assignCoffee(campus.id(), duty.id())
+			: CampusDutyAssignment.assignMeal(campus.id(), duty.id());
+		campusDutyAssignmentRepository.saveAndFlush(assignment);
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), paymentCategory, "담당 계좌", "하나은행", prefix + "-account", "담당자", duty.id()
+		));
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.id(), target.id(), paymentCategory, account.id(), account.bankName(), account.accountNumber(),
+			account.accountHolder(), ChargeSourceType.POLL_RESPONSE, Math.abs((long) prefix.hashCode()),
+			"미납 청구", "REST Docs", amount, null
+		));
+		fcmTokenService.registerToken(new RegisterFcmTokenCommand(
+			target.id(), prefix + "-fcm-token", prefix + "-client", DeviceType.IOS, "1.0.0"
+		));
+		return new ChargeReminderFixture(dutyToken, campus.id());
+	}
+
 	private Fixture notificationFixture(String prefix) throws Exception {
 		String ministerToken = signupAndLogin(prefix + "-minister@example.com", UserRole.USER);
 		User minister = userRepository.findByEmail(prefix + "-minister@example.com").orElseThrow();
@@ -327,5 +425,8 @@ class NotificationApiRestDocsTest {
 	}
 
 	private record Fixture(String ministerToken, Long campusId, Long targetUserId) {
+	}
+
+	private record ChargeReminderFixture(String dutyToken, Long campusId) {
 	}
 }

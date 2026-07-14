@@ -123,9 +123,9 @@ public class PaymentAccountQueryService {
 	}
 
 	private boolean isActiveCoffeeDuty(Long campusId, Long userId) {
-		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-			.map(assignment -> assignment.userId().equals(userId))
-			.orElse(false);
+		return dutyAssignmentRepository
+			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId)
+			.isPresent();
 	}
 
 	private void requirePaymentAccountListAccess(Long campusId, Long requesterId) {

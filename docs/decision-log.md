@@ -16,6 +16,8 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: 같은 캠퍼스에 여러 ACTIVE COFFEE 담당자를 허용하고 동일 캠퍼스·담당 유형·사용자의 ACTIVE 중복만 금지한다. 기존 COFFEE 지정 `PUT` API는 경로를 유지하되 다른 담당자를 해제하지 않는 idempotent 추가 의미로 변경한다. 관리자는 COFFEE 현황을 읽을 수 있지만 투표·템플릿·계좌·청구의 생성, 수정, 마감, 정산과 알림 발송은 ACTIVE COFFEE 담당자만 수행한다. 각 담당자는 본인이 만든 투표와 본인 소유 계좌 및 해당 계좌 청구만 변경할 수 있고, COFFEE 템플릿은 같은 캠퍼스 ACTIVE COFFEE 담당자들이 공동 관리한다.
 - Decision: COFFEE 또는 MEAL 담당자 본인 소유 계좌에 UNPAID 청구가 하나라도 있으면 담당 해제를 `409`로 거부한다. 비활성 계좌의 미납도 포함하며 PAID, WAIVED, CANCELED는 해제를 막지 않는다.
 - Decision: COFFEE/MEAL 담당 청구 알림 API는 charge ID 선택을 받지 않고 요청 담당자의 소유 계좌에 연결된 해당 category의 모든 UNPAID 청구를 조회한다. 계좌와 수신자별 미납 합계를 서버 고정 제목·본문으로 발송하고, 같은 담당 계좌·수신자·영업일의 `PAYMENT_UNPAID` 알림은 하루 1회만 생성한다. 다른 캠퍼스·category·담당자 계좌와 미납이 아닌 청구는 대상에서 제외한다.
+- Decision: COFFEE 고정 문구는 title `커피 미납 청구 안내`, body `커피 미납 금액은 총 {amount}원입니다. 확인 후 납부해 주세요.`이고, MEAL 고정 문구는 title `밥 미납 청구 안내`, body `밥 미납 금액은 총 {amount}원입니다. 확인 후 납부해 주세요.`이다. 알림 API 경로와 body 없는 요청, `202 Accepted`의 `notificationRequestId`/`queuedCount`/`skippedCount` 계약은 변경하지 않으며, 일일 기준은 `Asia/Seoul`이다. 일일 중복과 활성 FCM 토큰 없음은 `skippedCount`에 포함한다.
+- Decision: COFFEE 투표는 scheduler 자동 생성 대상에서 제외한다. 기존 COFFEE 템플릿과 API 필드는 삭제하거나 변경하지 않고, ACTIVE COFFEE 담당자가 투표를 수동 생성한다. 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산 동작은 유지한다.
 - Impact: 기존 관리자 범용 알림 API와 scheduler 알림은 유지하고 담당 청구 전용 application boundary/API를 추가한다. CampusDutyAssignment repository 조회는 사용자별 활성 여부를 기준으로 통일하고, active duty unique 제약은 `(campus_id, duty_type, user_id)`로 변경한다. API, ErrorCode, Flyway, REST Docs와 프론트 연동 계약을 함께 갱신한다.
 
 ### 2026-07-13 - Issue #190 Penalty Cancel Resubmission And Admin Paid
