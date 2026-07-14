@@ -2,6 +2,7 @@ package com.faithlog.campus.service;
 
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
 import com.faithlog.campus.service.command.AssignMealDutyCommand;
+import com.faithlog.campus.service.command.ChangeCampusRoleCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
@@ -20,6 +21,7 @@ import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.domain.entity.CampusDutyAssignment;
 import com.faithlog.campus.domain.type.DutyType;
+import com.faithlog.campus.domain.type.CampusRole;
 import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
@@ -55,7 +57,7 @@ class CampusDutyAssignmentConcurrencyTest {
 	@Autowired
 	private CampusService campusService;
 
-	@Autowired
+	@MockitoSpyBean
 	private UserRepository userRepository;
 
 	@Autowired
@@ -309,6 +311,56 @@ class CampusDutyAssignmentConcurrencyTest {
 				.doesNotContain(assignment.assignmentId());
 		} finally {
 			allowRevoke.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void member_deletion_waits_for_role_change_and_cannot_be_revived_by_stale_entity_flush() throws Exception {
+		User manager = saveUser("member-delete-role-manager@example.com", UserRole.MANAGER);
+		User target = saveUser("member-delete-role-target@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "회원삭제역할직렬화캠", "분당", "회원 삭제와 역할 변경 동시성 RED"
+		));
+		CampusMembershipResult membership = campusService.joinCampus(new JoinCampusCommand(
+			target.id(), campus.inviteCode()
+		));
+		CountDownLatch roleChanged = new CountDownLatch(1);
+		CountDownLatch allowRoleCommit = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			Object result = invocation.callRealMethod();
+			if (Thread.currentThread().getName().equals("member-role-change")) {
+				roleChanged.countDown();
+				if (!allowRoleCommit.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("role change release timeout");
+				}
+			}
+			return result;
+		}).when(userRepository).increaseTokenVersion(target.id());
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> roleChange = executor.submit(() -> {
+				Thread.currentThread().setName("member-role-change");
+				campusService.changeCampusRole(new ChangeCampusRoleCommand(
+					manager.id(), campus.campusId(), membership.membershipId(), CampusRole.ELDER
+				));
+			});
+			assertThat(roleChanged.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> deletion = executor.submit(() -> campusService.deleteCampusMember(
+				campus.campusId(), membership.membershipId(), manager.id()
+			));
+
+			assertThatThrownBy(() -> deletion.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowRoleCommit.countDown();
+			roleChange.get(5, TimeUnit.SECONDS);
+			deletion.get(5, TimeUnit.SECONDS);
+			assertThat(campusMemberRepository.findById(membership.membershipId()))
+				.get()
+				.matches(member -> !member.isActive());
+		} finally {
+			allowRoleCommit.countDown();
 			executor.shutdownNow();
 		}
 	}

@@ -15,6 +15,7 @@ import static org.springframework.restdocs.request.RequestDocumentation.queryPar
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -219,6 +220,62 @@ class AdminManagementApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void documents_stale_duty_assignment_recovery_list() throws Exception {
+		String managerToken = signupAndLogin(
+			"docs-stale-duty-recovery-manager@example.com", UserRole.MANAGER, "복구관리자"
+		);
+		String memberToken = signupAndLogin(
+			"docs-stale-duty-recovery-member@example.com", UserRole.USER, "과거담당자"
+		);
+		User member = userRepository.findByEmail("docs-stale-duty-recovery-member@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "과거담당복구캠");
+		long campusId = campus.path("campusId").asLong();
+		JsonNode membership = joinCampus(memberToken, campus.path("inviteCode").asText());
+		String assignmentBody = mockMvc.perform(put(
+				"/api/v1/admin/campuses/{campusId}/duty-assignments/coffee", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "userId": %d
+					}
+					""".formatted(member.id())))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long assignmentId = objectMapper.readTree(assignmentBody).path("data").path("assignmentId").asLong();
+		CampusMember inactiveMember = campusMemberRepository
+			.findById(membership.path("membershipId").asLong())
+			.orElseThrow();
+		inactiveMember.deactivate();
+		campusMemberRepository.saveAndFlush(inactiveMember);
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/duty-assignments", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(0));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/duty-assignments", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("staleOnly", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].assignmentId").value(assignmentId))
+			.andExpect(jsonPath("$.data[0].userId").value(member.id()))
+			.andDo(document("admin-stale-duty-assignments-list-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("과거 담당 배정을 정리할 캠퍼스 ID")),
+				queryParameters(parameterWithName("staleOnly").description(
+					"`true`이면 INACTIVE 멤버십에 남은 ACTIVE 담당 배정만 반환"
+				)),
+				responseFields(apiResponseFields(dutyAssignmentFields("data[].")))
+			));
+	}
+
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
 		String body = mockMvc.perform(post("/api/v1/campuses")
 				.header("Authorization", "Bearer " + accessToken)
@@ -357,6 +414,19 @@ class AdminManagementApiRestDocsTest {
 			fieldWithPath(prefix + "email").description("사용자 이메일"),
 			fieldWithPath(prefix + "campusRole").description("캠퍼스 내부 역할"),
 			fieldWithPath(prefix + "status").description("캠퍼스 멤버십 상태")
+		};
+	}
+
+	private static FieldDescriptor[] dutyAssignmentFields(String prefix) {
+		return new FieldDescriptor[] {
+			fieldWithPath(prefix + "assignmentId").description("담당 배정 ID"),
+			fieldWithPath(prefix + "campusId").description("캠퍼스 ID"),
+			fieldWithPath(prefix + "userId").description("담당 사용자 ID"),
+			fieldWithPath(prefix + "name").description("담당 사용자 이름"),
+			fieldWithPath(prefix + "email").description("담당 사용자 이메일"),
+			fieldWithPath(prefix + "dutyType").description("담당 유형. `COFFEE` 또는 `MEAL`"),
+			fieldWithPath(prefix + "isActive").description("담당 배정 활성 여부"),
+			fieldWithPath(prefix + "assignedAt").description("담당 지정 시각")
 		};
 	}
 }
