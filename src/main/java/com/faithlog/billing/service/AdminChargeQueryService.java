@@ -158,13 +158,15 @@ public class AdminChargeQueryService {
 		requireCampusChargeManager(query.campusId(), query.requesterId(), query.paymentCategory());
 		requireActiveCampusMember(query.campusId(), query.userId());
 		CampusUserLookupResult targetUser = getActiveUser(query.userId());
+		Set<Long> paymentAccountIds = resolveMemberChargePaymentAccountIds(
+			query.campusId(), query.requesterId(), query.paymentCategory());
 
 		ChargeSearchCriteria criteria = new ChargeSearchCriteria(
 			query.campusId(),
 			Set.of(query.userId()),
 			query.paymentCategory(),
 			query.status(),
-			null,
+			paymentAccountIds,
 			PaymentCategory.MEAL
 		);
 		List<ChargeItem> summaryTargets = chargeItemRepository.searchCharges(criteria);
@@ -372,6 +374,25 @@ public class AdminChargeQueryService {
 			);
 		}
 		throw forbidden();
+	}
+
+	private Set<Long> resolveMemberChargePaymentAccountIds(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory paymentCategory
+	) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin() || isCampusChargeManager(campusId, requester.userId())) {
+			return null;
+		}
+		if (paymentCategory != PaymentCategory.COFFEE || !isActiveCoffeeDuty(campusId, requester.userId())) {
+			throw forbidden();
+		}
+		return paymentAccountRepository.findByCampusIdAndOwnerUserIdAndAccountTypeOrderByIdAsc(
+			campusId, requester.userId(), PaymentCategory.COFFEE)
+			.stream()
+			.map(PaymentAccount::id)
+			.collect(Collectors.toSet());
 	}
 
 	private List<PaymentAccount> managerMyAccountCandidates(
