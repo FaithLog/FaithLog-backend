@@ -1136,6 +1136,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | --- | --- | --- | --- | --- |
 | 2026-07-14 | #200 담당자 cardinality RED | 실패 확인 | 기존 구현 기준 focused 28 tests 중 승인된 다중 ACTIVE·동일 사용자 idempotency·동시 추가 계약 3건 실패 | 권한·소유권·DB unique 제약 최소 구현 |
 | 2026-07-14 | #200 권한·해제·미납 알림 RED | 실패 확인 | expanded focused 35 tests 중 새 전용 권한, 소유 청구, 해제 충돌, body 없는 202 알림·dedupe 계약 10건 실패 | production/API/Redis dedupe/Flyway 구현 |
+| 2026-07-14 | #200 미납 상세·해제 동시성 보완 RED/GREEN | 성공 | focused 13 tests에서 청구 title별 상세/5종 제한 3건과 COFFEE·MEAL 해제 잠금 3건이 RED였고, 동일 ACTIVE 담당 배정 `PESSIMISTIC_WRITE`와 상세 본문 구현 후 13/13 GREEN | 전체 회귀·build·asciidoctor 재검증 |
 | 2026-07-14 | #200 COFFEE 자동 생성 제외 RED/GREEN | 성공 | `PollAutomationServiceTest` 6 tests 중 신규 제외 계약 1건 RED 확인 후 scheduler COFFEE 필터로 6/6 GREEN. 수동 생성 COFFEE 투표의 예정 마감·정산 유지 | 전체 회귀 검증으로 확대 |
 | 2026-07-14 | #200 full regression/build/docs | 성공 | `./gradlew test` 461 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 153개, `git diff --check` 성공 | PM 전체 diff 리뷰 요청. Docker/PostgreSQL 실마이그레이션은 사용자 금지에 따라 미실행 |
 | 2026-06-19 | #61 TDD 실패 확인 | 실패 확인 | 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminManagementControllerTest`가 4 tests / 4 failed로 실패. 서비스 ADMIN 관리 endpoint와 role 변경 PATCH 미구현 확인 | admin application/presentation/port 계층 구현 |
@@ -1218,6 +1219,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 캠퍼스별 ACTIVE COFFEE 담당자를 단일 교체에서 다중 additive/idempotent 지정으로 전환하고, `(campus_id, duty_type, user_id)` active partial unique migration으로 동시 중복을 방지.
   - COFFEE command를 ACTIVE 담당자와 투표/계좌/청구 소유권으로 제한하고, 비활성 계좌까지 포함한 UNPAID 청구가 있으면 COFFEE/MEAL 담당 해제를 409로 차단.
   - 요청 body 없이 담당자 소유 계좌의 전체 UNPAID를 계좌·수신자별 합산하는 202 알림 API 2개를 추가하고, Asia/Seoul 일자 Redis dedupe·토큰 없음 skip·dispatch 실패 rollback/retry를 검증.
+  - 알림 본문에 청구 title별 건수·금액을 최대 5종까지 표시하고 전체 합계를 유지했으며, 담당 해제와 COFFEE/MEAL 정산이 동일 배정 행 잠금을 공유해 동시 요청에서도 미납 해제 차단을 보장.
   - COFFEE 투표를 scheduler 자동 생성에서 제외하되 수동 생성 투표의 예정 마감·정산을 유지하고, 전체 461 tests와 REST Docs 153개 snippet group으로 검증. Docker/실데이터 성과 수치는 측정하지 않음.
 
 - 2026-06-20 #38 PM 검토 보완

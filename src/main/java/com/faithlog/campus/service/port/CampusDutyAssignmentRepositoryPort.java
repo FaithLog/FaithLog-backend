@@ -15,6 +15,12 @@ public interface CampusDutyAssignmentRepositoryPort {
 		Long userId
 	);
 
+	Optional<CampusDutyAssignment> findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+		Long campusId,
+		DutyType dutyType,
+		Long userId
+	);
+
 	Optional<CampusDutyAssignment> findByCampusIdAndDutyTypeAndId(Long campusId, DutyType dutyType, Long id);
 
 	List<CampusDutyAssignment> findByCampusIdAndIsActiveTrueOrderByIdAsc(Long campusId);

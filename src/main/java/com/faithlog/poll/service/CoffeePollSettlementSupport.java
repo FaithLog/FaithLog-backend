@@ -65,7 +65,7 @@ class CoffeePollSettlementSupport {
 			return null;
 		}
 
-		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+		dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
 			campusId, DutyType.COFFEE, poll.createdBy())
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
 		if (poll.paymentAccountId() == null) {

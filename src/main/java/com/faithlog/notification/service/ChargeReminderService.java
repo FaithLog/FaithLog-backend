@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Comparator;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ChargeReminderService {
 
 	private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
+	private static final int MAX_DETAIL_ITEM_TYPES = 5;
 
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
@@ -189,8 +191,31 @@ public class ChargeReminderService {
 	}
 
 	private String body(PaymentCategory paymentCategory, List<ChargeItem> charges) {
-		long totalAmount = charges.stream().mapToLong(ChargeItem::amount).sum();
 		String category = paymentCategory == PaymentCategory.COFFEE ? "커피" : "밥";
-		return category + " 미납 금액은 총 " + totalAmount + "원입니다. 확인 후 납부해 주세요.";
+		Map<String, ItemSummary> summaries = new LinkedHashMap<>();
+		charges.stream()
+			.sorted(Comparator.comparing(ChargeItem::id))
+			.forEach(charge -> summaries.merge(
+				charge.title(),
+				new ItemSummary(1, charge.amount()),
+				ItemSummary::add
+			));
+		String details = summaries.entrySet().stream()
+			.limit(MAX_DETAIL_ITEM_TYPES)
+			.map(entry -> entry.getKey() + " " + entry.getValue().count() + "건 " + entry.getValue().amount() + "원")
+			.collect(Collectors.joining(", "));
+		int omittedTypes = summaries.size() - Math.min(summaries.size(), MAX_DETAIL_ITEM_TYPES);
+		if (omittedTypes > 0) {
+			details += ", 외 " + omittedTypes + "종";
+		}
+		long totalAmount = charges.stream().mapToLong(ChargeItem::amount).sum();
+		return category + " 미납: " + details + " / 총 " + totalAmount + "원입니다. 확인 후 납부해 주세요.";
+	}
+
+	private record ItemSummary(long count, long amount) {
+
+		private ItemSummary add(ItemSummary other) {
+			return new ItemSummary(count + other.count, amount + other.amount);
+		}
 	}
 }

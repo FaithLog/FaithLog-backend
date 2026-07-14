@@ -87,7 +87,7 @@ public class MealPollSettlementService {
 
 	@Transactional
 	public MealPollSettlementResult settle(CreateMealPollChargesCommand command) {
-		mealDutyAccessService.requireActiveMealDuty(command.campusId(), command.requesterId());
+		mealDutyAccessService.requireActiveMealDutyForUpdate(command.campusId(), command.requesterId());
 		Poll poll = pollLookupSupport.getPollInCampusForUpdate(command.campusId(), command.pollId());
 		if (poll.pollType() != PollType.MEAL || poll.selectionType() != SelectionType.SINGLE) {
 			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);

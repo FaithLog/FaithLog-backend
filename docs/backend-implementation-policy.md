@@ -214,7 +214,8 @@ Duty charge reminder APIs:
 - The request has no body and returns `202 Accepted` with `notificationRequestId`, `queuedCount`, and `skippedCount`.
 - Only the matching ACTIVE duty assignee may request reminders. Admin and campus-manager roles do not bypass duty authorization.
 - The server selects every `UNPAID` charge linked to an account owned by the requester in the matching category; clients do not submit charge IDs.
-- The server groups by owned account and recipient, includes the recipient's unpaid total in the fixed category-specific message, and deduplicates each account-recipient pair once per `Asia/Seoul` date.
+- The server groups by owned account and recipient, groups charge titles into count and amount details, shows at most five distinct titles followed by `외 N종`, always includes the recipient's unpaid total, and deduplicates each account-recipient pair once per `Asia/Seoul` date.
+- COFFEE/MEAL settlement and matching duty revocation share a pessimistic write lock on the ACTIVE duty assignment so a concurrent settlement cannot create an unpaid charge after revocation validation.
 
 Do not use:
 

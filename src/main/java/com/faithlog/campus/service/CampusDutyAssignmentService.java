@@ -160,6 +160,10 @@ public class CampusDutyAssignmentService {
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.COFFEE, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND));
+		assignment = dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campusId, DutyType.COFFEE, assignment.userId())
+			.filter(activeAssignment -> activeAssignment.id().equals(assignmentId))
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND));
 		requireNoOwnedUnpaidCharges(assignment, PaymentCategory.COFFEE, ErrorCode.CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT);
 		assignment.revoke();
 	}
@@ -175,6 +179,10 @@ public class CampusDutyAssignmentService {
 		CampusDutyAssignment assignment = dutyAssignmentRepository
 			.findByCampusIdAndDutyTypeAndId(campusId, DutyType.MEAL, assignmentId)
 			.filter(CampusDutyAssignment::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND));
+		assignment = dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campusId, DutyType.MEAL, assignment.userId())
+			.filter(activeAssignment -> activeAssignment.id().equals(assignmentId))
 			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_DUTY_ASSIGNMENT_NOT_FOUND));
 		requireNoOwnedUnpaidCharges(assignment, PaymentCategory.MEAL, ErrorCode.CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT);
 		assignment.revoke();
