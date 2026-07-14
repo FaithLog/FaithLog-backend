@@ -14,6 +14,7 @@ import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.billing.service.BillingService;
 import com.faithlog.billing.service.MealPaymentAccountService;
 import com.faithlog.billing.service.command.ChangeChargeStatusCommand;
+import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.campus.domain.entity.CampusDutyAssignment;
 import com.faithlog.campus.domain.type.DutyType;
@@ -235,6 +236,62 @@ class DutyGatedWriteConcurrencyTest {
 				.get()
 				.extracting(ChargeItem::status)
 				.isEqualTo(ChargeStatus.UNPAID);
+		} finally {
+			allowWrite.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void coffee_charge_status_change_uses_latest_member_payment_after_waiting_for_duty_lock() throws Exception {
+		User manager = saveUser("duty-write-stale-charge-manager@example.com", UserRole.MANAGER);
+		User target = saveUser("duty-write-stale-charge-target@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200청구최신상태동시성캠");
+		campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), manager.id(), manager.id()
+		));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "최신 상태 계좌", "하나은행", "200-STALE-CHARGE",
+			"담당자", manager.id()
+		));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), target.id(), PaymentCategory.COFFEE, account.id(), account.bankName(),
+			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 200901L,
+			"커피 주문", "최신 상태 검증", 1800, null
+		));
+		CountDownLatch dutyChecked = new CountDownLatch(1);
+		CountDownLatch allowWrite = new CountDownLatch(1);
+		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), DutyType.COFFEE, dutyChecked, allowWrite);
+		Instant paidAt = Instant.now().minusSeconds(30);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> writer = executor.submit(() -> {
+				Thread.currentThread().setName("duty-writer");
+				billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+					charge.id(), manager.id(), ChargeStatus.WAIVED
+				));
+			});
+			if (!dutyChecked.await(5, TimeUnit.SECONDS)) {
+				writer.get(1, TimeUnit.SECONDS);
+				throw new AssertionError("담당 잠금 조회가 실행되지 않았습니다.");
+			}
+
+			billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+				campus.campusId(), charge.id(), target.id(), paidAt
+			));
+			allowWrite.countDown();
+
+			assertThatThrownBy(() -> writer.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(BusinessException.class)
+				.satisfies(exception -> assertThat(((BusinessException) exception.getCause()).errorCode())
+					.isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_TRANSITION_CONFLICT));
+			assertThat(chargeItemRepository.findById(charge.id()))
+				.get()
+				.satisfies(saved -> {
+					assertThat(saved.status()).isEqualTo(ChargeStatus.PAID);
+					assertThat(saved.paidAt()).isEqualTo(paidAt);
+				});
 		} finally {
 			allowWrite.countDown();
 			executor.shutdownNow();
