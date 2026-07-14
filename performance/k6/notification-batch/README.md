@@ -1,0 +1,154 @@
+# Issue #198 notification batch before scenario
+
+상태: `scenario-ready / not-measured`
+
+이 디렉터리는 production Java를 바꾸지 않고 현재 알림 생성·전송 흐름의 `before` 기준선을 준비한다. 지금 단계에서는 fixture, notification job, Docker, DB를 실행하지 않았으며 실제 baseline 숫자나 개선 성과가 없다.
+
+## 측정 경계
+
+자동 알림 scheduler가 target user ID 목록을 계산한 다음 호출하는 실제 production 경계인 `NotificationRequestCommandService.requestAutomaticNotification(...)`와 실제 `NotificationDeliveryWorker.processRequest(...)`를 test-only harness에서 직접 호출한다.
+
+생성 phase의 현재 동작:
+
+1. 사용자마다 Redis dedupe를 `notificationType + campusId + scopeId + targetUserId + businessDate` key로 예약한다.
+2. 사용자마다 `findActiveSendableTokens(userId)`를 호출한다.
+3. sendable token이 있으면 PENDING, 없으면 SKIPPED notification log를 사용자별로 저장한다.
+4. 하나 이상의 PENDING log가 있으면 request ID를 dispatch한다. test harness는 이 dispatch를 capture해 delivery와 분리한다.
+
+전송 phase의 현재 동작:
+
+1. request ID의 PENDING log를 조회한다.
+2. log 사용자마다 sendable token을 다시 조회한다.
+3. deterministic fake sender로 success, transient-then-success, permanent failure를 재현한다.
+4. 사용자별 log를 SENT 또는 FAILED로 갱신한다. delivery 시점에 token이 없으면 SKIPPED다.
+5. permanent failure는 해당 dummy token의 failure reason을 기록하고 inactive로 바꾼다.
+
+cron cadence와 upstream target discovery 자체는 duration에 포함하지 않는다. 대상 campus의 ACTIVE member 1,000명을 ID 순서로 고정해 scheduler → request service handoff 이후의 token/log 병목만 측정한다. 이는 Issue #198의 token lookup, log 생성, worker 상태 저장 범위다.
+
+## 외부 전송 hard guard
+
+- Spring profile은 `local|test`만 허용하고 `docker|prod` 및 그 밖의 profile은 즉시 거부한다.
+- `PERF_FCM_ADAPTER=fake`가 아니면 즉시 거부한다.
+- `FIREBASE_CONFIG_JSON` 또는 `FIREBASE_CONFIG_PATH`가 존재하면 즉시 거부한다.
+- Java harness는 `@ActiveProfiles("local")`과 test-only `FakeFcmSendPort`를 사용하며 Firebase class를 참조하지 않는다.
+- PostgreSQL/Redis의 실제 `com.docker.compose.project` label이 같아야 하며 `faithlog-latest` shared stack이면 즉시 거부한다.
+- `docker compose up/build/down`, restart, volume 삭제, prune은 어떤 script에도 없다.
+
+따라서 실제 Firebase 또는 external FCM 전송은 구조적으로 실행되지 않는다.
+
+## Dataset과 fixtureRunId
+
+`PERF_DATASET_ID`는 이름이 정확히 datasetId 또는 `<datasetId> Campus`인 기존 PERFORMANCE 1,000명 campus를 식별하고 `PERF_FIXTURE_RUN_ID`는 한 번의 warmup 또는 measured sample을 식별한다. 준비 script는 user/campus/member를 만들거나 수정하지 않는다. 선택된 ACTIVE member가 정확히 1,000명인지 확인한 뒤 아래 test-only dummy token만 저장한다.
+
+- active token immediate success
+- active token transient failure 1회 후 success
+- active token permanent failure
+- inactive token only
+- no token
+
+각 category count는 실행자가 명시하며 모두 1 이상이고 합계가 1,000이어야 한다. 이 때문에 active token 있음/없음 비율과 injected failure 비율이 manifest에 명확하게 남고, 시나리오가 임의 비율을 결정하지 않는다.
+
+재측정 시 이전 `PERFORMANCE_198_DUMMY:` active token만 inactive로 바꾼 뒤 새로운 fixtureRunId dummy token을 추가한다. 실제 token 또는 다른 fixture token은 수정하지 않으며, 선택 사용자에 dummy가 아닌 active token이 하나라도 있으면 preparation이 fail closed한다. 생성되는 notification log의 title/body에도 fixtureRunId와 test-only 표식을 넣는다. token 원문, 비밀번호, credential은 report에 쓰지 않는다.
+
+ignored 산출물:
+
+```text
+build/reports/k6/notification-batch/
+  fixtures/<fixtureRunId>/manifest.json
+  runs/<runId>/
+    environment.json
+    scenario-result.json
+    verification-report.json
+    postgres-before.json
+    postgres-after.json
+    redis-commandstats-before.txt
+    redis-commandstats-after.txt
+    docker-stats.csv
+    gradle-scenario.log
+```
+
+## Fixture preparation — 지금은 실행 금지
+
+아래는 PM이 별도 실행을 승인한 뒤 dedicated non-shared Compose project에서만 사용한다. count 값은 승인된 분포를 runtime에 넣고 저장소에 credential을 기록하지 않는다.
+
+```bash
+ALLOW_NOTIFICATION_BATCH_BASELINE=true \
+PERF_SPRING_PROFILE=local \
+PERF_FCM_ADAPTER=fake \
+POSTGRES_CONTAINER=<dedicated-postgres-container> \
+REDIS_CONTAINER=<dedicated-redis-container> \
+PERF_DATASET_ID=PERFORMANCE_<dataset> \
+PERF_FIXTURE_RUN_ID=<fresh-fixture-run-id> \
+PERF_SAMPLE_KIND=warmup \
+PERF_CAMPUS_ID=<performance-campus-id> \
+PERF_SUCCESS_COUNT=<positive-count> \
+PERF_TRANSIENT_COUNT=<positive-count> \
+PERF_PERMANENT_COUNT=<positive-count> \
+PERF_INACTIVE_COUNT=<positive-count> \
+PERF_NO_TOKEN_COUNT=<positive-count> \
+bash performance/k6/notification-batch/prepare-fixtures.sh
+```
+
+measured sample은 새 `PERF_FIXTURE_RUN_ID`와 `PERF_SAMPLE_KIND=measured`로 별도 준비한다. preparation은 measurement runner 안에서 자동 호출되지 않는다.
+
+## Single-sample runner — 지금은 실행 금지
+
+```bash
+ALLOW_NOTIFICATION_BATCH_BASELINE=true \
+PERF_SPRING_PROFILE=local \
+PERF_FCM_ADAPTER=fake \
+POSTGRES_CONTAINER=<dedicated-postgres-container> \
+REDIS_CONTAINER=<dedicated-redis-container> \
+PERF_BUSINESS_DATE=<YYYY-MM-DD> \
+MANIFEST_PATH=build/reports/k6/notification-batch/fixtures/<fixtureRunId>/manifest.json \
+bash performance/k6/notification-batch/run-before.sh
+```
+
+`build/reports/k6/active-measurement.lock`을 사용하므로 다른 performance baseline, frontend QA, Docker QA, 부하와 병렬 실행하지 않는다. runner는 실제 Compose label, PostgreSQL counters, Redis `INFO commandstats`, PostgreSQL/Redis `docker stats`, Java process CPU duration/heap delta를 기록한다.
+
+## p50/p95/p99/max 집계 — 지금은 실행 금지
+
+한 fixtureRunId는 생성 1회와 delivery 1회의 독립 sample이다. warmup과 measured fixtureRunId 목록을 명시한 파일을 만들고, 검증된 run directory만 집계한다. 반복 횟수는 baseline 실행 승인 때 사용자가 결정하며 script가 조용히 정하지 않는다.
+
+```bash
+RUN_DIRS_FILE=<approved-run-directory-list.txt> \
+OUTPUT_PATH=build/reports/k6/notification-batch/before-summary.json \
+node performance/k6/notification-batch/summarize-before.mjs
+```
+
+summary는 creation/delivery 각각 다음을 만든다.
+
+- 전체 duration p50/p95/p99/max
+- throughput p50/p95/p99/max
+- Hibernate prepared statement count와 `prepared statements / 1,000 targets`인 per-user DB calls
+- Java process CPU duration/heap delta와 container CPU/RAM raw samples
+- log/token insert/update count
+- `providerFakeFailureRate = injected FAILED / PENDING`
+- `scenarioFailureRate = correctness assertion 실패 sample / 전체 sample`
+
+injected permanent failure는 현재 partial failure 정책을 검증하기 위한 데이터이며 scenario failure와 구분한다.
+
+## Correctness 계약
+
+각 sample은 다음을 통과해야 `verification-report.json`이 생성된다.
+
+- target ACTIVE member 정확히 1,000명, user 중복 0
+- creation log 정확히 1,000개
+- PENDING = success + transient + permanent
+- SKIPPED = inactive + no-token
+- delivery SENT = success + transient
+- delivery FAILED = permanent
+- permanent dummy token inactive/update count = permanent
+- exact dedupe replay 생성 log 0
+- request ID 내 다른 campus/user log 0
+- fixture 외 token mutation 0
+- 일부 permanent failure 후에도 나머지 success가 SENT가 되는 partial failure continuation
+
+현재 campus isolation은 scheduler가 같은 campus ACTIVE member ID만 command에 전달한다는 production 계약에 의존한다. request service 자체는 전달된 target ID의 campus membership을 다시 검증하지 않는다. harness는 같은 campus member 목록만 전달하고 request 결과에 다른 campus/user가 섞이지 않았음을 characterization한다. 이 동작을 개선하거나 권한/트랜잭션 의미를 바꾸지는 않는다.
+
+## 변경하지 않는 범위
+
+- batch size 후보, bulk token query, NotificationLog batch insert/update, Redis pipeline/Lua는 적용하지 않는다.
+- production Java/API/권한/응답/오류/트랜잭션/Entity/DB/Flyway/의존성을 변경하지 않는다.
+- shared Docker lifecycle과 운영 profile을 사용하지 않는다.
+- 실제 baseline 수치와 개선 성과를 기록하지 않는다.

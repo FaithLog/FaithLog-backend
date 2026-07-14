@@ -34,17 +34,20 @@ test('fixture contract separates datasetId and fixtureRunId and permits dummy no
 
 	assert.match(prepare, /PERF_DATASET_ID/);
 	assert.match(prepare, /PERF_FIXTURE_RUN_ID/);
+	assert.match(prepare, /PERF_SAMPLE_KIND/);
 	assert.match(prepare, /PERF_MEMBER_COUNT.*1000/);
 	assert.match(prepare, /manifest\.json/);
 	assert.match(prepare, /build\/reports\/k6\/notification-batch\/fixtures/);
 	assert.match(sql, /user_fcm_tokens/);
+	assert.match(sql, /campus\.name[\s\S]*dataset_id/);
 	assert.match(sql, /PERFORMANCE_198_DUMMY/);
 	assert.match(sql, /success_count/);
 	assert.match(sql, /transient_count/);
 	assert.match(sql, /permanent_count/);
 	assert.match(sql, /inactive_count/);
 	assert.match(sql, /no_token_count/);
-	assert.doesNotMatch(sql, /^\s*(TRUNCATE|DELETE\s+FROM|DROP\s+TABLE|UPDATE\s+)\b/im);
+	assert.match(sql, /UPDATE\s+user_fcm_tokens[\s\S]*PERFORMANCE_198_DUMMY/i);
+	assert.doesNotMatch(sql, /^\s*(TRUNCATE|DELETE\s+FROM|DROP\s+TABLE)\b/im);
 	assert.doesNotMatch(prepare, /FIREBASE|FCM_TOKEN=.*[^D]UMMY/i);
 });
 
@@ -75,6 +78,7 @@ test('test-profile harness exercises the production request and delivery service
 	assert.match(harness, /NotificationDeliveryWorker/);
 	assert.match(harness, /processRequest/);
 	assert.match(harness, /FakeFcmSendPort/);
+	assert.match(harness, /Only Issue #198 dummy tokens/);
 	assert.match(harness, /FcmSendFailureType\.PERMANENT/);
 	assert.match(harness, /FcmSendFailureType\.TRANSIENT/);
 	assert.match(harness, /CapturingNotificationDispatchPort/);
@@ -85,6 +89,7 @@ test('test-profile harness exercises the production request and delivery service
 
 test('verification contract covers throughput, DB calls, status counts, dedupe, isolation, and partial failure', () => {
 	const verifier = readScenario('verify-before.mjs');
+	const summarizer = readScenario('summarize-before.mjs');
 	const readme = readScenario('README.md');
 	const requiredTerms = [
 		'durationMs',
@@ -92,6 +97,8 @@ test('verification contract covers throughput, DB calls, status counts, dedupe, 
 		'dbPreparedStatements',
 		'perUserDbCalls',
 		'createdLogs',
+		'logInsertCount',
+		'logUpdateCount',
 		'tokenLookupCount',
 		'tokenUpdateCount',
 		'SENT',
@@ -102,6 +109,11 @@ test('verification contract covers throughput, DB calls, status counts, dedupe, 
 	];
 
 	for (const term of requiredTerms) assert.match(verifier, new RegExp(term));
+	for (const percentile of ['p50', 'p95', 'p99', 'max']) {
+		assert.match(summarizer, new RegExp(percentile));
+	}
+	assert.match(summarizer, /providerFakeFailureRate/);
+	assert.match(summarizer, /scenarioFailureRate/);
 	assert.match(readme, /notificationType \+ campusId \+ scopeId \+ targetUserId \+ businessDate/);
 	assert.match(readme, /partial failure/i);
 	assert.match(readme, /scenario-ready/i);

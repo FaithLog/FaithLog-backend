@@ -95,6 +95,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 잠금/인가: stale 복구는 requester user를 먼저 잠그고 `user -> campus -> duty -> member -> charge` 순서를 사용하며 locked charge의 UNPAID를 재검증한다. 전역 역할 변경은 최소 user ID row를 DB 공통 mutex로 사용한 뒤 requester/target 최신 역할과 마지막 ACTIVE ADMIN 수를 판단한다.
   - API/문서: `staleOnly` 오류 변환을 해당 controller로 제한해 unrelated type mismatch 계약 변경을 제거했다. COFFEE/MEAL 일반 상태 변경 권한을 실제 production과 일치시켰고 stale COFFEE 일반 관리자 403, ACTIVE MEAL service ADMIN 404, stale MEAL 성공 REST Docs를 추가했다.
   - 최종 검증: `./gradlew test` 86 suites / 548 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 12초, `./gradlew asciidoctor` 14초, REST Docs 170 groups/HTML, test source 91개, 전체 diff check 성공이다. Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 수행하지 않았다.
+- #198 알림 생성·전송 before 시나리오 준비 (`scenario-ready / not-measured`):
+  - 현재 production 흐름인 사용자별 Redis daily dedupe, 생성 단계 active token 조회와 PENDING/SKIPPED log 저장, worker의 token 재조회와 SENT/FAILED/SKIPPED 상태 저장, permanent failure token 비활성화를 1,000명 test-only harness로 측정할 수 있게 했다. scheduler의 target discovery와 cron cadence는 측정 duration에서 제외한다.
+  - `datasetId`와 sample별 `fixtureRunId`를 분리하고, success/transient/permanent/inactive/no-token 분포를 모두 runtime 필수값으로 두었다. warmup/measured sample도 별도 fixture로 준비하며, 승인되지 않은 batch size·반복 횟수·outcome 비율은 정하지 않았다.
+  - Firebase credential 존재, fake가 아닌 sender, `docker|prod` profile, 실제 Compose label이 `faithlog-latest`인 shared stack을 즉시 거부한다. fixture는 `PERFORMANCE_198_DUMMY:` token과 fixture marker log만 허용하고 non-fixture token mutation, dedupe replay, campus/user isolation, partial failure continuation을 correctness 계약으로 검증한다.
+  - 수집 준비 지표는 생성/전송 duration·throughput p50/p95/p99/max, Hibernate prepared statements와 per-user DB calls, PostgreSQL/Redis counter delta, Java/container CPU·memory, log/token insert/update count, provider fake failure rate와 scenario failure rate다. 실제 fixture/job/Docker/성능 DB/baseline은 실행하지 않았으므로 수치와 개선 성과는 `not measured`다.
+  - TDD는 구현 파일 부재로 Node 계약 `5 tests / 5 failures` RED를 먼저 확인·커밋한 뒤 `5 tests / 0 failures` GREEN으로 전환했다. Java harness compile, Bash/Node syntax, 전체 `450 tests / 0 failures / 4 skipped`, `./gradlew build`, `./gradlew asciidoctor`를 통과했으며 신규 guarded harness 1건은 기본 실행에서 정상 skip됐다.
 
 - #188/#189/#190 통합 검증:
   - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.

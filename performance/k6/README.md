@@ -1,5 +1,9 @@
 # FaithLog k6 Performance Tests
 
+Issue-specific internal service scenarios:
+
+- [Issue #198 notification batch before scenario](notification-batch/README.md) — scenario-ready / not-measured; external FCM prohibited
+
 Issue #90 uses k6 to collect reproducible local performance numbers. Defaults target local Docker Compose only.
 
 ## Local Baseline
