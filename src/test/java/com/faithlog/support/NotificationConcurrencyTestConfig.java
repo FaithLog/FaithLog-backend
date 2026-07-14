@@ -9,6 +9,8 @@ import java.time.Duration;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -28,6 +30,9 @@ public class NotificationConcurrencyTestConfig {
 		private final Set<String> lockKeys = new HashSet<>();
 		private boolean fail;
 		private boolean failLockRelease;
+		private boolean pauseDedupRelease;
+		private CountDownLatch dedupReleaseStarted = new CountDownLatch(1);
+		private CountDownLatch allowDedupRelease = new CountDownLatch(1);
 
 		@Override
 		public boolean reserve(NotificationDeduplicationKey key, Duration ttl) {
@@ -39,6 +44,18 @@ public class NotificationConcurrencyTestConfig {
 
 		@Override
 		public void release(NotificationDeduplicationKey key) {
+			if (pauseDedupRelease) {
+				dedupReleaseStarted.countDown();
+				try {
+					if (!allowDedupRelease.await(5, TimeUnit.SECONDS)) {
+						throw new IllegalStateException("dedupe release timeout");
+					}
+				} catch (InterruptedException exception) {
+					Thread.currentThread().interrupt();
+					throw new IllegalStateException(exception);
+				}
+				pauseDedupRelease = false;
+			}
 			dedupKeys.remove(key.value());
 		}
 
@@ -75,9 +92,27 @@ public class NotificationConcurrencyTestConfig {
 			this.failLockRelease = false;
 		}
 
+		public void pauseNextDedupRelease() {
+			this.pauseDedupRelease = true;
+			this.dedupReleaseStarted = new CountDownLatch(1);
+			this.allowDedupRelease = new CountDownLatch(1);
+		}
+
+		public boolean awaitDedupReleaseStarted() throws InterruptedException {
+			return dedupReleaseStarted.await(5, TimeUnit.SECONDS);
+		}
+
+		public void allowDedupRelease() {
+			allowDedupRelease.countDown();
+		}
+
 		public void reset() {
 			this.fail = false;
 			this.failLockRelease = false;
+			this.pauseDedupRelease = false;
+			this.allowDedupRelease.countDown();
+			this.dedupReleaseStarted = new CountDownLatch(1);
+			this.allowDedupRelease = new CountDownLatch(1);
 			this.dedupKeys.clear();
 			this.lockKeys.clear();
 		}

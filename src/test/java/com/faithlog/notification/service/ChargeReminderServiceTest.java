@@ -21,6 +21,8 @@ import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
+import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.notification.domain.type.DeviceType;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
@@ -30,6 +32,11 @@ import com.faithlog.notification.service.result.SendNotificationResult;
 import com.faithlog.support.NotificationConcurrencyTestConfig;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -238,6 +245,41 @@ class ChargeReminderServiceTest {
 		);
 		assertThat(retried.queuedCount()).isEqualTo(1);
 		assertThat(retried.skippedCount()).isZero();
+	}
+
+	@Test
+	void retry_cannot_enter_between_commit_rollback_dedupe_cleanup_and_manual_lock_release() throws Exception {
+		ReminderFixture fixture = createCoffeeReminderFixture("commit-retry-gap");
+		concurrencyPort.pauseNextDedupRelease();
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> failedRequest = executor.submit(() -> commitFailureInvoker.requestCoffeeReminder(
+				fixture.campus().id(), fixture.duty().id()));
+			assertThat(concurrencyPort.awaitDedupReleaseStarted()).isTrue();
+			Future<SendNotificationResult> retry = executor.submit(() -> chargeReminderService.requestCoffeeReminders(
+				fixture.campus().id(), fixture.duty().id()));
+
+			Throwable retryFailure = null;
+			try {
+				retry.get(5, TimeUnit.SECONDS);
+			} catch (ExecutionException exception) {
+				retryFailure = exception.getCause();
+			}
+			concurrencyPort.allowDedupRelease();
+			assertThatThrownBy(() -> failedRequest.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(IllegalStateException.class);
+			assertThat(retryFailure)
+				.isInstanceOfSatisfying(BusinessException.class, exception ->
+					assertThat(exception.errorCode()).isEqualTo(ErrorCode.NOTIFICATION_LOCK_ALREADY_RUNNING));
+
+			SendNotificationResult afterCleanup = chargeReminderService.requestCoffeeReminders(
+				fixture.campus().id(), fixture.duty().id());
+			assertThat(afterCleanup.queuedCount()).isEqualTo(1);
+			assertThat(afterCleanup.skippedCount()).isZero();
+		} finally {
+			concurrencyPort.allowDedupRelease();
+			executor.shutdownNow();
+		}
 	}
 
 	@Test
