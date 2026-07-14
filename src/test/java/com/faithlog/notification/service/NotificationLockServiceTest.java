@@ -82,6 +82,7 @@ class NotificationLockServiceTest {
 		private NotificationLockKey lastKey;
 		private Duration lastTtl;
 		private boolean fail;
+		private String lastRenewedOwnerToken;
 
 		@Override
 		public Optional<NotificationLockLease> acquire(NotificationLockKey key, Duration ttl) {
@@ -97,6 +98,13 @@ class NotificationLockServiceTest {
 		}
 
 		@Override
+		public boolean renew(NotificationLockLease lease, Duration ttl) {
+			this.lastTtl = ttl;
+			this.lastRenewedOwnerToken = lease.ownerToken();
+			return lockedKeys.contains(lease.key().value());
+		}
+
+		@Override
 		public void release(NotificationLockLease lease) {
 			lockedKeys.remove(lease.key().value());
 		}
@@ -107,6 +115,10 @@ class NotificationLockServiceTest {
 
 		private Duration lastTtl() {
 			return lastTtl;
+		}
+
+		private String lastRenewedOwnerToken() {
+			return lastRenewedOwnerToken;
 		}
 	}
 }

@@ -6,6 +6,7 @@ import com.faithlog.notification.service.command.NotificationDeduplicationComman
 import com.faithlog.notification.service.port.NotificationDeduplicationPort;
 import com.faithlog.notification.service.port.NotificationRedisOperationException;
 import java.time.Duration;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -28,7 +29,9 @@ public class NotificationDeduplicationService {
 		return reserveAutomaticNotification(command, WEEKLY_DEDUP_TTL);
 	}
 
-	public boolean reserveDailyRequiredNotification(NotificationDeduplicationCommand command) {
+	public Optional<NotificationDeduplicationReservation> reserveDailyRequiredNotification(
+		NotificationDeduplicationCommand command
+	) {
 		try {
 			return deduplicationPort.reserve(NotificationDeduplicationKey.automatic(command), DAILY_DEDUP_TTL);
 		} catch (NotificationRedisOperationException exception) {
@@ -36,9 +39,9 @@ public class NotificationDeduplicationService {
 		}
 	}
 
-	public void releaseRequiredNotification(NotificationDeduplicationCommand command) {
+	public void releaseRequiredNotification(NotificationDeduplicationReservation reservation) {
 		try {
-			deduplicationPort.release(NotificationDeduplicationKey.automatic(command));
+			deduplicationPort.release(reservation);
 		} catch (NotificationRedisOperationException ignored) {
 			// Preserve the original transactional failure while allowing the short TTL to expire safely.
 		}
@@ -46,7 +49,7 @@ public class NotificationDeduplicationService {
 
 	private boolean reserveAutomaticNotification(NotificationDeduplicationCommand command, Duration ttl) {
 		try {
-			return deduplicationPort.reserve(NotificationDeduplicationKey.automatic(command), ttl);
+			return deduplicationPort.reserve(NotificationDeduplicationKey.automatic(command), ttl).isPresent();
 		} catch (NotificationRedisOperationException exception) {
 			return false;
 		}

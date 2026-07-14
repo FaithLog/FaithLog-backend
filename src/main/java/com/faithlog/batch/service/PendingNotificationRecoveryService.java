@@ -74,10 +74,15 @@ public class PendingNotificationRecoveryService {
 			return 0;
 		}
 		try {
+			boolean processed;
 			try {
-				notificationDeliveryWorker.processRequest(requestId);
+				processed = notificationDeliveryWorker.tryProcessRequest(requestId);
 			} catch (RuntimeException exception) {
 				log.warn("Pending notification reprocess worker failed: requestId={}", requestId, exception);
+				processed = true;
+			}
+			if (!processed) {
+				return 0;
 			}
 			markStillPendingLogsFailed(requestId);
 			return 1;

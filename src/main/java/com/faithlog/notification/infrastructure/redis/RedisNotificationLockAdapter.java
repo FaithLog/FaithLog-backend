@@ -21,6 +21,10 @@ public class RedisNotificationLockAdapter implements NotificationLockPort {
 		"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
 		Long.class
 	);
+	private static final DefaultRedisScript<Long> RENEW_SCRIPT = new DefaultRedisScript<>(
+		"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end",
+		Long.class
+	);
 
 	private final StringRedisTemplate redisTemplate;
 
@@ -39,6 +43,21 @@ public class RedisNotificationLockAdapter implements NotificationLockPort {
 			return Optional.of(new NotificationLockLease(key, ownerToken));
 		} catch (RuntimeException exception) {
 			throw new NotificationRedisOperationException("Notification lock Redis operation failed", exception);
+		}
+	}
+
+	@Override
+	public boolean renew(NotificationLockLease lease, Duration ttl) {
+		try {
+			Long renewed = redisTemplate.execute(
+				RENEW_SCRIPT,
+				List.of(lease.key().value()),
+				lease.ownerToken(),
+				Long.toString(ttl.toMillis())
+			);
+			return renewed != null && renewed > 0;
+		} catch (RuntimeException exception) {
+			throw new NotificationRedisOperationException("Notification lock renewal Redis operation failed", exception);
 		}
 	}
 

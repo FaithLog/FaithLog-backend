@@ -99,10 +99,10 @@ public class ChargeReminderService {
 		NotificationLockLease lease = notificationLockService.acquireManualLock(
 			NotificationLockKey.chargeReminder(campusId, requesterId, paymentCategory.name())
 		);
-		List<NotificationDeduplicationCommand> reservations = new ArrayList<>();
+		List<NotificationDeduplicationReservation> reservations = new ArrayList<>();
 		boolean releaseAfterCompletion = registerCompletionCleanup(lease, reservations);
 		try {
-			return requestWithLock(campusId, requesterId, paymentCategory, reservations);
+			return requestWithLock(campusId, requesterId, paymentCategory, lease, reservations);
 		} finally {
 			if (!releaseAfterCompletion) {
 				notificationLockService.release(lease);
@@ -114,7 +114,8 @@ public class ChargeReminderService {
 		Long campusId,
 		Long requesterId,
 		PaymentCategory paymentCategory,
-		List<NotificationDeduplicationCommand> reservations
+		NotificationLockLease lease,
+		List<NotificationDeduplicationReservation> reservations
 	) {
 		List<PaymentAccount> accounts = paymentAccountRepository
 			.findByCampusIdAndOwnerUserIdAndAccountTypeOrderByIdAsc(
@@ -150,6 +151,7 @@ public class ChargeReminderService {
 			for (PaymentAccount account : accounts) {
 				Map<Long, List<ChargeItem>> chargesByUser = chargesByAccountAndUser.getOrDefault(account.id(), Map.of());
 				for (Map.Entry<Long, List<ChargeItem>> entry : chargesByUser.entrySet()) {
+					notificationLockService.renewManualLock(lease);
 					Long targetUserId = entry.getKey();
 					NotificationDeduplicationCommand deduplicationCommand = new NotificationDeduplicationCommand(
 						NotificationType.PAYMENT_UNPAID,
@@ -158,13 +160,13 @@ public class ChargeReminderService {
 						targetUserId,
 						businessDate
 					);
-					boolean reserved = notificationDeduplicationService
+					var reservation = notificationDeduplicationService
 						.reserveDailyRequiredNotification(deduplicationCommand);
-					if (!reserved) {
+					if (reservation.isEmpty()) {
 						skippedCount++;
 						continue;
 					}
-					reservations.add(deduplicationCommand);
+					reservations.add(reservation.orElseThrow());
 					String title = title(paymentCategory);
 					String body = body(paymentCategory, entry.getValue());
 					if (!sendableTargetUserIds.contains(targetUserId)) {
@@ -195,12 +197,17 @@ public class ChargeReminderService {
 
 	private boolean registerCompletionCleanup(
 		NotificationLockLease lease,
-		List<NotificationDeduplicationCommand> reservations
+		List<NotificationDeduplicationReservation> reservations
 	) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
 			return false;
 		}
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void beforeCommit(boolean readOnly) {
+				notificationLockService.renewManualLock(lease);
+			}
+
 			@Override
 			public void afterCompletion(int status) {
 				try {

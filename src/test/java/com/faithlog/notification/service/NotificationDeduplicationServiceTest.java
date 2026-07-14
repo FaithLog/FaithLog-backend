@@ -8,8 +8,9 @@ import com.faithlog.notification.service.port.NotificationRedisOperationExceptio
 import com.faithlog.notification.domain.type.NotificationType;
 import java.time.Duration;
 import java.time.LocalDate;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -80,24 +81,30 @@ class NotificationDeduplicationServiceTest {
 
 	private static class FakeNotificationDeduplicationPort implements NotificationDeduplicationPort {
 
-		private final Set<String> reservedKeys = new HashSet<>();
+		private final Map<String, String> reservedKeys = new HashMap<>();
 		private NotificationDeduplicationKey lastKey;
 		private Duration lastTtl;
 		private boolean fail;
+		private String lastReleasedOwnerToken;
 
 		@Override
-		public boolean reserve(NotificationDeduplicationKey key, Duration ttl) {
+		public Optional<NotificationDeduplicationReservation> reserve(NotificationDeduplicationKey key, Duration ttl) {
 			if (fail) {
 				throw new NotificationRedisOperationException("Redis dedup failed");
 			}
 			this.lastKey = key;
 			this.lastTtl = ttl;
-			return reservedKeys.add(key.value());
+			String ownerToken = UUID.randomUUID().toString();
+			if (reservedKeys.putIfAbsent(key.value(), ownerToken) != null) {
+				return Optional.empty();
+			}
+			return Optional.of(new NotificationDeduplicationReservation(key, ownerToken));
 		}
 
 		@Override
-		public void release(NotificationDeduplicationKey key) {
-			reservedKeys.remove(key.value());
+		public void release(NotificationDeduplicationReservation reservation) {
+			lastReleasedOwnerToken = reservation.ownerToken();
+			reservedKeys.remove(reservation.key().value(), reservation.ownerToken());
 		}
 
 		private NotificationDeduplicationKey lastKey() {
@@ -106,6 +113,10 @@ class NotificationDeduplicationServiceTest {
 
 		private Duration lastTtl() {
 			return lastTtl;
+		}
+
+		private String lastReleasedOwnerToken() {
+			return lastReleasedOwnerToken;
 		}
 	}
 }
