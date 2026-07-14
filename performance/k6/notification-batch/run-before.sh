@@ -76,9 +76,14 @@ if [[ ! "${PERF_BUSINESS_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
 	exit 2
 fi
 
-LOCK_DIR="/tmp/faithlog-performance-${PERF_COMPOSE_PROJECT}.lock"
+if [[ -n "$(git -C "${REPOSITORY_ROOT}" status --porcelain --untracked-files=all)" ]]; then
+	echo "The Issue #198 runner requires a clean index and worktree so gitCommit identifies executed code." >&2
+	exit 2
+fi
+
+LOCK_DIR="/tmp/faithlog-performance-global.lock"
 if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-	echo "Another performance measurement lock exists; do not run shared load tests in parallel." >&2
+	echo "Another FaithLog fixture, QA, or performance measurement holds the host-global lock." >&2
 	exit 2
 fi
 
@@ -103,7 +108,7 @@ fi
 cp "${MANIFEST_PATH}" "${RUN_DIR}/manifest.json"
 printf '%s\n' "${RUN_DIR}" > "${REPORT_ROOT}/latest-run.txt"
 GIT_COMMIT="$(git -C "${REPOSITORY_ROOT}" rev-parse HEAD)"
-printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","redisContainer":"%s","dockerProject":"%s","composeLabel":"com.docker.compose.project","postgresHost":"127.0.0.1","postgresHostPort":%s,"postgresDatabase":"%s","redisHost":"127.0.0.1","redisHostPort":%s,"postgresImageId":"%s","redisImageId":"%s","gitCommit":"%s","sharedStack":false,"externalFcm":false}\n' \
+printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","redisContainer":"%s","dockerProject":"%s","composeLabel":"com.docker.compose.project","postgresHost":"127.0.0.1","postgresHostPort":%s,"postgresDatabase":"%s","redisHost":"127.0.0.1","redisHostPort":%s,"postgresImageId":"%s","redisImageId":"%s","gitCommit":"%s","businessDate":"%s","executionModel":"cold-jvm-per-sample","warmupScope":"external-postgres-redis-cache-only","externalEvidenceWindow":"gradle-spring-harness-lifecycle","sharedStack":false,"externalFcm":false}\n' \
 	"${PERF_SPRING_PROFILE}" \
 	"${PERF_FCM_ADAPTER}" \
 	"${POSTGRES_CONTAINER}" \
@@ -115,6 +120,7 @@ printf '{"springProfile":"%s","fcmAdapter":"%s","postgresContainer":"%s","redisC
 	"${PERF_POSTGRES_IMAGE_ID}" \
 	"${PERF_REDIS_IMAGE_ID}" \
 	"${GIT_COMMIT}" \
+	"${PERF_BUSINESS_DATE}" \
 	> "${RUN_DIR}/environment.json"
 
 snapshot_postgres() {

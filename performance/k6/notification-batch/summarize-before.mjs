@@ -45,15 +45,25 @@ const workloadSignature = (sample) => JSON.stringify({
 	permanentCount: sample.manifest.permanentCount,
 	inactiveCount: sample.manifest.inactiveCount,
 	noTokenCount: sample.manifest.noTokenCount,
+	mixedTokenUserCount: sample.manifest.mixedTokenUserCount,
 	springProfile: sample.environment.springProfile,
 	fcmAdapter: sample.environment.fcmAdapter,
 	dockerProject: sample.environment.dockerProject,
+	postgresContainer: sample.environment.postgresContainer,
+	redisContainer: sample.environment.redisContainer,
 	postgresHostPort: sample.environment.postgresHostPort,
+	postgresDatabase: sample.environment.postgresDatabase,
 	redisHostPort: sample.environment.redisHostPort,
 	postgresImageId: sample.environment.postgresImageId,
 	redisImageId: sample.environment.redisImageId,
 	gitCommit: sample.environment.gitCommit,
+	businessDate: sample.environment.businessDate,
+	executionModel: sample.environment.executionModel,
+	warmupScope: sample.environment.warmupScope,
+	externalEvidenceWindow: sample.environment.externalEvidenceWindow,
 	javaRuntimeVersion: sample.result.javaRuntimeVersion,
+	notificationType: sample.result.notificationType,
+	retryBackoffPolicy: sample.result.retryBackoffPolicy,
 });
 assert.equal(new Set(samples.map(workloadSignature)).size, 1,
 	'Warmup and measured samples must share one workload and runtime fingerprint');
@@ -145,6 +155,8 @@ const totals = measured.reduce((accumulator, sample) => {
 	accumulator.logInserts += sample.result.creation.logInsertCount;
 	accumulator.logUpdates += sample.result.delivery.logUpdateCount;
 	accumulator.tokenUpdates += sample.result.delivery.tokenUpdateCount;
+	accumulator.fakeSendAttempts += sample.result.delivery.fakeSendAttemptCount;
+	accumulator.fakePermanentFailures += sample.result.delivery.fakePermanentFailureCount;
 	return accumulator;
 }, {
 	targets: 0,
@@ -156,6 +168,8 @@ const totals = measured.reduce((accumulator, sample) => {
 	logInserts: 0,
 	logUpdates: 0,
 	tokenUpdates: 0,
+	fakeSendAttempts: 0,
+	fakePermanentFailures: 0,
 });
 
 const summary = {
@@ -167,9 +181,15 @@ const summary = {
 	creation: phaseSummary('creation'),
 	delivery: phaseSummary('delivery'),
 	endToEnd: endToEndSummary,
-	providerFakeFailureRate: totals.pending === 0 ? 0 : totals.failed / totals.pending,
+	providerFakeFailureRate: totals.fakeSendAttempts === 0
+		? 0
+		: totals.fakePermanentFailures / totals.fakeSendAttempts,
+	finalLogFailureRate: totals.pending === 0 ? 0 : totals.failed / totals.pending,
 	workloadFingerprint: workloadSignature(measured[0]),
 	evidenceTotals,
+	externalEvidenceWindow: measured[0].environment.externalEvidenceWindow,
+	executionModel: measured[0].environment.executionModel,
+	warmupScope: measured[0].environment.warmupScope,
 	totals,
 	externalFcmUsed: false,
 	generatedAt: new Date().toISOString(),
@@ -188,6 +208,9 @@ writeFileSync(
 		`- delivery duration p50/p95/p99/max (ms): ${Object.values(summary.delivery.durationMs).join(' / ')}`,
 		`- end-to-end duration p50/p95/p99/max (ms): ${Object.values(summary.endToEnd.durationMs).join(' / ')}`,
 		`- provider fake failure rate: ${summary.providerFakeFailureRate}`,
+		`- final log failure rate: ${summary.finalLogFailureRate}`,
+		`- execution model: ${summary.executionModel}`,
+		`- external evidence window: ${summary.externalEvidenceWindow}`,
 		'- external FCM used: false',
 		'',
 	].join('\n'),

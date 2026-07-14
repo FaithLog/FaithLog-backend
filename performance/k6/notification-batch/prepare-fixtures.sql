@@ -117,6 +117,42 @@ SELECT
 FROM categorized
 WHERE outcome <> 'no-token';
 
+WITH mixed_token_user AS (
+	SELECT member.user_id
+	FROM perf_198_members member
+	CROSS JOIN perf_198_config config
+	WHERE member.member_order = config.permanent_count + config.transient_count + 1
+)
+INSERT INTO user_fcm_tokens (
+	user_id,
+	token,
+	client_instance_id,
+	device_type,
+	app_version,
+	is_active,
+	last_seen_at,
+	last_refreshed_at,
+	last_failure_reason,
+	deactivated_at,
+	created_at,
+	updated_at
+)
+SELECT
+	mixed.user_id,
+	'PERFORMANCE_198_DUMMY:' || config.fixture_run_id || ':permanent:mixed:' || mixed.user_id,
+	'PERFORMANCE_198_DUMMY:' || config.fixture_run_id || ':mixed:' || mixed.user_id,
+	'IOS',
+	'issue-198-test-only',
+	TRUE,
+	CURRENT_TIMESTAMP,
+	CURRENT_TIMESTAMP,
+	NULL,
+	NULL,
+	CURRENT_TIMESTAMP,
+	CURRENT_TIMESTAMP
+FROM mixed_token_user mixed
+CROSS JOIN perf_198_config config;
+
 SELECT json_build_object(
 	'datasetId', config.dataset_id,
 	'fixtureRunId', config.fixture_run_id,
@@ -130,6 +166,7 @@ SELECT json_build_object(
 	'permanentCount', config.permanent_count,
 	'inactiveCount', config.inactive_count,
 	'noTokenCount', config.no_token_count,
+	'mixedTokenUserCount', 1,
 	'insertedDummyTokenCount', (
 		SELECT count(*)
 		FROM user_fcm_tokens token

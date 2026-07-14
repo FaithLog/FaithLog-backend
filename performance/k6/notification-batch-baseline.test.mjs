@@ -45,7 +45,8 @@ test('fixture contract separates datasetId and fixtureRunId and permits dummy no
 	assert.match(prepare, /PERF_MEMBER_COUNT.*1000/);
 	assert.match(prepare, /PERF_MEMBER_COUNT.*!=.*1000/s);
 	assert.match(prepare, /PERF_CAMPUS_ID.*positive integer/);
-	assert.match(prepare, /faithlog-performance-.*PERF_COMPOSE_PROJECT/);
+	assert.match(prepare, /faithlog-performance-global\.lock/);
+	assert.match(prepare, /mixedTokenUserCount/);
 	assert.match(prepare, /manifest\.json/);
 	assert.match(prepare, /build\/reports\/k6\/notification-batch\/fixtures/);
 	assert.match(sql, /user_fcm_tokens/);
@@ -65,7 +66,8 @@ test('fixture contract separates datasetId and fixtureRunId and permits dummy no
 test('runner keeps fixture preparation separate, holds a global load lock, and records actual Compose labels', () => {
 	const runner = readScenario('run-before.sh');
 
-	assert.match(runner, /\/tmp\/faithlog-performance-/);
+	assert.match(runner, /\/tmp\/faithlog-performance-global\.lock/);
+	assert.match(runner, /status --porcelain --untracked-files=all/);
 	assert.match(runner, /NotificationBatchBeforeScenarioTest/);
 	assert.match(runner, /--no-daemon/);
 	assert.match(runner, /docker stats/);
@@ -99,7 +101,11 @@ test('test-profile harness exercises the production request and delivery service
 	assert.match(harness, /NotificationType\.PAYMENT_UNPAID/);
 	assert.match(harness, /production-thread-sleep-1s-5s-30s/);
 	assert.match(harness, /permanentFailurePrecededLaterSuccess/);
+	assert.match(harness, /mixedTokenLogSent/);
+	assert.match(harness, /mixedPermanentTokenDeactivated/);
 	assert.match(harness, /campus\.name\(\)/);
+	assert.match(harness, /@DynamicPropertySource/);
+	assert.match(harness, /@MockitoBean[\s\S]*ComposeCoffeeCatalogSeedRunner/);
 	assert.match(harness, /CapturingNotificationDispatchPort/);
 	assert.match(harness, /getPrepareStatementCount/);
 	assert.match(harness, /scenario-result\.json/);
@@ -134,6 +140,8 @@ test('verification contract covers throughput, DB calls, status counts, dedupe, 
 	}
 	assert.match(summarizer, /providerFakeFailureRate/);
 	assert.match(summarizer, /workloadSignature/);
+	assert.match(summarizer, /businessDate/);
+	assert.match(summarizer, /postgresDatabase/);
 	assert.match(summarizer, /evidenceTotals/);
 	assert.match(verifier, /postgresDelta/);
 	assert.match(verifier, /redisCommandCallDelta/);
@@ -165,13 +173,16 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 			permanentCount: 100,
 			inactiveCount: 100,
 			noTokenCount: 100,
+			mixedTokenUserCount: 1,
+			insertedDummyTokenCount: 901,
 		};
 		const result = {
 			...manifest,
 			requestId: '00000000-0000-0000-0000-000000000198',
 			javaRuntimeVersion: 'synthetic-jvm',
 			externalFcmUsed: false,
-			requestServiceRevalidatesCampusMembership: false,
+			notificationType: 'PAYMENT_UNPAID',
+			retryBackoffPolicy: 'production-thread-sleep-1s-5s-30s',
 			creation: {
 				durationMs: 100,
 				throughputPerSecond: 10000,
@@ -195,8 +206,10 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 				statusCounts: { SENT: 700, FAILED: 100, SKIPPED: 200, PENDING: 0 },
 				logUpdateCount: 800,
 				tokenLookupCount: 800,
-				tokenUpdateCount: 100,
-				fakeSendAttemptCount: 900,
+				tokenUpdateCount: 101,
+				fakeSendAttemptCount: 901,
+				fakePermanentFailureCount: 101,
+				fakeTransientRetryCount: 100,
 			},
 			endToEnd: { durationMs: 1100, throughputPerSecond: 909.09 },
 			correctness: {
@@ -204,11 +217,15 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 				unexpectedRequestLogCount: 0,
 				nonFixtureTokenMutationCount: 0,
 				partialFailureContinued: true,
+				mixedTokenLogSent: true,
+				mixedPermanentTokenDeactivated: 1,
 			},
 		};
 		const environment = {
 			springProfile: 'local',
 			fcmAdapter: 'fake',
+			postgresContainer: 'pg-198',
+			redisContainer: 'redis-198',
 			dockerProject: 'faithlog-perf-198',
 			postgresHost: '127.0.0.1',
 			postgresHostPort: 15432,
@@ -218,16 +235,26 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 			postgresImageId: 'sha256:postgres-synthetic',
 			redisImageId: 'sha256:redis-synthetic',
 			gitCommit: 'synthetic-commit',
+			businessDate: '2026-07-14',
+			executionModel: 'cold-jvm-per-sample',
+			warmupScope: 'external-postgres-redis-cache-only',
+			externalEvidenceWindow: 'gradle-spring-harness-lifecycle',
 			sharedStack: false,
 			externalFcm: false,
 		};
 		const postgresBefore = {
 			database: { xact_commit: 10 },
-			tables: { notification_logs: { n_tup_ins: 1 }, user_fcm_tokens: { n_tup_upd: 2 } },
+			tables: {
+				notification_logs: { n_tup_ins: 1, n_tup_upd: 2 },
+				user_fcm_tokens: { n_tup_upd: 2 },
+			},
 		};
 		const postgresAfter = {
 			database: { xact_commit: 20 },
-			tables: { notification_logs: { n_tup_ins: 1001 }, user_fcm_tokens: { n_tup_upd: 102 } },
+			tables: {
+				notification_logs: { n_tup_ins: 1001, n_tup_upd: 802 },
+				user_fcm_tokens: { n_tup_upd: 103 },
+			},
 		};
 
 		for (const [name, value] of Object.entries({
@@ -239,8 +266,8 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 		})) {
 			writeFileSync(join(runDir, name), `${JSON.stringify(value)}\n`, { flag: name === 'manifest.json' ? 'wx' : 'w' });
 		}
-		writeFileSync(join(runDir, 'redis-commandstats-before.txt'), 'cmdstat_get:calls=5,usec=10\n');
-		writeFileSync(join(runDir, 'redis-commandstats-after.txt'), 'cmdstat_get:calls=8,usec=16\n');
+		writeFileSync(join(runDir, 'redis-commandstats-before.txt'), 'cmdstat_set:calls=5,usec=10\n');
+		writeFileSync(join(runDir, 'redis-commandstats-after.txt'), 'cmdstat_set:calls=2005,usec=4010\n');
 		writeFileSync(
 			join(runDir, 'docker-stats.csv'),
 			'captured_at,container,cpu_percent,memory_usage,memory_percent\n'
@@ -274,8 +301,28 @@ test('verification and summary scripts parse and aggregate synthetic non-Docker 
 		assert.equal(summary.measuredCount, 1);
 		assert.equal(summary.totals.createdLogs, 1000);
 		assert.equal(summary.evidenceTotals.postgresDelta.tables.notification_logs.n_tup_ins, 1000);
-		assert.equal(summary.evidenceTotals.redisCommandCallDelta.get, 3);
+		assert.equal(summary.evidenceTotals.redisCommandCallDelta.set, 2000);
 		assert.equal(summary.evidenceTotals.dockerPeakByContainer['pg-198'].sampleCount, 1);
+
+		writeFileSync(
+			join(runDir, 'postgres-after.json'),
+			`${JSON.stringify({
+				...postgresAfter,
+				tables: {
+					...postgresAfter.tables,
+					notification_logs: { n_tup_ins: 500, n_tup_upd: 802 },
+				},
+			})}\n`,
+		);
+		const contradictoryVerifier = spawnSync(
+			process.execPath,
+			[fileURLToPath(new URL('verify-before.mjs', SCENARIO_ROOT))],
+			{
+				env: { ...process.env, MANIFEST_PATH: join(runDir, 'manifest.json'), RUN_DIR: runDir },
+				encoding: 'utf8',
+			},
+		);
+		assert.notEqual(contradictoryVerifier.status, 0, 'contradictory PostgreSQL evidence must fail');
 	} finally {
 		rmSync(temporaryRoot, { recursive: true, force: true });
 	}

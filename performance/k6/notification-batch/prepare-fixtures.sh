@@ -63,21 +63,29 @@ fi
 
 guard_notification_batch_runtime
 
-LOCK_DIR="/tmp/faithlog-performance-${PERF_COMPOSE_PROJECT}.lock"
+LOCK_DIR="/tmp/faithlog-performance-global.lock"
 if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-	echo "Another fixture or performance measurement is active for this Compose project." >&2
+	echo "Another FaithLog fixture, QA, or performance measurement holds the host-global lock." >&2
 	exit 2
 fi
 
-REPORT_DIR="${REPOSITORY_ROOT}/build/reports/k6/notification-batch/fixtures/${PERF_FIXTURE_RUN_ID}"
+FIXTURE_ROOT="${REPOSITORY_ROOT}/build/reports/k6/notification-batch/fixtures"
+REPORT_DIR="${FIXTURE_ROOT}/${PERF_FIXTURE_RUN_ID}"
 MANIFEST_PATH="${REPORT_DIR}/manifest.json"
 TEMP_MANIFEST_PATH="${REPORT_DIR}/.manifest.json.tmp.$$"
 cleanup() {
 	rm -f "${TEMP_MANIFEST_PATH}"
+	if [[ ! -f "${MANIFEST_PATH}" ]]; then
+		rmdir "${REPORT_DIR}" 2>/dev/null || true
+	fi
 	rmdir "${LOCK_DIR}" 2>/dev/null || true
 }
 trap cleanup EXIT
-mkdir -p "${REPORT_DIR}"
+mkdir -p "${FIXTURE_ROOT}"
+if ! mkdir "${REPORT_DIR}" 2>/dev/null; then
+	echo "PERF_FIXTURE_RUN_ID report directory already exists; use a fresh fixtureRunId." >&2
+	exit 2
+fi
 
 docker exec -i "${POSTGRES_CONTAINER}" psql \
 	-U "${POSTGRES_USER}" \
@@ -102,7 +110,8 @@ node -e '
 	const fs = require("node:fs");
 	const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 	if (manifest.memberCount !== 1000
-		|| manifest.insertedDummyTokenCount !== manifest.memberCount - manifest.noTokenCount
+		|| manifest.mixedTokenUserCount !== 1
+		|| manifest.insertedDummyTokenCount !== manifest.memberCount - manifest.noTokenCount + 1
 		|| manifest.composeProject !== process.argv[2]
 		|| manifest.postgresDatabase !== process.argv[3]
 		|| manifest.credentialRecorded !== false) {

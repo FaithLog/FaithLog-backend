@@ -20,9 +20,12 @@ const expectedPending = manifest.successCount + manifest.transientCount + manife
 const expectedSkipped = manifest.inactiveCount + manifest.noTokenCount;
 const expectedSent = manifest.successCount + manifest.transientCount;
 const expectedFailed = manifest.permanentCount;
-const expectedSendAttempts = manifest.successCount + (manifest.transientCount * 2) + manifest.permanentCount;
+const expectedSendAttempts = manifest.successCount + (manifest.transientCount * 2) + manifest.permanentCount + 1;
+const expectedPermanentTokenFailures = manifest.permanentCount + 1;
 
 assert.equal(manifest.memberCount, 1000);
+assert.equal(manifest.mixedTokenUserCount, 1);
+assert.equal(manifest.insertedDummyTokenCount, manifest.memberCount - manifest.noTokenCount + 1);
 assert.equal(
 	manifest.successCount + manifest.transientCount + manifest.permanentCount
 		+ manifest.inactiveCount + manifest.noTokenCount,
@@ -41,13 +44,16 @@ assert.equal(result.delivery.statusCounts.SKIPPED, expectedSkipped);
 assert.equal(result.delivery.tokenLookupCount, expectedPending);
 assert.equal(result.delivery.logUpdateCount, expectedPending);
 assert.equal(result.creation.tokenLookupCount, manifest.memberCount);
-assert.equal(result.delivery.tokenUpdateCount, manifest.permanentCount);
+assert.equal(result.delivery.tokenUpdateCount, expectedPermanentTokenFailures);
 assert.equal(result.delivery.fakeSendAttemptCount, expectedSendAttempts);
+assert.equal(result.delivery.fakePermanentFailureCount, expectedPermanentTokenFailures);
+assert.equal(result.delivery.fakeTransientRetryCount, manifest.transientCount);
 assert.equal(result.correctness.duplicateReplayCreatedCount, 0);
 assert.equal(result.correctness.unexpectedRequestLogCount, 0);
 assert.equal(result.correctness.nonFixtureTokenMutationCount, 0);
 assert.equal(result.correctness.partialFailureContinued, true);
-assert.equal(result.requestServiceRevalidatesCampusMembership, false);
+assert.equal(result.correctness.mixedTokenLogSent, true);
+assert.equal(result.correctness.mixedPermanentTokenDeactivated, 1);
 assert.equal(result.externalFcmUsed, false);
 assert.equal(environment.externalFcm, false);
 assert.equal(environment.sharedStack, false);
@@ -55,6 +61,12 @@ assert.equal(environment.springProfile, 'local');
 assert.equal(environment.fcmAdapter, 'fake');
 assert.equal(environment.postgresHost, '127.0.0.1');
 assert.equal(environment.redisHost, '127.0.0.1');
+assert.equal(manifest.composeProject, environment.dockerProject);
+assert.equal(manifest.postgresDatabase, environment.postgresDatabase);
+assert.equal(environment.executionModel, 'cold-jvm-per-sample');
+assert.equal(environment.warmupScope, 'external-postgres-redis-cache-only');
+assert.equal(environment.externalEvidenceWindow, 'gradle-spring-harness-lifecycle');
+assert.match(environment.businessDate, /^\d{4}-\d{2}-\d{2}$/);
 assert.match(environment.dockerProject, /^(?!.*faithlog-latest)[A-Za-z0-9_-]+$/);
 assert.ok(Number.isInteger(environment.postgresHostPort) && environment.postgresHostPort > 0);
 assert.ok(Number.isInteger(environment.redisHostPort) && environment.redisHostPort > 0);
@@ -129,6 +141,22 @@ assertFiniteNonNegativeNumbers(postgresDelta, 'postgresDelta');
 assertFiniteNonNegativeNumbers(redisCommandCallDelta, 'redisCommandCallDelta');
 assert.ok(postgresDelta.tables?.notification_logs, 'notification_logs PostgreSQL evidence is required');
 assert.ok(postgresDelta.tables?.user_fcm_tokens, 'user_fcm_tokens PostgreSQL evidence is required');
+assert.ok(
+	postgresDelta.tables.notification_logs.n_tup_ins >= result.creation.logInsertCount,
+	'notification_logs insert evidence must cover the logical insert count',
+);
+assert.ok(
+	postgresDelta.tables.notification_logs.n_tup_upd >= result.delivery.logUpdateCount,
+	'notification_logs update evidence must cover the logical update count',
+);
+assert.ok(
+	postgresDelta.tables.user_fcm_tokens.n_tup_upd >= result.delivery.tokenUpdateCount,
+	'user_fcm_tokens update evidence must cover permanent dummy-token deactivation',
+);
+assert.ok(
+	(redisCommandCallDelta.set ?? 0) >= manifest.memberCount * 2,
+	'Redis SET evidence must cover creation and exact dedupe replay reservations',
+);
 
 const verification = {
 	status: 'verified',
@@ -143,6 +171,7 @@ const verification = {
 	duplicateReplayCreatedCount: result.correctness.duplicateReplayCreatedCount,
 	unexpectedRequestLogCount: result.correctness.unexpectedRequestLogCount,
 	evidence: {
+		window: environment.externalEvidenceWindow,
 		postgresDelta,
 		redisCommandCallDelta,
 		dockerSampleCount: dockerRows.length,

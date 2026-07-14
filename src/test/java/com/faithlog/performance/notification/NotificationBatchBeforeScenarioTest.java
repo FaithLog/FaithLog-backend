@@ -22,6 +22,7 @@ import com.faithlog.notification.service.port.FcmSendCommand;
 import com.faithlog.notification.service.port.FcmSendFailureType;
 import com.faithlog.notification.service.port.FcmSendPort;
 import com.faithlog.notification.service.port.NotificationDispatchPort;
+import com.faithlog.poll.infrastructure.seed.ComposeCoffeeCatalogSeedRunner;
 import com.sun.management.OperatingSystemMXBean;
 import jakarta.persistence.EntityManagerFactory;
 import java.io.IOException;
@@ -50,6 +51,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest(properties = {
 	"faithlog.scheduler.enabled=false",
@@ -96,6 +100,29 @@ class NotificationBatchBeforeScenarioTest {
 	@Autowired
 	private Environment environment;
 
+	@MockitoBean
+	private ComposeCoffeeCatalogSeedRunner composeCoffeeCatalogSeedRunner;
+
+	@DynamicPropertySource
+	static void bindDedicatedRuntimeBeforeContextStartup(DynamicPropertyRegistry registry) {
+		String postgresHostPort = requiredEnvironment("PERF_POSTGRES_HOST_PORT");
+		String redisHostPort = requiredEnvironment("PERF_REDIS_HOST_PORT");
+		String postgresDatabase = requiredEnvironment("POSTGRES_DB");
+		if (!postgresHostPort.matches("[1-9][0-9]*")
+			|| !redisHostPort.matches("[1-9][0-9]*")
+			|| !postgresDatabase.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+			throw new IllegalStateException("Dedicated runtime endpoint values are unsafe");
+		}
+		registry.add(
+			"spring.datasource.url",
+			() -> "jdbc:postgresql://127.0.0.1:" + postgresHostPort + "/" + postgresDatabase
+		);
+		registry.add("spring.data.redis.host", () -> "127.0.0.1");
+		registry.add("spring.data.redis.port", () -> redisHostPort);
+		registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
+		registry.add("spring.flyway.enabled", () -> "false");
+	}
+
 	@Test
 	void measures_current_automatic_request_and_delivery_worker_before_flow() throws IOException {
 		ScenarioConfig config = ScenarioConfig.fromEnvironment();
@@ -120,6 +147,19 @@ class NotificationBatchBeforeScenarioTest {
 			.filter(token -> token.token().startsWith(fixtureTokenPrefix))
 			.toList();
 		assertFixtureContract(config, targetUserIdSet, fixtureTokensBefore);
+		List<Long> mixedTokenUserIds = fixtureTokensBefore.stream()
+			.filter(token -> token.token().contains(":permanent:mixed:"))
+			.map(UserFcmToken::userId)
+			.distinct()
+			.toList();
+		assertThat(mixedTokenUserIds).hasSize(1);
+		Long mixedTokenUserId = mixedTokenUserIds.get(0);
+		List<UserFcmToken> mixedTokensBefore = fixtureTokensBefore.stream()
+			.filter(token -> token.userId().equals(mixedTokenUserId))
+			.toList();
+		assertThat(mixedTokensBefore).hasSize(2);
+		assertThat(mixedTokensBefore).anyMatch(token -> token.token().contains(":success:"));
+		assertThat(mixedTokensBefore).anyMatch(token -> token.token().contains(":permanent:mixed:"));
 		assertThat(allTokensBefore.stream()
 			.filter(UserFcmToken::isActive)
 			.filter(token -> targetUserIdSet.contains(token.userId()))
@@ -201,6 +241,17 @@ class NotificationBatchBeforeScenarioTest {
 			.filter(log -> !log.campusId().equals(config.campusId()) || !targetUserIdSet.contains(log.userId()))
 			.count();
 		boolean partialFailureContinued = fakeFcmSendPort.permanentFailurePrecededLaterSuccess();
+		List<NotificationLog> mixedTokenLogs = deliveredLogs.stream()
+			.filter(log -> log.userId().equals(mixedTokenUserId))
+			.toList();
+		boolean mixedTokenLogSent = mixedTokenLogs.size() == 1
+			&& mixedTokenLogs.get(0).sendStatus() == SendStatus.SENT;
+		long mixedPermanentTokenDeactivated = fixtureTokensAfter.stream()
+			.filter(token -> token.userId().equals(mixedTokenUserId))
+			.filter(token -> token.token().contains(":permanent:mixed:"))
+			.filter(token -> !token.isActive())
+			.filter(token -> FAILURE_REASON.equals(token.lastFailureReason()))
+			.count();
 
 		assertThat(creationStatuses.getOrDefault(SendStatus.PENDING, 0L)).isEqualTo(pendingExpected);
 		assertThat(creationStatuses.getOrDefault(SendStatus.SKIPPED, 0L)).isEqualTo(skippedExpected);
@@ -208,15 +259,17 @@ class NotificationBatchBeforeScenarioTest {
 		assertThat(deliveredStatuses.getOrDefault(SendStatus.FAILED, 0L)).isEqualTo(failedExpected);
 		assertThat(deliveredStatuses.getOrDefault(SendStatus.SKIPPED, 0L)).isEqualTo(skippedExpected);
 		assertThat(deliveredStatuses.getOrDefault(SendStatus.PENDING, 0L)).isZero();
-		assertThat(permanentDeactivated).isEqualTo(config.permanentCount());
-		assertThat(fakeFcmSendPort.permanentFailureCount()).isEqualTo(config.permanentCount());
+		assertThat(permanentDeactivated).isEqualTo(config.permanentCount() + 1L);
+		assertThat(fakeFcmSendPort.permanentFailureCount()).isEqualTo(config.permanentCount() + 1L);
 		assertThat(fakeFcmSendPort.transientRetryCount()).isEqualTo(config.transientCount());
-		assertThat(fakeFcmSendPort.totalAttemptCount()).isEqualTo(sendAttemptsExpected);
+		assertThat(fakeFcmSendPort.totalAttemptCount()).isEqualTo(sendAttemptsExpected + 1L);
 		assertThat(duplicateCreatedCount).isZero();
 		assertThat(dispatchPort.requestIds()).containsExactly(requestId);
 		assertThat(unexpectedRequestLogCount).isZero();
 		assertThat(nonFixtureTokenMutationCount).isZero();
 		assertThat(partialFailureContinued).isTrue();
+		assertThat(mixedTokenLogSent).isTrue();
+		assertThat(mixedPermanentTokenDeactivated).isOne();
 
 		Map<String, Object> report = new LinkedHashMap<>();
 		report.put("datasetId", config.datasetId());
@@ -232,7 +285,6 @@ class NotificationBatchBeforeScenarioTest {
 		report.put("javaRuntimeVersion", Runtime.version().toString());
 		report.put("dedupeKeyShape", "notificationType + campusId + scopeId + targetUserId + businessDate");
 		report.put("targetIsolationBoundary", "scheduler-supplied same-campus ACTIVE member IDs");
-		report.put("requestServiceRevalidatesCampusMembership", false);
 		report.put("creation", phaseReport(
 			creationDurationNanos,
 			config.memberCount(),
@@ -258,7 +310,9 @@ class NotificationBatchBeforeScenarioTest {
 				"logUpdateCount", pendingExpected,
 				"tokenLookupCount", pendingExpected,
 				"tokenUpdateCount", permanentDeactivated,
-				"fakeSendAttemptCount", fakeFcmSendPort.totalAttemptCount()
+				"fakeSendAttemptCount", fakeFcmSendPort.totalAttemptCount(),
+				"fakePermanentFailureCount", fakeFcmSendPort.permanentFailureCount(),
+				"fakeTransientRetryCount", fakeFcmSendPort.transientRetryCount()
 			)
 		));
 		double endToEndDurationMs = nanosToMillis(creationDurationNanos + deliveryDurationNanos);
@@ -272,7 +326,9 @@ class NotificationBatchBeforeScenarioTest {
 			"duplicateReplayDbPreparedStatements", duplicatePreparedStatements,
 			"unexpectedRequestLogCount", unexpectedRequestLogCount,
 			"nonFixtureTokenMutationCount", nonFixtureTokenMutationCount,
-			"partialFailureContinued", partialFailureContinued
+			"partialFailureContinued", partialFailureContinued,
+			"mixedTokenLogSent", mixedTokenLogSent,
+			"mixedPermanentTokenDeactivated", mixedPermanentTokenDeactivated
 		));
 		report.put("capturedAt", Instant.now().toString());
 
@@ -319,12 +375,18 @@ class NotificationBatchBeforeScenarioTest {
 			config.inactiveCount(),
 			config.noTokenCount()
 		)).allMatch(count -> count > 0);
-		assertThat(fixtureTokens).hasSize(config.memberCount() - config.noTokenCount());
+		assertThat(fixtureTokens).hasSize(config.memberCount() - config.noTokenCount() + 1);
 		assertThat(fixtureTokens).allMatch(token -> targetUserIds.contains(token.userId()));
 		assertThat(fixtureTokens.stream().filter(UserFcmToken::isActive).count())
-			.isEqualTo(config.successCount() + config.transientCount() + config.permanentCount());
+			.isEqualTo(config.successCount() + config.transientCount() + config.permanentCount() + 1L);
 		assertThat(fixtureTokens.stream().filter(token -> !token.isActive()).count())
 			.isEqualTo(config.inactiveCount());
+		Map<Long, Long> tokenCountsByUser = fixtureTokens.stream().collect(Collectors.groupingBy(
+			UserFcmToken::userId,
+			Collectors.counting()
+		));
+		assertThat(tokenCountsByUser.values().stream().filter(count -> count == 2L).count()).isOne();
+		assertThat(tokenCountsByUser.values()).allMatch(count -> count == 1L || count == 2L);
 	}
 
 	private Map<String, Object> phaseReport(
