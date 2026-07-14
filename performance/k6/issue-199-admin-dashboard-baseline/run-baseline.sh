@@ -44,7 +44,7 @@ done
 
 node "$ISSUE_ROOT/validate-run-input.mjs" "$INPUT_MANIFEST" "$DATASET_MODES" >/dev/null
 if [[ "$EXTERNAL_ACTIVITY" != "none" ]]; then
-	echo "EXTERNAL_ACTIVITY must be exactly 'none' for an adoptable baseline." >&2
+	echo "EXTERNAL_ACTIVITY must be exactly 'none' for Issue #199 evidence collection." >&2
 	exit 1
 fi
 
@@ -57,7 +57,7 @@ cleanup() {
 }
 
 case "$BASE_URL" in
-	http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*) ;;
+	http://127.0.0.1:*|http://\[::1\]:*) ;;
 	*)
 		echo "Issue #199 runner is restricted to the local shared stack." >&2
 		exit 1
@@ -187,6 +187,7 @@ record_environment() {
 			endpointIdentity: JSON.parse(process.env.ENDPOINT_IDENTITY),
 			runnerLock: process.env.RUNNER_LOCK,
 			externalActivity: process.env.EXTERNAL_ACTIVITY,
+			externalActivityCoverage: "boundary-snapshot-only",
 			cacheResetPerformed: false,
 			coldInterpretation: "First observation only; shared Docker and database caches are not reset.",
 		};
@@ -199,8 +200,8 @@ collect_db_evidence() {
 	local week_start_date="$2"
 	local sql_file="$3"
 	local output_file="$4"
-	docker exec -i \
-		-e PGPASSWORD="$PERF_DB_PASSWORD" \
+	PGPASSWORD="$PERF_DB_PASSWORD" docker exec -i \
+		-e PGPASSWORD \
 		-e PGAPPNAME=faithlog-issue199-observer \
 		"$POSTGRES_CONTAINER" \
 		psql -X -v ON_ERROR_STOP=1 \
@@ -216,8 +217,8 @@ collect_db_machine_evidence() {
 	local week_start_date="$2"
 	local sql_file="$3"
 	local output_file="$4"
-	docker exec -i \
-		-e PGPASSWORD="$PERF_DB_PASSWORD" \
+	PGPASSWORD="$PERF_DB_PASSWORD" docker exec -i \
+		-e PGPASSWORD \
 		-e PGAPPNAME=faithlog-issue199-observer \
 		"$POSTGRES_CONTAINER" \
 		psql -X -qAt -v ON_ERROR_STOP=1 \
@@ -241,12 +242,12 @@ collect_db_counters() {
 }
 
 inspect_container_identity() {
-	docker inspect --format '{"evidence":"issue199-runtime-identity","id":{{json .Id}},"imageId":{{json .Image}},"imageRef":{{json .Config.Image}},"startedAt":{{json .State.StartedAt}},"composeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"composeService":{{json (index .Config.Labels "com.docker.compose.service")}},"composeConfigHash":{{json (index .Config.Labels "com.docker.compose.config-hash")}}}' "$1"
+	docker inspect --format '{"evidence":"issue199-runtime-identity","id":{{json .Id}},"imageId":{{json .Image}},"imageRef":{{json .Config.Image}},"startedAt":{{json .State.StartedAt}},"composeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"composeService":{{json (index .Config.Labels "com.docker.compose.service")}},"composeConfigHash":{{json (index .Config.Labels "com.docker.compose.config-hash")}},"publishedPorts":{{json .NetworkSettings.Ports}}}' "$1"
 }
 
 collect_postgres_runtime_identity() {
-	docker exec -i \
-		-e PGPASSWORD="$PERF_DB_PASSWORD" \
+	PGPASSWORD="$PERF_DB_PASSWORD" docker exec -i \
+		-e PGPASSWORD \
 		-e PGAPPNAME=faithlog-issue199-observer \
 		"$POSTGRES_CONTAINER" \
 		psql -X -qAt -v ON_ERROR_STOP=1 \
@@ -285,6 +286,35 @@ capture_runtime_identity_json() {
 
 validate_runtime_continuity() {
 	node "$ISSUE_ROOT/validate-runtime-continuity.mjs" "$1" "$2" "$3" "$4"
+}
+
+validate_runtime_identity_target_json() {
+	local identity_json="$1"
+	local published_ports
+	published_ports="$(
+		RUNTIME_IDENTITY_JSON="$identity_json" \
+		EXPECTED_PROJECT="$COMPOSE_PROJECT" \
+		EXPECTED_APP_SERVICE="$EXPECTED_APP_SERVICE" \
+		EXPECTED_POSTGRES_SERVICE="$EXPECTED_POSTGRES_SERVICE" \
+		EXPECTED_REDIS_SERVICE="$EXPECTED_REDIS_SERVICE" \
+		node -e '
+			const assert = require("node:assert/strict");
+			const identity = JSON.parse(process.env.RUNTIME_IDENTITY_JSON);
+			for (const [component, expectedService] of [
+				["app", process.env.EXPECTED_APP_SERVICE],
+				["postgres", process.env.EXPECTED_POSTGRES_SERVICE],
+				["redis", process.env.EXPECTED_REDIS_SERVICE],
+			]) {
+				assert.equal(identity.containers?.[component]?.composeProject, process.env.EXPECTED_PROJECT,
+					`${component} runtime identity Compose project changed after lock acquisition.`);
+				assert.equal(identity.containers?.[component]?.composeService, expectedService,
+					`${component} runtime identity Compose service changed after lock acquisition.`);
+			}
+			process.stdout.write(JSON.stringify(identity.containers.app.publishedPorts));
+		'
+	)"
+	node "$ISSUE_ROOT/validate-runtime-target.mjs" \
+		"$BASE_URL" "$EXPECTED_APP_CONTAINER_PORT" "$published_ports"
 }
 
 validate_db_window() {
@@ -372,6 +402,7 @@ run_k6_phase() {
 }
 
 INITIAL_RUNTIME_IDENTITY_JSON="$(capture_runtime_identity_json)"
+ENDPOINT_IDENTITY="$(validate_runtime_identity_target_json "$INITIAL_RUNTIME_IDENTITY_JSON")"
 
 IFS=',' read -r -a modes <<< "$DATASET_MODES"
 for raw_mode in "${modes[@]}"; do

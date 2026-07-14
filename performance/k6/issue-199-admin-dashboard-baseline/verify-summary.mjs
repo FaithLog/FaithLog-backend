@@ -11,7 +11,7 @@ if (!INPUT_MANIFEST || !PERF_ACCESS_TOKEN) {
 	throw new Error('INPUT_MANIFEST and the runtime-only PERF_ACCESS_TOKEN are required.');
 }
 
-if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]|host\.docker\.internal)(?::\d+)?$/.test(BASE_URL)) {
+if (!/^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(BASE_URL)) {
 	throw new Error('Issue #199 verification is restricted to the local faithlog-latest target.');
 }
 

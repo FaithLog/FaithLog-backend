@@ -14,7 +14,7 @@ const PERF_ADMIN_PASSWORD = process.env.PERF_ADMIN_PASSWORD;
 if (!BASE_URL || !INPUT_MANIFEST || DATASET_MODES.length === 0 || !PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD) {
 	throw new Error('BASE_URL, INPUT_MANIFEST, DATASET_MODES, PERF_ADMIN_EMAIL, and PERF_ADMIN_PASSWORD are required at runtime.');
 }
-if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]|host\.docker\.internal)(?::\d+)?$/.test(BASE_URL)) {
+if (!/^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(BASE_URL)) {
 	throw new Error('Issue #199 runtime token preparation is restricted to the local faithlog-latest target.');
 }
 

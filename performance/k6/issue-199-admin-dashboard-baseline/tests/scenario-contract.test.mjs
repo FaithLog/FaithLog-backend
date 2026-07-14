@@ -142,6 +142,7 @@ test('scenario exposes required latency, throughput, failure, and exact correctn
 	assert.match(source, /COFFEE/);
 	assert.match(verifier, /ADMIN_DASHBOARD_ACCESS_FORBIDDEN/);
 	assert.match(source, /fail\(/);
+	assert.match(source, /parsed !== null.*typeof parsed === 'object'.*!Array\.isArray\(parsed\)/s);
 });
 
 test('runner separates warmup and measured phases, serializes modes, records actual Compose labels and resources', () => {
@@ -174,6 +175,8 @@ test('runner separates warmup and measured phases, serializes modes, records act
 	assert.match(source, /com\.docker\.compose\.service/);
 	assert.match(source, /docker stats --no-stream/);
 	assert.match(source, /EXTERNAL_ACTIVITY/);
+	assert.doesNotMatch(source, /-e PGPASSWORD="\$PERF_DB_PASSWORD"/);
+	assert.match(source, /PGPASSWORD="\$PERF_DB_PASSWORD"\s+docker exec[\s\S]*-e PGPASSWORD/);
 	assert.doesNotMatch(source, /docker compose .*\b(?:up|down|build|restart|rm)\b/);
 	assert.doesNotMatch(source, /docker (?:builder |system |image |volume )?prune/);
 	assert.doesNotMatch(source, /&\s*$/m);
@@ -210,6 +213,7 @@ test('DB evidence is read-only and captures counters, query evidence, analyze an
 	assert.match(counterSql, /boundary-snapshot-only/);
 	assert.match(counterSql, /stats_reset/);
 	assert.match(counterSql, /plannerSettings/);
+	assert.match(counterSql, /plannerContext/);
 	assert.doesNotMatch(
 		counterSql,
 		/\b(?:FROM|JOIN)\s+(?:users|campuses|campus_members|weekly_devotion_records|charge_items|polls|poll_responses)\b/i,
@@ -314,6 +318,11 @@ test('runner fake execution refreshes the token per mode and keeps bootstrap out
 			['empty', 1],
 			['small', 3],
 		]) {
+			const environment = JSON.parse(fs.readFileSync(
+				path.join(harness.generatedReport, mode, 'environment.json'),
+				'utf8',
+			));
+			assert.equal(environment.externalActivityCoverage, 'boundary-snapshot-only');
 			const warmupTokenIndex = findLog(log, `token:${mode}:warmup:`);
 			const measuredTokenIndex = findLog(log, `token:${mode}:measured:`);
 			const measuredIndex = findLog(log, `k6:${mode}:measured`);
@@ -344,6 +353,25 @@ test('runner binds BASE_URL to the inspected app published port before credentia
 		assert.notEqual(result.status, 0);
 		assert.match(result.stderr, /published port|BASE_URL/i);
 		assert.equal(findLog(harness.log(), 'prepare-runtime-token.mjs'), -1);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('runtime target validator rejects localhost against a wildcard family binding', () => {
+	const wildcardBinding = JSON.stringify({'8080/tcp': [{HostIp: '0.0.0.0', HostPort: '28080'}]});
+	const result = runNode(files.runtimeTargetValidator, 'http://localhost:28080', '8080', wildcardBinding);
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /numeric loopback|address family|HostIp/i);
+});
+
+test('runner revalidates post-lock immutable endpoint identity before measured traffic', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const result = harness.run({DATASET_MODES: 'empty', FAKE_RUNTIME_IDENTITY_MODE: 'replace-before-initial'});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /published port|runtime target|BASE_URL/i);
+		assert.equal(findLog(harness.log(), 'k6:empty:measured'), -1);
 	} finally {
 		harness.cleanup();
 	}
@@ -389,7 +417,22 @@ test('DB window validator rejects missing or regressed counters and produces sem
 		assert.equal(valid.output.status, 'conditional-not-adoptable');
 		assert.equal(valid.output.adoptable, false);
 		assert.equal(valid.output.externalActivityCoverage, 'boundary-snapshot-only');
-		assert.equal(valid.output.tableDeltas.users.seq_scan, 1);
+		assert.equal(valid.output.tableDeltas.users.seq_scan, '1');
+		assert.match(valid.result.stderr, /conditional-not-adoptable/);
+		assert.doesNotMatch(valid.result.stderr, /contaminated/i);
+
+		const bigintBefore = dbWindowFixture();
+		const bigintAfter = dbWindowFixture({after: true});
+		bigintBefore.tables.find(({relname}) => relname === 'users').seq_scan = '9007199254740992';
+		bigintAfter.tables.find(({relname}) => relname === 'users').seq_scan = '9007199254740993';
+		const bigint = runDbWindowValidator(temporaryDirectory, bigintBefore, bigintAfter, 'none', 'bigint');
+		assert.equal(bigint.output.tableDeltas.users.seq_scan, '1');
+
+		const unsafeNumber = structuredClone(after);
+		unsafeNumber.database.xact_commit = Number.MAX_SAFE_INTEGER + 1;
+		const unsafe = runDbWindowValidator(temporaryDirectory, before, unsafeNumber, 'none', 'unsafe-number');
+		assert.notEqual(unsafe.result.status, 0);
+		assert.match(unsafe.result.stderr, /safe integer|decimal string/i);
 
 		const missing = structuredClone(after);
 		missing.tables.pop();
@@ -463,26 +506,67 @@ test('DB window validator blocks a short external request hidden between boundar
 test('DB window validator rejects null counters and missing identity, stability, or planner fields', () => {
 	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-schema-'));
 	try {
-		const before = dbWindowFixture();
-		const after = dbWindowFixture({after: true});
-		for (const snapshot of [before, after]) {
-			snapshot.database.datname = null;
+		const controlBefore = dbWindowFixture();
+		const controlAfter = dbWindowFixture({after: true});
+
+		const nullCountersBefore = structuredClone(controlBefore);
+		const nullCountersAfter = structuredClone(controlAfter);
+		for (const snapshot of [nullCountersBefore, nullCountersAfter]) {
 			for (const field of [
 				'xact_commit', 'xact_rollback', 'blks_read', 'blks_hit', 'tup_returned', 'tup_fetched',
 				'temp_files', 'temp_bytes', 'deadlocks',
 			]) snapshot.database[field] = null;
 			for (const table of snapshot.tables) {
 				for (const field of ['seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch']) table[field] = null;
-				for (const field of [
-					'n_live_tup', 'n_dead_tup', 'n_mod_since_analyze', 'last_analyze', 'last_autoanalyze',
-					'analyze_count', 'autoanalyze_count',
-				]) delete table[field];
 			}
+		}
+		const nullCounters = runDbWindowValidator(
+			temporaryDirectory, nullCountersBefore, nullCountersAfter, 'none', 'null-counters',
+		);
+		assert.notEqual(nullCounters.result.status, 0);
+		assert.match(nullCounters.result.stderr, /finite non-negative|safe integer|decimal string/i);
+
+		const missingDatabaseIdentityBefore = structuredClone(controlBefore);
+		const missingDatabaseIdentityAfter = structuredClone(controlAfter);
+		delete missingDatabaseIdentityBefore.database.datname;
+		delete missingDatabaseIdentityAfter.database.datname;
+		const missingDatabaseIdentity = runDbWindowValidator(
+			temporaryDirectory, missingDatabaseIdentityBefore, missingDatabaseIdentityAfter, 'none', 'database-identity',
+		);
+		assert.notEqual(missingDatabaseIdentity.result.status, 0);
+		assert.match(missingDatabaseIdentity.result.stderr, /database\.datname/);
+
+		const missingStabilityBefore = structuredClone(controlBefore);
+		const missingStabilityAfter = structuredClone(controlAfter);
+		for (const snapshot of [missingStabilityBefore, missingStabilityAfter]) {
+			for (const table of snapshot.tables) delete table.n_mod_since_analyze;
+		}
+		const missingStability = runDbWindowValidator(
+			temporaryDirectory, missingStabilityBefore, missingStabilityAfter, 'none', 'missing-stability',
+		);
+		assert.notEqual(missingStability.result.status, 0);
+		assert.match(missingStability.result.stderr, /n_mod_since_analyze/);
+
+		const missingPlannerBefore = structuredClone(controlBefore);
+		const missingPlannerAfter = structuredClone(controlAfter);
+		for (const snapshot of [missingPlannerBefore, missingPlannerAfter]) {
 			snapshot.plannerSettings = snapshot.plannerSettings.map(({name}) => ({name}));
 		}
-		const malformed = runDbWindowValidator(temporaryDirectory, before, after, 'none', 'malformed');
-		assert.notEqual(malformed.result.status, 0);
-		assert.match(malformed.result.stderr, /database\.datname|must be numeric|schema/i);
+		const missingPlanner = runDbWindowValidator(
+			temporaryDirectory, missingPlannerBefore, missingPlannerAfter, 'none', 'missing-planner',
+		);
+		assert.notEqual(missingPlanner.result.status, 0);
+		assert.match(missingPlanner.result.stderr, /plannerSettings.*setting|plannerSettings.*source/s);
+
+		const missingPlannerContextBefore = structuredClone(controlBefore);
+		const missingPlannerContextAfter = structuredClone(controlAfter);
+		delete missingPlannerContextBefore.plannerContext;
+		delete missingPlannerContextAfter.plannerContext;
+		const missingPlannerContext = runDbWindowValidator(
+			temporaryDirectory, missingPlannerContextBefore, missingPlannerContextAfter, 'none', 'planner-context',
+		);
+		assert.notEqual(missingPlannerContext.result.status, 0);
+		assert.match(missingPlannerContext.result.stderr, /plannerContext/);
 	} finally {
 		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
 	}
@@ -498,15 +582,28 @@ test('runtime continuity validator rejects container or PostgreSQL identity repl
 		assert.equal(control.result.status, 0, control.result.stderr);
 		assert.equal(control.output.continuous, true);
 
-		const replacedContainer = structuredClone(after);
-		replacedContainer.containers.app.id = 'sha256:replacement-container';
-		replacedContainer.containers.app.imageId = 'sha256:replacement-image';
-		replacedContainer.containers.app.startedAt = '2026-07-14T00:00:30.000Z';
-		const containerResult = runRuntimeContinuityValidator(
-			temporaryDirectory, initial, before, replacedContainer, 'container-replacement',
+		for (const component of ['app', 'postgres', 'redis']) {
+			for (const field of [
+				'id', 'imageId', 'imageRef', 'startedAt', 'composeProject', 'composeService', 'composeConfigHash',
+			]) {
+				const replacedContainer = structuredClone(after);
+				replacedContainer.containers[component][field] = field === 'startedAt'
+					? '2026-07-14T00:00:30.000Z'
+					: `replacement-${component}-${field}`;
+				const containerResult = runRuntimeContinuityValidator(
+					temporaryDirectory, initial, before, replacedContainer, `${component}-${field}`,
+				);
+				assert.notEqual(containerResult.result.status, 0, `${component}.${field} replacement must fail`);
+				assert.match(containerResult.result.stderr, new RegExp(`runtime identity|containers\\.${component}`));
+			}
+		}
+		const replacedPublishedPorts = structuredClone(after);
+		replacedPublishedPorts.containers.app.publishedPorts['8080/tcp'][0].HostPort = '28081';
+		const publishedPortsResult = runRuntimeContinuityValidator(
+			temporaryDirectory, initial, before, replacedPublishedPorts, 'app-published-ports',
 		);
-		assert.notEqual(containerResult.result.status, 0);
-		assert.match(containerResult.result.stderr, /runtime identity|containers\.app/i);
+		assert.notEqual(publishedPortsResult.result.status, 0);
+		assert.match(publishedPortsResult.result.stderr, /containers\.app\.publishedPorts/);
 
 		const replacedPostmaster = structuredClone(after);
 		replacedPostmaster.postgres.postmasterStartedAt = '2026-07-14T00:00:45.000Z';
@@ -527,6 +624,18 @@ test('runner blocks a container identity replacement during the measured window'
 		assert.notEqual(result.status, 0);
 		assert.match(result.stderr, /runtime identity|containers\.app/i);
 		assert.ok(findLog(harness.log(), 'k6:empty:measured') >= 0);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test('runner blocks a container identity replacement between dataset modes before second measured traffic', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const result = harness.run({DATASET_MODES: 'empty,small', FAKE_RUNTIME_IDENTITY_MODE: 'replace-second-mode'});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /runtime identity|containers\.app/i);
+		assert.equal(findLog(harness.log(), 'k6:small:measured'), -1);
 	} finally {
 		harness.cleanup();
 	}
@@ -680,6 +789,13 @@ function dbWindowFixture({after = false} = {}) {
 		capturedAt: after ? '2026-07-14T00:01:00.000Z' : '2026-07-14T00:00:00.000Z',
 		externalActivityCoverage: 'boundary-snapshot-only',
 		externalActiveSessions: 0,
+		plannerContext: {
+			currentUser: 'observer',
+			sessionUser: 'observer',
+			database: 'faithlog',
+			applicationName: 'faithlog-issue199-observer',
+			scope: 'observer-session',
+		},
 		observerOverhead: {
 			databaseWideCountersIncludeSnapshotTransaction: true,
 			databaseWideDeltaIsExactQueryCount: false,
@@ -729,7 +845,10 @@ function runtimeIdentityFixture({capturedAt = '2026-07-14T00:00:00.000Z'} = {}) 
 	return {
 		capturedAt,
 		containers: {
-			app: container('app'),
+			app: {
+				...container('app'),
+				publishedPorts: {'8080/tcp': [{HostIp: '127.0.0.1', HostPort: '28080'}]},
+			},
 			postgres: container('postgres'),
 			redis: container('redis'),
 		},
@@ -779,6 +898,7 @@ function createFakeRunnerHarness() {
 	const dbCounterCountPath = path.join(temporaryDirectory, 'db-counter-count');
 	const fakeClockPath = path.join(temporaryDirectory, 'clock');
 	const fakeMeasuredRanPath = path.join(temporaryDirectory, 'measured-ran');
+	const fakeSecondModePath = path.join(temporaryDirectory, 'second-mode');
 	const fixtureRunId = `ISSUE_199_CONTRACT_${process.pid}_${path.basename(temporaryDirectory)}`;
 	const generatedReport = path.join(issueRoot, 'reports', 'CONTRACT_DATASET', fixtureRunId);
 	const composeProject = `contract-${process.pid}-${path.basename(temporaryDirectory).replace(/[^A-Za-z0-9._-]/g, '-')}`;
@@ -818,7 +938,8 @@ case "$1" in
     count=$((count + 1))
     printf '%s' "$count" > "$FAKE_TOKEN_COUNT_PATH"
     clock="$(<"$FAKE_CLOCK_PATH")"
-    purpose="\${TOKEN_PURPOSE:-warmup}"
+	    purpose="\${TOKEN_PURPOSE:-warmup}"
+	    if [[ "$DATASET_MODES" == small ]]; then : > "$FAKE_SECOND_MODE_PATH"; fi
     ttl=1800
     if [[ "$purpose" == measured ]]; then ttl="\${FAKE_MEASURED_TOKEN_TTL_SECONDS:-1800}"; fi
     exp=$((FAKE_EPOCH_BASE + clock + ttl))
@@ -844,13 +965,24 @@ case "$1" in
 	      id="sha256:\${service}-container"
 	      image_id="sha256:\${service}-image"
 	      started_at='2026-07-13T23:00:00.000Z'
-	      if [[ "\${FAKE_RUNTIME_IDENTITY_MODE:-}" == replace-after && "$service" == app && -f "$FAKE_MEASURED_RAN_PATH" ]]; then
+	      published_ports='{}'
+	      if [[ "$service" == app ]]; then published_ports='{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"28080"}]}'; fi
+	      if [[ "\${FAKE_RUNTIME_IDENTITY_MODE:-}" == replace-before-initial && "$service" == app ]]; then
+	        id='sha256:replacement-container'
+	        image_id='sha256:replacement-image'
+	        started_at='2026-07-14T00:00:15.000Z'
+	        published_ports='{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"28081"}]}'
+	      elif [[ "\${FAKE_RUNTIME_IDENTITY_MODE:-}" == replace-after && "$service" == app && -f "$FAKE_MEASURED_RAN_PATH" ]]; then
 	        id='sha256:replacement-container'
 	        image_id='sha256:replacement-image'
 	        started_at='2026-07-14T00:00:30.000Z'
+	      elif [[ "\${FAKE_RUNTIME_IDENTITY_MODE:-}" == replace-second-mode && "$service" == app && -f "$FAKE_SECOND_MODE_PATH" ]]; then
+	        id='sha256:replacement-container'
+	        image_id='sha256:replacement-image'
+	        started_at='2026-07-14T00:00:45.000Z'
 	      fi
-	      printf '{"id":"%s","imageId":"%s","imageRef":"faithlog/%s:contract","startedAt":"%s","composeProject":"%s","composeService":"%s","composeConfigHash":"sha256:%s-config"}\\n' \\
-	        "$id" "$image_id" "$service" "$started_at" "$FAKE_COMPOSE_PROJECT" "$service" "$service"
+	      printf '{"id":"%s","imageId":"%s","imageRef":"faithlog/%s:contract","startedAt":"%s","composeProject":"%s","composeService":"%s","composeConfigHash":"sha256:%s-config","publishedPorts":%s}\\n' \\
+	        "$id" "$image_id" "$service" "$started_at" "$FAKE_COMPOSE_PROJECT" "$service" "$service" "$published_ports"
 	    elif [[ "$*" == *NetworkSettings.Ports* ]]; then
       printf '%s\\n' "$FAKE_APP_PORTS_JSON"
     elif [[ "$*" == *com.docker.compose.project* ]]; then
@@ -945,6 +1077,7 @@ fi
 		FAKE_DB_COUNTER_COUNT_PATH: dbCounterCountPath,
 			FAKE_CLOCK_PATH: fakeClockPath,
 			FAKE_MEASURED_RAN_PATH: fakeMeasuredRanPath,
+			FAKE_SECOND_MODE_PATH: fakeSecondModePath,
 		FAKE_EPOCH_BASE: '1783980000',
 		FAKE_COMPOSE_PROJECT: composeProject,
 		FAKE_APP_PORTS_JSON: JSON.stringify({'8080/tcp': [{HostIp: '127.0.0.1', HostPort: '28080'}]}),

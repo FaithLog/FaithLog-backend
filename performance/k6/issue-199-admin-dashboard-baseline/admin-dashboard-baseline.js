@@ -130,7 +130,8 @@ function authParams(token, tags) {
 
 function parseJson(response) {
 	try {
-		return response.json();
+		const parsed = response.json();
+		return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
 	} catch (error) {
 		return {};
 	}
@@ -141,7 +142,7 @@ function deepEqual(actual, expected) {
 }
 
 function guardLocalTarget() {
-	if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]|host\.docker\.internal)(?::\d+)?$/.test(BASE_URL)) {
+	if (!/^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(BASE_URL)) {
 		fail('Issue #199 is local faithlog-latest only; remote targets are prohibited.');
 	}
 }

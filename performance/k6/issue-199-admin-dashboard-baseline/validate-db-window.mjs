@@ -34,7 +34,12 @@ try {
 	const evidence = validateWindow(before, after, externalActivity);
 	assert.ok(outputPath, 'DB window adoption output path is required.');
 	fs.writeFileSync(path.resolve(outputPath), `${JSON.stringify(evidence, null, 2)}\n`, {flag: 'wx', mode: 0o600});
-	assert.equal(evidence.adoptable, true, `Measured DB window is contaminated: ${JSON.stringify(evidence.failures)}`);
+	if (evidence.status === 'conditional-not-adoptable') {
+		process.stderr.write('Measured DB window is conditional-not-adoptable: external activity coverage is boundary-snapshot-only.\n');
+		process.exitCode = 2;
+	} else {
+		assert.equal(evidence.adoptable, true, `Measured DB window is contaminated: ${JSON.stringify(evidence.failures)}`);
+	}
 } catch (error) {
 	process.stderr.write(`${error.message}\n`);
 	process.exitCode = 1;
@@ -51,7 +56,7 @@ function validateWindow(before, after, declaredExternalActivity) {
 		if (!deepEqual(snapshot.observerOverhead, OBSERVER_POLICY)) {
 			failures.push({name: `${stage}.observerOverhead`, expected: OBSERVER_POLICY, actual: snapshot.observerOverhead});
 		}
-		if (number(snapshot.externalActiveSessions, `${stage}.externalActiveSessions`) !== 0) {
+		if (safeIntegerNumber(snapshot.externalActiveSessions, `${stage}.externalActiveSessions`) !== 0) {
 			failures.push({name: `${stage}.externalActiveSessions`, expected: 0, actual: snapshot.externalActiveSessions});
 		}
 	}
@@ -108,6 +113,9 @@ function validateWindow(before, after, declaredExternalActivity) {
 			failures.push({name: `plannerSettings.${name}`, expected: left, actual: right});
 		}
 	}
+	if (!deepEqual(before.plannerContext, after.plannerContext)) {
+		failures.push({name: 'plannerContext', expected: before.plannerContext, actual: after.plannerContext});
+	}
 
 	const coverageOnly = failures.length === 1 && failures[0].name === 'externalActivityCoverage';
 	return {
@@ -116,6 +124,7 @@ function validateWindow(before, after, declaredExternalActivity) {
 		externalActivity: declaredExternalActivity,
 		externalActivityCoverage,
 		observerOverhead: OBSERVER_POLICY,
+		plannerContext: before.plannerContext,
 		databaseDelta,
 		tableDeltas,
 		failures,
@@ -126,20 +135,20 @@ function validateSnapshotSchema(snapshot, label) {
 	object(snapshot, label);
 	timestamp(snapshot.capturedAt, `${label}.capturedAt`, false);
 	string(snapshot.externalActivityCoverage, `${label}.externalActivityCoverage`);
-	number(snapshot.externalActiveSessions, `${label}.externalActiveSessions`);
+	safeIntegerNumber(snapshot.externalActiveSessions, `${label}.externalActiveSessions`);
 	object(snapshot.observerOverhead, `${label}.observerOverhead`);
 
 	object(snapshot.database, `${label}.database`);
 	string(snapshot.database.datname, `${label}.database.datname`);
 	timestamp(snapshot.database.stats_reset, `${label}.database.stats_reset`, true);
-	for (const field of DATABASE_COUNTERS) number(snapshot.database[field], `${label}.database.${field}`);
+	for (const field of DATABASE_COUNTERS) counter(snapshot.database[field], `${label}.database.${field}`);
 
 	assert.ok(Array.isArray(snapshot.tables), `${label}.tables must be an array.`);
 	for (const [index, table] of snapshot.tables.entries()) {
 		object(table, `${label}.tables[${index}]`);
 		string(table.relname, `${label}.tables[${index}].relname`);
 		for (const field of [...TABLE_COUNTERS, 'n_live_tup', 'n_dead_tup', 'n_mod_since_analyze', 'analyze_count', 'autoanalyze_count']) {
-			number(table[field], `${label}.tables[${index}].${field}`);
+			counter(table[field], `${label}.tables[${index}].${field}`);
 		}
 		timestamp(table.last_analyze, `${label}.tables[${index}].last_analyze`, true);
 		timestamp(table.last_autoanalyze, `${label}.tables[${index}].last_autoanalyze`, true);
@@ -152,6 +161,16 @@ function validateSnapshotSchema(snapshot, label) {
 		string(planner.setting, `${label}.plannerSettings[${index}].setting`);
 		string(planner.source, `${label}.plannerSettings[${index}].source`);
 	}
+	object(snapshot.plannerContext, `${label}.plannerContext`);
+	assert.deepEqual(
+		Object.keys(snapshot.plannerContext).sort(),
+		['applicationName', 'currentUser', 'database', 'scope', 'sessionUser'],
+		`${label}.plannerContext field set must be exact.`,
+	);
+	for (const field of ['applicationName', 'currentUser', 'database', 'scope', 'sessionUser']) {
+		string(snapshot.plannerContext[field], `${label}.plannerContext.${field}`);
+	}
+	assert.equal(snapshot.plannerContext.scope, 'observer-session', `${label}.plannerContext.scope must be observer-session.`);
 }
 
 function readJson(filePath) {
@@ -177,22 +196,28 @@ function exactMap(items, key, required, label, failures) {
 function deltaFields(before, after, fields, label, failures) {
 	const deltas = {};
 	for (const field of fields) {
-		const left = number(before?.[field], `${label}.${field}.before`);
-		const right = number(after?.[field], `${label}.${field}.after`);
-		deltas[field] = right - left;
-		if (deltas[field] < 0) failures.push({name: `${label}.${field}`, expected: 'monotonic', actual: deltas[field]});
+		const left = counter(before?.[field], `${label}.${field}.before`);
+		const right = counter(after?.[field], `${label}.${field}.after`);
+		const delta = right - left;
+		deltas[field] = delta.toString();
+		if (delta < 0n) failures.push({name: `${label}.${field}`, expected: 'monotonic', actual: delta.toString()});
 	}
 	return deltas;
 }
 
-function number(value, label) {
-	const isNumber = typeof value === 'number' && Number.isFinite(value);
-	const isDecimalString = typeof value === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value);
-	assert.ok(isNumber || isDecimalString, `${label} must be a finite non-negative number or strict decimal string.`);
-	const numeric = typeof value === 'number' ? value : Number(value);
-	assert.ok(Number.isFinite(numeric), `${label} must be finite.`);
-	assert.ok(numeric >= 0, `${label} must be non-negative.`);
-	return numeric;
+function counter(value, label) {
+	if (typeof value === 'number') {
+		assert.ok(Number.isSafeInteger(value) && value >= 0, `${label} must be a non-negative safe integer or decimal string.`);
+		return BigInt(value);
+	}
+	assert.ok(typeof value === 'string' && /^(?:0|[1-9]\d*)$/.test(value),
+		`${label} must be a non-negative safe integer or decimal string.`);
+	return BigInt(value);
+}
+
+function safeIntegerNumber(value, label) {
+	assert.ok(Number.isSafeInteger(value) && value >= 0, `${label} must be a non-negative safe integer.`);
+	return value;
 }
 
 function object(value, label) {

@@ -13,8 +13,8 @@ try {
 	assert.equal(target.username, '', 'BASE_URL must not include credentials.');
 	assert.equal(target.password, '', 'BASE_URL must not include credentials.');
 	assert.ok(
-		['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname),
-		'BASE_URL must use an explicit local loopback host.',
+		['127.0.0.1', '[::1]'].includes(target.hostname),
+		'BASE_URL must use a numeric loopback host so the address family is exact.',
 	);
 
 	const containerPort = Number(containerPortSource);
@@ -28,10 +28,13 @@ try {
 	const binding = bindings[0];
 	assert.equal(String(binding.HostPort), target.port,
 		`BASE_URL port ${target.port} does not match APP_CONTAINER published port ${binding.HostPort}.`);
-	assert.ok(['0.0.0.0', '::', '127.0.0.1', '::1'].includes(binding.HostIp),
-		`APP_CONTAINER published HostIp is not local: ${binding.HostIp}`);
-	if (binding.HostIp === '127.0.0.1') assert.ok(['127.0.0.1', 'localhost'].includes(target.hostname));
-	if (binding.HostIp === '::1') assert.ok(['[::1]', 'localhost'].includes(target.hostname));
+	const allowedBindingAddresses = target.hostname === '127.0.0.1'
+		? ['0.0.0.0', '127.0.0.1']
+		: ['::', '::1'];
+	assert.ok(
+		allowedBindingAddresses.includes(binding.HostIp),
+		`APP_CONTAINER published HostIp address family does not match BASE_URL: ${binding.HostIp}`,
+	);
 
 	process.stdout.write(JSON.stringify({
 		baseUrl: target.origin,

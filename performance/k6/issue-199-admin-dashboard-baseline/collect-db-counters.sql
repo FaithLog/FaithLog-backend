@@ -10,32 +10,32 @@ WITH database_counters AS (
     SELECT
         datname,
         stats_reset,
-        xact_commit,
-        xact_rollback,
-        blks_read,
-        blks_hit,
-        tup_returned,
-        tup_fetched,
-        temp_files,
-        temp_bytes,
-        deadlocks
+        xact_commit::text AS xact_commit,
+        xact_rollback::text AS xact_rollback,
+        blks_read::text AS blks_read,
+        blks_hit::text AS blks_hit,
+        tup_returned::text AS tup_returned,
+        tup_fetched::text AS tup_fetched,
+        temp_files::text AS temp_files,
+        temp_bytes::text AS temp_bytes,
+        deadlocks::text AS deadlocks
     FROM pg_stat_database
     WHERE datname = current_database()
 ),
 table_counters AS (
     SELECT
         relname,
-        seq_scan,
-        seq_tup_read,
-        idx_scan,
-        idx_tup_fetch,
-        n_live_tup,
-        n_dead_tup,
-        n_mod_since_analyze,
+        seq_scan::text AS seq_scan,
+        seq_tup_read::text AS seq_tup_read,
+        idx_scan::text AS idx_scan,
+        idx_tup_fetch::text AS idx_tup_fetch,
+        n_live_tup::text AS n_live_tup,
+        n_dead_tup::text AS n_dead_tup,
+        n_mod_since_analyze::text AS n_mod_since_analyze,
         last_analyze,
         last_autoanalyze,
-        analyze_count,
-        autoanalyze_count
+        analyze_count::text AS analyze_count,
+        autoanalyze_count::text AS autoanalyze_count
     FROM pg_stat_user_tables
     WHERE relname IN (
         'users',
@@ -69,6 +69,15 @@ planner_settings AS (
         'random_page_cost',
         'work_mem'
     )
+),
+planner_context AS (
+    SELECT jsonb_build_object(
+        'currentUser', current_user,
+        'sessionUser', session_user,
+        'database', current_database(),
+        'applicationName', current_setting('application_name'),
+        'scope', 'observer-session'
+    ) AS context
 ),
 external_activity AS (
     SELECT
@@ -108,7 +117,8 @@ SELECT jsonb_build_object(
     'plannerSettings', COALESCE(
         (SELECT jsonb_agg(to_jsonb(planner_settings) ORDER BY name) FROM planner_settings),
         '[]'::jsonb
-    )
+    ),
+    'plannerContext', (SELECT context FROM planner_context)
 )
 FROM database_counters;
 

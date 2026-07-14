@@ -59,9 +59,9 @@ FaithLog frontend `develop`의 `aba1ab07bcb54c1df85ecf53238f4cb0484c2df3`에서 
 실행 대상은 PM/frontend가 공유하는 `faithlog-latest`뿐이다. `input-manifest`의 `runtimeTarget`은 승인된 app/PostgreSQL/Redis service label과 app container port를 기록한다.
 
 - `BASE_URL`과 `APP_CONTAINER`에는 default가 없으며 실행 시 명시한다.
-- runner는 app의 실제 published port를 inspect하고 `BASE_URL`의 local host/port와 exact 결속한다.
+- `BASE_URL`은 address family를 숨기는 `localhost`가 아니라 `127.0.0.1` 또는 `[::1]` numeric loopback을 사용한다. runner는 app의 실제 published port/address family를 inspect하고 `BASE_URL`과 exact 결속한다.
 - container alias를 실제 Compose identity로 간주하지 않는다. credential bootstrap 전에 세 container의 project/service label을 읽고, project 3개가 같으며 service 3개가 manifest의 승인값과 exact match인지 검증한다. label/port가 비었거나 다르면 즉시 중단한다.
-- 각 mode measured 직전과 직후에 app/PostgreSQL/Redis의 container ID, image ID/ref, `StartedAt`, Compose project/service/config hash를 기록하고 최초 identity와 exact 비교한다. PostgreSQL database/address/port/version와 `pg_postmaster_start_time()`도 함께 비교해 mode 사이 또는 measured 중 재생성·재시작을 차단한다.
+- 공통 Compose-project lock 획득 뒤 최초 immutable identity에서 app published port/address family와 project/service를 다시 검증해, 최초 mutable label/port 확인과 lock 사이의 교체를 차단한다. 각 mode measured 직전과 직후에는 app/PostgreSQL/Redis의 container ID, image ID/ref, `StartedAt`, Compose project/service/config hash와 app published ports를 기록하고 최초 identity와 exact 비교한다. PostgreSQL database/address/port/version와 `pg_postmaster_start_time()`도 함께 비교해 mode 사이 또는 measured 중 재생성·재시작을 차단한다.
 
 부하 강도와 시간은 이 시나리오가 결정하지 않는다. 사용자가 승인한 값을 실행 시 명시해야 한다.
 
@@ -120,12 +120,12 @@ Docker:
 PostgreSQL read-only evidence:
 
 - `collect-db-counters.sql`: app table을 조회하지 않는 `pg_stat_database`, `pg_stat_user_tables`, `pg_settings`, `pg_stat_activity` machine snapshot. 모든 사전 검증/bootstrap 뒤 마지막 DB invocation과 measured 뒤 첫 DB invocation으로 실행한다. observer는 `pid <> pg_backend_pid()`로 현재 snapshot connection만 제외하므로 같은 `faithlog-issue199-observer` application name을 사용한 다른 session도 외부 활동으로 집계한다. coverage는 `boundary-snapshot-only`로 기록한다.
-- `validate-db-window.mjs`: database identity, 모든 numeric counter, required table stability field, planner `name/setting/source`를 엄격한 schema로 검증하고 null/빈 문자열/누락/배열/객체를 숫자 0으로 허용하지 않는다. required table/planner set exact, `capturedAt` 순서, `stats_reset`, counter monotonicity와 table별 delta, analyze/autoanalyze/planner 불변, 경계 시점 외부 active session 0, `EXTERNAL_ACTIVITY=none`, observer metadata도 검증한다. 오염·malformed evidence는 contaminated/non-zero이고, 깨끗한 경계 snapshot도 중간 요청을 증명하지 못하므로 `conditional-not-adoptable`/non-zero다.
+- `validate-db-window.mjs`: database identity, 모든 numeric counter, required table stability field, planner `name/setting/source`와 `plannerContext`를 엄격한 schema로 검증하고 null/빈 문자열/누락/배열/객체를 숫자 0으로 허용하지 않는다. PostgreSQL 누적 counter는 decimal string으로 수집하고 BigInt로 delta를 계산해 `Number.MAX_SAFE_INTEGER` 이후에도 정밀도를 잃지 않는다. required table/planner set exact, `capturedAt` 순서, `stats_reset`, counter monotonicity와 table별 delta, analyze/autoanalyze/observer-session planner 불변, 경계 시점 외부 active session 0, `EXTERNAL_ACTIVITY=none`, observer metadata도 검증한다. 오염·malformed evidence는 contaminated/non-zero이고, 깨끗한 경계 snapshot도 중간 요청을 증명하지 못하므로 `conditional-not-adoptable`/non-zero다.
 - `collect-runtime-identity.sql` + `validate-runtime-continuity.mjs`: container immutable identity와 PostgreSQL postmaster identity를 최초/mode pre/mode post에 exact 비교한다. container 또는 DB 재생성·재시작, malformed/missing identity evidence는 non-zero다.
 - `collect-correctness-evidence.sql`: dashboard 관련 exact aggregate를 한 줄 JSON으로 만들며 pure counter window 밖에서만 실행한다.
 - `validate-db-correctness.mjs`: summary 전체와 OPEN poll별 실제 `pollId/responseCount` 집합을 manifest와 exact 비교하고, DB-derived aggregate `missingResponseCount`도 함께 고정한다.
 - `collect-db-evidence.sql`: row count, analyze/autoanalyze, planner/query context를 pure counter window 밖에서 기록한다.
-- `pg_settings` planner state
+- `pg_settings`와 `plannerContext`: snapshot을 수행하는 observer psql session의 planner state다. measured app connection/session의 planner state를 증명하는 evidence로 해석하지 않는다.
 - 설치된 경우 `pg_stat_statements`; 없으면 unavailable 상태를 명시
 
 runner가 직접 만드는 application table 접근 관점에서 pre/post pure DB counter 사이에는 measured dashboard summary 요청만 존재한다. login, users/me, campuses/me, isolation/API correctness, fixture aggregate/context SQL과 runtime identity SQL은 모두 pre snapshot 전에 끝나거나 post snapshot 뒤에 시작한다. 외부 요청 선언 또는 snapshot 시 외부 non-idle DB session, planner/analyze 변화, stats reset, counter 역행/누락이 있으면 baseline은 채택되지 않는다. 다만 짧은 외부 요청은 두 경계 snapshot 사이에 완전히 들어올 수 있으므로, 현재 evidence만으로 “외부 요청이 없었다”를 증명하지 않으며 승인된 연속 provenance/격리가 없으면 baseline은 항상 conditional/non-adoptable이다.

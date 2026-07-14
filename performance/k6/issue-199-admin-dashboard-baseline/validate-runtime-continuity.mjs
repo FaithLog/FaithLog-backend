@@ -6,6 +6,7 @@ const COMPONENTS = ['app', 'postgres', 'redis'];
 const CONTAINER_IDENTITY_FIELDS = [
 	'id', 'imageId', 'imageRef', 'startedAt', 'composeProject', 'composeService', 'composeConfigHash',
 ];
+const APP_IDENTITY_FIELDS = [...CONTAINER_IDENTITY_FIELDS, 'publishedPorts'];
 const POSTGRES_IDENTITY_FIELDS = [
 	'database', 'serverAddress', 'serverPort', 'serverVersion', 'postmasterStartedAt',
 ];
@@ -39,6 +40,7 @@ function readSnapshot(filePath, label) {
 		}
 		timestamp(snapshot.containers[component].startedAt, `${label}.containers.${component}.startedAt`);
 	}
+	object(snapshot.containers.app.publishedPorts, `${label}.containers.app.publishedPorts`);
 	object(snapshot.postgres, `${label}.postgres`);
 	for (const field of POSTGRES_IDENTITY_FIELDS) {
 		assert.ok(Object.hasOwn(snapshot.postgres, field), `${label}.postgres.${field} is required.`);
@@ -69,7 +71,8 @@ function validateContinuity(initial, before, after) {
 		});
 	}
 	for (const component of COMPONENTS) {
-		for (const field of CONTAINER_IDENTITY_FIELDS) {
+		const fields = component === 'app' ? APP_IDENTITY_FIELDS : CONTAINER_IDENTITY_FIELDS;
+		for (const field of fields) {
 			compare(failures, `containers.${component}.${field}`, initial.containers[component][field], before.containers[component][field]);
 			compare(failures, `containers.${component}.${field}`, initial.containers[component][field], after.containers[component][field]);
 		}
@@ -82,7 +85,7 @@ function validateContinuity(initial, before, after) {
 		status: failures.length === 0 ? 'continuous' : 'runtime-identity-changed',
 		continuous: failures.length === 0,
 		identityFields: {
-			containers: CONTAINER_IDENTITY_FIELDS,
+			containers: {app: APP_IDENTITY_FIELDS, postgres: CONTAINER_IDENTITY_FIELDS, redis: CONTAINER_IDENTITY_FIELDS},
 			postgres: POSTGRES_IDENTITY_FIELDS,
 		},
 		failures,
@@ -90,7 +93,16 @@ function validateContinuity(initial, before, after) {
 }
 
 function compare(failures, name, expected, actual) {
-	if (expected !== actual) failures.push({name, expected, actual});
+	if (!deepEqual(expected, actual)) failures.push({name, expected, actual});
+}
+
+function deepEqual(left, right) {
+	try {
+		assert.deepEqual(left, right);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function object(value, label) {
