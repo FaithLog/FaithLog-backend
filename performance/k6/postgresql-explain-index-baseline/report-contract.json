@@ -57,7 +57,7 @@
     "measuredIdentity": ["preparedRegistrationToken", "label", "applicationName", "boundPid", "boundBackendStart"],
     "lifecycleRule": "Application identity is prepared before psql spawn, then bound to the observed backend identity. Every expected label must be observed and explicitly unregistered; duplicate or incomplete registrations are invalid.",
     "contaminationRule": "Transient external activity, including visibility-restricted client backends whose state is NULL, or observer exit notifies the runner immediately, aborts the in-flight measured psql, preserves a partial rejected report, and exits non-zero.",
-    "shutdownRule": "SIGTERM interrupts any remaining approved sampling delay so the worker can take its final sample and preserve the window report before the parent reap deadline."
+    "shutdownRule": "SIGTERM interrupts any remaining approved sampling delay. The observer-only graceful bound exceeds two sample timeouts so an in-flight sample plus the final sample can finish and preserve the window report before forced kill."
   },
   "evidenceClassification": {
     "allowed": ["exact-current-production", "reconstructed-current-query", "synthetic-candidate"],

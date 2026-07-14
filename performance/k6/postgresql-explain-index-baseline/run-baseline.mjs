@@ -14,6 +14,7 @@ import { normalizeSchemaState, validateSchemaContinuity, validateSchemaSnapshot 
 import { assertSingleReadOnlySelect, buildSourceIdentity, loadSqlSources, validateSourceContinuity, validateSourceIdentity } from './source-identity.mjs';
 import {
 	REQUIRED_PLANNER_SETTINGS,
+	ACTIVITY_MONITOR_GRACEFUL_TIMEOUT_MS,
 	acquireProjectLock,
 	assertProjectLockOwned,
 	decideMeasurementOutcome,
@@ -855,15 +856,15 @@ function writeMonitorControl(monitor, line) {
 }
 
 async function stopActivityMonitor(monitor) {
-	const result = await terminateChild(monitor.child, monitor.exitPromise);
+	const result = await terminateChild(monitor.child, monitor.exitPromise, { gracefulTimeoutMs: ACTIVITY_MONITOR_GRACEFUL_TIMEOUT_MS });
 	if (result.error) throw result.error;
 	if (result.code !== 0) throw new Error(`Activity monitor exited with status ${result.code}.`);
 	return JSON.parse(fs.readFileSync(monitor.outputPath, 'utf8'));
 }
 
-async function terminateChild(child, exitPromise) {
+async function terminateChild(child, exitPromise, options = undefined) {
 	try {
-		return await terminateChildProcess(child, exitPromise);
+		return await terminateChildProcess(child, exitPromise, options);
 	} catch (error) {
 		if (error.code === 'CHILD_NOT_REAPED') allChildrenReaped = false;
 		throw error;

@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import { parseActivitySampleInterval } from './runtime-contract.mjs';
+import { ACTIVITY_SAMPLE_TIMEOUT_MS, parseActivitySampleInterval } from './runtime-contract.mjs';
 
 const [outputPath, measuredApplicationPrefix, sampleIntervalInput, measuredDatabase] = process.argv.slice(2);
 if (!outputPath || !measuredApplicationPrefix || !measuredDatabase) {
@@ -143,7 +143,7 @@ function captureSample() {
 			AND (state IS DISTINCT FROM 'idle' OR application_name LIKE :'measured_prefix' || '%');
 	`], {
 		encoding: 'utf8', env: { ...process.env, PGCONNECT_TIMEOUT: '2' },
-		maxBuffer: 4 * 1024 * 1024, timeout: 2000, killSignal: 'SIGKILL',
+		maxBuffer: 4 * 1024 * 1024, timeout: ACTIVITY_SAMPLE_TIMEOUT_MS, killSignal: 'SIGKILL',
 	});
 	if (result.error) throw result.error;
 	if (result.status !== 0) throw new Error(`Activity sampling failed with status ${result.status}.`);

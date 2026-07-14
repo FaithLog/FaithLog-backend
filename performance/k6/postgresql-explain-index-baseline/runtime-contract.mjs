@@ -8,6 +8,9 @@ export const REQUIRED_PLANNER_SETTINGS = [
 	'enable_hashjoin', 'enable_mergejoin', 'enable_nestloop',
 ];
 
+export const ACTIVITY_SAMPLE_TIMEOUT_MS = 2000;
+export const ACTIVITY_MONITOR_GRACEFUL_TIMEOUT_MS = ACTIVITY_SAMPLE_TIMEOUT_MS * 2 + 1000;
+
 export function parseWarmRuns(value) {
 	if (value === undefined || value === null || value === '') {
 		throw new Error('WARM_RUNS is required at runtime; no measurement workload default is approved.');
