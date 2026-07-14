@@ -114,10 +114,12 @@ public class ChargeReminderService {
 		Map<Long, PaymentAccount> accountsById = accounts.stream()
 			.collect(Collectors.toMap(PaymentAccount::id, account -> account));
 		Set<Long> accountIds = accountsById.keySet();
-		Map<Long, Map<Long, List<ChargeItem>>> chargesByAccountAndUser = chargeItemRepository
-			.findByCampusIdAndPaymentCategoryAndStatus(campusId, paymentCategory, ChargeStatus.UNPAID)
+		List<ChargeItem> ownedUnpaidCharges = accountIds.isEmpty()
+			? List.of()
+			: chargeItemRepository.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+				campusId, paymentCategory, ChargeStatus.UNPAID, accountIds);
+		Map<Long, Map<Long, List<ChargeItem>>> chargesByAccountAndUser = ownedUnpaidCharges
 			.stream()
-			.filter(charge -> accountIds.contains(charge.paymentAccountId()))
 			.collect(Collectors.groupingBy(
 				ChargeItem::paymentAccountId,
 				LinkedHashMap::new,

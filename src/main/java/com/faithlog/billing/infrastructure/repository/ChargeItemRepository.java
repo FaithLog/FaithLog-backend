@@ -11,6 +11,7 @@ import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -84,6 +85,13 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		Long campusId,
 		PaymentCategory paymentCategory,
 		ChargeStatus status
+	);
+
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
 	);
 
 	List<ChargeItem> findByCampusIdAndStatus(Long campusId, ChargeStatus status);
