@@ -385,7 +385,8 @@ function validateResourceEvidence(tsv, runtime) {
 		const cpuPercent = Number(cpuText?.replace('%', ''));
 		const memoryPercent = Number(memoryPercentText?.replace('%', ''));
 		const memoryUsed = memoryText?.split('/')[0]?.trim() || null;
-		if (!container || !Number.isFinite(cpuPercent) || !Number.isFinite(memoryPercent)
+		if (!container || !Number.isFinite(cpuPercent) || cpuPercent < 0
+			|| !Number.isFinite(memoryPercent) || memoryPercent < 0
 			|| !memoryUsed || !isValidTimestamp(capturedAt)) {
 			rejectionReasons.push('invalid-resource-sample');
 			continue;
@@ -393,7 +394,14 @@ function validateResourceEvidence(tsv, runtime) {
 		if (!byContainer.has(container)) byContainer.set(container, []);
 		byContainer.get(container).push({ capturedAt, cpuPercent, memoryPercent, memoryUsed });
 	}
-	for (const container of [runtime?.appContainer, runtime?.dbContainer]) {
+	const expectedContainers = [runtime?.appContainer, runtime?.dbContainer];
+	const expectedContainerSetValid = expectedContainers.every((container) => typeof container === 'string' && container.length > 0)
+		&& new Set(expectedContainers).size === 2;
+	const actualContainers = [...byContainer.keys()].sort();
+	if (!expectedContainerSetValid || !semanticEqual(actualContainers, [...expectedContainers].sort())) {
+		rejectionReasons.push('unexpected-resource-container');
+	}
+	for (const container of expectedContainers) {
 		const samples = byContainer.get(container) || [];
 		for (const reason of validateSampleTimeline(samples.map((sample) => sample.capturedAt), runtime, `resource:${container || 'undefined'}`)) {
 			rejectionReasons.push(reason);
@@ -418,7 +426,7 @@ function validateSampleTimeline(timestamps, runtime, evidenceName) {
 	const intervalSeconds = strictNumber(runtime?.samplingIntervalSeconds);
 	const maxGapSeconds = strictNumber(runtime?.samplingMaxGapSeconds);
 	if (!Number.isFinite(started) || !Number.isFinite(ended) || started >= ended
-		|| intervalSeconds !== 1 || maxGapSeconds !== 2) {
+		|| !(intervalSeconds > 0) || !(maxGapSeconds > 0) || maxGapSeconds < intervalSeconds) {
 		return ['invalid-sampling-contract'];
 	}
 	const times = timestamps.map((timestamp) => Date.parse(timestamp));

@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { FIXTURE_CONTRACT, currentMonday, validateFixtureRunId } from './fixture-contract.mjs';
 
-const BASE_URL = (process.env.BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+const BASE_URL = required('BASE_URL').replace(/\/$/, '');
 const DATASET_ID = process.env.DATASET_ID || FIXTURE_CONTRACT.datasetId;
 const FIXTURE_RUN_ID = validateFixtureRunId(process.env.FIXTURE_RUN_ID);
 const ADMIN_EMAIL = required('PERF_ADMIN_EMAIL');
@@ -12,9 +12,11 @@ const MEMBER_PASSWORD = required('PERF_MEMBER_PASSWORD');
 const WEEK_START_DATE = process.env.PERF_WEEK_START_DATE || currentMonday();
 const REPORT_ROOT = resolve(process.env.REPORT_ROOT || 'build/reports/k6/issue-196');
 const MANIFEST_PATH = resolve(process.env.FIXTURE_MANIFEST || `${REPORT_ROOT}/${FIXTURE_RUN_ID}/fixture-manifest.json`);
-const APP_CONTAINER = process.env.APP_CONTAINER || 'faithlog-backend';
-const DB_CONTAINER = process.env.DB_CONTAINER || 'faithlog-postgres';
-const EXPECTED_APP_IMAGE = 'faithlog-latest';
+const APP_CONTAINER = required('APP_CONTAINER');
+const DB_CONTAINER = required('DB_CONTAINER');
+const EXPECTED_APP_SERVICE = required('EXPECTED_APP_SERVICE');
+const EXPECTED_DB_SERVICE = required('EXPECTED_DB_SERVICE');
+const EXPECTED_APP_IMAGE = required('EXPECTED_APP_IMAGE');
 
 for (const name of ['PERF_ACCESS_TOKEN', 'PERF_ADMIN_ACCESS_TOKEN', 'PERF_MEMBER_ACCESS_TOKEN']) {
 	delete process.env[name];
@@ -414,9 +416,9 @@ function verifyComposeRuntime() {
 	const appImageId = dockerInspect(APP_CONTAINER, '{{.Image}}');
 	const publishedPorts = execFileSync('docker', ['port', APP_CONTAINER, '8080/tcp'], { encoding: 'utf8', env: sanitizedChildEnv() }).trim();
 	const targetPort = new URL(BASE_URL).port || '80';
-	if (!appProject || appProject !== dbProject || appService !== 'app' || dbService !== 'postgres'
+	if (!appProject || appProject !== dbProject || appService !== EXPECTED_APP_SERVICE || dbService !== EXPECTED_DB_SERVICE
 		|| !appConfigHash || !dbConfigHash
-		|| !(appImage === EXPECTED_APP_IMAGE || appImage.startsWith(`${EXPECTED_APP_IMAGE}:`))
+		|| appImage !== EXPECTED_APP_IMAGE
 		|| !publishedPorts.split(/\r?\n/).some((binding) => binding.endsWith(`:${targetPort}`))) {
 		throw new Error('Seed requires the approved app/PostgreSQL Compose project, service/config-hash labels, and app image.');
 	}

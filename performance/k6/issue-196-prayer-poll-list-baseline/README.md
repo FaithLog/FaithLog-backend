@@ -13,11 +13,11 @@ Status: `scenario-ready / not-measured`
 - A 0600 `shape-attempted` receipt makes shaping one-shot even if the process stops after the database statement but before manifest persistence. Any shaping failure requires a new `fixtureRunId`.
 - Passwords, DB credentials, and Access Tokens are runtime-only. The manifest records IDs and generated test emails, but not credentials or tokens.
 - After app/DB label attestation, seed, shaping, and load all acquire the same canonical `/tmp/faithlog-performance-{actualComposeProject}.lock`. The path has no caller override, and the runner also refuses to start while another k6 process exists.
-- The approved `faithlog-latest` tag is fixed, not caller-overridable. Seed records the immutable app image ID and published target port; shaping and baseline require the same image ID, Compose project/service/config-hash labels, and `BASE_URL` port before touching the fixture or measuring it.
+- Seed, shaping, the baseline runner, and the direct k6 entrypoint have no target defaults. They require the approved loopback `BASE_URL`, app/DB container names, exact Compose service labels, and exact app image at runtime. Seed records the immutable app image ID and published target port; shaping and baseline require the same image ID, labels, image, and port before touching the fixture or measuring it.
 - The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
 - Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory, and an existing path is never deleted, reused, or overwritten.
 - Sampling can detect observed conflicts but cannot prove that a short transient request never occurred. No exclusive-window boolean or sampling values have user approval as an adoption method yet, so every otherwise-clean report remains `accepted=false`, `automaticAdoption=false`, and `measurementStatus=conditional-not-adoptable` until a separate user decision changes that policy.
-- `BASE_URL`, app/DB container names, expected Compose service labels, and expected app image are runtime-required approval inputs. Missing input fails before Docker inspection or login; actual labels/image/port and the seed manifest must match exactly.
+- `BASE_URL`, app/DB container names, expected Compose service labels, and expected app image are runtime-required approval inputs at every relevant entrypoint. Missing input fails seed/shape/run before Docker/API/DB work, and direct k6 fails before a request; actual labels/image/port and the seed manifest must match exactly.
 
 ## Fixture contract
 
@@ -78,7 +78,7 @@ Each endpoint report includes:
 - exact endpoint custom k6 Trend: finite nonnegative `p50 <= p95 <= p99 <= max`, accepting both k6 v2 direct and `values` summary shapes;
 - exact endpoint custom request Counter: positive count and positive throughput/second;
 - exact endpoint custom failure Rate equal to zero;
-- application/PostgreSQL container CPU and RAM samples;
+- application/PostgreSQL container CPU and RAM samples whose container set is exactly the two attested runtime names and whose CPU/memory percentages are finite and nonnegative;
 - Hibernate SQL log query count and `queriesPerRequest`;
 - repeated normalized SQL patterns as loop/N+1 evidence;
 - per-table PostgreSQL estimated row counts plus monotonic `seq_scan`, `seq_tup_read`, `idx_scan`, `idx_tup_fetch`, and individually zero write-counter deltas;
@@ -89,7 +89,7 @@ Query logs and PostgreSQL counters are container-wide. The attested project-scop
 
 ## Runtime preparation (do not run in this development session)
 
-The PM-approved measurement session must start the existing `faithlog-latest` stack externally. Seed and runner use read-only Docker inspection to verify it; neither changes its lifecycle. The application container must already have:
+The PM-approved measurement session must start the separately approved stack externally. Seed, shaping, and runner use Docker inspection to verify the runtime identity; none changes its lifecycle. The application container must already have:
 
 ```text
 LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG
@@ -103,6 +103,12 @@ Supply all credentials directly in the runtime shell or an approved secret manag
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
+BASE_URL='<approved-loopback-base-url>' \
+APP_CONTAINER='<approved-app-container>' \
+DB_CONTAINER='<approved-db-container>' \
+EXPECTED_APP_SERVICE='<approved-app-service-label>' \
+EXPECTED_DB_SERVICE='<approved-db-service-label>' \
+EXPECTED_APP_IMAGE='<approved-exact-app-image>' \
 PERF_ADMIN_EMAIL='<runtime-admin-email>' \
 PERF_ADMIN_PASSWORD='<runtime-admin-password>' \
 PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \
@@ -115,6 +121,12 @@ The seed is create-only and intentionally has no cleanup path. `fixtureRunId` is
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
+BASE_URL='<approved-loopback-base-url>' \
+APP_CONTAINER='<approved-app-container>' \
+DB_CONTAINER='<approved-db-container>' \
+EXPECTED_APP_SERVICE='<approved-app-service-label>' \
+EXPECTED_DB_SERVICE='<approved-db-service-label>' \
+EXPECTED_APP_IMAGE='<approved-exact-app-image>' \
 PERF_DB_USER='<runtime-db-user>' \
 PERF_DB_NAME='<runtime-db-name>' \
 PERF_DB_PASSWORD='<runtime-db-password>' \
@@ -123,7 +135,7 @@ bash performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 
 ### 3. Run endpoint phases sequentially
 
-Warmup/measured VUS/duration, sampling interval/max-gap, and target identity have no hidden defaults. A future approved measurement session must provide those values, a new `executionRunId`, and an explicit mode. The current runner still exits non-zero after preserving otherwise-clean evidence because automatic adoption is pending user approval.
+Warmup/measured VUS/duration, sampling interval/max-gap, and target identity have no hidden defaults. The summarizer validates the exact positive runtime sampling values and `maxGap >= interval`; it does not substitute or require 1/2 seconds. A future approved measurement session must provide those values, a new `executionRunId`, and an explicit mode. The current runner still exits non-zero after preserving otherwise-clean evidence because automatic adoption is pending user approval.
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \

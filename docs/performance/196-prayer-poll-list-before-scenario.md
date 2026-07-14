@@ -86,9 +86,9 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 
 실제 app/DB Compose label 일치를 확인한 뒤 seed/shaper/runner 모두 `/tmp/faithlog-performance-{actualComposeProject}.lock`을 사용한다. caller lock override는 없다. mode도 runtime 필수이며 `all`은 명시했을 때만 전체 19 endpoint로 확장된다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리하고 app scheduler를 끈다.
 
-sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transient 요청의 절대 부재를 단독 증명하지 못한다. sampling cadence/max-gap과 exclusive-window 채택 방식은 사용자 미승인 상태다. 따라서 현재 summarizer는 clean evidence에도 `accepted=false`, `automaticAdoption=false`, `measurementStatus=conditional-not-adoptable`과 `adoption-policy-pending-user-approval`을 기록하고 runner를 non-zero로 끝낸다.
+sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transient 요청의 절대 부재를 단독 증명하지 못한다. sampling cadence/max-gap과 exclusive-window 채택 방식은 사용자 미승인 상태다. 입력값은 default 없이 runtime에서 받고 positive 및 `maxGap >= interval`과 실제 coverage에 exact 결속하며 1초/2초 상수를 강제하지 않는다. 따라서 현재 summarizer는 clean evidence에도 `accepted=false`, `automaticAdoption=false`, `measurementStatus=conditional-not-adoptable`과 `adoption-policy-pending-user-approval`을 기록하고 runner를 non-zero로 끝낸다.
 
-`BASE_URL`, app/DB container name, expected app/DB Compose service label, expected exact app image도 기본값 없는 runtime 승인 입력이며 하나라도 없으면 Docker inspect/login 전에 실패한다. actual target은 seed manifest의 Compose project/config hash/app image ID/port와 다시 exact 결속한다.
+`BASE_URL`, app/DB container name, expected app/DB Compose service label, expected exact app image도 기본값 없는 runtime 승인 입력이다. seed/shape/run은 하나라도 없으면 API/Docker/DB 작업 전에 실패하고 direct k6도 request 전에 실패한다. actual target은 seed manifest의 Compose project/config hash/app image ID/port와 다시 exact 결속한다. Resource evidence는 metadata의 app/DB container exact 2개만 허용하고 CPU/memory percent가 finite/nonnegative가 아니거나 foreign container row가 있으면 rejected다.
 
 ## 정적 코드에서 확인한 측정 후보
 
@@ -104,7 +104,7 @@ sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transien
 
 ## 후속 게이트
 
-1. PM 승인 측정 세션에서 `faithlog-latest`와 실제 Compose label을 확인한다.
+1. PM 승인 측정 세션에서 사용자가 지정한 exact app image와 실제 Compose label을 확인한다.
 2. 새 `fixtureRunId`로 seed → fixture-owned time shaping → 새 `executionRunId`와 explicit mode의 warmup/측정 endpoint 순차 k6를 실행한다.
 3. endpoint별 raw/report 파일과 dataset/fixture/runtime 조건을 함께 기록한다.
 4. baseline evidence를 PM에 보고한다.
@@ -116,5 +116,6 @@ sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transien
 - PM finding 재현: test-only commit에서 `10 tests / 3 pass / 7 fail` RED
 - PM 2차 finding 재현: test-only commit에서 `12 tests / 9 pass / 3 fail` RED
 - PM 3차 finding 재현: test-only commit에서 `13 tests / 10 pass / 3 fail` RED
-- 최종 계약: pending automatic adoption, runtime-required target/sampling inputs, `Number.MAX_SAFE_INTEGER` 경계 decimal-string/BigInt delta, lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 같은 이름의 container ID 교체 시 login/k6 0건, missing exact DB schema, sparse/긴 gap, vacuum drift, reversed percentile, existing report 보존 fake evidence를 포함한 `13 tests / 0 failures` GREEN
+- PM 4차 finding 재현: test-only commit에서 `14 tests / 11 pass / 3 fail` RED
+- 최종 계약: pending automatic adoption, seed/shape/run/direct k6 전체 runtime-required target, arbitrary approved sampling input 결속, exact app/DB resource set와 nonnegative metrics, `Number.MAX_SAFE_INTEGER` 경계 decimal-string/BigInt delta, lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 같은 이름의 container ID 교체 시 login/k6 0건, missing exact DB schema, sparse/긴 gap, vacuum drift, reversed percentile, existing report 보존 fake evidence를 포함한 `14 tests / 0 failures` GREEN
 - Node/Bash syntax와 `git diff --check`를 수행한다. 이 검증은 실제 seed/k6/Docker/DB를 실행하지 않는다.

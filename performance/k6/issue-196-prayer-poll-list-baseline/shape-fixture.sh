@@ -5,9 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${ROOT_DIR}/../../.." && pwd)"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
-DB_CONTAINER="${DB_CONTAINER:-faithlog-postgres}"
-APP_CONTAINER="${APP_CONTAINER:-faithlog-backend}"
-EXPECTED_APP_IMAGE="faithlog-latest"
+BASE_URL="${BASE_URL:?BASE_URL is required at runtime}"
+DB_CONTAINER="${DB_CONTAINER:?DB_CONTAINER is required at runtime}"
+APP_CONTAINER="${APP_CONTAINER:?APP_CONTAINER is required at runtime}"
+EXPECTED_APP_SERVICE="${EXPECTED_APP_SERVICE:?EXPECTED_APP_SERVICE is required at runtime}"
+EXPECTED_DB_SERVICE="${EXPECTED_DB_SERVICE:?EXPECTED_DB_SERVICE is required at runtime}"
+EXPECTED_APP_IMAGE="${EXPECTED_APP_IMAGE:?EXPECTED_APP_IMAGE is required at runtime}"
 PERF_DB_USER="${PERF_DB_USER:?PERF_DB_USER is required at runtime}"
 PERF_DB_NAME="${PERF_DB_NAME:?PERF_DB_NAME is required at runtime}"
 PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?PERF_DB_PASSWORD is required at runtime}"
@@ -51,6 +54,7 @@ seed_project="$(json_value composeRuntime.composeProject)"
 seed_app_hash="$(json_value composeRuntime.appConfigHash)"
 seed_db_hash="$(json_value composeRuntime.dbConfigHash)"
 seed_app_image_id="$(json_value composeRuntime.appImageId)"
+seed_target_port="$(json_value composeRuntime.targetPort)"
 open_id="$(json_value polls.byKey.open.id)"
 member_id="$(json_value polls.byKey.closed_member_visible.id)"
 admin_id="$(json_value polls.byKey.closed_admin_only.id)"
@@ -69,10 +73,16 @@ app_hash="$(label "${APP_CONTAINER}" com.docker.compose.config-hash)"
 db_hash="$(label "${DB_CONTAINER}" com.docker.compose.config-hash)"
 app_image="$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")"
 app_image_id="$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")"
+base_target_port="$(BASE_URL_VALUE="${BASE_URL}" node -e '
+	const url = new URL(process.env.BASE_URL_VALUE);
+	if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) process.exit(2);
+	process.stdout.write(url.port || "80");
+')" || { echo "BASE_URL must be an explicit loopback HTTP target." >&2; exit 1; }
+published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
 if [[ -z "${compose_project}" || "${compose_project}" != "${db_project}" \
-	|| "${app_service}" != "app" || "${db_service}" != "postgres" \
+	|| "${app_service}" != "${EXPECTED_APP_SERVICE}" || "${db_service}" != "${EXPECTED_DB_SERVICE}" \
 	|| -z "${app_hash}" || -z "${db_hash}" \
-	|| ( "${app_image}" != "${EXPECTED_APP_IMAGE}" && "${app_image}" != "${EXPECTED_APP_IMAGE}:"* ) ]]; then
+	|| "${app_image}" != "${EXPECTED_APP_IMAGE}" ]]; then
 	echo "Refusing to shape: Compose project/service/config-hash or app image attestation failed." >&2
 	exit 1
 fi
@@ -81,7 +91,9 @@ if [[ ! "${compose_project}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
 	exit 1
 fi
 if [[ "${compose_project}" != "${seed_project}" || "${app_hash}" != "${seed_app_hash}" \
-	|| "${db_hash}" != "${seed_db_hash}" || "${app_image_id}" != "${seed_app_image_id}" ]]; then
+	|| "${db_hash}" != "${seed_db_hash}" || "${app_image_id}" != "${seed_app_image_id}" \
+	|| "${base_target_port}" != "${seed_target_port}" ]] \
+	|| ! grep -Eq "(^|:|\\])${seed_target_port}$" <<<"${published_ports}"; then
 	echo "Refusing to shape: current Compose identity differs from the seed manifest." >&2
 	exit 1
 fi

@@ -605,7 +605,8 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const report = JSON.parse(readFileSync(join(reportBase, executionRunId, 'prayer', 'prayer_current_season', 'report.json'), 'utf8'));
 		assert.equal(report.accepted, false);
 		assert.equal(report.automaticAdoption, false);
-		assert.equal(report.measurementStatus, 'rejected');
+		assert.ok(['rejected', 'conditional-not-adoptable'].includes(report.measurementStatus));
+		assert.ok(report.rejectionReasons.includes('adoption-policy-pending-user-approval'));
 
 		for (const stateFile of [k6Count, dbCount, identityCount]) rmSync(stateFile, { force: true });
 		const callCountBeforeReplacement = readFileSync(calls, 'utf8').trim().split(/\r?\n/).length;

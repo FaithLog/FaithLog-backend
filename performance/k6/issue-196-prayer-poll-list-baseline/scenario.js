@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, fail } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 
-const BASE_URL = (__ENV.BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+const BASE_URL = requiredEnv('BASE_URL').replace(/\/$/, '');
 const MODE = __ENV.MODE;
 const ENDPOINT = __ENV.ENDPOINT;
 const VUS = Number(__ENV.VUS);
@@ -13,6 +13,12 @@ const PERF_MEMBER_PASSWORD = __ENV.PERF_MEMBER_PASSWORD;
 const PERF_ADMIN_ACCESS_TOKEN = __ENV.PERF_ADMIN_ACCESS_TOKEN;
 const PERF_MEMBER_ACCESS_TOKEN = __ENV.PERF_MEMBER_ACCESS_TOKEN;
 const FIXTURE_MANIFEST = __ENV.FIXTURE_MANIFEST;
+
+function requiredEnv(name) {
+	const value = __ENV[name];
+	if (!value) throw new Error(`${name} is required at runtime.`);
+	return value;
+}
 
 if (!FIXTURE_MANIFEST) {
 	fail('FIXTURE_MANIFEST is required.');
