@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-const [durationSource, safetySource, nowSource] = process.argv.slice(2);
+const [durationSource, safetySource, nowSource, purposeSource = 'runtime'] = process.argv.slice(2);
 
 try {
 	const token = process.env.PERF_ACCESS_TOKEN;
@@ -11,6 +11,8 @@ try {
 	assert.ok(Number.isInteger(payload.exp), 'Runtime access token exp must be an integer epoch second.');
 
 	const durationSeconds = parseDuration(durationSource);
+	assert.ok(['warmup', 'measured', 'runtime'].includes(purposeSource),
+		'Token purpose must be warmup, measured, or runtime.');
 	const safetySeconds = Number(safetySource);
 	const nowEpochSeconds = Number(nowSource);
 	assert.ok(Number.isInteger(safetySeconds) && safetySeconds >= 0,
@@ -20,7 +22,7 @@ try {
 	const remainingSeconds = payload.exp - nowEpochSeconds;
 	assert.ok(
 		remainingSeconds >= requiredSeconds,
-		`Measured token lifetime is insufficient: ${remainingSeconds}s remaining, ${requiredSeconds}s required before expiry.`,
+		`${purposeSource} token lifetime is insufficient: ${remainingSeconds}s remaining, ${requiredSeconds}s required before expiry.`,
 	);
 } catch (error) {
 	process.stderr.write(`${error.message}\n`);
@@ -28,7 +30,7 @@ try {
 }
 
 function parseDuration(source) {
-	assert.ok(source, 'MEASURED_DURATION is required.');
+	assert.ok(source, 'Token phase duration is required.');
 	const units = {ms: 0.001, s: 1, m: 60, h: 3600, d: 86400};
 	const pattern = /(\d+(?:\.\d+)?)(ms|s|m|h|d)/gy;
 	let total = 0;
@@ -38,6 +40,6 @@ function parseDuration(source) {
 		consumed = pattern.lastIndex;
 	}
 	assert.equal(consumed, source.length, `Unsupported k6 duration: ${source}`);
-	assert.ok(total > 0, 'MEASURED_DURATION must be positive.');
+	assert.ok(total > 0, 'Token phase duration must be positive.');
 	return total;
 }

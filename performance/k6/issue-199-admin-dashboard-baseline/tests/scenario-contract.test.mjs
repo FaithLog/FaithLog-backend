@@ -24,6 +24,7 @@ const files = {
 	dbCorrectnessValidator: path.join(issueRoot, 'validate-db-correctness.mjs'),
 	dbWindowValidator: path.join(issueRoot, 'validate-db-window.mjs'),
 	runtimeContinuityValidator: path.join(issueRoot, 'validate-runtime-continuity.mjs'),
+	dockerResourceValidator: path.join(issueRoot, 'validate-docker-resources.mjs'),
 	dbCounters: path.join(issueRoot, 'collect-db-counters.sql'),
 	runtimeIdentity: path.join(issueRoot, 'collect-runtime-identity.sql'),
 	dbCorrectness: path.join(issueRoot, 'collect-correctness-evidence.sql'),
@@ -164,6 +165,7 @@ test('runner separates warmup and measured phases, serializes modes, records act
 	assert.match(source, /validate-token-lifetime\.mjs/);
 	assert.match(source, /validate-db-window\.mjs/);
 	assert.match(source, /validate-runtime-continuity\.mjs/);
+	assert.match(source, /validate-docker-resources\.mjs/);
 	assert.match(source, /Report directory already exists/);
 	assert.match(source, /PHASE=warmup/);
 	assert.match(source, /PHASE=measured/);
@@ -173,7 +175,7 @@ test('runner separates warmup and measured phases, serializes modes, records act
 	assert.match(source, /docker inspect/);
 	assert.match(source, /com\.docker\.compose\.project/);
 	assert.match(source, /com\.docker\.compose\.service/);
-	assert.match(source, /docker stats --no-stream/);
+	assert.match(source, /docker stats --no-stream --no-trunc/);
 	assert.match(source, /EXTERNAL_ACTIVITY/);
 	assert.doesNotMatch(source, /-e PGPASSWORD="\$PERF_DB_PASSWORD"/);
 	assert.match(source, /PGPASSWORD="\$PERF_DB_PASSWORD"\s+docker exec[\s\S]*-e PGPASSWORD/);
@@ -201,6 +203,10 @@ test('DB evidence is read-only and captures counters, query evidence, analyze an
 	assert.match(sql, /pg_stat_statements/);
 	assert.match(sql, /last_analyze/);
 	assert.match(sql, /last_autoanalyze/);
+	assert.match(sql, /last_vacuum/);
+	assert.match(sql, /last_autovacuum/);
+	assert.match(sql, /vacuum_count/);
+	assert.match(sql, /autovacuum_count/);
 	assert.match(sql, /n_mod_since_analyze/);
 	assert.match(sql, /pg_settings/);
 	assert.match(sql, /poll_response_count/);
@@ -288,6 +294,9 @@ test('k6 summary validator rejects non-zero failures and missing adoption metric
 		const validPath = path.join(temporaryDirectory, 'valid.json');
 		const failedPath = path.join(temporaryDirectory, 'failed.json');
 		const missingPath = path.join(temporaryDirectory, 'missing.json');
+		const valuesPath = path.join(temporaryDirectory, 'values.json');
+		const fractionalPath = path.join(temporaryDirectory, 'fractional.json');
+		const invertedPath = path.join(temporaryDirectory, 'inverted.json');
 		fs.writeFileSync(validPath, JSON.stringify(validSummary));
 		fs.writeFileSync(failedPath, JSON.stringify({
 			...validSummary,
@@ -297,10 +306,27 @@ test('k6 summary validator rejects non-zero failures and missing adoption metric
 			},
 		}));
 		fs.writeFileSync(missingPath, JSON.stringify({metrics: {admin_dashboard_failure_rate: {rate: 0}}}));
+		fs.writeFileSync(valuesPath, JSON.stringify({
+			metrics: Object.fromEntries(Object.entries(validSummary.metrics).map(([name, values]) => [name, {values}])),
+		}));
+		fs.writeFileSync(fractionalPath, JSON.stringify({
+			...validSummary,
+			metrics: {...validSummary.metrics, admin_dashboard_requests: {count: 0.5, rate: 1}},
+		}));
+		fs.writeFileSync(invertedPath, JSON.stringify({
+			metrics: {
+				admin_dashboard_duration: {values: {'p(50)': 100, 'p(95)': 2, 'p(99)': 1, max: 3}},
+				admin_dashboard_requests: {values: {count: 1, rate: 1}},
+				admin_dashboard_failure_rate: {values: {rate: 0}},
+			},
+		}));
 
 		assert.equal(runNode(files.summaryValidator, validPath).status, 0);
+		assert.equal(runNode(files.summaryValidator, valuesPath).status, 0);
 		assert.notEqual(runNode(files.summaryValidator, failedPath).status, 0);
 		assert.notEqual(runNode(files.summaryValidator, missingPath).status, 0);
+		assert.notEqual(runNode(files.summaryValidator, fractionalPath).status, 0);
+		assert.notEqual(runNode(files.summaryValidator, invertedPath).status, 0);
 	} finally {
 		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
 	}
@@ -407,6 +433,24 @@ test('runner blocks a measured phase when the fresh JWT cannot cover duration pl
 	}
 });
 
+test('runner blocks warmup before k6 and DB context when its fresh JWT cannot cover duration plus safety', () => {
+	const harness = createFakeRunnerHarness();
+	try {
+		const result = harness.run({
+			DATASET_MODES: 'empty',
+			WARMUP_DURATION: '60s',
+			TOKEN_EXPIRY_SAFETY_SECONDS: '10',
+			FAKE_WARMUP_TOKEN_TTL_SECONDS: '30',
+		});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /token.*lifetime|expire/i);
+		assert.equal(findLog(harness.log(), 'k6:empty:warmup'), -1);
+		assert.equal(findLog(harness.log(), 'docker:db-context'), -1);
+	} finally {
+		harness.cleanup();
+	}
+});
+
 test('DB window validator rejects missing or regressed counters and produces semantic deltas', () => {
 	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-window-'));
 	try {
@@ -500,6 +544,87 @@ test('DB window validator blocks a short external request hidden between boundar
 		);
 	} finally {
 		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('DB window validator requires vacuum fields and marks vacuum drift contaminated', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-db-vacuum-'));
+	try {
+		const before = dbWindowFixture();
+		const after = dbWindowFixture({after: true});
+		const vacuumed = structuredClone(after);
+		vacuumed.tables[0].vacuum_count = 1;
+		vacuumed.tables[0].last_vacuum = '2026-07-14T00:00:30.000Z';
+		const drift = runDbWindowValidator(temporaryDirectory, before, vacuumed, 'none', 'vacuum-drift');
+		assert.notEqual(drift.result.status, 0);
+		assert.equal(drift.output.status, 'contaminated');
+		assert.ok(drift.output.failures.some(({name}) => /vacuum/.test(name)));
+
+		const missingBefore = structuredClone(before);
+		const missingAfter = structuredClone(after);
+		delete missingBefore.tables[0].autovacuum_count;
+		delete missingAfter.tables[0].autovacuum_count;
+		const missing = runDbWindowValidator(temporaryDirectory, missingBefore, missingAfter, 'none', 'vacuum-missing');
+		assert.notEqual(missing.result.status, 0);
+		assert.match(missing.result.stderr, /autovacuum_count/);
+	} finally {
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('Docker resource validator exact-binds mode, boundary, component identity, CPU, and RAM', () => {
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-199-resources-'));
+	try {
+		const identity = runtimeIdentityFixture();
+		const valid = runDockerResourceValidator(
+			temporaryDirectory, dockerResourceFixture(), identity, 'small', 'before', 'valid',
+		);
+		assert.equal(valid.result.status, 0, valid.result.stderr);
+		assert.equal(valid.output.status, 'docker-resource-evidence-valid');
+		assert.equal(valid.output.adoptable, true);
+		assert.deepEqual(valid.output.components.map(({component}) => component), ['app', 'postgres', 'redis']);
+		const validAfter = runDockerResourceValidator(
+			temporaryDirectory,
+			dockerResourceFixture({boundary: 'after'}),
+			runtimeIdentityFixture({capturedAt: '2026-07-14T00:01:00.000Z'}),
+			'small',
+			'after',
+			'valid-after',
+		);
+		assert.equal(validAfter.result.status, 0, validAfter.result.stderr);
+
+		for (const [label, mutate] of [
+			['malformed', () => ['not-json']],
+			['missing', (rows) => rows.slice(0, 2)],
+			['mixed-mode', (rows) => rows.map((row, index) => index === 1 ? {...row, datasetMode: 'thousand'} : row)],
+			['mixed-boundary', (rows) => rows.map((row, index) => index === 1 ? {...row, boundary: 'after'} : row)],
+			['wrong-id', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, ID: 'sha256:other'}} : row)],
+			['negative-cpu', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, CPUPerc: '-1%'}} : row)],
+			['nan-memory', (rows) => rows.map((row, index) => index === 0 ? {...row, stats: {...row.stats, MemUsage: 'NaNMiB / 1GiB'}} : row)],
+		]) {
+			const invalid = runDockerResourceValidator(
+				temporaryDirectory, mutate(dockerResourceFixture()), identity, 'small', 'before', label,
+			);
+			assert.notEqual(invalid.result.status, 0, `${label} resource evidence must fail`);
+			assert.equal(invalid.output.status, 'contaminated', `${label} must be classified as contaminated`);
+			assert.equal(invalid.output.adoptable, false);
+		}
+	} finally {
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
+	}
+});
+
+test('runner blocks malformed or mixed-mode Docker resource evidence before adoption', () => {
+	for (const mode of ['malformed', 'mixed-mode']) {
+		const harness = createFakeRunnerHarness();
+		try {
+			const result = harness.run({DATASET_MODES: 'empty', FAKE_DOCKER_RESOURCE_MODE: mode});
+			assert.notEqual(result.status, 0);
+			assert.match(result.stderr, /Docker resource|resource evidence|JSON/i);
+			assert.equal(findLog(harness.log(), 'k6:empty:measured'), -1);
+		} finally {
+			harness.cleanup();
+		}
 	}
 });
 
@@ -827,6 +952,10 @@ function dbWindowFixture({after = false} = {}) {
 			last_autoanalyze: null,
 			analyze_count: 0,
 			autoanalyze_count: 0,
+			last_vacuum: null,
+			last_autovacuum: null,
+			vacuum_count: 0,
+			autovacuum_count: 0,
 		})),
 		plannerSettings: requiredPlannerSettings.map((name) => ({name, setting: 'contract-value', source: 'default'})),
 	};
@@ -841,6 +970,7 @@ function runtimeIdentityFixture({capturedAt = '2026-07-14T00:00:00.000Z'} = {}) 
 		composeProject: 'contract-project',
 		composeService: service,
 		composeConfigHash: `sha256:${service}-config`,
+		name: `faithlog-latest-${service}`,
 	});
 	return {
 		capturedAt,
@@ -860,6 +990,20 @@ function runtimeIdentityFixture({capturedAt = '2026-07-14T00:00:00.000Z'} = {}) 
 			postmasterStartedAt: '2026-07-13T23:00:05.000Z',
 		},
 	};
+}
+
+function dockerResourceFixture({mode = 'small', boundary = 'before'} = {}) {
+	return ['app', 'postgres', 'redis'].map((component, index) => ({
+		datasetMode: mode,
+		boundary,
+		stats: {
+			ID: `sha256:${component}-container`,
+			Name: `faithlog-latest-${component}`,
+			CPUPerc: `${index + 1}.25%`,
+			MemUsage: `${64 * (index + 1)}MiB / 1GiB`,
+			MemPerc: `${6.25 * (index + 1)}%`,
+		},
+	}));
 }
 
 function runRuntimeContinuityValidator(temporaryDirectory, initial, before, after, label) {
@@ -884,6 +1028,19 @@ function runDbWindowValidator(temporaryDirectory, before, after, externalActivit
 	fs.writeFileSync(beforePath, JSON.stringify(before));
 	fs.writeFileSync(afterPath, JSON.stringify(after));
 	const result = runNode(files.dbWindowValidator, beforePath, afterPath, externalActivity, outputPath);
+	return {
+		result,
+		output: fs.existsSync(outputPath) ? JSON.parse(fs.readFileSync(outputPath, 'utf8')) : {},
+	};
+}
+
+function runDockerResourceValidator(temporaryDirectory, rows, identity, mode, boundary, label) {
+	const rawPath = path.join(temporaryDirectory, `${label}-resources.jsonl`);
+	const identityPath = path.join(temporaryDirectory, `${label}-identity.json`);
+	const outputPath = path.join(temporaryDirectory, `${label}-output.json`);
+	fs.writeFileSync(rawPath, `${rows.map((row) => typeof row === 'string' ? row : JSON.stringify(row)).join('\n')}\n`);
+	fs.writeFileSync(identityPath, JSON.stringify(identity));
+	const result = runNode(files.dockerResourceValidator, rawPath, identityPath, mode, boundary, outputPath);
 	return {
 		result,
 		output: fs.existsSync(outputPath) ? JSON.parse(fs.readFileSync(outputPath, 'utf8')) : {},
@@ -940,7 +1097,7 @@ case "$1" in
     clock="$(<"$FAKE_CLOCK_PATH")"
 	    purpose="\${TOKEN_PURPOSE:-warmup}"
 	    if [[ "$DATASET_MODES" == small ]]; then : > "$FAKE_SECOND_MODE_PATH"; fi
-    ttl=1800
+    ttl="\${FAKE_WARMUP_TOKEN_TTL_SECONDS:-1800}"
     if [[ "$purpose" == measured ]]; then ttl="\${FAKE_MEASURED_TOKEN_TTL_SECONDS:-1800}"; fi
     exp=$((FAKE_EPOCH_BASE + clock + ttl))
     payload="$(${shellQuote(process.execPath)} -e 'process.stdout.write(Buffer.from(JSON.stringify({exp:Number(process.argv[1])})).toString("base64url"))' "$exp")"
@@ -981,8 +1138,9 @@ case "$1" in
 	        image_id='sha256:replacement-image'
 	        started_at='2026-07-14T00:00:45.000Z'
 	      fi
-	      printf '{"id":"%s","imageId":"%s","imageRef":"faithlog/%s:contract","startedAt":"%s","composeProject":"%s","composeService":"%s","composeConfigHash":"sha256:%s-config","publishedPorts":%s}\\n' \\
-	        "$id" "$image_id" "$service" "$started_at" "$FAKE_COMPOSE_PROJECT" "$service" "$service" "$published_ports"
+	      name="faithlog-latest-\${service}"
+	      printf '{"id":"%s","imageId":"%s","imageRef":"faithlog/%s:contract","startedAt":"%s","composeProject":"%s","composeService":"%s","composeConfigHash":"sha256:%s-config","name":"%s","publishedPorts":%s}\\n' \\
+	        "$id" "$image_id" "$service" "$started_at" "$FAKE_COMPOSE_PROJECT" "$service" "$service" "$name" "$published_ports"
 	    elif [[ "$*" == *NetworkSettings.Ports* ]]; then
       printf '%s\\n' "$FAKE_APP_PORTS_JSON"
     elif [[ "$*" == *com.docker.compose.project* ]]; then
@@ -1003,7 +1161,16 @@ case "$1" in
     ;;
   stats)
     printf 'docker:stats\\n' >> "$FAKE_LOG"
-    printf '{"Name":"contract","CPUPerc":"0%%","MemUsage":"0B / 0B"}\\n'
+    if [[ "\${FAKE_DOCKER_RESOURCE_MODE:-}" == malformed ]]; then
+      printf '{not-json\\n'
+      exit 0
+    fi
+    for component in app postgres redis; do
+      evidence_mode="$RESOURCE_DATASET_MODE"
+      if [[ "\${FAKE_DOCKER_RESOURCE_MODE:-}" == mixed-mode && "$component" == postgres ]]; then evidence_mode=thousand; fi
+      printf '{"datasetMode":"%s","boundary":"%s","stats":{"ID":"sha256:%s-container","Name":"faithlog-latest-%s","CPUPerc":"1.25%%","MemUsage":"64MiB / 1GiB","MemPerc":"6.25%%"}}\\n' \\
+        "$evidence_mode" "$RESOURCE_BOUNDARY" "$component" "$component"
+    done
     exit 0
     ;;
   exec)

@@ -17,7 +17,8 @@ assert.equal(failureRate, 0, 'admin_dashboard_failure_rate must be exactly zero'
 
 const requestCount = number(requests.count, 'admin_dashboard_requests.count');
 const throughput = number(requests.rate, 'admin_dashboard_requests.rate');
-assert.ok(requestCount > 0, 'admin_dashboard_requests.count must be greater than zero');
+assert.ok(Number.isSafeInteger(requestCount) && requestCount > 0,
+	'admin_dashboard_requests.count must be a positive safe integer');
 assert.ok(throughput > 0, 'admin_dashboard_requests.rate throughput must be greater than zero');
 
 const latency = {};
@@ -25,6 +26,12 @@ for (const statistic of ['p(50)', 'p(95)', 'p(99)', 'max']) {
 	latency[statistic] = number(duration[statistic], `admin_dashboard_duration.${statistic}`);
 	assert.ok(latency[statistic] >= 0, `${statistic} must not be negative`);
 }
+assert.ok(
+	latency['p(50)'] <= latency['p(95)']
+		&& latency['p(95)'] <= latency['p(99)']
+		&& latency['p(99)'] <= latency.max,
+	'admin_dashboard_duration percentiles must satisfy p50 <= p95 <= p99 <= max',
+);
 
 process.stdout.write(`${JSON.stringify({
 	status: 'k6-summary-adoptable',
@@ -38,7 +45,13 @@ process.stdout.write(`${JSON.stringify({
 function metricValues(summaryDocument, metricName) {
 	const metric = summaryDocument.metrics?.[metricName];
 	assert.ok(metric, `Missing k6 metric ${metricName}`);
-	return metric.values || metric;
+	assert.ok(typeof metric === 'object' && !Array.isArray(metric), `Malformed k6 metric ${metricName}`);
+	if (Object.hasOwn(metric, 'values')) {
+		assert.ok(metric.values !== null && typeof metric.values === 'object' && !Array.isArray(metric.values),
+			`Malformed k6 metric values ${metricName}`);
+		return metric.values;
+	}
+	return metric;
 }
 
 function number(value, label) {

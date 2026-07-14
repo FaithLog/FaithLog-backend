@@ -35,7 +35,11 @@ table_counters AS (
         last_analyze,
         last_autoanalyze,
         analyze_count::text AS analyze_count,
-        autoanalyze_count::text AS autoanalyze_count
+        autoanalyze_count::text AS autoanalyze_count,
+        last_vacuum,
+        last_autovacuum,
+        vacuum_count::text AS vacuum_count,
+        autovacuum_count::text AS autovacuum_count
     FROM pg_stat_user_tables
     WHERE relname IN (
         'users',

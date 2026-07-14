@@ -18,7 +18,7 @@ const DATABASE_COUNTERS = [
 const TABLE_COUNTERS = ['seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch'];
 const TABLE_STABILITY_FIELDS = [
 	'n_live_tup', 'n_dead_tup', 'n_mod_since_analyze', 'last_analyze', 'last_autoanalyze',
-	'analyze_count', 'autoanalyze_count',
+	'analyze_count', 'autoanalyze_count', 'last_vacuum', 'last_autovacuum', 'vacuum_count', 'autovacuum_count',
 ];
 const OBSERVER_POLICY = {
 	databaseWideCountersIncludeSnapshotTransaction: true,
@@ -147,11 +147,16 @@ function validateSnapshotSchema(snapshot, label) {
 	for (const [index, table] of snapshot.tables.entries()) {
 		object(table, `${label}.tables[${index}]`);
 		string(table.relname, `${label}.tables[${index}].relname`);
-		for (const field of [...TABLE_COUNTERS, 'n_live_tup', 'n_dead_tup', 'n_mod_since_analyze', 'analyze_count', 'autoanalyze_count']) {
+		for (const field of [
+			...TABLE_COUNTERS, 'n_live_tup', 'n_dead_tup', 'n_mod_since_analyze',
+			'analyze_count', 'autoanalyze_count', 'vacuum_count', 'autovacuum_count',
+		]) {
 			counter(table[field], `${label}.tables[${index}].${field}`);
 		}
 		timestamp(table.last_analyze, `${label}.tables[${index}].last_analyze`, true);
 		timestamp(table.last_autoanalyze, `${label}.tables[${index}].last_autoanalyze`, true);
+		timestamp(table.last_vacuum, `${label}.tables[${index}].last_vacuum`, true);
+		timestamp(table.last_autovacuum, `${label}.tables[${index}].last_autovacuum`, true);
 	}
 
 	assert.ok(Array.isArray(snapshot.plannerSettings), `${label}.plannerSettings must be an array.`);

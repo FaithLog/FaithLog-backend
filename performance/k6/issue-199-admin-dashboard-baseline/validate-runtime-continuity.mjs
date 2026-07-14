@@ -4,7 +4,7 @@ import path from 'node:path';
 
 const COMPONENTS = ['app', 'postgres', 'redis'];
 const CONTAINER_IDENTITY_FIELDS = [
-	'id', 'imageId', 'imageRef', 'startedAt', 'composeProject', 'composeService', 'composeConfigHash',
+	'id', 'imageId', 'imageRef', 'startedAt', 'composeProject', 'composeService', 'composeConfigHash', 'name',
 ];
 const APP_IDENTITY_FIELDS = [...CONTAINER_IDENTITY_FIELDS, 'publishedPorts'];
 const POSTGRES_IDENTITY_FIELDS = [

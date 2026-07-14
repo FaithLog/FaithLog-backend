@@ -242,7 +242,7 @@ collect_db_counters() {
 }
 
 inspect_container_identity() {
-	docker inspect --format '{"evidence":"issue199-runtime-identity","id":{{json .Id}},"imageId":{{json .Image}},"imageRef":{{json .Config.Image}},"startedAt":{{json .State.StartedAt}},"composeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"composeService":{{json (index .Config.Labels "com.docker.compose.service")}},"composeConfigHash":{{json (index .Config.Labels "com.docker.compose.config-hash")}},"publishedPorts":{{json .NetworkSettings.Ports}}}' "$1"
+	docker inspect --format '{"evidence":"issue199-runtime-identity","id":{{json .Id}},"imageId":{{json .Image}},"imageRef":{{json .Config.Image}},"startedAt":{{json .State.StartedAt}},"composeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"composeService":{{json (index .Config.Labels "com.docker.compose.service")}},"composeConfigHash":{{json (index .Config.Labels "com.docker.compose.config-hash")}},"name":{{json .Name}},"publishedPorts":{{json .NetworkSettings.Ports}}}' "$1"
 }
 
 collect_postgres_runtime_identity() {
@@ -279,13 +279,31 @@ capture_runtime_identity_json() {
 			},
 			postgres: JSON.parse(process.env.POSTGRES_SERVER_IDENTITY),
 		};
-		for (const container of Object.values(report.containers)) delete container.evidence;
+		for (const container of Object.values(report.containers)) {
+			delete container.evidence;
+			container.name = container.name.replace(/^\//, "");
+		}
 		process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 	'
 }
 
 validate_runtime_continuity() {
 	node "$ISSUE_ROOT/validate-runtime-continuity.mjs" "$1" "$2" "$3" "$4"
+}
+
+collect_docker_resources() {
+	local mode="$1"
+	local boundary="$2"
+	local output_file="$3"
+	local stats_format
+	stats_format='{"datasetMode":"'"$mode"'","boundary":"'"$boundary"'","stats":{{json .}}}'
+	RESOURCE_DATASET_MODE="$mode" RESOURCE_BOUNDARY="$boundary" \
+		docker stats --no-stream --no-trunc --format "$stats_format" \
+		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$output_file"
+}
+
+validate_docker_resources() {
+	node "$ISSUE_ROOT/validate-docker-resources.mjs" "$1" "$2" "$3" "$4" "$5"
 }
 
 validate_runtime_identity_target_json() {
@@ -431,6 +449,9 @@ for raw_mode in "${modes[@]}"; do
 
 	record_environment "$mode_report_dir" "$dataset_id" "$fixture_run_id" "$mode"
 	prepare_runtime_token "$mode" warmup
+	PERF_ACCESS_TOKEN="$RUNTIME_ACCESS_TOKEN" \
+		node "$ISSUE_ROOT/validate-token-lifetime.mjs" \
+		"$WARMUP_DURATION" "$TOKEN_EXPIRY_SAFETY_SECONDS" "$(date +%s)" warmup >/dev/null
 	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-before.json"
 	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-before.json"
 	verify_api_correctness "$mode" "$mode_report_dir/api-correctness-before.json"
@@ -448,7 +469,7 @@ for raw_mode in "${modes[@]}"; do
 	prepare_runtime_token "$mode" measured
 	PERF_ACCESS_TOKEN="$RUNTIME_ACCESS_TOKEN" \
 		node "$ISSUE_ROOT/validate-token-lifetime.mjs" \
-		"$MEASURED_DURATION" "$TOKEN_EXPIRY_SAFETY_SECONDS" "$(date +%s)" >/dev/null
+		"$MEASURED_DURATION" "$TOKEN_EXPIRY_SAFETY_SECONDS" "$(date +%s)" measured >/dev/null
 	printf '%s\n' "$INITIAL_RUNTIME_IDENTITY_JSON" > "$mode_report_dir/runtime-identity-initial.json"
 	capture_runtime_identity_json > "$mode_report_dir/measured/runtime-identity-before.json"
 	validate_runtime_continuity \
@@ -456,18 +477,24 @@ for raw_mode in "${modes[@]}"; do
 		"$mode_report_dir/measured/runtime-identity-before.json" \
 		"$mode_report_dir/measured/runtime-identity-before.json" \
 		"$mode_report_dir/measured/runtime-continuity-pre-gate.json"
+	collect_docker_resources "$mode" before "$mode_report_dir/measured/docker-stats-before.jsonl"
+	validate_docker_resources \
+		"$mode_report_dir/measured/docker-stats-before.jsonl" \
+		"$mode_report_dir/measured/runtime-identity-before.json" \
+		"$mode" before "$mode_report_dir/measured/docker-resource-before-gate.json"
 	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-before.json"
-	docker stats --no-stream --format '{{json .}}' \
-		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$mode_report_dir/measured/docker-stats-before.jsonl"
 
 	PHASE=measured run_k6_phase measured "$mode" "$MEASURED_VUS" "$MEASURED_DURATION" "$mode_report_dir/measured"
 	test -f "$mode_report_dir/measured/summary.json"
 	node "$ISSUE_ROOT/validate-k6-summary.mjs" "$mode_report_dir/measured/summary.json" \
 		> "$mode_report_dir/measured/adoption-gate.json"
-	docker stats --no-stream --format '{{json .}}' \
-		"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$mode_report_dir/measured/docker-stats-after.jsonl"
 	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-after.json"
+	collect_docker_resources "$mode" after "$mode_report_dir/measured/docker-stats-after.jsonl"
 	capture_runtime_identity_json > "$mode_report_dir/measured/runtime-identity-after.json"
+	validate_docker_resources \
+		"$mode_report_dir/measured/docker-stats-after.jsonl" \
+		"$mode_report_dir/measured/runtime-identity-after.json" \
+		"$mode" after "$mode_report_dir/measured/docker-resource-after-gate.json"
 	collect_db_context "$campus_id" "$week_start_date" "$mode_report_dir/db-context-after.txt"
 	collect_db_correctness "$campus_id" "$week_start_date" "$mode_report_dir/db-correctness-after.json"
 	validate_db_correctness "$mode" "$mode_report_dir/db-correctness-after.json"
