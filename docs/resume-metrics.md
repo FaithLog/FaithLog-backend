@@ -13,19 +13,19 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-14 #188/#189/#190 integration, 449 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #200 final review, 526 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.41% (7,223 / 7,651, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 75.77% (1,113 / 1,469, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.70% (510 / 522, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 89.79% (1,935 / 2,155, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 85 test files (2026-07-14 integration) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 151 snippet groups (2026-07-14 integration) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-14 integration) | 성공 |
+| 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 88 test files (2026-07-15 #200) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 163 snippet groups (2026-07-15 #200) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-15 #200) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 634 Java sources including tests (2026-07-13 #189) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 8 (Flyway V1-V8, 2026-07-13 #189) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 10 (Flyway V1-V10, 2026-07-15 #200) | 추적 |
 
 ## Daily Monitoring Notes
 
@@ -54,6 +54,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 알림 복구: Redis dedupe 값을 owner token으로 예약하고 Lua compare-delete로 rollback 보상 소유권을 검증한다. manual/dispatch lock은 owner token 기준 TTL을 갱신하며, recovery는 현재 dispatch lease를 얻지 못하면 PENDING을 FAILED로 덮지 않는다. 발송 worker는 request token bulk lookup을 유지하면서 log/token/retry 경계에서 lease를 갱신한다.
   - 조회/문서: Poll 목록은 실제 포함 유형에 필요한 COFFEE/MEAL duty만 조회하고, 상세는 visibility 계산 결과를 재사용한다. 알림 403 category별 code, 동시 요청 409, Redis 503과 COFFEE/MEAL 담당 해제 미납 409를 HTTP REST Docs snippet/index에 추가했다.
   - 최종 검증: `./gradlew test`는 83 suites / 518 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`와 `./gradlew asciidoctor` 성공, REST Docs snippet group 161개, HTML 생성, `git diff --check origin/develop...HEAD` 성공이다. Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 실행하지 않았다.
+
+- #200 담당 회원 삭제 우회 PM finding 보강:
+  - TDD: ACTIVE COFFEE/MEAL 담당 회원 삭제, owned UNPAID 우회, INACTIVE 멤버의 담당 목록 노출, 재가입 시 stale capability 복원, 회원 삭제와 담당 지정/해제 경합을 test-only RED로 고정했다. 서비스·동시성 신규 6 failures와 REST Docs 신규 2 failures를 production 전에 확인했다.
+  - 사용자 결정/API: ACTIVE 담당 배정이 하나라도 남으면 회원 삭제와 stale 담당 재가입을 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 거부한다. 서버 자동 revoke/책임 이전은 하지 않고 프론트가 기존 개별 담당 해제를 먼저 수행한다. 소유 계좌 UNPAID가 있으면 기존 category별 409가 담당 해제를 계속 막는다.
+  - 동시성/조회: immutable member lock scope 뒤 `campus -> duty -> member` 순서로 회원 삭제·재가입을 직렬화하고, 담당 목록 query는 ACTIVE assignment와 ACTIVE membership을 DB에서 함께 결속한다.
+  - 최종 검증: campus focused와 전체 `83 suites / 526 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, REST Docs 163 groups/HTML, 전체 diff check가 성공했다. DB/Flyway/의존성 변경은 없고 Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 수행하지 않았다.
 
 - #188/#189/#190 통합 검증:
   - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
@@ -1169,6 +1175,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-07-14 | #200 최종 full regression/build/docs | 성공 | `./gradlew test` 495 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 155개, test suite 83개, `git diff --check` 성공. V10은 새 버전 없이 정상 COFFEE 계좌 중립화와 레거시 혼합 row 비활성 격리를 함께 수행 | 최신 `origin/develop...HEAD` PM finding 0 재리뷰 요청. Docker/PostgreSQL/Flyway 실적용은 사용자 금지에 따라 미실행 |
 | 2026-07-14 | #200 PM 최종 3 findings와 자체 리뷰 RED/GREEN | 성공 | 레거시 혼합 Poll 종료, 청구 최신 상태 경합, 담당 해제 overfetch 4 tests와 불일치 COFFEE due 마감 1 test를 RED 재현 후 projection·duty/charge lock·owned account scoped query·classifier fail-closed로 보강. 최종 83 suites / 500 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor/REST Docs/diff check 성공 | 최신 전체 diff PM finding 0 재리뷰 및 프론트 계약 전달. 프론트 정적 검증 전 backend 병합/Docker QA 보류 |
 | 2026-07-15 | #200 최종 API 결정·전체 diff 자체 리뷰 RED/GREEN | 성공 | `manageableByMe` 단일 공개 필드로 정정하고 비활성 duty authorization 3건, stale COFFEE account 1건, dispatch stale snapshot 1건, lock lease/dedupe owner/recovery/docs 경계를 RED 후 보강. 83 suites / 518 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 161 groups, diff check 성공 | 최신 전체 diff PM 재리뷰. frontend 정적 검증 전 merge/Docker 금지 유지 |
+| 2026-07-15 | #200 담당 회원 삭제 우회 RED/GREEN | 성공 | active COFFEE/MEAL 담당 삭제·미납 우회·stale 목록/재가입·지정/해제 경합 6 tests와 회원 삭제/재가입 409 REST Docs 2 tests를 RED로 재현. `CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`, `campus -> duty -> member` 잠금, ACTIVE membership 결속 조회로 보강. 최종 83 suites / 526 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 163 groups, diff check 성공 | 최신 전체 diff PM 재리뷰. frontend 명세에 회원 삭제/재가입 409와 담당 해제 선행 UI 추가 |
 | 2026-06-19 | #61 TDD 실패 확인 | 실패 확인 | 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminManagementControllerTest`가 4 tests / 4 failed로 실패. 서비스 ADMIN 관리 endpoint와 role 변경 PATCH 미구현 확인 | admin application/presentation/port 계층 구현 |
 | 2026-06-19 | #61 focused admin tests | 성공 | `AdminManagementServiceTest`, `AdminManagementControllerTest`, `AdminManagementApiRestDocsTest` 성공. 사용자/캠퍼스 검색, 마지막 ADMIN 보호, 직접 멤버 추가/재활성화, REST Docs 계약 검증 | 전체 회귀 테스트로 확대 |
 | 2026-06-19 | #61 full regression/build/docs | 성공 | `./gradlew test` 성공(138 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 57개 | PM 리뷰 요청 |
@@ -1251,7 +1258,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 요청 body 없이 담당자 소유 계좌의 전체 UNPAID를 계좌·수신자별 합산하는 202 알림 API 2개를 추가하고, Asia/Seoul 일자 Redis dedupe·토큰 없음 skip·dispatch 실패 rollback/retry를 검증.
   - 알림 본문에 청구 title별 건수·금액을 최대 5종까지 표시하고 전체 합계를 유지했으며, 담당 해제와 COFFEE/MEAL 정산이 동일 배정 행 잠금을 공유해 동시 요청에서도 미납 해제 차단을 보장.
   - 자체 리뷰에서 수신자별 FCM token N+1 조회를 발견해 다중 user ID bulk query 1회로 축소하고 구조 회귀 테스트를 추가.
-  - COFFEE 투표를 scheduler 자동 생성에서 제외하되 수동 생성 투표의 예정 마감·정산을 유지하고, 전체 483 tests와 REST Docs 155개 snippet group으로 검증. Docker/실데이터 성과 수치는 측정하지 않음.
+  - COFFEE 투표를 scheduler 자동 생성에서 제외하되 수동 생성 투표의 예정 마감·정산을 유지하고, 담당 회원 삭제 우회까지 차단한 전체 526 tests와 REST Docs 163개 snippet group으로 검증. Docker/실데이터 성과 수치는 측정하지 않음.
 
 - 2026-06-20 #38 PM 검토 보완
   - 컨트롤러 `@NotEmpty`로 빈 `optionIds`가 `GLOBAL_VALIDATION_FAILED`로 뭉개지던 경로를 제거하고, 서비스 검증에서 `POLL_RESPONSE_INVALID_SELECTION_COUNT` 계약을 반환하도록 보정.
