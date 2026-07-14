@@ -1,10 +1,12 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "status": "scenario-ready-not-measured",
   "runtimeStatuses": {
     "measured-before-index-baseline": "Allowed only when planner integrity passes and at least one exact-current-production query has a captured Hibernate SQL fingerprint.",
     "measured-diagnostic-not-production-baseline": "Clean reconstructed/synthetic diagnostic evidence that must not be used as a production before metric.",
-    "invalid-pending-planner-integrity": "Planner, analyze, n_mod_since_analyze, or external activity contamination; runner exits non-zero and adoption is forbidden."
+    "invalid-pending-planner-integrity": "Planner, analyze, n_mod_since_analyze, or boundary activity contamination; runner exits non-zero and adoption is forbidden.",
+    "invalid-pending-start-integrity": "Cross-artifact, anchor, source, schema, planner, or database preflight rejected the run before any EXPLAIN.",
+    "invalid-pending-runtime-failure": "A query-window monitor, schema/vacuum/source/artifact continuity, normalization, or runtime tool failure rejected a partial run."
   },
   "workload": {
     "warmRunsInput": "WARM_RUNS",
@@ -34,11 +36,22 @@
       "settings",
       "lastAnalyze",
       "lastAutoanalyze",
+      "lastVacuum",
+      "lastAutovacuum",
+      "vacuumCount",
+      "autovacuumCount",
+      "allVisiblePages",
       "nModSinceAnalyze",
       "externalActivity"
     ],
-    "autoanalyzeComparison": "Compare per-table lastAnalyze, lastAutoanalyze, and nModSinceAnalyze between before and after snapshots.",
-    "adoptionRule": "Settings and table statistics must be unchanged, with zero external active sessions in both snapshots; otherwise status is invalid-pending-planner-integrity and the runner exits non-zero."
+    "autoanalyzeComparison": "Compare per-table analyze, autoanalyze, vacuum, autovacuum, nModSinceAnalyze, and visibility evidence between before and after snapshots.",
+    "adoptionRule": "Settings, schema/index fingerprint, and table statistics must be unchanged, with zero boundary or transient query-window external activity; otherwise adoption is blocked and the runner exits non-zero."
+  },
+  "activityMonitor": {
+    "scope": "One continuous read-only observer covers every query and phase.",
+    "measuredIdentity": ["preparedRegistrationToken", "label", "applicationName", "boundPid", "boundBackendStart"],
+    "lifecycleRule": "Application identity is prepared before psql spawn, then bound to the observed backend identity. Every expected label must be observed and explicitly unregistered; duplicate or incomplete registrations are invalid.",
+    "contaminationRule": "Transient external active activity or observer exit notifies the runner immediately, aborts the in-flight measured psql, preserves a partial rejected report, and exits non-zero."
   },
   "evidenceClassification": {
     "allowed": ["exact-current-production", "reconstructed-current-query", "synthetic-candidate"],
@@ -72,6 +85,15 @@
     "runNumber",
     "planHash",
     "productionSqlFingerprint",
+    "sqlFile",
+    "sqlSha256",
+    "inventorySha256",
+    "reportContractSha256",
+    "sourceManifestSha256",
+    "productionSourceHashes",
+    "gitCommit",
+    "gitDirty",
+    "schemaIndexFingerprint",
     "composeProject",
     "composeService",
     "postgresContainerId"

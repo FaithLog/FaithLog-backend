@@ -4,13 +4,13 @@
   "fixtureRunId": "fixture-example-run-001",
   "memberCount": 1000,
   "issueReports": {
-    "192": "build/reports/k6/issue-192/example.json",
-    "193": "build/reports/k6/issue-193/example.json",
-    "195": "build/reports/k6/issue-195/example.json",
-    "196": "build/reports/k6/issue-196/example.json",
-    "197": "build/reports/k6/issue-197/example.json",
-    "198": "build/reports/k6/issue-198/example.json",
-    "199": "build/reports/k6/issue-199/example.json"
+    "192": "artifacts/issue-192-accepted.json",
+    "193": "artifacts/issue-193-accepted.json",
+    "195": "artifacts/issue-195-accepted.json",
+    "196": "artifacts/issue-196-accepted.json",
+    "197": "artifacts/issue-197-accepted.json",
+    "198": "artifacts/issue-198-accepted.json",
+    "199": "artifacts/issue-199-accepted.json"
   },
   "anchors": {
     "campus_id": 1,
@@ -26,6 +26,19 @@
     "range_end": "2026-01-01T00:00:00Z",
     "keyword_pattern": "%PERF_%",
     "page_size": 20,
-    "page_offset": 0
+    "page_offset": 0,
+    "expected_state": {
+      "member_status": "ACTIVE",
+      "poll_status": "OPEN",
+      "poll_title": "APPROVED_FIXTURE_POLL_TITLE",
+      "meal_poll_status": "CLOSED",
+      "meal_poll_title": "APPROVED_FIXTURE_MEAL_POLL_TITLE",
+      "payment_account_is_active": true,
+      "payment_account_owner_user_id": 1,
+      "payment_account_nickname": "APPROVED_FIXTURE_ACCOUNT_NICKNAME",
+      "prayer_season_status": "ACTIVE",
+      "prayer_season_name": "APPROVED_FIXTURE_PRAYER_SEASON_NAME",
+      "prayer_week_status": "OPEN"
+    }
   }
 }

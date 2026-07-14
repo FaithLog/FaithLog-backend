@@ -140,6 +140,8 @@ test('source identity binds SQL bytes, inventory, report contract, production re
 	const { assertSingleReadOnlySelect, buildSourceIdentity, loadSqlSources, validateSourceContinuity, validateSourceIdentity } = await import(moduleUrl('source-identity.mjs'));
 	assert.doesNotThrow(() => assertSingleReadOnlySelect('SELECT 1', 'single'));
 	assert.throws(() => assertSingleReadOnlySelect('SELECT 1; SELECT 2', 'multiple'), /exactly one/i);
+	assert.throws(() => assertSingleReadOnlySelect('SELECT 1\n\\g\n\\! env', 'meta-command'), /meta|backslash/i);
+	assert.throws(() => assertSingleReadOnlySelect('SELECT 1 \\g', 'inline-meta-command'), /meta|backslash/i);
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-194-source-'));
 	try {
 		fs.mkdirSync(path.join(root, 'sql'));
@@ -219,20 +221,37 @@ test('query-window monitor retains transient external activity that disappears b
 	try {
 		const bin = path.join(root, 'bin');
 		const output = path.join(root, 'window.json');
+		const sessionsReady = path.join(root, 'sessions-ready');
 		fs.mkdirSync(bin);
 		const fakePsql = path.join(bin, 'psql');
-		fs.writeFileSync(fakePsql, `#!/bin/sh\nprintf '%s\\n' '[{"pid":777,"applicationName":"faithlog-measured","state":"active","queryStart":"2026-07-14T00:00:01Z"},{"pid":902,"applicationName":"frontend","state":"active","queryStart":"2026-07-14T00:00:01Z"},{"pid":903,"applicationName":"faithlog-measured","state":"active","queryStart":"2026-07-14T00:00:01Z"}]'\n`);
+		fs.writeFileSync(fakePsql, `#!/bin/sh\nif [ -f "$FAKE_SESSIONS_READY" ]; then\n  printf '%s\\n' '[{"pid":777,"applicationName":"faithlog-measured","backendStart":"2026-07-14T00:00:00Z","state":"idle","queryStart":"2026-07-14T00:00:01Z"},{"pid":903,"applicationName":"faithlog-other","backendStart":"2026-07-14T00:00:00Z","state":"active","queryStart":"2026-07-14T00:00:01Z"}]'\nelse\n  printf '%s\\n' '[]'\nfi\n`);
 		fs.chmodSync(fakePsql, 0o700);
-		const worker = spawn(process.execPath, [path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-measured'], {
-			env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, stdio: ['pipe', 'pipe', 'pipe'],
+		const worker = spawn(process.execPath, [path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-'], {
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_SESSIONS_READY: sessionsReady }, stdio: ['pipe', 'pipe', 'pipe'],
 		});
+		let externalNotified = false;
+		const registrationToken = 'a'.repeat(32);
+		const prepared = Buffer.from(JSON.stringify({
+			applicationName: 'faithlog-measured', registrationToken, label: 'test-window',
+		})).toString('base64url');
+		const bound = Buffer.from(JSON.stringify({
+			pid: 777, applicationName: 'faithlog-measured', backendStart: '2026-07-14T00:00:00Z', registrationToken,
+		})).toString('base64url');
 		await new Promise((resolve, reject) => {
 			const timer = setTimeout(() => reject(new Error('fake worker readiness timed out')), 2000);
 			worker.once('error', reject);
 			worker.stdout.on('data', (chunk) => {
 				const text = chunk.toString();
-				if (text.includes('ready')) worker.stdin.write('REGISTER:777:test-window\n');
-				if (text.includes('measured-observed:777')) {
+				if (text.includes('external-observed')) externalNotified = true;
+				if (text.includes('ready')) worker.stdin.write(`PREPARE:${prepared}\n`);
+				if (text.includes(`measured-prepared:${registrationToken}`)) {
+					fs.writeFileSync(sessionsReady, 'ready');
+					worker.stdin.write(`BIND:${bound}\n`);
+				}
+				if (text.includes(`measured-observed:${registrationToken}`)) {
+					worker.stdin.write(`UNREGISTER:${registrationToken}\n`);
+				}
+				if (text.includes(`measured-unregistered:${registrationToken}`)) {
 					clearTimeout(timer);
 					worker.kill('SIGTERM');
 					resolve();
@@ -244,9 +263,12 @@ test('query-window monitor retains transient external activity that disappears b
 			worker.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`worker status ${code}`)));
 		});
 		const result = JSON.parse(fs.readFileSync(output, 'utf8'));
+		assert.equal(externalNotified, true);
 		assert.equal(result.measuredSessionObserved, true);
+		assert.equal(result.measuredSessions[0].registrationToken, registrationToken);
+		assert.equal(result.measuredSessions[0].unregistered, true);
 		assert.equal(result.transientExternalActivityDetected, true);
-		assert.deepEqual(result.sessions.map((session) => session.pid), [902, 903]);
+		assert.deepEqual(result.sessions.map((session) => session.pid), [903]);
 		const { validateActivityWindow } = await import(moduleUrl('activity-monitor-contract.mjs'));
 		const unsampled = validateActivityWindow({
 			sampleCount: 2, measuredSessionObserved: false, measuredSessions: [{ pid: 777, observed: false }], sessions: [],
@@ -255,7 +277,7 @@ test('query-window monitor retains transient external activity that disappears b
 		assert.ok(unsampled.reasons.includes('measured-session-not-observed-by-monitor'));
 		const incompleteLifecycle = validateActivityWindow({
 			sampleCount: 2, measuredSessionObserved: true,
-			measuredSessions: [{ pid: 777, label: 'old-run', registrationToken: 'a'.repeat(32), observed: true, unregistered: true }],
+			measuredSessions: [{ pid: 777, label: 'new-run', registrationToken: 'a'.repeat(32), observed: true, unregistered: false }],
 			sessions: [],
 		}, { expectedLabels: ['new-run'] });
 		assert.equal(incompleteLifecycle.adoptable, false);
@@ -268,26 +290,125 @@ test('query-window monitor retains transient external activity that disappears b
 test('activity protocol binds ACK to a nonce and identity, unregisters every backend, and aborts on external activity', () => {
 	const runner = fs.readFileSync(path.join(scenarioRoot, 'run-baseline.mjs'), 'utf8');
 	const worker = fs.readFileSync(path.join(scenarioRoot, 'activity-monitor-worker.mjs'), 'utf8');
+	assert.match(runner, /prepareMeasured/);
 	assert.match(runner, /registrationToken/);
 	assert.match(runner, /backendStart/);
 	assert.match(runner, /unregisterMeasured/);
 	assert.match(runner, /contaminationPromise/);
+	assert.match(worker, /measured-prepared:/);
 	assert.match(worker, /measured-observed:\$\{registration\.registrationToken\}/);
 	assert.match(worker, /measured-unregistered:/);
 	assert.match(worker, /external-observed/);
 	assert.match(worker, /applicationName.*backendStart/s);
 	assert.match(worker, /state <> 'idle'[\s\S]*OR[\s\S]*application_name LIKE/i);
+	assert.doesNotMatch(worker, /sampleCount - pending\.firstSample >= 20/);
+	assert.match(runner, /backendIdentityPromise[\s\S]*monitor\.contaminationPromise[\s\S]*monitor\.exitPromise/);
+	assert.match(runner, /monitor\.exitPromise\.then\(\(\) => \(\{ type: 'monitor-exited'/);
+});
+
+test('activity worker rejects wrong backend identity and unknown lifecycle token', async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-194-monitor-negative-'));
+	try {
+		const bin = path.join(root, 'bin');
+		const sessionsReady = path.join(root, 'sessions-ready');
+		fs.mkdirSync(bin);
+		const fakePsql = path.join(bin, 'psql');
+		fs.writeFileSync(fakePsql, `#!/bin/sh\nif [ -f "$FAKE_SESSIONS_READY" ]; then\n  printf '%s\\n' '[{"pid":777,"applicationName":"faithlog-measured","backendStart":"2026-07-14T00:00:00Z","state":"idle","queryStart":"2026-07-14T00:00:01Z"}]'\nelse\n  printf '%s\\n' '[]'\nfi\n`);
+		fs.chmodSync(fakePsql, 0o700);
+		const token = 'b'.repeat(32);
+		const prepared = Buffer.from(JSON.stringify({
+			applicationName: 'faithlog-measured', registrationToken: token, label: 'wrong-identity',
+		})).toString('base64url');
+		const wrongBinding = Buffer.from(JSON.stringify({
+			pid: 777, applicationName: 'faithlog-measured', backendStart: '2026-07-14T00:00:02Z', registrationToken: token,
+		})).toString('base64url');
+		const output = path.join(root, 'wrong-identity.json');
+		const worker = spawn(process.execPath, [path.join(scenarioRoot, 'activity-monitor-worker.mjs'), output, 'faithlog-'], {
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_SESSIONS_READY: sessionsReady }, stdio: ['pipe', 'pipe', 'pipe'],
+		});
+		let measuredAck = false;
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error('wrong identity worker timed out')), 2000);
+			worker.once('error', reject);
+			worker.stdout.on('data', (chunk) => {
+				const text = chunk.toString();
+				if (text.includes('ready')) worker.stdin.write(`PREPARE:${prepared}\n`);
+				if (text.includes(`measured-prepared:${token}`)) {
+					fs.writeFileSync(sessionsReady, 'ready');
+					worker.stdin.write(`BIND:${wrongBinding}\n`);
+				}
+				if (text.includes(`measured-observed:${token}`)) measuredAck = true;
+				if (text.includes('external-observed')) {
+					clearTimeout(timer);
+					worker.kill('SIGTERM');
+					resolve();
+				}
+			});
+		});
+		await new Promise((resolve, reject) => {
+			worker.once('error', reject);
+			worker.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`worker status ${code}`)));
+		});
+		assert.equal(measuredAck, false);
+		const wrongResult = JSON.parse(fs.readFileSync(output, 'utf8'));
+		assert.equal(wrongResult.measuredSessionObserved, false);
+		assert.equal(wrongResult.transientExternalActivityDetected, true);
+
+		fs.rmSync(sessionsReady, { force: true });
+		const unknownWorker = spawn(process.execPath, [
+			path.join(scenarioRoot, 'activity-monitor-worker.mjs'), path.join(root, 'unknown.json'), 'faithlog-',
+		], {
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_SESSIONS_READY: sessionsReady }, stdio: ['pipe', 'pipe', 'pipe'],
+		});
+		const unknownExit = await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error('unknown token worker timed out')), 2000);
+			unknownWorker.once('error', reject);
+			unknownWorker.stdout.on('data', (chunk) => {
+				if (chunk.toString().includes('ready')) unknownWorker.stdin.write(`UNREGISTER:${'c'.repeat(32)}\n`);
+			});
+			unknownWorker.once('exit', (code) => {
+				clearTimeout(timer);
+				resolve(code);
+			});
+		});
+		assert.notEqual(unknownExit, 0);
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
 });
 
 test('runner cancels timeout losers, preserves child-reap lock safety, and records monitor stop failure', () => {
 	const runner = fs.readFileSync(path.join(scenarioRoot, 'run-baseline.mjs'), 'utf8');
-	assert.match(runner, /function withTimeout/);
-	assert.match(runner, /clearTimeout/);
+	const safety = fs.readFileSync(path.join(scenarioRoot, 'runner-safety-contract.mjs'), 'utf8');
+	assert.match(safety, /function withTimeout/);
+	assert.match(safety, /clearTimeout/);
 	assert.doesNotMatch(runner, /delayResult\(/);
 	assert.match(runner, /allChildrenReaped/);
 	assert.match(runner, /activity-monitor-stop-failure/);
 	assert.match(runner, /child-process-not-reaped/);
-	assert.match(runner, /randomBytes\(8\).*report/s);
+	assert.match(runner, /allocateReportDirectory/);
+});
+
+test('report directory allocation is atomic and child reap failure is executable fail-closed evidence', async () => {
+	const { allocateReportDirectory, terminateChildProcess } = await import(moduleUrl('runner-safety-contract.mjs'));
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-194-runner-safety-'));
+	try {
+		const options = {
+			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', startedAt: '2026-07-14T00:00:00.000Z', nonce: 'a'.repeat(16),
+		};
+		const allocated = allocateReportDirectory(root, options);
+		assert.equal(fs.statSync(allocated).isDirectory(), true);
+		assert.throws(() => allocateReportDirectory(root, options), /exist|collision|unique/i);
+		const signals = [];
+		const fakeChild = { exitCode: null, kill: (signal) => { signals.push(signal); return true; } };
+		await assert.rejects(
+			() => terminateChildProcess(fakeChild, new Promise(() => {}), { gracefulTimeoutMs: 1, killTimeoutMs: 1 }),
+			(error) => error.code === 'CHILD_NOT_REAPED'
+		);
+		assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
 });
 
 test('planner integrity rejects autovacuum, vacuum and visibility evidence changes', async () => {

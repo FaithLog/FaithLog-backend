@@ -120,7 +120,7 @@ test('runner requires traceable fixture identity, exclusive lock, runtime creden
 		&& anchorDbGateIndex < startGateIndex && startGateIndex < explainIndex);
 	assert.match(runner, /writeRejectedReport\(reportPath/);
 	assert.match(runner, /queryRunCount: explainRunCount/);
-	assert.match(runner, /validateActivityWindow\(activityWindows\[0\]\)/);
+	assert.match(runner, /validateActivityWindow\(activityWindows\[0\],/);
 	assert.match(runner, /expectedLabels: measurementLabels/);
 	assert.match(runner, /validateSourceContinuity/);
 	assert.match(runner, /validateArtifactContinuity/);

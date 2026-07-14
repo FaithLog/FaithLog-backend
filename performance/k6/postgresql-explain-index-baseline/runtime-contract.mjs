@@ -142,6 +142,15 @@ export function validateMeasurementIntegrity(before, after, {
 		if (previous.nModSinceAnalyze !== current.nModSinceAnalyze) {
 			reasons.push(`n-mod-since-analyze-changed:${table}`);
 		}
+		for (const [field, reason] of [
+			['lastVacuum', 'last-vacuum-changed'],
+			['lastAutovacuum', 'last-autovacuum-changed'],
+			['vacuumCount', 'vacuum-count-changed'],
+			['autovacuumCount', 'autovacuum-count-changed'],
+			['allVisiblePages', 'all-visible-pages-changed'],
+		]) {
+			if (previous[field] !== current[field]) reasons.push(`${reason}:${table}`);
+		}
 	}
 	if (activeSessionCount(before) > 0) {
 		reasons.push('external-activity-present-before');
@@ -214,8 +223,13 @@ function validateSnapshotEvidence(snapshot, phase, expectedTables, expectedSetti
 		}
 		if (!Object.hasOwn(row, 'lastAnalyze')
 			|| !Object.hasOwn(row, 'lastAutoanalyze')
+			|| !Object.hasOwn(row, 'lastVacuum')
+			|| !Object.hasOwn(row, 'lastAutovacuum')
 			|| typeof row.nModSinceAnalyze !== 'number'
-			|| !Number.isFinite(row.nModSinceAnalyze)) {
+			|| !Number.isFinite(row.nModSinceAnalyze)
+			|| !Number.isFinite(row.vacuumCount)
+			|| !Number.isFinite(row.autovacuumCount)
+			|| !Number.isFinite(row.allVisiblePages)) {
 			reasons.push(`${phase}-table-statistics-fields-incomplete:${table}`);
 		}
 	}
