@@ -5,6 +5,7 @@ import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.command.ChangeCampusRoleCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
+import com.faithlog.campus.service.policy.CampusAccessPolicy;
 import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.result.CampusMembershipResult;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
@@ -57,7 +58,7 @@ class CampusDutyAssignmentConcurrencyTest {
 	@Autowired
 	private CampusService campusService;
 
-	@MockitoSpyBean
+	@Autowired
 	private UserRepository userRepository;
 
 	@Autowired
@@ -74,6 +75,9 @@ class CampusDutyAssignmentConcurrencyTest {
 
 	@MockitoSpyBean
 	private CampusRepository campusRepository;
+
+	@MockitoSpyBean
+	private CampusAccessPolicy campusAccessPolicy;
 
 	@Autowired
 	private TransactionTemplate transactionTemplate;
@@ -336,7 +340,7 @@ class CampusDutyAssignmentConcurrencyTest {
 				}
 			}
 			return result;
-		}).when(userRepository).increaseTokenVersion(target.id());
+		}).when(campusAccessPolicy).getUserOrThrow(target.id());
 
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
