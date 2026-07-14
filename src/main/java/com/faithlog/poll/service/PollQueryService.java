@@ -49,8 +49,6 @@ public class PollQueryService {
 	public List<PollListItemResult> listPolls(Long campusId, Long requesterId) {
 		pollAccessService.requirePollReader(campusId, requesterId);
 		boolean adminWindow = pollAccessService.hasAdminVisibility(campusId, requesterId);
-		boolean activeCoffeeDuty = pollAccessService.isActiveCoffeeDuty(campusId, requesterId);
-		boolean activeMealDuty = pollAccessService.isActiveMealDuty(campusId, requesterId);
 		List<Poll> campusPolls = pollRepository.findByCampusIdOrderByIdDesc(campusId);
 		campusPolls.forEach(pollStatusSynchronizer::openScheduledPollIfCurrent);
 		List<Poll> visiblePolls = campusPolls.stream()
@@ -59,6 +57,11 @@ public class PollQueryService {
 		if (visiblePolls.isEmpty()) {
 			return List.of();
 		}
+		boolean hasCoffeePoll = visiblePolls.stream().anyMatch(poll -> CoffeeOperationClassifier.isCoffeeOperation(
+			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory()));
+		boolean hasMealPoll = visiblePolls.stream().anyMatch(poll -> poll.pollType() == PollType.MEAL);
+		boolean activeCoffeeDuty = hasCoffeePoll && pollAccessService.isActiveCoffeeDuty(campusId, requesterId);
+		boolean activeMealDuty = hasMealPoll && pollAccessService.isActiveMealDuty(campusId, requesterId);
 		Set<Long> respondedPollIds = pollResponseRepository.findByPollIdInAndUserId(
 				visiblePolls.stream().map(Poll::id).toList(),
 				requesterId
@@ -82,17 +85,17 @@ public class PollQueryService {
 
 	@Transactional
 	public PollDetailResult getPollDetail(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupSupport.getVisiblePoll(campusId, pollId, requesterId);
+		PollLookupSupport.VisiblePollAccess access = pollLookupSupport.getVisiblePollWithAccess(
+			campusId, pollId, requesterId);
+		Poll poll = access.poll();
 		PollResponseResult myResponse = pollResponseRepository.findByPollIdAndUserId(poll.id(), requesterId)
 			.map(response -> PollResponseResult.of(response, optionIdsForResponse(response.id())))
 			.orElse(null);
-		boolean manageableByMe = isManageableByRequester(
-			poll,
-			requesterId,
-			pollAccessService.hasAdminVisibility(campusId, requesterId),
-			pollAccessService.isActiveCoffeeDuty(campusId, requesterId),
-			pollAccessService.isActiveMealDuty(campusId, requesterId)
-		);
+		boolean coffeeOperation = CoffeeOperationClassifier.isCoffeeOperation(
+			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory());
+		boolean manageableByMe = isManageableByRequester(poll, requesterId, access.adminVisibility(),
+			coffeeOperation && pollAccessService.isActiveCoffeeDuty(campusId, requesterId),
+			poll.pollType() == PollType.MEAL && pollAccessService.isActiveMealDuty(campusId, requesterId));
 		return new PollDetailResult(pollResultAssembler.toResult(poll), myResponse, manageableByMe);
 	}
 
