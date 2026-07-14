@@ -13,6 +13,10 @@ import com.faithlog.campus.service.result.DutyAssignmentResult;
 import com.faithlog.campus.service.result.MyDutyAssignmentResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusMemberStatus;
@@ -21,6 +25,7 @@ import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.billing.domain.entity.ChargeItem;
 import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
@@ -35,6 +40,7 @@ import com.faithlog.user.infrastructure.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
@@ -47,6 +53,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,7 +78,7 @@ class CampusServiceTest {
 	@Autowired
 	private PaymentAccountRepository paymentAccountRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private ChargeItemRepository chargeItemRepository;
 
 	@Autowired
@@ -635,6 +642,69 @@ class CampusServiceTest {
 		assertThat(campusService.getDutyAssignments(campus.campusId(), manager.id()))
 			.extracting(DutyAssignmentResult::assignmentId)
 			.doesNotContain(coffeeAssignment.assignmentId(), mealAssignment.assignmentId());
+	}
+
+	@Test
+	void revokeCoffeeDuty_skips_charge_query_when_assignee_has_no_owned_account() {
+		User manager = saveUser("duty-revoke-empty-scope-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("duty-revoke-empty-scope-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "200담당해제빈범위캠", "분당", "담당 해제 빈 계좌 범위 검증"
+		));
+		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
+		DutyAssignmentResult assignment = campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), manager.id(), duty.id()
+		));
+		clearInvocations(chargeItemRepository);
+
+		campusService.revokeCoffeeDuty(campus.campusId(), assignment.assignmentId(), manager.id());
+
+		verify(chargeItemRepository, never()).findByCampusIdAndPaymentCategoryAndStatus(
+			campus.campusId(), PaymentCategory.COFFEE, ChargeStatus.UNPAID
+		);
+		verify(chargeItemRepository, never())
+			.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+				campus.campusId(), PaymentCategory.COFFEE, ChargeStatus.UNPAID, anySet()
+			);
+	}
+
+	@Test
+	void revokeCoffeeDuty_queries_unpaid_charges_only_for_owned_account_ids() {
+		User manager = saveUser("duty-revoke-owned-scope-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("duty-revoke-owned-scope-duty@example.com", UserRole.USER);
+		User target = saveUser("duty-revoke-owned-scope-target@example.com", UserRole.USER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(), "200담당해제소유범위캠", "분당", "담당 해제 소유 계좌 범위 검증"
+		));
+		campusService.joinCampus(new JoinCampusCommand(duty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+		DutyAssignmentResult assignment = campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), manager.id(), duty.id()
+		));
+		PaymentAccount ownedAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "담당자 계좌", "하나은행", "200-OWNED-SCOPE",
+			"담당자", duty.id()
+		));
+		PaymentAccount otherAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "다른 계좌", "국민은행", "200-OTHER-SCOPE",
+			"관리자", manager.id()
+		));
+		chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), target.id(), PaymentCategory.COFFEE, otherAccount.id(), otherAccount.bankName(),
+			otherAccount.accountNumber(), otherAccount.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20005L,
+			"다른 담당자 미납", "범위 밖 미납", 1900, null
+		));
+		clearInvocations(chargeItemRepository);
+
+		campusService.revokeCoffeeDuty(campus.campusId(), assignment.assignmentId(), manager.id());
+
+		verify(chargeItemRepository, never()).findByCampusIdAndPaymentCategoryAndStatus(
+			campus.campusId(), PaymentCategory.COFFEE, ChargeStatus.UNPAID
+		);
+		verify(chargeItemRepository)
+			.findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+				campus.campusId(), PaymentCategory.COFFEE, ChargeStatus.UNPAID, Set.of(ownedAccount.id())
+			);
 	}
 
 	private void updateCampusRole(Long membershipId, CampusRole campusRole) {
