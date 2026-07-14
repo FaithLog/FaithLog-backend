@@ -238,7 +238,7 @@ include::{snippets}/users-me-inactive-user-unauthorized/response-fields.adoc[]
 
 `DELETE /api/v1/users/me`
 
-회원 탈퇴는 App Store 계정 삭제 요건 대응 API다. 사용자는 앱 안에서 본인 비밀번호와 확인 문구 `회원탈퇴`를 입력해 계정 삭제를 완료한다. 서버는 `users` row를 soft delete로 유지하지만 개인정보를 익명화하고, 캠퍼스 멤버십/FCM token/session/tokenVersion을 정리한다.
+회원 탈퇴는 App Store 계정 삭제 요건 대응 API다. 사용자는 앱 안에서 본인 비밀번호와 확인 문구 `회원탈퇴`를 입력해 계정 삭제를 완료한다. 서버는 `users` row를 soft delete로 유지하지만 개인정보를 익명화하고, 캠퍼스 멤버십/FCM token/session/tokenVersion을 정리한다. 어느 캠퍼스든 ACTIVE COFFEE/MEAL 담당 배정이 남아 있으면 자동 해제하지 않고 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 탈퇴를 거부하며, 캠퍼스 관리자가 담당 해제를 먼저 완료해야 한다.
 
 ==== Request
 
@@ -267,6 +267,18 @@ include::{snippets}/users-me-delete-password-mismatch/http-request.adoc[]
 include::{snippets}/users-me-delete-password-mismatch/http-response.adoc[]
 
 include::{snippets}/users-me-delete-password-mismatch/response-fields.adoc[]
+
+==== Error: Active Duty Conflict
+
+include::{snippets}/users-me-delete-active-duty-conflict/http-request.adoc[]
+
+include::{snippets}/users-me-delete-active-duty-conflict/request-headers.adoc[]
+
+include::{snippets}/users-me-delete-active-duty-conflict/request-fields.adoc[]
+
+include::{snippets}/users-me-delete-active-duty-conflict/http-response.adoc[]
+
+include::{snippets}/users-me-delete-active-duty-conflict/response-fields.adoc[]
 
 == Notifications
 
@@ -482,7 +494,7 @@ include::{snippets}/campus-create-success/response-fields.adoc[]
 
 `POST /api/v1/campuses/join`
 
-초대코드 가입은 승인 대기 없이 즉시 `MEMBER + ACTIVE` 멤버십을 생성한다. 같은 사용자는 같은 캠퍼스에 중복 가입할 수 없다. 과거 INACTIVE 멤버십에 ACTIVE COFFEE/MEAL 담당 배정이 남아 있으면 과거 capability를 자동 복원하지 않고 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 재가입을 거부한다. 관리자가 기존 담당 해제를 완료한 뒤 재가입해야 한다.
+초대코드 가입은 승인 대기 없이 즉시 `MEMBER + ACTIVE` 멤버십을 생성한다. 같은 사용자는 같은 캠퍼스에 중복 가입할 수 없다. 과거 INACTIVE 멤버십에 ACTIVE COFFEE/MEAL 담당 배정이 남아 있으면 과거 capability를 자동 복원하지 않고 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 재가입을 거부한다. 관리자는 담당 목록의 `staleOnly=true` 조회로 과거 배정 ID를 확인해 기존 담당 해제를 완료한 뒤 재가입시켜야 한다.
 
 ==== Request
 
@@ -670,7 +682,7 @@ include::{snippets}/admin-campus-role-change-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/duty-assignments`
 
-캠퍼스의 활성 담당자 배정 목록을 조회한다. 담당 배정이 ACTIVE여도 캠퍼스 멤버십이 INACTIVE인 과거 불일치 row는 반환하지 않는다.
+캠퍼스의 활성 담당자 배정 목록을 조회한다. 기본 `staleOnly=false`에서는 담당 배정이 ACTIVE여도 캠퍼스 멤버십이 INACTIVE인 과거 불일치 row를 반환하지 않는다. `staleOnly=true`를 지정하면 반대로 해당 과거 배정만 반환하므로 관리자가 응답의 `assignmentId`로 기존 COFFEE/MEAL 해제 API를 호출할 수 있다. 응답 구조는 기본 조회와 같다.
 
 ==== Request
 
@@ -691,6 +703,22 @@ include::{snippets}/admin-duty-assignments-list-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/admin-duty-assignments-list-success/response-fields.adoc[]
+
+==== Stale Assignment Recovery Request
+
+include::{snippets}/admin-stale-duty-assignments-list-success/http-request.adoc[]
+
+include::{snippets}/admin-stale-duty-assignments-list-success/request-headers.adoc[]
+
+include::{snippets}/admin-stale-duty-assignments-list-success/path-parameters.adoc[]
+
+include::{snippets}/admin-stale-duty-assignments-list-success/query-parameters.adoc[]
+
+==== Stale Assignment Recovery Response
+
+include::{snippets}/admin-stale-duty-assignments-list-success/http-response.adoc[]
+
+include::{snippets}/admin-stale-duty-assignments-list-success/response-fields.adoc[]
 
 === Assign Coffee Duty
 

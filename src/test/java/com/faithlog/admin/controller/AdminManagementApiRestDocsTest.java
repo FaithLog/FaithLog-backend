@@ -13,6 +13,7 @@ import static org.springframework.restdocs.request.RequestDocumentation.paramete
 import static org.springframework.restdocs.request.RequestDocumentation.pathParameters;
 import static org.springframework.restdocs.request.RequestDocumentation.queryParameters;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -274,6 +275,22 @@ class AdminManagementApiRestDocsTest {
 				)),
 				responseFields(apiResponseFields(dutyAssignmentFields("data[].")))
 			));
+
+		mockMvc.perform(delete(
+				"/api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}",
+				campusId,
+				assignmentId
+			).header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isNoContent());
+		mockMvc.perform(post("/api/v1/campuses/join")
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "inviteCode": "%s"
+					}
+					""".formatted(campus.path("inviteCode").asText())))
+			.andExpect(status().isCreated());
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
