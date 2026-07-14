@@ -66,7 +66,8 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 - non-anonymous respondent 800명 노출, anonymous respondent identity 0명 노출
 - comments 200개 ID 오름차순, templates ID 오름차순/option sortOrder 오름차순
 - missing-members 200명 membership 순서
-- DB before/after의 exact required table set, timestamp 증가, planner 설정과 analyze/autoanalyze 상태 불변, 각 cumulative counter의 finite/nonnegative/monotonic 및 table별 `n_tup_ins/upd/del` delta 개별 exact 0
+- DB before/after의 exact required table/field schema, timestamp 증가, 8개 non-empty planner 설정과 database/address/port/postmaster identity 불변, analyze/autoanalyze/vacuum/autovacuum count·null-or-valid timestamp 불변, 각 numeric counter의 finite/nonnegative 및 cumulative counter monotonic, table별 `n_tup_ins/upd/del` delta 개별 exact 0
+- runtime/resource sample의 1초 sampling contract, 2초 maximum gap, measured 시작·종료 boundary coverage, timestamp strict monotonic/window 포함, duration 기반 minimum sample count. 10분 1표본과 시작·종료 사이 긴 무표본 구간은 non-adoptable
 - correctness failure 0건 고정 gate, warmup/k6/resource/activity sampler/time-window/log/after-DB-snapshot 실패 report의 `accepted=false`/`measurementStatus=rejected`, 필수 latency/throughput/table/resource/activity evidence 및 read-path write delta rejection reason, 모든 rejected report의 runner 비정상 종료
 
 ## endpoint별 evidence 계약
@@ -78,12 +79,14 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 - `org.hibernate.SQL` query count와 `queriesPerRequest`
 - normalized repeated SQL과 loop/N+1 신호
 - `pg_stat_user_tables` exact table set별 estimated row count와 monotonic scan/fetch 및 table/counter별 zero write delta
-- measured window 전후 planner/analyze 상태와 실행 중 `pg_stat_activity`/host port client sample; 현재 observer PID, attested app-container client address, measured k6 PID와 Docker proxy만 제외하고 같은 이름의 다른 k6/JDBC session을 포함한 외부 DB/HTTP activity 또는 autoanalyze/planner 변화 시 non-adoptable
-- 실제 app image tag/immutable image ID, published target port와 Compose project/service/config-hash label
+- measured window 전후 planner/analyze/vacuum maintenance 상태와 실행 중 `pg_stat_activity`/host port client sample; 현재 observer PID, attested app-container client address, measured k6 PID와 Docker proxy만 제외하고 같은 이름의 다른 k6/JDBC session을 포함한 외부 DB/HTTP activity 또는 maintenance/planner 변화 시 non-adoptable
+- 실제 app/DB container ID, immutable image ID, `StartedAt`, PostgreSQL database/address/port/postmaster start time, app image tag, published target port와 Compose project/service/config-hash label. warmup 전, measured 직전·직후, 최종 채택 전 exact continuity를 재검증
 
 각 endpoint는 explicit `WARMUP_VUS/WARMUP_DURATION`의 별도 k6 process를 먼저 끝내고 성공한 경우에만 explicit `MEASURED_VUS/MEASURED_DURATION` process를 시작한다. measured 직전에 token을 다시 발급하고 JWT `exp`가 phase duration과 safety margin을 덮는지 raw token 저장·출력 없이 검증한다. DB/log/resource/activity evidence window는 warmup 뒤에만 연다. caller의 stale token env는 시작 시 제거하고 login/DB child에만 필요한 credential을 inline 전달하며 k6에는 새 token만 전달한다. Docker metadata/summarizer 등 다른 child에는 credential/token을 상속하지 않는다.
 
 실제 app/DB Compose label 일치를 확인한 뒤 seed/shaper/runner 모두 `/tmp/faithlog-performance-{actualComposeProject}.lock`을 사용한다. caller lock override는 없다. mode도 runtime 필수이며 `all`은 명시했을 때만 전체 19 endpoint로 확장된다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리하고 app scheduler를 끈다.
+
+실제 측정 operator는 frontend/QA/다른 요청 주체가 없는 exclusive window를 확보한 뒤에만 runtime 필수 `EXCLUSIVE_WINDOW_CONFIRMED=true`를 전달한다. polling evidence는 관찰된 외부 activity를 거부하지만 짧은 transient 요청의 절대 부재를 단독 증명하지 못하므로, 이 선언은 canonical lock·activity sample과 함께 쓰는 추가 채택 gate다.
 
 ## 정적 코드에서 확인한 측정 후보
 
@@ -109,5 +112,6 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 
 - 최초 scenario 계약: production 변경 전 `7 tests / 7 failures` RED 후 1차 `8 tests / 0 failures` GREEN
 - PM finding 재현: test-only commit에서 `10 tests / 3 pass / 7 fail` RED
-- 최종 계약: lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 다른 k6 PID, reversed percentile, existing report 보존 fake evidence를 포함한 `12 tests / 0 failures` GREEN
+- PM 2차 finding 재현: test-only commit에서 `12 tests / 9 pass / 3 fail` RED
+- 최종 계약: lock 선점 및 warmup 실패 부작용 0건, stale token/child credential scope, 같은 이름의 container ID 교체 시 login/k6 0건, missing exact DB schema, 10분 1표본/긴 gap, vacuum drift, 다른 k6 PID, reversed percentile, existing report 보존 fake evidence를 포함한 `12 tests / 0 failures` GREEN
 - Node/Bash syntax와 `git diff --check`를 수행한다. 이 검증은 실제 seed/k6/Docker/DB를 실행하지 않는다.

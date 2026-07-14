@@ -15,6 +15,24 @@ const EXPECTED_TABLES = [
 	'prayer_group_members', 'prayer_groups', 'prayer_seasons', 'prayer_submissions', 'prayer_weeks',
 	'user_fcm_tokens', 'users', 'weekly_devotion_records',
 ].sort();
+const EXPECTED_PLANNER_KEYS = [
+	'cpu_index_tuple_cost', 'cpu_tuple_cost', 'effective_cache_size', 'jit',
+	'max_parallel_workers_per_gather', 'plan_cache_mode', 'random_page_cost', 'work_mem',
+].sort();
+const TABLE_COUNTER_FIELDS = [
+	'seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch', 'n_tup_ins', 'n_tup_upd',
+	'n_tup_del', 'n_live_tup', 'n_dead_tup', 'analyze_count', 'autoanalyze_count',
+	'vacuum_count', 'autovacuum_count',
+];
+const MAINTENANCE_TIMESTAMP_FIELDS = [
+	'last_analyze', 'last_autoanalyze', 'last_vacuum', 'last_autovacuum',
+];
+const EXPECTED_TABLE_FIELDS = [
+	'schemaname', 'relname', ...TABLE_COUNTER_FIELDS, ...MAINTENANCE_TIMESTAMP_FIELDS,
+].sort();
+const EXPECTED_DATABASE_IDENTITY_KEYS = [
+	'currentDatabase', 'postmasterStartedAt', 'serverAddress', 'serverPort',
+].sort();
 const metadata = readJson(metadataPath);
 const k6ExitStatus = Number(metadata.runtime?.k6ExitStatus);
 const resourceSamplerExitStatus = Number(metadata.runtime?.resourceSamplerExitStatus);
@@ -23,8 +41,10 @@ const logCaptureExitStatus = Number(metadata.runtime?.logCaptureExitStatus);
 const afterDbSnapshotExitStatus = Number(metadata.runtime?.afterDbSnapshotExitStatus);
 const warmupExitStatus = Number(metadata.runtime?.warmupExitStatus);
 const integritySamplerExitStatus = Number(metadata.runtime?.integritySamplerExitStatus);
+const runtimeContinuityExitStatus = Number(metadata.runtime?.runtimeContinuityExitStatus);
 if (![k6ExitStatus, resourceSamplerExitStatus, fixtureWindowExitStatus, logCaptureExitStatus,
-	afterDbSnapshotExitStatus, warmupExitStatus, integritySamplerExitStatus].every(Number.isInteger)) {
+	afterDbSnapshotExitStatus, warmupExitStatus, integritySamplerExitStatus,
+	runtimeContinuityExitStatus].every(Number.isInteger)) {
 	throw new Error('Runtime metadata must contain integer warmup, k6, sampler, integrity, window, log, and DB snapshot exit statuses.');
 }
 const summary = readJsonOptional(summaryPath);
@@ -65,6 +85,8 @@ if (warmupExitStatus !== 0) addReason(`warmup-exit-${warmupExitStatus}`);
 if (k6ExitStatus !== 0) rejectionReasons.push(`k6-exit-${k6ExitStatus}`);
 if (resourceSamplerExitStatus !== 0) rejectionReasons.push(`resource-sampler-exit-${resourceSamplerExitStatus}`);
 if (integritySamplerExitStatus !== 0) rejectionReasons.push(`integrity-sampler-exit-${integritySamplerExitStatus}`);
+if (runtimeContinuityExitStatus !== 0) rejectionReasons.push(`runtime-continuity-exit-${runtimeContinuityExitStatus}`);
+if (metadata.runtime?.exclusiveWindowConfirmed !== true) rejectionReasons.push('exclusive-window-not-confirmed');
 if (fixtureWindowExitStatus !== 0) rejectionReasons.push('fixture-window-crossed');
 if (logCaptureExitStatus !== 0) rejectionReasons.push(`log-capture-exit-${logCaptureExitStatus}`);
 if (afterDbSnapshotExitStatus !== 0) rejectionReasons.push(`after-db-snapshot-exit-${afterDbSnapshotExitStatus}`);
@@ -89,7 +111,9 @@ for (const reason of tableValidation.rejectionReasons) addReason(reason);
 const integrityValidation = validateIntegrityEvidence(integritySamples, metadata.runtime);
 for (const reason of integrityValidation.rejectionReasons) addReason(reason);
 const tableCounterDelta = diffTableCounters(before?.tables || [], after?.tables || []);
-const resources = summarizeResources(resourceText || '');
+const resourceValidation = validateResourceEvidence(resourceText || '', metadata.runtime);
+for (const reason of resourceValidation.rejectionReasons) addReason(reason);
+const resources = resourceValidation.resources;
 const capturedContainers = new Set(resources.map((resource) => resource.container));
 for (const container of [metadata.runtime?.appContainer, metadata.runtime?.dbContainer]) {
 	if (!container || !capturedContainers.has(container)) {
@@ -103,6 +127,7 @@ const accepted = k6ExitStatus === 0
 	&& warmupExitStatus === 0
 	&& resourceSamplerExitStatus === 0
 	&& integritySamplerExitStatus === 0
+	&& runtimeContinuityExitStatus === 0
 	&& fixtureWindowExitStatus === 0
 	&& logCaptureExitStatus === 0
 	&& afterDbSnapshotExitStatus === 0
@@ -142,6 +167,8 @@ const report = {
 			snapshotOrderValid: tableValidation.snapshotOrderValid,
 			plannerSettingsStable: tableValidation.plannerSettingsStable,
 			analyzeStateStable: tableValidation.analyzeStateStable,
+			vacuumStateStable: tableValidation.vacuumStateStable,
+			databaseIdentityStable: tableValidation.databaseIdentityStable,
 			runtimeSampleCount: integrityValidation.sampleCount,
 		},
 	},
@@ -229,33 +256,56 @@ function diffTableCounters(beforeTables, afterTables) {
 function validateTableEvidence(before, after) {
 	const rejectionReasons = [];
 	const cumulativeCounters = ['seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch', 'n_tup_ins', 'n_tup_upd', 'n_tup_del'];
-	const numericFields = [...cumulativeCounters, 'n_live_tup', 'analyze_count', 'autoanalyze_count'];
 	const beforeTables = before?.tables;
 	const afterTables = after?.tables;
 	const beforeTime = Date.parse(before?.capturedAt);
 	const afterTime = Date.parse(after?.capturedAt);
 	const snapshotOrderValid = Number.isFinite(beforeTime) && Number.isFinite(afterTime) && beforeTime < afterTime;
 	if (!snapshotOrderValid) rejectionReasons.push('snapshot-time-order');
-	const plannerSettingsStable = semanticEqual(before?.plannerSettings, after?.plannerSettings);
-	if (!plannerSettingsStable) rejectionReasons.push('planner-settings-changed');
+	const plannerSettingsValid = [before?.plannerSettings, after?.plannerSettings].every((settings) => (
+		isExactObject(settings, EXPECTED_PLANNER_KEYS)
+		&& Object.values(settings).every(isNonEmptyScalar)
+	));
+	if (!plannerSettingsValid) rejectionReasons.push('invalid-planner-settings');
+	const plannerSettingsStable = plannerSettingsValid && semanticEqual(before.plannerSettings, after.plannerSettings);
+	if (plannerSettingsValid && !plannerSettingsStable) rejectionReasons.push('planner-settings-changed');
+	const databaseIdentityValid = [before?.databaseIdentity, after?.databaseIdentity].every((identity) => (
+		isExactObject(identity, EXPECTED_DATABASE_IDENTITY_KEYS)
+		&& typeof identity.currentDatabase === 'string' && identity.currentDatabase.length > 0
+		&& typeof identity.serverAddress === 'string' && identity.serverAddress.length > 0
+		&& Number.isInteger(identity.serverPort) && identity.serverPort > 0
+		&& isValidTimestamp(identity.postmasterStartedAt)
+	));
+	if (!databaseIdentityValid) rejectionReasons.push('invalid-database-identity');
+	const databaseIdentityStable = databaseIdentityValid
+		&& semanticEqual(before.databaseIdentity, after.databaseIdentity);
+	if (databaseIdentityValid && !databaseIdentityStable) rejectionReasons.push('database-identity-changed');
 	if (!Array.isArray(beforeTables) || !Array.isArray(afterTables)) {
-		return { rejectionReasons: [...rejectionReasons, 'invalid-db-table-snapshot'], snapshotOrderValid, plannerSettingsStable, analyzeStateStable: false };
+		return {
+			rejectionReasons: [...rejectionReasons, 'invalid-db-table-snapshot'], snapshotOrderValid,
+			plannerSettingsStable, analyzeStateStable: false, vacuumStateStable: false, databaseIdentityStable,
+		};
 	}
 	const beforeNames = beforeTables.map((table) => table.relname).sort();
 	const afterNames = afterTables.map((table) => table.relname).sort();
-	if (!semanticEqual(beforeNames, EXPECTED_TABLES) || !semanticEqual(afterNames, EXPECTED_TABLES)) {
+	if (new Set(beforeNames).size !== EXPECTED_TABLES.length || new Set(afterNames).size !== EXPECTED_TABLES.length
+		|| !semanticEqual(beforeNames, EXPECTED_TABLES) || !semanticEqual(afterNames, EXPECTED_TABLES)) {
 		rejectionReasons.push('required-table-set-mismatch');
 	}
 	const beforeByName = new Map(beforeTables.map((table) => [table.relname, table]));
 	let analyzeStateStable = true;
+	let vacuumStateStable = true;
 	for (const current of afterTables) {
 		const previous = beforeByName.get(current.relname);
-		if (!previous || numericFields.some((field) => strictNumber(previous[field]) === null || strictNumber(current[field]) === null
-			|| previous[field] < 0 || current[field] < 0)) {
+		const rows = [previous, current];
+		if (!previous || rows.some((row) => !isExactObject(row, EXPECTED_TABLE_FIELDS)
+			|| row.schemaname !== 'public' || row.relname !== current.relname
+			|| TABLE_COUNTER_FIELDS.some((field) => strictNumber(row[field]) === null || row[field] < 0)
+			|| MAINTENANCE_TIMESTAMP_FIELDS.some((field) => row[field] !== null && !isValidTimestamp(row[field])))) {
 			rejectionReasons.push('invalid-db-table-snapshot');
 			continue;
 		}
-		for (const counter of cumulativeCounters) {
+		for (const counter of [...cumulativeCounters, 'analyze_count', 'autoanalyze_count', 'vacuum_count', 'autovacuum_count']) {
 			const delta = current[counter] - previous[counter];
 			if (delta < 0) rejectionReasons.push('counter-regression');
 			if (['n_tup_ins', 'n_tup_upd', 'n_tup_del'].includes(counter) && delta !== 0) {
@@ -265,9 +315,16 @@ function validateTableEvidence(before, after) {
 		for (const field of ['last_analyze', 'last_autoanalyze', 'analyze_count', 'autoanalyze_count']) {
 			if (current[field] !== previous[field]) analyzeStateStable = false;
 		}
+		for (const field of ['last_vacuum', 'last_autovacuum', 'vacuum_count', 'autovacuum_count']) {
+			if (current[field] !== previous[field]) vacuumStateStable = false;
+		}
 	}
 	if (!analyzeStateStable) rejectionReasons.push('analyze-state-changed');
-	return { rejectionReasons: [...new Set(rejectionReasons)], snapshotOrderValid, plannerSettingsStable, analyzeStateStable };
+	if (!vacuumStateStable) rejectionReasons.push('vacuum-state-changed');
+	return {
+		rejectionReasons: [...new Set(rejectionReasons)], snapshotOrderValid, plannerSettingsStable,
+		analyzeStateStable, vacuumStateStable, databaseIdentityStable,
+	};
 }
 
 function validateIntegrityEvidence(samples, runtime) {
@@ -275,13 +332,10 @@ function validateIntegrityEvidence(samples, runtime) {
 	if (!Array.isArray(samples) || samples.length === 0) {
 		return { rejectionReasons: ['missing-runtime-integrity-evidence'], sampleCount: 0 };
 	}
-	const started = Date.parse(runtime?.measurementStartedAt);
-	const ended = Date.parse(runtime?.measurementEndedAt);
+	for (const reason of validateSampleTimeline(samples.map((sample) => sample.capturedAt), runtime, 'runtime-integrity')) {
+		rejectionReasons.push(reason);
+	}
 	for (const sample of samples) {
-		const captured = Date.parse(sample.capturedAt);
-		if (!Number.isFinite(captured) || (Number.isFinite(started) && captured < started) || (Number.isFinite(ended) && captured > ended)) {
-			rejectionReasons.push('runtime-integrity-time-window');
-		}
 		if (sample.observerApplicationName !== 'faithlog_issue196_observer'
 			|| !Array.isArray(sample.unexpectedDbSessions) || !Array.isArray(sample.unexpectedHttpClients)) {
 			rejectionReasons.push('invalid-runtime-integrity-evidence');
@@ -310,19 +364,30 @@ function strictNumber(value) {
 	return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function summarizeResources(tsv) {
+function validateResourceEvidence(tsv, runtime) {
 	const byContainer = new Map();
+	const rejectionReasons = [];
 	for (const line of tsv.trim().split(/\r?\n/)) {
 		if (!line) continue;
 		const [capturedAt, container, cpuText, memoryText, memoryPercentText] = line.split('\t');
 		const cpuPercent = Number(cpuText?.replace('%', ''));
 		const memoryPercent = Number(memoryPercentText?.replace('%', ''));
 		const memoryUsed = memoryText?.split('/')[0]?.trim() || null;
-		if (!container || !Number.isFinite(cpuPercent) || !Number.isFinite(memoryPercent)) continue;
+		if (!container || !Number.isFinite(cpuPercent) || !Number.isFinite(memoryPercent)
+			|| !memoryUsed || !isValidTimestamp(capturedAt)) {
+			rejectionReasons.push('invalid-resource-sample');
+			continue;
+		}
 		if (!byContainer.has(container)) byContainer.set(container, []);
 		byContainer.get(container).push({ capturedAt, cpuPercent, memoryPercent, memoryUsed });
 	}
-	return [...byContainer.entries()].map(([container, samples]) => ({
+	for (const container of [runtime?.appContainer, runtime?.dbContainer]) {
+		const samples = byContainer.get(container) || [];
+		for (const reason of validateSampleTimeline(samples.map((sample) => sample.capturedAt), runtime, `resource:${container || 'undefined'}`)) {
+			rejectionReasons.push(reason);
+		}
+	}
+	const resources = [...byContainer.entries()].map(([container, samples]) => ({
 		container,
 		sampleCount: samples.length,
 		averageCpuPercent: average(samples.map((sample) => sample.cpuPercent)),
@@ -331,6 +396,51 @@ function summarizeResources(tsv) {
 		maxMemoryPercent: Math.max(...samples.map((sample) => sample.memoryPercent)),
 		maxObservedMemory: samples.reduce((current, sample) => sample.memoryPercent >= current.memoryPercent ? sample : current).memoryUsed,
 	}));
+	return { resources, rejectionReasons: [...new Set(rejectionReasons)] };
+}
+
+function validateSampleTimeline(timestamps, runtime, evidenceName) {
+	const reasons = [];
+	const started = Date.parse(runtime?.measurementStartedAt);
+	const ended = Date.parse(runtime?.measurementEndedAt);
+	const intervalSeconds = strictNumber(runtime?.samplingIntervalSeconds);
+	const maxGapSeconds = strictNumber(runtime?.samplingMaxGapSeconds);
+	if (!Number.isFinite(started) || !Number.isFinite(ended) || started >= ended
+		|| intervalSeconds !== 1 || maxGapSeconds !== 2) {
+		return ['invalid-sampling-contract'];
+	}
+	const times = timestamps.map((timestamp) => Date.parse(timestamp));
+	if (times.length === 0 || times.some((time) => !Number.isFinite(time))) {
+		return [`invalid-sample-timeline:${evidenceName}`];
+	}
+	const maxGapMs = maxGapSeconds * 1000;
+	const intervalMs = intervalSeconds * 1000;
+	const expectedMinimum = Math.max(2, Math.floor((ended - started) / intervalMs));
+	if (times.length < expectedMinimum) reasons.push(`insufficient-samples:${evidenceName}`);
+	if (times[0] < started || times[0] - started > maxGapMs
+		|| times.at(-1) > ended || ended - times.at(-1) > maxGapMs) {
+		reasons.push(`sample-window-coverage:${evidenceName}`);
+	}
+	for (let index = 1; index < times.length; index += 1) {
+		if (times[index] <= times[index - 1]) reasons.push(`non-monotonic-samples:${evidenceName}`);
+		if (times[index] - times[index - 1] > maxGapMs) reasons.push(`sample-gap:${evidenceName}`);
+	}
+	return [...new Set(reasons)];
+}
+
+function isExactObject(value, expectedKeys) {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
+		&& semanticEqual(Object.keys(value).sort(), expectedKeys);
+}
+
+function isNonEmptyScalar(value) {
+	return (typeof value === 'string' && value.trim().length > 0)
+		|| (typeof value === 'number' && Number.isFinite(value))
+		|| typeof value === 'boolean';
+}
+
+function isValidTimestamp(value) {
+	return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
 }
 
 function average(values) {

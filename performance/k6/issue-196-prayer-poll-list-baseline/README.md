@@ -16,6 +16,7 @@ Status: `scenario-ready / not-measured`
 - The approved `faithlog-latest` tag is fixed, not caller-overridable. Seed records the immutable app image ID and published target port; shaping and baseline require the same image ID, Compose project/service/config-hash labels, and `BASE_URL` port before touching the fixture or measuring it.
 - The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
 - Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory, and an existing path is never deleted, reused, or overwritten.
+- The operator must explicitly set `EXCLUSIVE_WINDOW_CONFIRMED=true` only after reserving the shared stack from frontend, QA, and other request traffic. Sampling can detect observed conflicts but cannot prove that a short transient request never occurred; this declaration is therefore an additional adoption gate, not a replacement for the canonical lock or activity evidence.
 
 ## Fixture contract
 
@@ -65,7 +66,8 @@ Every load response is checked, not merely timed.
 - Cross-campus Poll ID through the primary campus path: `404 POLL_NOT_FOUND`.
 - A primary-only member querying the isolation campus and its Poll directly: `403 POLL_ACCESS_FORBIDDEN`.
 - Exact `startsAt`/`endsAt` values match the atomically shaped manifest. The runner checks all five windows at global preflight and immediately before and after every endpoint phase; crossing a boundary rejects that endpoint report.
-- DB snapshots must contain the exact required table set, increasing `capturedAt`, stable planner settings and analyze/autoanalyze state, and finite nonnegative cumulative counters. Every cumulative counter must be monotonic, and every table's `n_tup_ins`, `n_tup_upd`, and `n_tup_del` delta must individually equal zero; cross-table or cross-counter cancellation cannot pass.
+- DB snapshots must contain the exact required table set and exact field schema, increasing `capturedAt`, all eight required non-empty planner settings, and a stable database/server/postmaster identity. Analyze, autoanalyze, vacuum, and autovacuum counts/timestamps must be present (`null` or a valid timestamp) and unchanged. Every numeric counter must be finite/nonnegative, cumulative counters must be monotonic, and every table's `n_tup_ins`, `n_tup_upd`, and `n_tup_del` delta must individually equal zero; missing fields, counter reset, or cross-table/cross-counter cancellation cannot pass.
+- Runtime-integrity and per-container resource samples use the recorded 1-second sampling contract with a 2-second maximum gap. Their timestamps must be valid, strictly increasing, inside the measured window, cover both boundaries within the maximum gap, and meet the duration-derived minimum count. A one-sample window or an unsampled middle gap is non-adoptable.
 - Any response correctness failure uses an immutable zero-failure threshold. A non-zero warmup, k6, resource-sampler, activity-sampler, fixture-window, log-capture, or after-DB-snapshot status writes or preserves non-adoptable evidence; missing or malformed latency/throughput/table/resource/activity evidence and any read-path write delta are listed in `rejectionReasons`. Every rejected report stops the sequential runner with a non-zero status.
 
 ## Measurement evidence
@@ -79,8 +81,8 @@ Each endpoint report includes:
 - Hibernate SQL log query count and `queriesPerRequest`;
 - repeated normalized SQL patterns as loop/N+1 evidence;
 - per-table PostgreSQL estimated row counts plus monotonic `seq_scan`, `seq_tup_read`, `idx_scan`, `idx_tup_fetch`, and individually zero write-counter deltas;
-- before/after planner and analyze/autoanalyze state plus measured-window DB activity and host-port client samples; only the current observer PID, attested app-container client address, measured k6 PID, and Docker proxy processes are excluded, while any other same-name or different session/client makes the report non-adoptable;
-- actual Docker image tag and immutable image ID, published target port, and Compose `project`, `service`, and `config-hash` labels.
+- before/after planner and analyze/autoanalyze/vacuum/autovacuum state plus measured-window DB activity and host-port client samples; only the current observer PID, attested app-container client address, measured k6 PID, and Docker proxy processes are excluded, while any other same-name or different session/client makes the report non-adoptable;
+- actual app/DB container IDs, immutable image IDs, `StartedAt`, PostgreSQL database/address/port/postmaster start time, app image tag, published target port, and Compose `project`, `service`, and `config-hash` labels. Exact continuity is checked before warmup, immediately before measured, immediately after measured, and before report adoption.
 
 Query logs and PostgreSQL counters are container-wide. The attested project-scoped canonical lock, runtime activity evidence, disabled scheduler, endpoint-per-process execution, and prohibition on other traffic are part of the evidence contract. If any of those conditions are not satisfied, do not treat the report as an Issue #196 baseline.
 
@@ -129,6 +131,7 @@ WARMUP_VUS='<approved-warmup-vus>' \
 WARMUP_DURATION='<approved-warmup-duration>' \
 MEASURED_VUS='<approved-measured-vus>' \
 MEASURED_DURATION='<approved-measured-duration>' \
+EXCLUSIVE_WINDOW_CONFIRMED=true \
 PERF_ADMIN_EMAIL='<runtime-admin-email>' \
 PERF_ADMIN_PASSWORD='<runtime-admin-password>' \
 PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \

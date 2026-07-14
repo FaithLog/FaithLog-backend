@@ -10,6 +10,12 @@ select json_build_object(
     'jit', current_setting('jit'),
     'max_parallel_workers_per_gather', current_setting('max_parallel_workers_per_gather')
   ),
+  'databaseIdentity', json_build_object(
+    'currentDatabase', current_database(),
+    'serverAddress', inet_server_addr(),
+    'serverPort', inet_server_port(),
+    'postmasterStartedAt', pg_postmaster_start_time()
+  ),
   'tables', coalesce(json_agg(row_to_json(stats) order by stats.relname), '[]'::json)
 )
 from (
@@ -28,7 +34,11 @@ from (
     last_analyze,
     last_autoanalyze,
     analyze_count,
-    autoanalyze_count
+    autoanalyze_count,
+    last_vacuum,
+    last_autovacuum,
+    vacuum_count,
+    autovacuum_count
   from pg_stat_user_tables
   where schemaname = 'public'
 ) stats;

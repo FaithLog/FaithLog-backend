@@ -15,6 +15,7 @@ WARMUP_VUS="${WARMUP_VUS:?WARMUP_VUS must be explicitly approved and supplied}"
 WARMUP_DURATION="${WARMUP_DURATION:?WARMUP_DURATION must be explicitly approved and supplied}"
 MEASURED_VUS="${MEASURED_VUS:?MEASURED_VUS must be explicitly approved and supplied}"
 MEASURED_DURATION="${MEASURED_DURATION:?MEASURED_DURATION must be explicitly approved and supplied}"
+EXCLUSIVE_WINDOW_CONFIRMED="${EXCLUSIVE_WINDOW_CONFIRMED:?EXCLUSIVE_WINDOW_CONFIRMED=true is required at runtime}"
 PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL:?PERF_ADMIN_EMAIL is required at runtime}"
 PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?PERF_ADMIN_PASSWORD is required at runtime}"
 PERF_MEMBER_PASSWORD="${PERF_MEMBER_PASSWORD:?PERF_MEMBER_PASSWORD is required at runtime}"
@@ -27,9 +28,14 @@ EXPECTED_APP_IMAGE="faithlog-latest"
 SQL_LOG_MARKER="org.hibernate.SQL"
 REQUESTED_MODE="${1:?Mode is required: all, prayer, poll-member, or poll-admin}"
 MODE_SEQUENCE=(prayer poll-member poll-admin)
+SAMPLING_INTERVAL_SECONDS=1
+SAMPLING_MAX_GAP_SECONDS=2
 
-export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD
+export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD EXCLUSIVE_WINDOW_CONFIRMED
 unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN
+
+[[ "${EXCLUSIVE_WINDOW_CONFIRMED}" == "true" ]] \
+	|| { echo "EXCLUSIVE_WINDOW_CONFIRMED must be exactly true after the operator reserves an exclusive window." >&2; exit 1; }
 
 if [[ ! "${FIXTURE_RUN_ID}" =~ ^[a-z0-9][a-z0-9_-]{7,31}$ ]]; then
 	echo "FIXTURE_RUN_ID must be 8-32 lowercase characters." >&2
@@ -140,6 +146,51 @@ if ! mkdir "${PERF_PROJECT_LOCK}" 2>/dev/null; then
 fi
 trap 'rmdir "${PERF_PROJECT_LOCK}" 2>/dev/null || true' EXIT
 
+app_container_id="$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")"
+app_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${APP_CONTAINER}")"
+db_container_id="$(docker inspect --format '{{.Id}}' "${DB_CONTAINER}")"
+db_image_id="$(docker inspect --format '{{.Image}}' "${DB_CONTAINER}")"
+db_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")"
+
+capture_database_identity() {
+	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
+		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
+		-c "select json_build_object('currentDatabase', current_database(), 'serverAddress', inet_server_addr(), 'serverPort', inet_server_port(), 'postmasterStartedAt', pg_postmaster_start_time())"
+}
+
+database_identity="$(capture_database_identity)"
+
+assert_runtime_continuity() {
+	local current_database_identity
+	[[ "$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")" == "${app_container_id}" ]] \
+		|| { echo "App container ID changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")" == "${app_image_id}" ]] \
+		|| { echo "App immutable image ID changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.State.StartedAt}}' "${APP_CONTAINER}")" == "${app_container_started_at}" ]] \
+		|| { echo "App container start time changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.Id}}' "${DB_CONTAINER}")" == "${db_container_id}" ]] \
+		|| { echo "PostgreSQL container ID changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.Image}}' "${DB_CONTAINER}")" == "${db_image_id}" ]] \
+		|| { echo "PostgreSQL immutable image ID changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")" == "${db_container_started_at}" ]] \
+		|| { echo "PostgreSQL container start time changed during execution." >&2; return 1; }
+	[[ "$(label "${APP_CONTAINER}" com.docker.compose.project)" == "${compose_project}"
+		&& "$(label "${DB_CONTAINER}" com.docker.compose.project)" == "${compose_project}"
+		&& "$(label "${APP_CONTAINER}" com.docker.compose.service)" == "${app_service}"
+		&& "$(label "${DB_CONTAINER}" com.docker.compose.service)" == "${db_service}"
+		&& "$(label "${APP_CONTAINER}" com.docker.compose.config-hash)" == "${app_config_hash}"
+		&& "$(label "${DB_CONTAINER}" com.docker.compose.config-hash)" == "${db_config_hash}" ]] \
+		|| { echo "Compose runtime labels changed during execution." >&2; return 1; }
+	grep -Eq "(^|:|\\])${seed_target_port}$" <<<"$(docker port "${APP_CONTAINER}" 8080/tcp)" \
+		|| { echo "App published port changed during execution." >&2; return 1; }
+	current_database_identity="$(capture_database_identity)"
+	EXPECTED_DB_IDENTITY="${database_identity}" CURRENT_DB_IDENTITY="${current_database_identity}" node -e '
+		const expected = JSON.parse(process.env.EXPECTED_DB_IDENTITY);
+		const current = JSON.parse(process.env.CURRENT_DB_IDENTITY);
+		if (JSON.stringify(expected) !== JSON.stringify(current)) process.exit(1);
+	' || { echo "PostgreSQL runtime identity changed during execution." >&2; return 1; }
+}
+
 if pgrep -f '[k]6 run' >/dev/null 2>&1; then
 	echo "Another k6 process is running outside the canonical project lock." >&2
 	exit 1
@@ -176,7 +227,7 @@ login_token() {
 snapshot_db_tables() {
 	local output="$1"
 	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD "${DB_CONTAINER}" \
-		psql -X -v ON_ERROR_STOP=1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At -f - \
+		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At -f - \
 		< "${DB_STATS_SQL}" > "${output}"
 }
 
@@ -194,7 +245,7 @@ sample_resources() {
 			"${APP_CONTAINER}" "${DB_CONTAINER}" \
 			| while IFS= read -r sample; do printf '%s\t%s\n' "${captured_at}" "${sample}"; done \
 			>> "${output}"
-		sleep 1
+		sleep 0.25
 	done
 }
 
@@ -217,7 +268,7 @@ sample_runtime_integrity() {
 			-v app_client_addrs="${app_client_addrs}" -f - < "${DB_ACTIVITY_SQL}")"
 		LSOF_TEXT="${lsof_text}" DB_ACTIVITY_JSON="${db_activity}" K6_PID="${k6_pid}" \
 			node "${ROOT_DIR}/activity-sample.mjs" >> "${output}"
-		sleep 1
+		sleep 0.25
 	done
 }
 
@@ -270,6 +321,8 @@ run_endpoint() {
 	local fixture_window_status
 	local log_capture_status
 	local after_snapshot_status
+	local runtime_continuity_status
+	local final_continuity_status
 	local summarize_status
 
 	mkdir -p "$(dirname "${endpoint_dir}")"
@@ -278,6 +331,7 @@ run_endpoint() {
 		return 1
 	fi
 	assert_fixture_windows
+	assert_runtime_continuity
 
 	admin_token="$(login_token "${PERF_ADMIN_EMAIL}" "${PERF_ADMIN_PASSWORD}")"
 	member_token="$(login_token "${member_email}" "${PERF_MEMBER_PASSWORD}")"
@@ -299,6 +353,7 @@ run_endpoint() {
 		return "${warmup_status}"
 	fi
 	assert_fixture_windows
+	assert_runtime_continuity
 
 	admin_token="$(login_token "${PERF_ADMIN_EMAIL}" "${PERF_ADMIN_PASSWORD}")"
 	member_token="$(login_token "${member_email}" "${PERF_MEMBER_PASSWORD}")"
@@ -340,13 +395,20 @@ run_endpoint() {
 	set -e
 	log_until="$(rfc3339_now)"
 	set +e
+	assert_runtime_continuity
+	runtime_continuity_status=$?
 	assert_fixture_windows
 	fixture_window_status=$?
 	docker logs --since "${log_since}" --until "${log_until}" "${APP_CONTAINER}" > "${sql_log_file}" 2>&1
 	log_capture_status=$?
 	snapshot_db_tables "${after_file}"
 	after_snapshot_status=$?
+	assert_runtime_continuity
+	final_continuity_status=$?
 	set -e
+	if (( final_continuity_status != 0 )); then
+		runtime_continuity_status="${final_continuity_status}"
+	fi
 
 	MODE_VALUE="${mode}" ENDPOINT_VALUE="${endpoint}" DATASET_VALUE="${dataset_id}" \
 	FIXTURE_VALUE="${FIXTURE_RUN_ID}" EXECUTION_VALUE="${EXECUTION_RUN_ID}" PROJECT_VALUE="${compose_project}" \
@@ -355,13 +417,18 @@ run_endpoint() {
 	APP_IMAGE_VALUE="${app_image}" EXPECTED_IMAGE_VALUE="${EXPECTED_APP_IMAGE}" \
 	APP_IMAGE_ID_VALUE="${app_image_id}" TARGET_PORT_VALUE="${seed_target_port}" \
 	APP_CONTAINER_VALUE="${APP_CONTAINER}" DB_CONTAINER_VALUE="${DB_CONTAINER}" \
+	APP_CONTAINER_ID_VALUE="${app_container_id}" APP_STARTED_AT_VALUE="${app_container_started_at}" \
+	DB_CONTAINER_ID_VALUE="${db_container_id}" DB_IMAGE_ID_VALUE="${db_image_id}" \
+	DB_STARTED_AT_VALUE="${db_container_started_at}" DB_IDENTITY_VALUE="${database_identity}" \
 	K6_STATUS_VALUE="${k6_status}" SAMPLER_STATUS_VALUE="${sampler_status}" \
 	INTEGRITY_STATUS_VALUE="${integrity_status}" WARMUP_STATUS_VALUE="${warmup_status}" \
+	CONTINUITY_STATUS_VALUE="${runtime_continuity_status}" EXCLUSIVE_WINDOW_VALUE="${EXCLUSIVE_WINDOW_CONFIRMED}" \
 	WINDOW_STATUS_VALUE="${fixture_window_status}" \
 	LOG_STATUS_VALUE="${log_capture_status}" AFTER_DB_STATUS_VALUE="${after_snapshot_status}" \
 	STARTED_AT_VALUE="${log_since}" ENDED_AT_VALUE="${log_until}" \
 	WARMUP_VUS_VALUE="${WARMUP_VUS}" WARMUP_DURATION_VALUE="${WARMUP_DURATION}" \
 	VUS_VALUE="${MEASURED_VUS}" DURATION_VALUE="${MEASURED_DURATION}" \
+	SAMPLING_INTERVAL_VALUE="${SAMPLING_INTERVAL_SECONDS}" SAMPLING_MAX_GAP_VALUE="${SAMPLING_MAX_GAP_SECONDS}" \
 	node -e '
 		const fs = require("node:fs");
 		const metadata = {
@@ -383,15 +450,25 @@ run_endpoint() {
 				targetPort: process.env.TARGET_PORT_VALUE,
 				appContainer: process.env.APP_CONTAINER_VALUE,
 				dbContainer: process.env.DB_CONTAINER_VALUE,
+				appContainerId: process.env.APP_CONTAINER_ID_VALUE,
+				appContainerStartedAt: process.env.APP_STARTED_AT_VALUE,
+				dbContainerId: process.env.DB_CONTAINER_ID_VALUE,
+				dbImageId: process.env.DB_IMAGE_ID_VALUE,
+				dbContainerStartedAt: process.env.DB_STARTED_AT_VALUE,
+				databaseIdentity: JSON.parse(process.env.DB_IDENTITY_VALUE),
 				k6ExitStatus: Number(process.env.K6_STATUS_VALUE),
 				resourceSamplerExitStatus: Number(process.env.SAMPLER_STATUS_VALUE),
 				integritySamplerExitStatus: Number(process.env.INTEGRITY_STATUS_VALUE),
 				warmupExitStatus: Number(process.env.WARMUP_STATUS_VALUE),
+				runtimeContinuityExitStatus: Number(process.env.CONTINUITY_STATUS_VALUE),
+				exclusiveWindowConfirmed: process.env.EXCLUSIVE_WINDOW_VALUE === "true",
 				fixtureWindowExitStatus: Number(process.env.WINDOW_STATUS_VALUE),
 				logCaptureExitStatus: Number(process.env.LOG_STATUS_VALUE),
 				afterDbSnapshotExitStatus: Number(process.env.AFTER_DB_STATUS_VALUE),
 				measurementStartedAt: process.env.STARTED_AT_VALUE,
 				measurementEndedAt: process.env.ENDED_AT_VALUE,
+				samplingIntervalSeconds: Number(process.env.SAMPLING_INTERVAL_VALUE),
+				samplingMaxGapSeconds: Number(process.env.SAMPLING_MAX_GAP_VALUE),
 				warmupVus: Number(process.env.WARMUP_VUS_VALUE),
 				warmupDuration: process.env.WARMUP_DURATION_VALUE,
 				vus: Number(process.env.VUS_VALUE),
@@ -422,6 +499,10 @@ run_endpoint() {
 	if (( integrity_status != 0 )); then
 		echo "Runtime integrity sampler failed for ${mode}/${endpoint}; report was rejected." >&2
 		return "${integrity_status}"
+	fi
+	if (( runtime_continuity_status != 0 )); then
+		echo "Runtime identity changed during ${mode}/${endpoint}; report was rejected." >&2
+		return "${runtime_continuity_status}"
 	fi
 	if (( fixture_window_status != 0 )); then
 		echo "Fixture visibility windows crossed a boundary during ${mode}/${endpoint}; report was rejected." >&2
