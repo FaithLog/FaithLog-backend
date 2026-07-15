@@ -15,6 +15,8 @@ public interface AdminUserRepositoryPort {
 
 	List<User> findAdminUsersByIdsForUpdate(Collection<Long> userIds);
 
+	List<User> findActiveAdminUsersForUpdate(UserRole role);
+
 	Page<User> searchAdminUsers(AdminUserSearchCriteria criteria, Pageable pageable);
 
 	long countByRoleAndIsActiveTrue(UserRole role);

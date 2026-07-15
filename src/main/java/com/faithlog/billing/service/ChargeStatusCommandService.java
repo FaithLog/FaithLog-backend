@@ -16,6 +16,7 @@ import com.faithlog.billing.service.port.PaymentAccountLockScope;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.campus.service.port.CampusRepositoryPort;
 import com.faithlog.campus.service.port.CampusUserLookupPort;
 import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
@@ -34,6 +35,7 @@ public class ChargeStatusCommandService {
 	private final DevotionChargeReopenPort devotionChargeReopenPort;
 	private final PaymentAccountRepositoryPort paymentAccountRepository;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
+	private final CampusRepositoryPort campusRepository;
 
 	public ChargeStatusCommandService(
 		ChargeItemRepositoryPort chargeItemRepository,
@@ -41,7 +43,8 @@ public class ChargeStatusCommandService {
 		CampusUserLookupPort userLookupPort,
 		DevotionChargeReopenPort devotionChargeReopenPort,
 		PaymentAccountRepositoryPort paymentAccountRepository,
-		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
+		CampusRepositoryPort campusRepository
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusMemberRepository = campusMemberRepository;
@@ -49,6 +52,7 @@ public class ChargeStatusCommandService {
 		this.devotionChargeReopenPort = devotionChargeReopenPort;
 		this.paymentAccountRepository = paymentAccountRepository;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
+		this.campusRepository = campusRepository;
 	}
 
 	@Transactional
@@ -78,6 +82,9 @@ public class ChargeStatusCommandService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		boolean staleDutyRecovery = requireStaleDutyRecoveryScopeIfEligible(chargeScope, requester);
+		if (staleDutyRecovery && command.status() == ChargeStatus.UNPAID) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_TRANSITION_CONFLICT);
+		}
 		if (chargeScope.getPaymentCategory() == PaymentCategory.MEAL && !staleDutyRecovery) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND);
 		}
@@ -122,6 +129,8 @@ public class ChargeStatusCommandService {
 		if (account == null) {
 			return false;
 		}
+		campusRepository.findByIdForUpdate(chargeScope.getCampusId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.CAMPUS_NOT_FOUND));
 		DutyType dutyType = chargeScope.getPaymentCategory() == PaymentCategory.COFFEE
 			? DutyType.COFFEE
 			: DutyType.MEAL;
@@ -175,6 +184,9 @@ public class ChargeStatusCommandService {
 			|| !java.util.Objects.equals(
 				lockedCharge.paymentAccountId(), authorizedScope.getPaymentAccountId())) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN);
+		}
+		if (staleDutyRecovery && !lockedCharge.isUnpaid()) {
+			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_TRANSITION_CONFLICT);
 		}
 		if (!staleDutyRecovery && lockedCharge.paymentCategory() == PaymentCategory.COFFEE) {
 			requireOwnedCoffeeAccount(

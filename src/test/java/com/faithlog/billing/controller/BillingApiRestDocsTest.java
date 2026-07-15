@@ -28,10 +28,13 @@ import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusRole;
@@ -89,6 +92,9 @@ class BillingApiRestDocsTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private PaymentAccountRepository paymentAccountRepository;
 
 	@Autowired
 	private DevotionService devotionService;
@@ -501,6 +507,54 @@ class BillingApiRestDocsTest {
 				authHeader(),
 				pathParameters(parameterWithName("chargeItemId").description(
 					"INACTIVE 멤버십에 ACTIVE 담당이 남아 있는 계좌 소유자의 UNPAID COFFEE/MEAL 청구 ID")),
+				requestFields(fieldWithPath("status").description(
+					"복구할 terminal 상태. `PAID`, `WAIVED`, `CANCELED` 중 하나")),
+				responseFields(apiResponseFields(chargeFields("data.")))
+			));
+	}
+
+	@Test
+	void documents_service_admin_stale_meal_duty_charge_recovery_contract() throws Exception {
+		String managerToken = signupAndLogin("docs-stale-meal-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-stale-meal-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "200과거밥담당청구복구RESTDocs캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("docs-stale-meal-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("docs-stale-meal-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		String memberToken = signupAndLogin("docs-stale-meal-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-stale-meal-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String adminToken = signupAndLogin("docs-stale-meal-admin@example.com", UserRole.ADMIN);
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), duty.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campusId, PaymentCategory.MEAL, "과거 밥 담당 계좌", "하나은행", "200-STALE-MEAL-DOCS",
+			"과거밥담당", duty.id()));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId, member.id(), PaymentCategory.MEAL, account.id(), account.bankName(),
+			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20095L,
+			"과거 밥 미납", "담당 해제 전 복구", 3500, null));
+		CampusMember staleMember = campusMemberRepository.findByCampusIdAndUserId(campusId, duty.id()).orElseThrow();
+		staleMember.deactivate();
+		campusMemberRepository.saveAndFlush(staleMember);
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + adminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "CANCELED"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.paymentCategory").value("MEAL"))
+			.andExpect(jsonPath("$.data.status").value("CANCELED"))
+			.andDo(document("charge-admin-stale-meal-duty-recovery-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description(
+					"INACTIVE 멤버십에 ACTIVE MEAL 담당이 남은 계좌 소유자의 UNPAID 청구 ID")),
 				requestFields(fieldWithPath("status").description(
 					"복구할 terminal 상태. `PAID`, `WAIVED`, `CANCELED` 중 하나")),
 				responseFields(apiResponseFields(chargeFields("data.")))

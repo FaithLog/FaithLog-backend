@@ -11,6 +11,8 @@ import com.faithlog.campus.controller.dto.request.ChangeCampusRoleRequest;
 import com.faithlog.campus.controller.dto.response.DutyAssignmentResponse;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
+import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
@@ -73,14 +75,24 @@ public class AdminCampusController {
 	public ApiResponse<List<DutyAssignmentResponse>> getDutyAssignments(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId,
-		@RequestParam(defaultValue = "false") boolean staleOnly
+		@RequestParam(defaultValue = "false") String staleOnly
 	) {
 		List<DutyAssignmentResponse> responses = campusDutyAssignmentService
-			.getDutyAssignments(campusId, authenticatedUser.userId(), staleOnly)
+			.getDutyAssignments(campusId, authenticatedUser.userId(), parseStaleOnly(staleOnly))
 			.stream()
 			.map(DutyAssignmentResponse::from)
 			.toList();
 		return ApiResponse.success(responses);
+	}
+
+	private boolean parseStaleOnly(String staleOnly) {
+		if ("true".equalsIgnoreCase(staleOnly)) {
+			return true;
+		}
+		if ("false".equalsIgnoreCase(staleOnly)) {
+			return false;
+		}
+		throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED);
 	}
 
 	@PutMapping("/{campusId}/duty-assignments/coffee")

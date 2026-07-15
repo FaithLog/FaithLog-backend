@@ -70,6 +70,11 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 		return findUsersByIdsForUpdate(userIds);
 	}
 
+	@Override
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select user from User user where user.role = :role and user.isActive = true order by user.id asc")
+	List<User> findActiveAdminUsersForUpdate(@Param("role") com.faithlog.user.domain.type.UserRole role);
+
 	Optional<User> findByEmail(String email);
 
 	boolean existsByEmail(String email);

@@ -6,7 +6,6 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -40,13 +39,4 @@ public class GlobalExceptionHandler {
 			.body(ApiResponse.failure(ErrorCode.GLOBAL_INVALID_JSON.name(), ErrorCode.GLOBAL_INVALID_JSON.message()));
 	}
 
-	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
-	public ResponseEntity<ApiResponse<Void>> handleArgumentTypeMismatch(MethodArgumentTypeMismatchException exception) {
-		return ResponseEntity
-			.badRequest()
-			.body(ApiResponse.failure(
-				ErrorCode.GLOBAL_VALIDATION_FAILED.name(),
-				ErrorCode.GLOBAL_VALIDATION_FAILED.message()
-			));
-	}
 }

@@ -1,7 +1,6 @@
 package com.faithlog.admin.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doAnswer;
 
 import com.faithlog.admin.service.command.ChangeUserRoleCommand;
 import com.faithlog.global.exception.BusinessException;
@@ -20,7 +19,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest
@@ -31,7 +29,7 @@ class AdminUserRoleConcurrencyTest {
 	@Autowired
 	private AdminManagementService adminManagementService;
 
-	@MockitoSpyBean
+	@Autowired
 	private UserRepository userRepository;
 
 	@Test
@@ -40,37 +38,24 @@ class AdminUserRoleConcurrencyTest {
 		User second = saveAdmin("last-admin-second@example.com");
 		assertThat(userRepository.countByRoleAndIsActiveTrue(UserRole.ADMIN)).isEqualTo(2);
 
-		CountDownLatch bothCounted = new CountDownLatch(2);
-		CountDownLatch allowDemotion = new CountDownLatch(1);
-		doAnswer(invocation -> {
-			long count = (long) invocation.callRealMethod();
-			if (Thread.currentThread().getName().startsWith("admin-demotion")) {
-				bothCounted.countDown();
-				if (!bothCounted.await(5, TimeUnit.SECONDS)) {
-					throw new IllegalStateException("both admin demotions did not reach the count boundary");
-				}
-				if (!allowDemotion.await(5, TimeUnit.SECONDS)) {
-					throw new IllegalStateException("admin demotion release timeout");
-				}
-			}
-			return count;
-		}).when(userRepository).countByRoleAndIsActiveTrue(UserRole.ADMIN);
+		CountDownLatch start = new CountDownLatch(1);
 
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> firstDemotion = executor.submit(() -> {
 				Thread.currentThread().setName("admin-demotion-first");
+				await(start);
 				adminManagementService.changeUserRole(new ChangeUserRoleCommand(
 					first.id(), first.id(), UserRole.USER));
 			});
 			Future<?> secondDemotion = executor.submit(() -> {
 				Thread.currentThread().setName("admin-demotion-second");
+				await(start);
 				adminManagementService.changeUserRole(new ChangeUserRoleCommand(
 					second.id(), second.id(), UserRole.USER));
 			});
 
-			assertThat(bothCounted.await(5, TimeUnit.SECONDS)).isTrue();
-			allowDemotion.countDown();
+			start.countDown();
 			List<Future<?>> attempts = List.of(firstDemotion, secondDemotion);
 			int successes = 0;
 			int lastAdminConflicts = 0;
@@ -92,8 +77,19 @@ class AdminUserRoleConcurrencyTest {
 			assertThat(lastAdminConflicts).isEqualTo(1);
 			assertThat(userRepository.countByRoleAndIsActiveTrue(UserRole.ADMIN)).isEqualTo(1);
 		} finally {
-			allowDemotion.countDown();
+			start.countDown();
 			executor.shutdownNow();
+		}
+	}
+
+	private void await(CountDownLatch latch) {
+		try {
+			if (!latch.await(5, TimeUnit.SECONDS)) {
+				throw new IllegalStateException("admin demotion start timeout");
+			}
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException(exception);
 		}
 	}
 

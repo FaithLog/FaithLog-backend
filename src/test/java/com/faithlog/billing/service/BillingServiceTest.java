@@ -18,6 +18,7 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.result.CampusMembershipResult;
 import com.faithlog.campus.service.CampusService;
@@ -1103,6 +1104,38 @@ class BillingServiceTest {
 		assertThat(billingService.changeChargeStatus(new ChangeChargeStatusCommand(
 			charge.id(), admin.id(), ChargeStatus.WAIVED
 		)).status()).isEqualTo(ChargeStatus.WAIVED);
+	}
+
+	@Test
+	void service_admin_can_resolve_stale_meal_duty_charge_but_not_active_owner_charge() {
+		User manager = saveUser("billing-stale-meal-manager@example.com", UserRole.MANAGER);
+		User mealDuty = saveUser("billing-stale-meal-duty@example.com", UserRole.USER);
+		User member = saveUser("billing-stale-meal-member@example.com", UserRole.USER);
+		User admin = saveUser("billing-stale-meal-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "200과거밥담당미납복구캠");
+		CampusMembershipResult dutyMembership = campusService.joinCampus(new JoinCampusCommand(
+			mealDuty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), mealDuty.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.MEAL, "과거 밥 담당 계좌", "하나은행",
+			"200-STALE-MEAL", "과거밥담당", mealDuty.id()));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), member.id(), PaymentCategory.MEAL, account.id(), account.bankName(),
+			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20094L,
+			"과거 밥 미납", "담당 정리 전 복구", 3500, null));
+
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(), admin.id(), ChargeStatus.CANCELED)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
+
+		CampusMember inactive = campusMemberRepository.findById(dutyMembership.membershipId()).orElseThrow();
+		inactive.deactivate();
+		campusMemberRepository.saveAndFlush(inactive);
+
+		assertThat(billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(), admin.id(), ChargeStatus.CANCELED)).status()).isEqualTo(ChargeStatus.CANCELED);
 	}
 
 	@Test

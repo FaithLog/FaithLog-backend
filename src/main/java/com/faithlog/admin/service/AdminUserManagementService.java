@@ -55,17 +55,37 @@ public class AdminUserManagementService {
 
 	@Transactional
 	public AdminUserResult changeUserRole(ChangeUserRoleCommand command) {
+		User targetScope = getUserOrThrow(command.userId());
+		if (targetScope.role() == UserRole.ADMIN
+			&& command.role() != UserRole.ADMIN
+			&& targetScope.isActive()) {
+			return demoteActiveAdmin(command);
+		}
 		Map<Long, User> lockedUsers = lockUsers(command.requesterId(), command.userId());
 		AdminAccessPolicy.requireServiceAdmin(lockedUsers.get(command.requesterId()));
 		User user = lockedUsers.get(command.userId());
-		if (user.role() == UserRole.ADMIN
-			&& command.role() != UserRole.ADMIN
-			&& user.isActive()
-			&& userRepository.countByRoleAndIsActiveTrue(UserRole.ADMIN) <= 1) {
-			throw new BusinessException(ErrorCode.ADMIN_LAST_ADMIN_DEMOTION_FORBIDDEN);
-		}
 		user.changeRole(command.role());
 		return AdminUserResult.of(user, userCampuses(user.id()));
+	}
+
+	private AdminUserResult demoteActiveAdmin(ChangeUserRoleCommand command) {
+		List<User> activeAdmins = userRepository.findActiveAdminUsersForUpdate(UserRole.ADMIN);
+		Map<Long, User> adminsById = activeAdmins.stream()
+			.collect(Collectors.toMap(User::id, Function.identity()));
+		User requester = adminsById.get(command.requesterId());
+		if (requester == null) {
+			throw new BusinessException(ErrorCode.ADMIN_ACCESS_FORBIDDEN);
+		}
+		AdminAccessPolicy.requireServiceAdmin(requester);
+		User target = adminsById.get(command.userId());
+		if (target == null) {
+			throw new BusinessException(ErrorCode.ADMIN_USER_NOT_FOUND);
+		}
+		if (activeAdmins.size() <= 1) {
+			throw new BusinessException(ErrorCode.ADMIN_LAST_ADMIN_DEMOTION_FORBIDDEN);
+		}
+		target.changeRole(command.role());
+		return AdminUserResult.of(target, userCampuses(target.id()));
 	}
 
 	private Map<Long, User> lockUsers(Long requesterId, Long targetId) {
