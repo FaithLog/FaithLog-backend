@@ -139,6 +139,7 @@ test('summary validation enforces exact count math, failure math, latency order,
 		},
 		(value, name) => { value.metrics[`admin_charge_${name}_duration`].values.count = 19; },
 		(value, name) => { value.metrics[`admin_charge_${name}_duration`].values['p(95)'] = 3; },
+		(value, name) => { value.metrics[`admin_charge_${name}_duration`].values.avg = 11; },
 		(value, name) => { value.metrics[`admin_charge_${name}_requests`].values.count = 19; },
 	]) {
 		const malformed = structuredClone(summary);
@@ -252,6 +253,36 @@ test('measurement status stays separate from evidence integrity and cannot auto-
 	assert.match(runner, /measurement-classification\.json/);
 	assert.match(runner, /evidence-integrity\.json/);
 	assert.doesNotMatch(runner, /(?:EMAIL|PASSWORD|ACCESS_TOKEN).*run-conditions|echo.*(?:PASSWORD|ACCESS_TOKEN)/i);
+});
+
+test('final immutable checkpoint follows every evidence validator and precedes classification', async () => {
+	const runner = await read('run-baseline.sh');
+	assert.match(runner, /docker exec -i "\$EXPECTED_POSTGRES_CONTAINER_ID"/);
+	assert.match(runner, /docker stats[\s\S]*"\$EXPECTED_APP_CONTAINER_ID"[\s\S]*"\$EXPECTED_POSTGRES_CONTAINER_ID"[\s\S]*"\$EXPECTED_REDIS_CONTAINER_ID"/);
+	const resourceValidation = runner.indexOf('docker-resource-validation.json');
+	const databaseValidation = runner.indexOf('evidence-integrity.json');
+	const finalRuntime = runner.indexOf('runtime-identity-final.json');
+	const finalDatabase = runner.indexOf('database-identity-final.json');
+	const finalBinding = runner.indexOf('target-binding-final.json');
+	const finalContinuity = runner.indexOf('final-continuity');
+	const classification = runner.indexOf('measurement-classification.json');
+	for (const position of [resourceValidation, databaseValidation, finalRuntime, finalDatabase, finalBinding, finalContinuity, classification]) {
+		assert.ok(position >= 0);
+	}
+	assert.ok(resourceValidation < finalRuntime);
+	assert.ok(databaseValidation < finalRuntime);
+	assert.ok(finalRuntime < finalContinuity);
+	assert.ok(finalDatabase < finalContinuity);
+	assert.ok(finalBinding < finalContinuity);
+	assert.ok(finalContinuity < classification);
+
+	const {validateRuntimeStability} = await module('runtime-identity.mjs');
+	const before = {app: container('app'), postgres: container('postgres'), redis: container('redis')};
+	for (const role of ['app', 'postgres', 'redis']) {
+		const replaced = structuredClone(before);
+		replaced[role].id = 'f'.repeat(64);
+		assert.throws(() => validateRuntimeStability(before, replaced));
+	}
 });
 
 function integrityFixture() {

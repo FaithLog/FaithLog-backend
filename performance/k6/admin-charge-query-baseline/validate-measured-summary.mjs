@@ -47,6 +47,10 @@ export function validateMeasuredSummary(summary, {expectedRequestCount} = {}) {
 			&& duration.med !== duration['p(50)']) {
 			invalidMetrics.push(`${durationMetric} median and p(50) differ`);
 		}
+		if (finiteNonNegative(duration?.avg) && finiteNonNegative(duration?.max)
+			&& duration.avg > duration.max) {
+			invalidMetrics.push(`${durationMetric} average exceeds max`);
+		}
 		const ordered = [duration?.['p(50)'], duration?.['p(95)'], duration?.['p(99)'], duration?.max];
 		if (ordered.every(finiteNonNegative)
 			&& ordered.some((value, index) => index > 0 && ordered[index - 1] > value)) {

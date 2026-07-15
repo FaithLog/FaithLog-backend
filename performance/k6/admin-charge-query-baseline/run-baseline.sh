@@ -113,7 +113,7 @@ inspect_target_binding() {
 }
 
 psql_exec() {
-	docker exec -i "$POSTGRES_CONTAINER" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"
+	docker exec -i "$EXPECTED_POSTGRES_CONTAINER_ID" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"
 }
 
 collect_database_identity() {
@@ -224,7 +224,8 @@ EXPECTED_DATABASE_NAME="$POSTGRES_DB" node "$SCENARIO_DIR/runtime-identity.mjs" 
 	"$REPORT_DIR/evidence/target-binding.json"
 
 docker inspect --format '{"name":"{{.Name}}","id":"{{.Id}}","image":"{{.Config.Image}}","project":"{{ index .Config.Labels "com.docker.compose.project" }}","service":"{{ index .Config.Labels "com.docker.compose.service" }}","configFiles":"{{ index .Config.Labels "com.docker.compose.project.config_files" }}","workingDir":"{{ index .Config.Labels "com.docker.compose.project.working_dir" }}"}' \
-	"$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER" > "$REPORT_DIR/evidence/compose-labels.jsonl"
+	"$EXPECTED_APP_CONTAINER_ID" "$EXPECTED_POSTGRES_CONTAINER_ID" "$EXPECTED_REDIS_CONTAINER_ID" \
+	> "$REPORT_DIR/evidence/compose-labels.jsonl"
 
 printf '%s\n' \
 	"status=before-baseline-measurement" \
@@ -278,7 +279,7 @@ DUTY_ACCESS_TOKEN="$(
 	PERF_LOGIN_PASSWORD="$DUTY_PASSWORD" \
 	EXPECTED_USER_ID="$DUTY_REQUESTER_USER_ID" \
 	IDENTITY_LABEL=COFFEE_DUTY \
-	MIN_TOKEN_TTL_SECONDS="$TOKEN_EXPIRY_SAFETY_SECONDS" \
+	MIN_TOKEN_TTL_SECONDS="$WARMUP_REQUIRED_TTL_SECONDS" \
 	node "$SCENARIO_DIR/authenticate.mjs"
 )"
 
@@ -380,7 +381,8 @@ PERF_ACCESS_TOKEN="$ADMIN_ACCESS_TOKEN" MIN_TOKEN_TTL_SECONDS="$MEASURED_REQUIRE
 collect_docker_stats_sample() {
 	local captured_at raw_stats
 	captured_at="$(node -e 'process.stdout.write(new Date().toISOString())')"
-	raw_stats="$(docker stats --no-stream --no-trunc --format '{{json .}}' "$APP_CONTAINER" "$POSTGRES_CONTAINER" "$REDIS_CONTAINER")"
+	raw_stats="$(docker stats --no-stream --no-trunc --format '{{json .}}' \
+		"$EXPECTED_APP_CONTAINER_ID" "$EXPECTED_POSTGRES_CONTAINER_ID" "$EXPECTED_REDIS_CONTAINER_ID")"
 	CAPTURED_AT="$captured_at" RAW_DOCKER_STATS_JSONL="$raw_stats" \
 		node "$SCENARIO_DIR/docker-resource-evidence.mjs" normalize \
 		"$REPORT_DIR/evidence/runtime-identity-before.json" \
@@ -473,6 +475,29 @@ EXPECTED_DATABASE_NAME="$POSTGRES_DB" node "$SCENARIO_DIR/measurement-integrity.
 	"$REPORT_DIR/evidence/counter-before.json" \
 	"$REPORT_DIR/evidence/counter-after.json" \
 	"$REPORT_DIR/evidence/evidence-integrity.json"
+
+# Evidence is adoptable for PM review only if the mutable service names still
+# resolve to the exact approved containers and the DB/binding identities remain
+# continuous after every evidence validator has completed.
+validate_runtime_bootstrap > "$REPORT_DIR/evidence/runtime-identity-final.json"
+TARGET_BINDING_JSON="$(inspect_target_binding)"
+BASE_URL="$BASE_URL" TARGET_BINDING_JSON="$TARGET_BINDING_JSON" \
+EXPECTED_APP_COMPOSE_SERVICE="$EXPECTED_APP_COMPOSE_SERVICE" \
+	node "$SCENARIO_DIR/target-binding.mjs" \
+	> "$REPORT_DIR/evidence/target-binding-final.json"
+DATABASE_IDENTITY_JSON="$(collect_database_identity)"
+DATABASE_IDENTITY_JSON="$DATABASE_IDENTITY_JSON" EXPECTED_DATABASE_NAME="$POSTGRES_DB" \
+	node "$SCENARIO_DIR/runtime-identity.mjs" database \
+	> "$REPORT_DIR/evidence/database-identity-final.json"
+EXPECTED_DATABASE_NAME="$POSTGRES_DB" node "$SCENARIO_DIR/runtime-identity.mjs" post-lock \
+	"$REPORT_DIR/evidence/runtime-identity-post-lock.json" \
+	"$REPORT_DIR/evidence/runtime-identity-final.json" \
+	"$REPORT_DIR/evidence/database-identity-post-lock.json" \
+	"$REPORT_DIR/evidence/database-identity-final.json" \
+	"$REPORT_DIR/evidence/target-binding.json" \
+	"$REPORT_DIR/evidence/target-binding-final.json"
+printf 'status=exact-runtime-database-binding-continuity\n' \
+	> "$REPORT_DIR/evidence/final-continuity.txt"
 
 EXTERNAL_ACTIVITY="$EXTERNAL_ACTIVITY" node "$SCENARIO_DIR/measurement-classification.mjs" \
 	> "$REPORT_DIR/measurement-classification.json"

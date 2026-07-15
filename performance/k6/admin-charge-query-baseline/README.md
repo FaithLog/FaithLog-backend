@@ -84,4 +84,6 @@ fixture write 전에 workload parsing, app/PostgreSQL/Redis immutable identity, 
 
 k6는 16 cases를 frontend 순서로 한 iteration 안에서 실행한다. warmup은 승인된 shared iterations, measured는 승인된 constant VUS로 분리하고 warmup 뒤 measured ADMIN JWT를 새로 발급한다. summary는 direct/`values` shape 모두에서 case별 동일 count, failure rate/passes/fails 수학, Trend count, avg/median/p50/p95/p99/max 순서, throughput을 fail-closed 검증한다. DB counters는 decimal string을 `BigInt`로 계산하고, planner/maintenance/activity와 선택적 pgss availability/reset/dealloc continuity, app/PostgreSQL/Redis CPU/RAM sample coverage를 별도 검증한다.
 
-공유 stack의 quiet snapshot은 경계 관찰일 뿐이다. `measurementStatus`는 최대 `conditional-shared-stack`, `evidenceIntegrity`는 별도 검증 상태이며 `automaticAdoption=false`다. PM이 exclusive-use 전체 window와 evidence를 검토하기 전 baseline으로 채택할 수 없다.
+공유 stack의 quiet snapshot은 경계 관찰일 뿐이다. 모든 DB/resource validator 뒤에는 app/PostgreSQL/Redis runtime, database, numeric loopback binding을 final snapshot으로 다시 비교하고, 이 final continuity를 통과한 뒤에만 classification을 기록한다. post-lock 이후 psql과 Docker stats는 mutable name이 아니라 승인된 full container ID를 사용한다. `measurementStatus`는 최대 `conditional-shared-stack`, `evidenceIntegrity`는 별도 검증 상태이며 `automaticAdoption=false`다. PM이 exclusive-use 전체 window와 evidence를 검토하기 전 baseline으로 채택할 수 없다.
+
+PM이 확인한 현재 shared PostgreSQL에서는 `pg_stat_statements`가 unavailable이다. runner는 extension/config를 변경하지 않고 unavailable reason과 availability continuity를 보존하며, PostgreSQL decimal-string counter는 독립 query-count가 아닌 supporting evidence로만 기록한다.
