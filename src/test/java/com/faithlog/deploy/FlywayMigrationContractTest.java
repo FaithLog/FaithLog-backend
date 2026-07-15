@@ -284,7 +284,7 @@ class FlywayMigrationContractTest {
 		String sql = Files.readString(SUPABASE_DATA_API_SECURITY_MIGRATION);
 
 		assertThat(sql).contains(
-			"ALTER TABLE %I ENABLE ROW LEVEL SECURITY",
+			"ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY",
 			"n.nspname = 'public'",
 			"c.relkind IN ('r', 'p')",
 			"c.relname <> 'flyway_schema_history'",
