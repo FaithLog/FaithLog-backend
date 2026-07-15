@@ -80,7 +80,9 @@ public class ChargeStatusCommandService {
 	public ChargeItemResult changeChargeStatus(ChangeChargeStatusCommand command) {
 		ChargeItemLockScope chargeScope = chargeItemRepository.findChargeItemLockScopeById(command.chargeItemId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
-		CampusUserLookupResult requester = getActiveUser(command.requesterId());
+		CampusUserLookupResult requester = isStaleDutyRecoveryCandidate(chargeScope)
+			? getActiveUserForUpdate(command.requesterId())
+			: getActiveUser(command.requesterId());
 		boolean staleDutyRecovery = requireStaleDutyRecoveryScopeIfEligible(chargeScope, requester);
 		if (staleDutyRecovery && command.status() == ChargeStatus.UNPAID) {
 			throw new BusinessException(ErrorCode.BILLING_CHARGE_STATUS_TRANSITION_CONFLICT);
@@ -113,14 +115,7 @@ public class ChargeStatusCommandService {
 		ChargeItemLockScope chargeScope,
 		CampusUserLookupResult requester
 	) {
-		if (chargeScope.getStatus() != ChargeStatus.UNPAID
-			|| (chargeScope.getPaymentCategory() != PaymentCategory.COFFEE
-				&& chargeScope.getPaymentCategory() != PaymentCategory.MEAL)
-			|| chargeScope.getPaymentAccountId() == null) {
-			return false;
-		}
-		CampusUserLookupResult lockedRequester = getActiveUserForUpdate(requester.userId());
-		if (!lockedRequester.isAdmin()) {
+		if (!isStaleDutyRecoveryCandidate(chargeScope) || !requester.isAdmin()) {
 			return false;
 		}
 		PaymentAccountLockScope account = paymentAccountRepository
@@ -145,6 +140,13 @@ public class ChargeStatusCommandService {
 			chargeScope.getCampusId(), account.ownerUserId())
 			.filter(member -> !member.isActive())
 			.isPresent();
+	}
+
+	private boolean isStaleDutyRecoveryCandidate(ChargeItemLockScope chargeScope) {
+		return chargeScope.getStatus() == ChargeStatus.UNPAID
+			&& (chargeScope.getPaymentCategory() == PaymentCategory.COFFEE
+				|| chargeScope.getPaymentCategory() == PaymentCategory.MEAL)
+			&& chargeScope.getPaymentAccountId() != null;
 	}
 
 	private boolean shouldReopenWeeklyDevotion(ChargeItem chargeItem, ChargeStatus targetStatus) {

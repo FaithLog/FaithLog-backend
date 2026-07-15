@@ -31,6 +31,7 @@ import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.result.DutyAssignmentResult;
+import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.batch.service.DueCoffeePollClosureService;
@@ -529,9 +530,10 @@ class DutyGatedWriteConcurrencyTest {
 					throw new IllegalStateException("user lock release timeout");
 				}
 			}
-			return java.util.Optional.ofNullable(entityManager.find(
-				User.class, recoveryAdmin.id(), LockModeType.PESSIMISTIC_WRITE));
-		}).when(userRepository).findByIdForUpdate(recoveryAdmin.id());
+			User locked = entityManager.find(User.class, recoveryAdmin.id(), LockModeType.PESSIMISTIC_WRITE);
+			return java.util.Optional.of(new CampusUserLookupResult(
+				locked.id(), locked.name(), locked.email(), locked.role().name(), locked.isActive()));
+		}).when(userRepository).findCampusUserByIdForUpdate(recoveryAdmin.id());
 
 		ExecutorService executor = Executors.newSingleThreadExecutor();
 		try {
