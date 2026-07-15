@@ -1280,6 +1280,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 관리자 사용자·캠퍼스·정산·알림 로그는 20개, 사용자·담당자 모바일 목록은 10개 기본 크기로 분리하고 최대 100개 제한은 유지.
   - TDD RED 26건 중 6건 실패를 확인한 뒤 전체 551 tests(실패 0, skipped 3), focused 회귀, `build -x test`, REST Docs 170개 snippet group 및 AsciiDoc HTML 생성을 검증. DB migration과 데이터 삭제는 없음.
   - local `develop` fast-forward 후 기존 앱 컨테이너만 새 이미지로 교체하고 동일 `127.0.0.1:28080`에서 health `UP`을 확인. PostgreSQL/Redis 컨테이너와 named volume은 유지했으며 Flyway schema v10이 최신임을 검증.
+  - 수정된 프론트의 iOS Simulator를 재빌드 없이 새로고침해 관리자 청구·MEAL 투표의 `includeArchived=false/true`, 20/10 페이지 크기와 메타데이터를 실서버에서 확인하고 기존 관리자 정산 로딩 오류 해소를 검증.
 
 - 2026-07-14 #200 다중 커피 담당자·소유권·미납 알림
   - 캠퍼스별 ACTIVE COFFEE 담당자를 단일 교체에서 다중 additive/idempotent 지정으로 전환하고, `(campus_id, duty_type, user_id)` active partial unique migration으로 동시 중복을 방지.
