@@ -29,6 +29,28 @@ function aggregateExpectation(page = 0) {
 	};
 }
 
+function archiveExpectation(prefix, included) {
+	const base = prefix === 'admin' ? 6000 : 3000;
+	const summary = {
+		unpaidAmount: base + 11,
+		paidAmount: base + 12 + (included ? base + 15 : 0),
+		waivedAmount: base + 13 + (included ? base + 16 : 0),
+		canceledAmount: base + 14 + (included ? base + 17 : 0),
+	};
+	summary.totalAmount = summary.unpaidAmount + summary.paidAmount + summary.waivedAmount + summary.canceledAmount;
+	return {
+		summary,
+		memberRows: [{
+			userId: 401, name: 'MEMBER', email: 'member@example.com',
+			...summary,
+		}],
+		page: 0,
+		size: 10,
+		totalElements: 1,
+		totalPages: 1,
+	};
+}
+
 async function validManifest() {
 	const {buildRequestCases} = await definition();
 	const manifest = {
@@ -40,6 +62,7 @@ async function validManifest() {
 		activeMemberCount: 1000,
 		fixtureAccountCount: 5,
 		fixtureChargeCount: 35000,
+		crossCampusId: 302,
 		requesterUserId: 501,
 		dutyUserId: 502,
 		targetUserId: 401,
@@ -47,6 +70,7 @@ async function validManifest() {
 		ownedCoffeeAccountId: 601,
 		fixtureAccountId: 602,
 		dutyOwnedCoffeeAccountId: 603,
+		dutyHistoricalCoffeeAccountId: 605,
 		foreignCoffeeAccountId: 602,
 		crossCampusAccountId: 604,
 		archivedMemberUserId: 401,
@@ -63,7 +87,7 @@ async function validManifest() {
 			campusId: manifest.campusId,
 			campusName: manifest.campusName,
 			region: manifest.region,
-			...aggregateExpectation(),
+			...archiveExpectation(name.startsWith('admin_') ? 'admin' : 'my', name.endsWith('_included')),
 		};
 	}
 	const dutyAggregate = {
@@ -273,11 +297,42 @@ test('fixture models recent terminal, archived terminal, and old unpaid rows wit
 	assert.match(fixture, /LEFT JOIN users[\s\S]*u\.is_active IS DISTINCT FROM TRUE[\s\S]*active_members_have_active_users/i);
 	assert.match(fixture, /PERF_ISSUE_193:[\s\S]*:DUTY_HISTORY[\s\S]*FALSE[\s\S]*CURRENT_TIMESTAMP/i);
 	assert.match(fixture, /'PENALTY'::text AS category, 'DEVOTION_RECORD'::text AS source_type/);
+	assert.match(fixture, /&\s*4503599627370495/);
+	assert.doesNotMatch(fixture, /&\s*4611686018427387903/);
 	assert.match(fixture, /SET TIME ZONE 'Asia\/Seoul'/);
 	assert.match(fixture, /WHERE name = 'PERF_ISSUE_193:' \|\| :'dataset_id'/);
 	assert.doesNotMatch(fixture, /WHERE nickname LIKE 'PERF_ISSUE_193:%'/);
 	assert.doesNotMatch(fixture, /WHERE reason LIKE 'PERF_ISSUE_193:%'/);
 	assert.doesNotMatch(fixture, /\b(?:UPDATE|DELETE|TRUNCATE|DROP)\b/i);
+});
+
+test('terminal fixture and archive expectations follow the production one-month cutoff fields', async () => {
+	const fixture = await read('prepare-fixture.sql');
+	assert.match(fixture, /CASE WHEN s\.status = 'PAID' THEN s\.completed_at ELSE NULL END/);
+	assert.match(fixture, /s\.completed_at\s*\nFROM fixture_members/i);
+	assert.doesNotMatch(fixture, /CURRENT_TIMESTAMP\s*\nFROM fixture_members/i);
+
+	const cutoff = Date.parse('2026-06-15T00:00:00.000Z');
+	const rows = [
+		{status: 'UNPAID', amount: 100, paidAt: null, updatedAt: cutoff - 1},
+		{status: 'PAID', amount: 200, paidAt: cutoff + 1, updatedAt: cutoff + 1},
+		{status: 'WAIVED', amount: 300, paidAt: null, updatedAt: cutoff + 1},
+		{status: 'CANCELED', amount: 400, paidAt: null, updatedAt: cutoff + 1},
+		{status: 'PAID', amount: 500, paidAt: cutoff - 1, updatedAt: cutoff - 1},
+		{status: 'WAIVED', amount: 600, paidAt: null, updatedAt: cutoff - 1},
+		{status: 'CANCELED', amount: 700, paidAt: null, updatedAt: cutoff - 1},
+	];
+	const visible = (row) => row.status === 'UNPAID'
+		|| (row.status === 'PAID' && row.paidAt >= cutoff)
+		|| (['WAIVED', 'CANCELED'].includes(row.status) && row.updatedAt >= cutoff);
+	const summarize = (selected) => Object.fromEntries(
+		['UNPAID', 'PAID', 'WAIVED', 'CANCELED'].map((status) => [
+			status,
+			selected.filter((row) => row.status === status).reduce((sum, row) => sum + row.amount, 0),
+		]),
+	);
+	assert.deepEqual(summarize(rows.filter(visible)), {UNPAID: 100, PAID: 200, WAIVED: 300, CANCELED: 400});
+	assert.deepEqual(summarize(rows), {UNPAID: 100, PAID: 700, WAIVED: 900, CANCELED: 1100});
 });
 
 test('fixture creates a namespace-fresh exact 1,000-member dataset instead of reusing a matching campus', async () => {
@@ -364,8 +419,23 @@ test('archive and duty validators reject wrong campus identity and mutated publi
 		},
 	};
 	const archiveProbe = buildArchiveCorrectnessProbes(manifest, manifest.campusId)[0];
-	assert.equal(validateArchiveProbeResponse(aggregateBody, archiveProbe, manifest.archiveCases), true);
-	const wrongArchiveCampus = structuredClone(aggregateBody);
+	const archiveExpected = manifest.archiveCases[archiveProbe.name];
+	const archiveBody = {
+		success: true,
+		data: {
+			campusId: archiveExpected.campusId,
+			campusName: archiveExpected.campusName,
+			region: archiveExpected.region,
+			summary: archiveExpected.summary,
+			members: archiveExpected.memberRows,
+			page: archiveExpected.page,
+			size: archiveExpected.size,
+			totalElements: archiveExpected.totalElements,
+			totalPages: archiveExpected.totalPages,
+		},
+	};
+	assert.equal(validateArchiveProbeResponse(archiveBody, archiveProbe, manifest.archiveCases), true);
+	const wrongArchiveCampus = structuredClone(archiveBody);
 	wrongArchiveCampus.data.campusId += 1;
 	assert.equal(validateArchiveProbeResponse(wrongArchiveCampus, archiveProbe, manifest.archiveCases), false);
 
@@ -424,10 +494,22 @@ test('manifest validation fails closed for exact archive and duty schemas', asyn
 		(manifest) => { manifest.activeMemberCount = 999; },
 		(manifest) => { manifest.activeMemberCount = 1001; },
 		(manifest) => { manifest.campusName = 'FOREIGN-PERF_ISSUE_193:RUN_A'; },
+		(manifest) => { manifest.foreignCoffeeAccountId = '602'; },
 	];
 	for (const mutate of mutations) {
 		const malformed = structuredClone(valid);
 		mutate(malformed);
+		assert.throws(() => validateExpectationsManifest(malformed, malformed.campusId));
+	}
+});
+
+test('manifest rejects archive false-greens without exact terminal status deltas', async () => {
+	const {validateExpectationsManifest} = await definition();
+	for (const prefix of ['admin', 'my']) {
+		const malformed = await validManifest();
+		malformed.archiveCases[`${prefix}_archive_included`] = structuredClone(
+			malformed.archiveCases[`${prefix}_archive_default`],
+		);
 		assert.throws(() => validateExpectationsManifest(malformed, malformed.campusId));
 	}
 });
