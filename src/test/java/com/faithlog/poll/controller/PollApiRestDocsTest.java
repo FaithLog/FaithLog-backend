@@ -368,6 +368,13 @@ class PollApiRestDocsTest {
 		);
 		oldClosedPoll.close();
 		pollRepository.saveAndFlush(oldClosedPoll);
+		Instant archivedEndsAt = Instant.now().minusSeconds(91L * 24 * 60 * 60);
+		Poll archivedClosedPoll = Poll.createMeal(
+			campusId, "90일 초과 종료 투표", false, false,
+			archivedEndsAt.minusSeconds(3600), archivedEndsAt, duty.id()
+		);
+		archivedClosedPoll.close();
+		pollRepository.saveAndFlush(archivedClosedPoll);
 		String managementListBody = mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
@@ -376,6 +383,12 @@ class PollApiRestDocsTest {
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())))
 			.andReturn().getResponse().getContentAsString();
 		assertThat(managementListBody).contains("7일 초과 종료 투표");
+		assertThat(managementListBody).doesNotContain("90일 초과 종료 투표");
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.param("includeArchived", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.content[*].title").value(org.hamcrest.Matchers.hasItem("90일 초과 종료 투표")));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls/{pollId}", campusId, pollId)
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
@@ -389,6 +402,10 @@ class PollApiRestDocsTest {
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.summary.totalAmount").value(10002))
+			.andExpect(jsonPath("$.data.page").value(0))
+			.andExpect(jsonPath("$.data.size").value(10))
+			.andExpect(jsonPath("$.data.totalElements").isNumber())
+			.andExpect(jsonPath("$.data.totalPages").value(1))
 			.andDo(document("meal-charges-my-accounts-success",
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
 		String secondDutyToken = signupAndLogin("meal-settlement-duty-b@example.com", UserRole.USER);
