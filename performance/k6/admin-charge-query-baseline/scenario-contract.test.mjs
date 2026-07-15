@@ -14,6 +14,100 @@ async function definition() {
 	return import(pathToFileURL(path.join(scenarioDir, 'scenario-definition.mjs')).href);
 }
 
+function aggregateExpectation(page = 0) {
+	return {
+		summary: {totalAmount: 100, unpaidAmount: 100, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
+		memberRows: [{
+			userId: 401, name: 'MEMBER', email: 'member@example.com', totalAmount: 100,
+			unpaidAmount: 100, paidAmount: 0, waivedAmount: 0, canceledAmount: 0,
+		}],
+		page,
+		size: 10,
+		totalElements: 1,
+		totalPages: 1,
+	};
+}
+
+async function validManifest() {
+	const {buildRequestCases} = await definition();
+	const manifest = {
+		datasetId: 'RUN_A',
+		fixtureRunId: 'FIXTURE_A',
+		campusId: 301,
+		campusName: 'PERF_ISSUE_193:RUN_A',
+		region: 'PERF_REGION',
+		activeMemberCount: 1000,
+		fixtureAccountCount: 5,
+		fixtureChargeCount: 35000,
+		requesterUserId: 501,
+		dutyUserId: 502,
+		targetUserId: 401,
+		targetKeyword: 'member@example.com',
+		ownedCoffeeAccountId: 601,
+		fixtureAccountId: 602,
+		dutyOwnedCoffeeAccountId: 603,
+		foreignCoffeeAccountId: 602,
+		crossCampusAccountId: 604,
+		archivedMemberUserId: 401,
+		sourceDuplicateCount: 0,
+		cases: {},
+		archiveCases: {},
+		dutyScope: {},
+	};
+	for (const requestCase of buildRequestCases(manifest, manifest.campusId)) {
+		manifest.cases[requestCase.name] = aggregateExpectation(requestCase.query.page);
+	}
+	for (const name of ['admin_archive_default', 'admin_archive_included', 'my_archive_default', 'my_archive_included']) {
+		manifest.archiveCases[name] = aggregateExpectation();
+	}
+	manifest.dutyScope.duty_owned_accounts_visible = {status: 200, ...aggregateExpectation()};
+	manifest.dutyScope.duty_owned_account_filter_visible = {status: 200, ...aggregateExpectation()};
+	manifest.dutyScope.duty_foreign_account_hidden = {status: 403};
+	manifest.dutyScope.duty_member_detail_owned_only = {
+		status: 200,
+		campusId: 301,
+		campusName: 'PERF_ISSUE_193:RUN_A',
+		region: 'PERF_REGION',
+		userId: 401,
+		name: 'MEMBER',
+		email: 'member@example.com',
+		summary: aggregateExpectation().summary,
+		items: [
+			{
+				id: 702,
+				paymentCategory: 'COFFEE',
+				title: 'RECENT',
+				reason: 'PERF_ISSUE_193:FIXTURE_A:RECENT',
+				amount: 100,
+				status: 'PAID',
+				dueDate: null,
+				paidAt: '2026-07-10T00:00:00.000Z',
+				account: {paymentAccountId: 603, bankName: 'BANK', accountNumber: '123', accountHolder: 'OWNER'},
+				source: {sourceType: 'POLL_RESPONSE', sourceId: 802},
+				_sortCreatedAt: '2026-07-10T00:00:00.000Z',
+			},
+			{
+				id: 701,
+				paymentCategory: 'COFFEE',
+				title: 'OLD',
+				reason: 'PERF_ISSUE_193:FIXTURE_A:OLD',
+				amount: 50,
+				status: 'UNPAID',
+				dueDate: null,
+				paidAt: null,
+				account: {paymentAccountId: 605, bankName: 'BANK', accountNumber: '456', accountHolder: 'OWNER'},
+				source: {sourceType: 'POLL_RESPONSE', sourceId: 801},
+				_sortCreatedAt: '2026-07-09T00:00:00.000Z',
+			},
+		],
+		page: 0,
+		size: 10,
+		totalElements: 2,
+		totalPages: 1,
+	};
+	return manifest;
+}
+
 test('defines exactly 16 measured admin-charge cases in frontend order with explicit size 10', async () => {
 	const {REQUEST_CASE_NAMES, buildRequestCases} = await definition();
 	assert.equal(REQUEST_CASE_NAMES.length, 16);
@@ -140,12 +234,15 @@ test('defines separate COFFEE duty owned-account and member-detail HTTP prefligh
 		foreignCoffeeAccountId: 602,
 	}, 301);
 	assert.deepEqual(probes.map(({name}) => name), [
-		'duty_owned_account_visible',
+		'duty_owned_accounts_visible',
+		'duty_owned_account_filter_visible',
 		'duty_foreign_account_hidden',
 		'duty_member_detail_owned_only',
 	]);
-	assert.match(probes[2].path, /\/members\/101\/charges$/);
-	assert.equal(probes[2].query.paymentCategory, 'COFFEE');
+	assert.equal(Object.hasOwn(probes[0].query, 'paymentAccountId'), false);
+	assert.equal(probes[1].query.paymentAccountId, 601);
+	assert.match(probes[3].path, /\/members\/101\/charges$/);
+	assert.equal(probes[3].query.paymentCategory, 'COFFEE');
 });
 
 test('fixture models recent terminal, archived terminal, and old unpaid rows without deleting data', async () => {
@@ -155,14 +252,58 @@ test('fixture models recent terminal, archived terminal, and old unpaid rows wit
 	assert.match(fixture, /RECENT_TERMINAL/);
 	assert.match(fixture, /OLD_UNPAID/);
 	assert.match(fixture, /NOT EXISTS[\s\S]*account_type = 'COFFEE'[\s\S]*is_active = TRUE/i);
+	assert.match(fixture, /LEFT JOIN users[\s\S]*u\.is_active IS DISTINCT FROM TRUE[\s\S]*active_members_have_active_users/i);
+	assert.match(fixture, /PERF_ISSUE_193:[\s\S]*:DUTY_HISTORY[\s\S]*FALSE[\s\S]*CURRENT_TIMESTAMP/i);
 	assert.match(fixture, /'PENALTY'::text AS category, 'DEVOTION_RECORD'::text AS source_type/);
+	assert.match(fixture, /SET TIME ZONE 'Asia\/Seoul'/);
+	assert.match(fixture, /WHERE name = 'PERF_ISSUE_193:' \|\| :'dataset_id'/);
+	assert.doesNotMatch(fixture, /WHERE nickname LIKE 'PERF_ISSUE_193:%'/);
+	assert.doesNotMatch(fixture, /WHERE reason LIKE 'PERF_ISSUE_193:%'/);
 	assert.doesNotMatch(fixture, /\b(?:UPDATE|DELETE|TRUNCATE|DROP)\b/i);
+});
+
+test('fixture creates a globally fresh exact 1,000-member dataset instead of reusing a matching campus', async () => {
+	const fixture = await read('prepare-fixture.sql');
+	assert.match(fixture, /dataset_is_globally_fresh/i);
+	assert.match(fixture, /INSERT INTO campuses/i);
+	assert.match(fixture, /generate_series\(1,\s*1000\)/i);
+	assert.match(fixture, /COUNT\(\*\)\s*=\s*1000/i);
+	assert.match(fixture, /name\s*=\s*'PERF_ISSUE_193:'\s*\|\|\s*:'dataset_id'/i);
+	assert.doesNotMatch(fixture, /name LIKE '%'\s*\|\|\s*:'dataset_id'/i);
+	assert.doesNotMatch(fixture, /COUNT\(\*\)\s*>=\s*1000/i);
+});
+
+test('synthetic before and after namespaces stay isolated with identical shape', async () => {
+	const fixture = await read('prepare-fixture.sql');
+	assert.match(fixture, /:'dataset_id'/);
+	assert.match(fixture, /:'fixture_run_id'/);
+	assert.doesNotMatch(fixture, /nickname LIKE 'PERF_ISSUE_193:%'/);
+	assert.doesNotMatch(fixture, /reason LIKE 'PERF_ISSUE_193:%'/);
+
+	const shape = (datasetId, fixtureRunId) => ({
+		campusName: `PERF_ISSUE_193:${datasetId}`,
+		marker: `PERF_ISSUE_193:${datasetId}:${fixtureRunId}`,
+		activeMembers: 1000,
+		accounts: 5,
+		charges: 35000,
+	});
+	const before = shape('BEFORE', 'FIXTURE_BEFORE');
+	const after = shape('AFTER', 'FIXTURE_AFTER');
+	assert.notEqual(before.campusName, after.campusName);
+	assert.notEqual(before.marker, after.marker);
+	assert.deepEqual(
+		{activeMembers: before.activeMembers, accounts: before.accounts, charges: before.charges},
+		{activeMembers: after.activeMembers, accounts: after.accounts, charges: after.charges},
+	);
 });
 
 test('fixture expectations apply the one-month terminal cutoff and page size 10 to all cases', async () => {
 	const expectations = await read('fixture-expectations.sql');
 	assert.match(expectations, /paid_at\s*>=\s*CURRENT_TIMESTAMP\s*-\s*INTERVAL '1 month'/i);
 	assert.match(expectations, /updated_at\s*>=\s*CURRENT_TIMESTAMP\s*-\s*INTERVAL '1 month'/i);
+	assert.match(expectations, /SET TIME ZONE 'Asia\/Seoul'/);
+	assert.match(expectations, /duty_active_accounts[\s\S]*is_active = TRUE[\s\S]*deleted_at IS NULL/i);
+	assert.match(expectations, /duty_all_accounts[\s\S]*owner_user_id = :'duty_requester_user_id'/i);
 	assert.match(expectations, /row_number\s*>\s*\(cs\.page\s*\*\s*10\)/i);
 	assert.match(expectations, /'page'/);
 	assert.match(expectations, /'size'/);
@@ -180,6 +321,98 @@ test('preflight requires distinct admin and duty identities and verifies all cor
 	assert.match(preflight, /buildDutyScopeProbes/);
 	assert.match(preflight, /cross-campus/i);
 	assert.match(preflight, /source duplicate/i);
+});
+
+test('archive and duty validators reject wrong campus identity and mutated public item fields', async () => {
+	const {
+		buildArchiveCorrectnessProbes,
+		buildDutyScopeProbes,
+		validateArchiveProbeResponse,
+		validateDutyAggregateResponse,
+		validateDutyMemberDetailResponse,
+	} = await definition();
+	const manifest = await validManifest();
+	const aggregateBody = {
+		success: true,
+		data: {
+			campusId: manifest.campusId,
+			campusName: manifest.campusName,
+			region: manifest.region,
+			summary: aggregateExpectation().summary,
+			members: aggregateExpectation().memberRows,
+			page: 0,
+			size: 10,
+			totalElements: 1,
+			totalPages: 1,
+		},
+	};
+	const archiveProbe = buildArchiveCorrectnessProbes(manifest, manifest.campusId)[0];
+	assert.equal(validateArchiveProbeResponse(aggregateBody, archiveProbe, manifest.archiveCases), true);
+	const wrongArchiveCampus = structuredClone(aggregateBody);
+	wrongArchiveCampus.data.campusId += 1;
+	assert.equal(validateArchiveProbeResponse(wrongArchiveCampus, archiveProbe, manifest.archiveCases), false);
+
+	const dutyProbe = buildDutyScopeProbes(manifest, manifest.campusId)[0];
+	assert.equal(validateDutyAggregateResponse(aggregateBody, dutyProbe, manifest.dutyScope), true);
+	const wrongDutyCampus = structuredClone(aggregateBody);
+	wrongDutyCampus.data.campusName = 'OTHER';
+	assert.equal(validateDutyAggregateResponse(wrongDutyCampus, dutyProbe, manifest.dutyScope), false);
+
+	const expectedDetail = manifest.dutyScope.duty_member_detail_owned_only;
+	const detailBody = {
+		success: true,
+		data: {
+			campusId: expectedDetail.campusId,
+			campusName: expectedDetail.campusName,
+			region: expectedDetail.region,
+			userId: expectedDetail.userId,
+			name: expectedDetail.name,
+			email: expectedDetail.email,
+			summary: expectedDetail.summary,
+			items: expectedDetail.items.map(({_sortCreatedAt, ...item}) => item),
+			page: expectedDetail.page,
+			size: expectedDetail.size,
+			totalElements: expectedDetail.totalElements,
+			totalPages: expectedDetail.totalPages,
+		},
+	};
+	assert.equal(validateDutyMemberDetailResponse(detailBody, expectedDetail), true);
+	for (const mutate of [
+		(body) => { body.data.campusId += 1; },
+		(body) => { body.data.name = 'OTHER'; },
+		(body) => { body.data.email = 'other@example.com'; },
+		(body) => { body.data.items[0].amount += 1; },
+		(body) => { body.data.items[0].status = 'UNPAID'; },
+		(body) => { body.data.items[0].source.sourceId += 1; },
+	]) {
+		const mutated = structuredClone(detailBody);
+		mutate(mutated);
+		assert.equal(validateDutyMemberDetailResponse(mutated, expectedDetail), false);
+	}
+});
+
+test('manifest validation fails closed for exact archive and duty schemas', async () => {
+	const {validateExpectationsManifest} = await definition();
+	const valid = await validManifest();
+	assert.equal(validateExpectationsManifest(valid, valid.campusId), true);
+
+	const mutations = [
+		(manifest) => { delete manifest.dutyScope.duty_owned_accounts_visible.status; },
+		(manifest) => { manifest.dutyScope.duty_owned_accounts_visible.status = '200'; },
+		(manifest) => { delete manifest.dutyScope.duty_owned_accounts_visible.summary.totalAmount; },
+		(manifest) => { manifest.dutyScope.duty_owned_accounts_visible.extra = true; },
+		(manifest) => { manifest.dutyScope.duty_member_detail_owned_only.items[1].id = 702; },
+		(manifest) => { manifest.dutyScope.duty_member_detail_owned_only.items.reverse(); },
+		(manifest) => { manifest.archiveCases.extra = aggregateExpectation(); },
+		(manifest) => { manifest.activeMemberCount = 999; },
+		(manifest) => { manifest.activeMemberCount = 1001; },
+		(manifest) => { manifest.campusName = 'FOREIGN-PERF_ISSUE_193:RUN_A'; },
+	];
+	for (const mutate of mutations) {
+		const malformed = structuredClone(valid);
+		mutate(malformed);
+		assert.throws(() => validateExpectationsManifest(malformed, malformed.campusId));
+	}
 });
 
 test('documents scenario-only status, immutable baseline server, and the measurement approval gate', async () => {
