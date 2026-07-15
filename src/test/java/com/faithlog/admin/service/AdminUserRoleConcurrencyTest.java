@@ -16,6 +16,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,6 +36,9 @@ class AdminUserRoleConcurrencyTest {
 
 	@MockitoSpyBean
 	private UserRepository userRepository;
+
+	@Autowired
+	private EntityManager entityManager;
 
 	@Test
 	void concurrent_self_demotion_preserves_exactly_one_active_service_admin() throws Exception {
@@ -95,7 +100,6 @@ class AdminUserRoleConcurrencyTest {
 		CountDownLatch allowTargetLock = new CountDownLatch(1);
 		AtomicBoolean paused = new AtomicBoolean();
 		doAnswer(invocation -> {
-			Object result = invocation.callRealMethod();
 			if (Thread.currentThread().getName().equals("stale-role-demotion")
 				&& paused.compareAndSet(false, true)) {
 				targetScopeRead.countDown();
@@ -103,8 +107,12 @@ class AdminUserRoleConcurrencyTest {
 					throw new IllegalStateException("target role lock release timeout");
 				}
 			}
-			return result;
-		}).when(userRepository).findAdminUserById(targetId);
+			return entityManager.createQuery("select user from User user order by user.id asc", User.class)
+				.setMaxResults(1)
+				.setLockMode(LockModeType.PESSIMISTIC_WRITE)
+				.getResultStream()
+				.findFirst();
+		}).when(userRepository).findFirstAdminMutationLockForUpdate();
 
 		ExecutorService executor = Executors.newSingleThreadExecutor();
 		try {

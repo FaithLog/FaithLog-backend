@@ -113,11 +113,14 @@ public class ChargeStatusCommandService {
 		ChargeItemLockScope chargeScope,
 		CampusUserLookupResult requester
 	) {
-		if (!requester.isAdmin()
-			|| chargeScope.getStatus() != ChargeStatus.UNPAID
+		if (chargeScope.getStatus() != ChargeStatus.UNPAID
 			|| (chargeScope.getPaymentCategory() != PaymentCategory.COFFEE
 				&& chargeScope.getPaymentCategory() != PaymentCategory.MEAL)
 			|| chargeScope.getPaymentAccountId() == null) {
+			return false;
+		}
+		CampusUserLookupResult lockedRequester = getActiveUserForUpdate(requester.userId());
+		if (!lockedRequester.isAdmin()) {
 			return false;
 		}
 		PaymentAccountLockScope account = paymentAccountRepository
@@ -221,6 +224,15 @@ public class ChargeStatusCommandService {
 
 	private CampusUserLookupResult getActiveUser(Long userId) {
 		CampusUserLookupResult user = userLookupPort.findCampusUserById(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
+		if (!user.active()) {
+			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
+		}
+		return user;
+	}
+
+	private CampusUserLookupResult getActiveUserForUpdate(Long userId) {
+		CampusUserLookupResult user = userLookupPort.findCampusUserByIdForUpdate(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
 		if (!user.active()) {
 			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);

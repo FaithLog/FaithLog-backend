@@ -72,8 +72,8 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
 	@Override
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
-	@Query("select user from User user where user.role = :role and user.isActive = true order by user.id asc")
-	List<User> findActiveAdminUsersForUpdate(@Param("role") com.faithlog.user.domain.type.UserRole role);
+	@Query("select user from User user where user.id = (select min(candidate.id) from User candidate)")
+	Optional<User> findFirstAdminMutationLockForUpdate();
 
 	Optional<User> findByEmail(String email);
 
