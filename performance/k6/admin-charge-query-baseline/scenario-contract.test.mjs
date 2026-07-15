@@ -103,9 +103,29 @@ test('defines separate archive correctness probes for default and includeArchive
 		'my_archive_included',
 	]);
 	assert.deepEqual(probes.map(({query}) => query.includeArchived), [false, true, false, true]);
-	assert.equal(validateArchiveProbeResponse({success: true, data: {totalElements: 1}}, probes[0], {
-		admin_archive_default: {totalElements: 1},
-	}), true);
+	const expected = {
+		summary: {totalAmount: 100, unpaidAmount: 100, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
+		memberRows: [{
+			userId: 401, name: 'ARCHIVED', email: 'archived@example.com', totalAmount: 100,
+			unpaidAmount: 100, paidAmount: 0, waivedAmount: 0, canceledAmount: 0,
+		}],
+		page: 0,
+		size: 10,
+		totalElements: 1,
+		totalPages: 1,
+	};
+	const body = {
+		success: true,
+		data: {
+			summary: expected.summary,
+			members: expected.memberRows,
+			page: 0,
+			size: 10,
+			totalElements: 1,
+			totalPages: 1,
+		},
+	};
+	assert.equal(validateArchiveProbeResponse(body, probes[0], {admin_archive_default: expected}), true);
 	assert.equal(validateArchiveProbeResponse({success: true, data: {totalElements: 2}}, probes[0], {
 		admin_archive_default: {totalElements: 1},
 	}), false);

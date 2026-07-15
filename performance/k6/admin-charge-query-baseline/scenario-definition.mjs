@@ -124,8 +124,16 @@ export function validateCaseResponseSemantics(body, requestCase, expectations) {
 }
 
 export function validateArchiveProbeResponse(body, probe, archiveCases) {
-	const expected = archiveCases?.[probe?.name];
-	return body?.success === true && expected !== undefined && semanticSubset(body.data, expected);
+	try {
+		const expected = archiveCases?.[probe?.name];
+		validateAggregateExpectation(expected);
+		return body?.success === true
+			&& semanticEqual(body.data?.summary, expected.summary)
+			&& semanticEqual(body.data?.members?.map(toComparableMemberRow), expected.memberRows)
+			&& paginationMatches(body.data, expected);
+	} catch (_error) {
+		return false;
+	}
 }
 
 export function validateDutyAggregateResponse(body, probe, dutyScope) {
@@ -254,18 +262,4 @@ function toComparableMemberRow(member) {
 		waivedAmount: member?.waivedAmount,
 		canceledAmount: member?.canceledAmount,
 	};
-}
-
-function semanticSubset(actual, expected) {
-	if (Array.isArray(expected)) {
-		return Array.isArray(actual)
-			&& actual.length === expected.length
-			&& expected.every((value, index) => semanticSubset(actual[index], value));
-	}
-	if (expected === null || typeof expected !== 'object') {
-		return Object.is(actual, expected);
-	}
-	return actual !== null
-		&& typeof actual === 'object'
-		&& Object.entries(expected).every(([key, value]) => semanticSubset(actual[key], value));
 }
