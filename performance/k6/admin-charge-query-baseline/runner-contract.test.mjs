@@ -55,8 +55,8 @@ test('all target, workload, credential, and identity gates precede fresh fixture
 		'auth-contract.mjs" workload',
 		'target-binding.mjs',
 		'runtime-identity.mjs" post-lock',
-		'ADMIN_ACCESS_TOKEN=',
-		'DUTY_ACCESS_TOKEN=',
+		'ADMIN_ACCESS_TOKEN="$(',
+		'DUTY_ACCESS_TOKEN="$(',
 		'shared-stack-check',
 	]) {
 		const position = runner.indexOf(gate);
@@ -121,7 +121,7 @@ test('summary validation enforces exact count math, failure math, latency order,
 	const {REQUEST_CASE_NAMES} = await module('scenario-definition.mjs');
 	const metrics = {};
 	for (const name of REQUEST_CASE_NAMES) {
-		metrics[`admin_charge_${name}_failure`] = {values: {rate: 0, passes: 20, fails: 0}};
+		metrics[`admin_charge_${name}_failure`] = {values: {rate: 0, passes: 0, fails: 20}};
 		metrics[`admin_charge_${name}_requests`] = {values: {count: 20, rate: 10}};
 		metrics[`admin_charge_${name}_duration`] = {values: {
 			avg: 5, med: 4, 'p(50)': 4, 'p(95)': 8, 'p(99)': 9, max: 10, count: 20,
@@ -134,7 +134,9 @@ test('summary validation enforces exact count math, failure math, latency order,
 	)};
 	assert.equal(validateMeasuredSummary(directSummary, {expectedRequestCount: 20}), true);
 	for (const mutate of [
-		(value, name) => { value.metrics[`admin_charge_${name}_failure`].values.fails = 1; },
+		(value, name) => {
+			Object.assign(value.metrics[`admin_charge_${name}_failure`].values, {rate: 0.05, passes: 1, fails: 19});
+		},
 		(value, name) => { value.metrics[`admin_charge_${name}_duration`].values.count = 19; },
 		(value, name) => { value.metrics[`admin_charge_${name}_duration`].values['p(95)'] = 3; },
 		(value, name) => { value.metrics[`admin_charge_${name}_requests`].values.count = 19; },

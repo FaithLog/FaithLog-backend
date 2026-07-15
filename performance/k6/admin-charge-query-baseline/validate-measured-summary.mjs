@@ -27,10 +27,10 @@ export function validateMeasuredSummary(summary, {expectedRequestCount} = {}) {
 		const passes = failure?.passes;
 		const fails = failure?.fails;
 		if (failureRate !== 0
-			|| !Number.isSafeInteger(passes) || passes < 0
-			|| !Number.isSafeInteger(fails) || fails !== 0
+			|| !Number.isSafeInteger(passes) || passes !== 0
+			|| !Number.isSafeInteger(fails) || fails < 0
 			|| passes + fails !== requestCount
-			|| failureRate !== fails / (passes + fails)) {
+			|| failureRate !== passes / (passes + fails)) {
 			invalidMetrics.push(`${failureMetric} failure math is invalid`);
 		}
 
