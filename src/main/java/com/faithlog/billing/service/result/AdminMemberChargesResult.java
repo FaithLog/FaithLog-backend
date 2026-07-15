@@ -10,6 +10,10 @@ public record AdminMemberChargesResult(
 	String name,
 	String email,
 	ChargeAmountSummaryResult summary,
-	List<ChargeListItemResult> items
+	List<ChargeListItemResult> items,
+	int page,
+	int size,
+	long totalElements,
+	int totalPages
 ) {
 }

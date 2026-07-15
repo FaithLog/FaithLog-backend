@@ -64,8 +64,9 @@ public class BillingController {
 		@PathVariable Long campusId,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) PaymentCategory paymentCategory,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) ChargeStatus status,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean includeArchived,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
-		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "10") int size,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
 		MyChargesResponse response = MyChargesResponse.from(myChargeQueryService.listMyCharges(new MyChargeListQuery(
@@ -73,6 +74,7 @@ public class BillingController {
 			authenticatedUser.userId(),
 			paymentCategory,
 			status,
+			includeArchived,
 			BillingPageRequests.chargeItems(page, size, sort)
 		)));
 		return ApiResponse.success(response);

@@ -9,7 +9,11 @@ public record AdminCampusChargesResponse(
 	String campusName,
 	String region,
 	ChargeAmountSummaryResponse summary,
-	List<MemberChargeSummaryResponse> members
+	List<MemberChargeSummaryResponse> members,
+	int page,
+	int size,
+	long totalElements,
+	int totalPages
 ) {
 
 	public static AdminCampusChargesResponse from(AdminCampusChargesResult result) {
@@ -18,7 +22,11 @@ public record AdminCampusChargesResponse(
 			result.campusName(),
 			result.region(),
 			ChargeAmountSummaryResponse.from(result.summary()),
-			result.members().stream().map(MemberChargeSummaryResponse::from).toList()
+			result.members().stream().map(MemberChargeSummaryResponse::from).toList(),
+			result.page(),
+			result.size(),
+			result.totalElements(),
+			result.totalPages()
 		);
 	}
 

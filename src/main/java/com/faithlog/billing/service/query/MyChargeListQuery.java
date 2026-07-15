@@ -9,6 +9,16 @@ public record MyChargeListQuery(
 	Long requesterId,
 	PaymentCategory paymentCategory,
 	ChargeStatus status,
+	boolean includeArchived,
 	Pageable pageable
 ) {
+	public MyChargeListQuery(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Pageable pageable
+	) {
+		this(campusId, requesterId, paymentCategory, status, false, pageable);
+	}
 }

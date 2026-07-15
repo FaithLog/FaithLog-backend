@@ -13,6 +13,7 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.requestF
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
 import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.restdocs.request.RequestDocumentation.pathParameters;
+import static org.springframework.restdocs.request.RequestDocumentation.queryParameters;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -368,14 +369,38 @@ class PollApiRestDocsTest {
 		);
 		oldClosedPoll.close();
 		pollRepository.saveAndFlush(oldClosedPoll);
+		Instant archivedEndsAt = Instant.now().minusSeconds(91L * 24 * 60 * 60);
+		Poll archivedClosedPoll = Poll.createMeal(
+			campusId, "90일 초과 종료 투표", false, false,
+			archivedEndsAt.minusSeconds(3600), archivedEndsAt, duty.id()
+		);
+		archivedClosedPoll.close();
+		pollRepository.saveAndFlush(archivedClosedPoll);
 		String managementListBody = mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
-				.header("Authorization", "Bearer " + dutyToken))
+				.header("Authorization", "Bearer " + dutyToken)
+				.param("includeArchived", "false")
+				.param("page", "0")
+				.param("size", "10")
+				.param("sort", "createdAt,desc"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.content[0].settlementStatus").value("CHARGED"))
 			.andDo(document("meal-polls-management-list-success",
-				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())))
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
+				queryParameters(
+					parameterWithName("status").optional().description("투표 상태 필터"),
+					parameterWithName("includeArchived").optional().description("이전 마감 기록 포함 여부. 기본 false이면 OPEN/SCHEDULED는 기간 제한 없이 포함하고 CLOSED는 최근 90일만 포함"),
+					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
+					parameterWithName("size").optional().description("페이지 크기. 기본 10, 최대 100"),
+					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
+				)))
 			.andReturn().getResponse().getContentAsString();
 		assertThat(managementListBody).contains("7일 초과 종료 투표");
+		assertThat(managementListBody).doesNotContain("90일 초과 종료 투표");
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls", campusId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.param("includeArchived", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.content[*].title").value(org.hamcrest.Matchers.hasItem("90일 초과 종료 투표")));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/polls/{pollId}", campusId, pollId)
 				.header("Authorization", "Bearer " + dutyToken))
 			.andExpect(status().isOk())
@@ -386,11 +411,34 @@ class PollApiRestDocsTest {
 			.andDo(document("meal-poll-management-detail-charged-by-me-success",
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/meal/charges/my-accounts", campusId)
-				.header("Authorization", "Bearer " + dutyToken))
+				.header("Authorization", "Bearer " + dutyToken)
+				.param("includeArchived", "false")
+				.param("page", "0")
+				.param("size", "10")
+				.param("sort", "createdAt,desc"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.summary.totalAmount").value(10002))
+			.andExpect(jsonPath("$.data.page").value(0))
+			.andExpect(jsonPath("$.data.size").value(10))
+			.andExpect(jsonPath("$.data.totalElements").isNumber())
+			.andExpect(jsonPath("$.data.totalPages").value(1))
 			.andDo(document("meal-charges-my-accounts-success",
-				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
+				queryParameters(
+					parameterWithName("status").optional().description("청구 상태 필터"),
+					parameterWithName("userId").optional().description("청구 대상 사용자 ID 필터"),
+					parameterWithName("keyword").optional().description("사용자 이름 또는 이메일 검색어"),
+					parameterWithName("includeArchived").optional().description("이전 완료 기록 포함 여부. 기본 false이면 UNPAID는 기간 제한 없이 포함하고 PAID/WAIVED/CANCELED는 완료 시각 기준 최근 1개월만 포함"),
+					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
+					parameterWithName("size").optional().description("페이지 크기. 기본 10, 최대 100"),
+					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
+				),
+				relaxedResponseFields(
+					fieldWithPath("data.page").description("현재 페이지 번호. 0부터 시작"),
+					fieldWithPath("data.size").description("요청에 적용된 페이지 크기"),
+					fieldWithPath("data.totalElements").description("필터와 이전 기록 정책을 적용한 전체 회원 수"),
+					fieldWithPath("data.totalPages").description("전체 페이지 수")
+				)));
 		String secondDutyToken = signupAndLogin("meal-settlement-duty-b@example.com", UserRole.USER);
 		User secondDuty = userRepository.findByEmail("meal-settlement-duty-b@example.com").orElseThrow();
 		joinCampus(secondDutyToken, campus.path("inviteCode").asText());

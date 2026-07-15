@@ -10,6 +10,17 @@ public record AdminMemberChargeListQuery(
 	Long requesterId,
 	PaymentCategory paymentCategory,
 	ChargeStatus status,
+	boolean includeArchived,
 	Pageable pageable
 ) {
+	public AdminMemberChargeListQuery(
+		Long campusId,
+		Long userId,
+		Long requesterId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Pageable pageable
+	) {
+		this(campusId, userId, requesterId, paymentCategory, status, false, pageable);
+	}
 }

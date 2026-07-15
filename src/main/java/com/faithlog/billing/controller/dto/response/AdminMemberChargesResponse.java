@@ -11,7 +11,11 @@ public record AdminMemberChargesResponse(
 	String name,
 	String email,
 	ChargeAmountSummaryResponse summary,
-	List<ChargeListItemResponse> items
+	List<ChargeListItemResponse> items,
+	int page,
+	int size,
+	long totalElements,
+	int totalPages
 ) {
 
 	public static AdminMemberChargesResponse from(AdminMemberChargesResult result) {
@@ -23,7 +27,11 @@ public record AdminMemberChargesResponse(
 			result.name(),
 			result.email(),
 			ChargeAmountSummaryResponse.from(result.summary()),
-			result.items().stream().map(ChargeListItemResponse::from).toList()
+			result.items().stream().map(ChargeListItemResponse::from).toList(),
+			result.page(),
+			result.size(),
+			result.totalElements(),
+			result.totalPages()
 		);
 	}
 }

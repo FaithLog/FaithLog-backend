@@ -8,7 +8,11 @@ public record MyChargesResponse(
 	String campusName,
 	String region,
 	ChargeAmountSummaryResponse summary,
-	List<ChargeListItemResponse> items
+	List<ChargeListItemResponse> items,
+	int page,
+	int size,
+	long totalElements,
+	int totalPages
 ) {
 
 	public static MyChargesResponse from(MyChargesResult result) {
@@ -17,7 +21,11 @@ public record MyChargesResponse(
 			result.campusName(),
 			result.region(),
 			ChargeAmountSummaryResponse.from(result.summary()),
-			result.items().stream().map(ChargeListItemResponse::from).toList()
+			result.items().stream().map(ChargeListItemResponse::from).toList(),
+			result.page(),
+			result.size(),
+			result.totalElements(),
+			result.totalPages()
 		);
 	}
 }

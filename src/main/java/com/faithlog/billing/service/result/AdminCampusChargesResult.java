@@ -7,6 +7,10 @@ public record AdminCampusChargesResult(
 	String campusName,
 	String region,
 	ChargeAmountSummaryResult summary,
-	List<AdminCampusChargeMemberResult> members
+	List<AdminCampusChargeMemberResult> members,
+	int page,
+	int size,
+	long totalElements,
+	int totalPages
 ) {
 }

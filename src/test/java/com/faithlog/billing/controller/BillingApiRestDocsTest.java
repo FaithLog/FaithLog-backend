@@ -692,8 +692,9 @@ class BillingApiRestDocsTest {
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
 				.header("Authorization", "Bearer " + memberToken)
 				.param("status", "UNPAID")
+				.param("includeArchived", "false")
 				.param("page", "0")
-				.param("size", "20")
+				.param("size", "10")
 				.param("sort", "createdAt,desc"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.success").value(true))
@@ -706,8 +707,9 @@ class BillingApiRestDocsTest {
 				queryParameters(
 					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY`, `COFFEE`, `MEAL`"),
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
+					parameterWithName("includeArchived").optional().description("이전 완료 기록 포함 여부. 기본 false이면 UNPAID는 기간 제한 없이 포함하고 PAID/WAIVED/CANCELED는 완료 시각 기준 최근 1개월만 포함"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
-					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
+					parameterWithName("size").optional().description("페이지 크기. 기본 10, 최대 100"),
 					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
 				),
 				responseFields(apiResponseFields(combine(
@@ -717,6 +719,7 @@ class BillingApiRestDocsTest {
 						fieldWithPath("data.region").optional().description("캠퍼스 지역")
 					),
 					chargeAmountSummaryFields("data.summary."),
+					pageMetadataFields("data."),
 					fields(fieldWithPath("data.items[]").description("청구 항목 목록")),
 					chargeListItemFields("data.items[].")
 				)))
@@ -789,6 +792,7 @@ class BillingApiRestDocsTest {
 				.param("paymentCategory", "COFFEE")
 				.param("status", "UNPAID")
 				.param("keyword", "docs-billing-query-member")
+				.param("includeArchived", "false")
 				.param("page", "0")
 				.param("size", "20")
 				.param("sort", "createdAt,desc"))
@@ -807,6 +811,7 @@ class BillingApiRestDocsTest {
 					parameterWithName("userId").optional().description("사용자 ID 필터"),
 					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
 					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 캠퍼스 관리자와 전역 ADMIN은 캠퍼스 내 전체 계좌를 필터할 수 있고, COFFEE 담당자는 본인 소유 COFFEE 계좌만 필터 가능"),
+					parameterWithName("includeArchived").optional().description("이전 완료 기록 포함 여부. 기본 false이면 UNPAID는 기간 제한 없이 포함하고 PAID/WAIVED/CANCELED는 완료 시각 기준 최근 1개월만 포함"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
 					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
@@ -818,6 +823,7 @@ class BillingApiRestDocsTest {
 						fieldWithPath("data.region").optional().description("캠퍼스 지역")
 					),
 					chargeAmountSummaryFields("data.summary."),
+					pageMetadataFields("data."),
 					fields(
 						fieldWithPath("data.members[]").description("회원별 청구 집계 목록. 개별 청구 item 목록은 포함하지 않음"),
 						fieldWithPath("data.members[].userId").description("사용자 ID"),
@@ -835,6 +841,7 @@ class BillingApiRestDocsTest {
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
 				.header("Authorization", "Bearer " + managerToken)
 				.param("paymentCategory", "PENALTY")
+				.param("includeArchived", "false")
 				.param("page", "0")
 				.param("size", "20")
 				.param("sort", "createdAt,desc"))
@@ -851,6 +858,7 @@ class BillingApiRestDocsTest {
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
 					parameterWithName("userId").optional().description("사용자 ID 필터"),
 					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
+					parameterWithName("includeArchived").optional().description("이전 완료 기록 포함 여부. 기본 false이면 UNPAID는 기간 제한 없이 포함하고 PAID/WAIVED/CANCELED는 완료 시각 기준 최근 1개월만 포함"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
 					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
@@ -862,6 +870,7 @@ class BillingApiRestDocsTest {
 						fieldWithPath("data.region").optional().description("캠퍼스 지역")
 					),
 					chargeAmountSummaryFields("data.summary."),
+					pageMetadataFields("data."),
 					fields(
 						fieldWithPath("data.members[]").description("담당 범위의 active 계좌에 연결된 회원별 청구 집계 목록. PENALTY는 캠퍼스 공용 active 계좌, COFFEE는 requester owner active 계좌 기준"),
 						fieldWithPath("data.members[].userId").description("사용자 ID"),
@@ -879,6 +888,7 @@ class BillingApiRestDocsTest {
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/members/{userId}/charges", campusId, member.id())
 				.header("Authorization", "Bearer " + managerToken)
 				.param("paymentCategory", "PENALTY")
+				.param("includeArchived", "false")
 				.param("page", "0")
 				.param("size", "20")
 				.param("sort", "createdAt,desc"))
@@ -896,6 +906,7 @@ class BillingApiRestDocsTest {
 				queryParameters(
 					parameterWithName("paymentCategory").optional().description("청구 유형 필터. `PENALTY` 또는 `COFFEE`"),
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
+					parameterWithName("includeArchived").optional().description("이전 완료 기록 포함 여부. 기본 false이면 UNPAID는 기간 제한 없이 포함하고 PAID/WAIVED/CANCELED는 완료 시각 기준 최근 1개월만 포함"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
 					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
@@ -910,6 +921,7 @@ class BillingApiRestDocsTest {
 						fieldWithPath("data.email").description("청구 대상 사용자 이메일")
 					),
 					chargeAmountSummaryFields("data.summary."),
+					pageMetadataFields("data."),
 					fields(fieldWithPath("data.items[]").description("회원별 청구 항목 목록")),
 					chargeListItemFields("data.items[].")
 				)))
@@ -1107,6 +1119,15 @@ class BillingApiRestDocsTest {
 			fieldWithPath(prefix + "paidAmount").description("납부 완료 금액"),
 			fieldWithPath(prefix + "waivedAmount").description("면제 금액"),
 			fieldWithPath(prefix + "canceledAmount").description("취소 금액")
+		};
+	}
+
+	private static FieldDescriptor[] pageMetadataFields(String prefix) {
+		return new FieldDescriptor[] {
+			fieldWithPath(prefix + "page").description("현재 페이지 번호. 0부터 시작"),
+			fieldWithPath(prefix + "size").description("요청에 적용된 페이지 크기"),
+			fieldWithPath(prefix + "totalElements").description("필터와 이전 기록 정책을 적용한 전체 결과 수"),
+			fieldWithPath(prefix + "totalPages").description("전체 페이지 수")
 		};
 	}
 

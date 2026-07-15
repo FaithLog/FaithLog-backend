@@ -1273,6 +1273,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ## Resume Bullet Candidates
 
+- 2026-07-15 #201 목록 페이징 메타데이터·이전 기록 조회
+  - 청구 조회 5개 응답의 기존 `members`/`items`를 유지하면서 `page`, `size`, `totalElements`, `totalPages`를 추가해 클라이언트가 다음 페이지를 정확히 판단하도록 보강.
+  - 미납은 기간 제한 없이 유지하고, `includeArchived=false`에서 PAID는 `paidAt`, WAIVED/CANCELED는 `updatedAt` 기준 최근 1개월만 노출하며 `includeArchived=true`로 과거 완료 기록을 조회하도록 DB 조건을 적용.
+  - MEAL 관리 투표는 진행 중인 OPEN/SCHEDULED를 모두 유지하고 CLOSED는 최근 90일만 기본 노출하며, 이전 기록 전환 시 과거 마감 투표까지 조회하도록 구성.
+  - 관리자 사용자·캠퍼스·정산·알림 로그는 20개, 사용자·담당자 모바일 목록은 10개 기본 크기로 분리하고 최대 100개 제한은 유지.
+  - TDD RED 26건 중 6건 실패를 확인한 뒤 전체 551 tests(실패 0, skipped 3), focused 회귀, `build -x test`, REST Docs 170개 snippet group 및 AsciiDoc HTML 생성을 검증. DB migration과 데이터 삭제는 없음.
+  - local `develop` fast-forward 후 기존 앱 컨테이너만 새 이미지로 교체하고 동일 `127.0.0.1:28080`에서 health `UP`을 확인. PostgreSQL/Redis 컨테이너와 named volume은 유지했으며 Flyway schema v10이 최신임을 검증.
+  - 수정된 프론트의 iOS Simulator를 재빌드 없이 새로고침해 관리자 청구·MEAL 투표의 `includeArchived=false/true`, 20/10 페이지 크기와 메타데이터를 실서버에서 확인하고 기존 관리자 정산 로딩 오류 해소를 검증.
+
 - 2026-07-14 #200 다중 커피 담당자·소유권·미납 알림
   - 캠퍼스별 ACTIVE COFFEE 담당자를 단일 교체에서 다중 additive/idempotent 지정으로 전환하고, `(campus_id, duty_type, user_id)` active partial unique migration으로 동시 중복을 방지.
   - COFFEE command를 ACTIVE 담당자와 투표/계좌/청구 소유권으로 제한하고, 비활성 계좌까지 포함한 UNPAID 청구가 있으면 COFFEE/MEAL 담당 해제를 409로 차단.

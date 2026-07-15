@@ -83,6 +83,18 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		if (criteria.status() != null) {
 			predicates.add(criteriaBuilder.equal(root.get("status"), criteria.status()));
 		}
+		if (criteria.terminalCompletedAtFrom() != null) {
+			Predicate unpaid = criteriaBuilder.equal(root.get("status"), ChargeStatus.UNPAID);
+			Predicate recentPaid = criteriaBuilder.and(
+				criteriaBuilder.equal(root.get("status"), ChargeStatus.PAID),
+				criteriaBuilder.greaterThanOrEqualTo(root.get("paidAt"), criteria.terminalCompletedAtFrom())
+			);
+			Predicate recentWaivedOrCanceled = criteriaBuilder.and(
+				root.get("status").in(ChargeStatus.WAIVED, ChargeStatus.CANCELED),
+				criteriaBuilder.greaterThanOrEqualTo(root.get("updatedAt"), criteria.terminalCompletedAtFrom())
+			);
+			predicates.add(criteriaBuilder.or(unpaid, recentPaid, recentWaivedOrCanceled));
+		}
 		if (criteria.paymentAccountIds() != null) {
 			if (criteria.paymentAccountIds().isEmpty()) {
 				predicates.add(criteriaBuilder.disjunction());

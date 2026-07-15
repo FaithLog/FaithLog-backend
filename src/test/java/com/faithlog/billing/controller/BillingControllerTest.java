@@ -43,6 +43,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -72,6 +73,9 @@ class BillingControllerTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
 
 	@Test
 	void meal_account_api_is_owned_and_visible_only_by_active_meal_duty() throws Exception {
@@ -637,6 +641,10 @@ class BillingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.campusId").value(campusId))
 			.andExpect(jsonPath("$.data.summary.totalAmount").value(2500))
+			.andExpect(jsonPath("$.data.page").value(0))
+			.andExpect(jsonPath("$.data.size").value(20))
+			.andExpect(jsonPath("$.data.totalElements").value(1))
+			.andExpect(jsonPath("$.data.totalPages").value(1))
 			.andExpect(jsonPath("$.data.items.length()").value(1))
 			.andExpect(jsonPath("$.data.items[0].id").value(unpaid.id()))
 			.andExpect(jsonPath("$.data.items[0].account.paymentAccountId").isNumber())
@@ -664,6 +672,10 @@ class BillingControllerTest {
 				.param("sort", "createdAt,desc"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.summary.totalAmount").value(5000))
+			.andExpect(jsonPath("$.data.page").value(0))
+			.andExpect(jsonPath("$.data.size").value(20))
+			.andExpect(jsonPath("$.data.totalElements").value(1))
+			.andExpect(jsonPath("$.data.totalPages").value(1))
 			.andExpect(jsonPath("$.data.members.length()").value(1))
 			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()))
 			.andExpect(jsonPath("$.data.members[0].email").value("billing-http-query-member@example.com"))
@@ -679,6 +691,10 @@ class BillingControllerTest {
 			.andExpect(jsonPath("$.data.userId").value(member.id()))
 			.andExpect(jsonPath("$.data.name").value("빌링테스트"))
 			.andExpect(jsonPath("$.data.email").value("billing-http-query-member@example.com"))
+			.andExpect(jsonPath("$.data.page").value(0))
+			.andExpect(jsonPath("$.data.size").value(20))
+			.andExpect(jsonPath("$.data.totalElements").value(2))
+			.andExpect(jsonPath("$.data.totalPages").value(1))
 			.andExpect(jsonPath("$.data.items.length()").value(2))
 			.andExpect(jsonPath("$.data.items[0].account.accountNumber").value("123-456789-017"))
 			.andExpect(jsonPath("$.data.items[0].source.sourceType").value("DEVOTION_RECORD"));
@@ -777,6 +793,10 @@ class BillingControllerTest {
 				.header("Authorization", "Bearer " + managerToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.summary.totalAmount").value(5400))
+			.andExpect(jsonPath("$.data.page").value(0))
+			.andExpect(jsonPath("$.data.size").value(20))
+			.andExpect(jsonPath("$.data.totalElements").value(1))
+			.andExpect(jsonPath("$.data.totalPages").value(1))
 			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()))
 			.andExpect(jsonPath("$.data.members[0].totalAmount").value(5400));
 
@@ -1038,6 +1058,66 @@ class BillingControllerTest {
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("BILLING_INVALID_SIZE"))
 			.andExpect(jsonPath("$.message").value("페이지 크기는 1 이상 100 이하이어야 합니다."));
+	}
+
+	@Test
+	void charge_queries_keep_old_unpaid_but_hide_terminal_charges_older_than_one_month_by_default() throws Exception {
+		String managerToken = signupAndLogin("billing-http-archive-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-http-archive-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "63기록캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-http-archive-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-http-archive-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "123-456789-022");
+		ChargeItemResult oldUnpaid = createPenaltyCharge(campusId, member.id(), 6501L);
+		ChargeItemResult oldPaid = createPenaltyCharge(campusId, member.id(), 6502L);
+		ChargeItemResult oldWaived = createPenaltyCharge(campusId, member.id(), 6503L);
+		ChargeItemResult oldCanceled = createPenaltyCharge(campusId, member.id(), 6504L);
+		Instant oldCompletion = Instant.now().minusSeconds(40L * 24 * 60 * 60);
+
+		ChargeItem paid = chargeItemRepository.findById(oldPaid.id()).orElseThrow();
+		paid.markPaid(oldCompletion);
+		ChargeItem waived = chargeItemRepository.findById(oldWaived.id()).orElseThrow();
+		waived.markWaived();
+		ChargeItem canceled = chargeItemRepository.findById(oldCanceled.id()).orElseThrow();
+		canceled.markCanceled();
+		chargeItemRepository.saveAllAndFlush(List.of(paid, waived, canceled));
+		jdbcTemplate.update("update charge_items set created_at = ? where id = ?", oldCompletion, oldUnpaid.id());
+		jdbcTemplate.update("update charge_items set updated_at = ? where id in (?, ?)",
+			oldCompletion, oldWaived.id(), oldCanceled.id());
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2500))
+			.andExpect(jsonPath("$.data.totalElements").value(1))
+			.andExpect(jsonPath("$.data.items[0].id").value(oldUnpaid.id()));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
+				.header("Authorization", "Bearer " + memberToken)
+				.param("includeArchived", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(10000))
+			.andExpect(jsonPath("$.data.totalElements").value(4))
+			.andExpect(jsonPath("$.data.items.length()").value(4));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/members/{userId}/charges", campusId, member.id())
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.totalElements").value(1));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("includeArchived", "true"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(10000))
+			.andExpect(jsonPath("$.data.totalElements").value(1));
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges/my-accounts", campusId)
+				.header("Authorization", "Bearer " + managerToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.summary.totalAmount").value(2500));
 	}
 
 	@Test

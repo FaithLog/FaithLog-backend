@@ -12,8 +12,21 @@ public record AdminCampusChargeListQuery(
 	Long userId,
 	String keyword,
 	Long paymentAccountId,
+	boolean includeArchived,
 	Pageable pageable
 ) {
+	public AdminCampusChargeListQuery(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Long userId,
+		String keyword,
+		Long paymentAccountId,
+		Pageable pageable
+	) {
+		this(campusId, requesterId, paymentCategory, status, userId, keyword, paymentAccountId, false, pageable);
+	}
 
 	public AdminCampusChargeListQuery(
 		Long campusId,
@@ -24,6 +37,6 @@ public record AdminCampusChargeListQuery(
 		String keyword,
 		Pageable pageable
 	) {
-		this(campusId, requesterId, paymentCategory, status, userId, keyword, null, pageable);
+		this(campusId, requesterId, paymentCategory, status, userId, keyword, null, false, pageable);
 	}
 }
