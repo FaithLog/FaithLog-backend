@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-15 - Issue #202 Supabase Data API Deny-All Security Boundary
+
+- Context: Supabase Security Advisor reported `rls_disabled_in_public` for every `public` table and `sensitive_columns_exposed` for `payment_accounts.account_number` and `user_fcm_tokens.token`. A privilege audit confirmed that `anon`, `authenticated`, and `service_role` had CRUD grants while all 26 public tables had RLS disabled. FaithLog uses direct PostgreSQL JDBC as `postgres` and does not use Supabase Auth, PostgREST, GraphQL, an anon key, or a service-role key.
+- Decision: Supabase Data API is not an approved FaithLog application interface. Keep it disabled where the project setting is available and enforce database-level deny-all defense in depth: enable RLS on every public table, create no permissive policies, revoke public/Data API role access to the public schema and all current tables, sequences, and functions, and revoke the Flyway execution role's matching default privileges for future objects. Do not use `FORCE ROW LEVEL SECURITY`, so the direct JDBC owner remains the application path.
+- Decision: Flyway V11 excludes `flyway_schema_history` from its RLS loop because Flyway locks that table while a migration runs. Hosted Supabase application must enable RLS on `flyway_schema_history` as a separate DDL statement in the same approved security operation. V11 still revokes all Data API table privileges, including the history table. No application row is inserted, updated, or deleted.
+- Impact: Production verification requires 26/26 public tables with RLS, zero public table grants and schema usage for `anon`/`authenticated`/`service_role`, zero RLS policies, an expected permission-denied query after `SET ROLE anon`, direct `postgres` JDBC continuity, and zero Critical Supabase Security Advisor findings. Any future table created outside the `postgres` Flyway path requires the same audit because managed `supabase_admin` default privileges are outside the application migration owner's control.
+
 ### 2026-07-15 - Issue #201 Pagination Metadata And Archived Record Visibility
 
 - Context: 청구 목록 응답 5개는 `members` 또는 `items`만 반환해 프론트가 다음 페이지 존재 여부를 정확히 판단할 수 없었다. 모바일 목록에 오래된 완료 청구와 마감 투표가 계속 쌓이지만, 사용자는 미납과 진행 중 데이터는 기간과 무관하게 확인해야 한다.
