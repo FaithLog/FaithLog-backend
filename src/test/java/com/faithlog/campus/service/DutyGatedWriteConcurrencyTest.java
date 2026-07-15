@@ -51,6 +51,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.Test;
@@ -345,7 +346,7 @@ class DutyGatedWriteConcurrencyTest {
 		CountDownLatch dutyChecked = new CountDownLatch(1);
 		CountDownLatch allowWrite = new CountDownLatch(1);
 		pauseWriterAfterDutyLookup(campus.campusId(), manager.id(), DutyType.COFFEE, dutyChecked, allowWrite);
-		Instant paidAt = Instant.now().minusSeconds(30);
+		Instant paidAt = Instant.now().minusSeconds(30).truncatedTo(ChronoUnit.MICROS);
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> writer = executor.submit(() -> {
@@ -406,7 +407,7 @@ class DutyGatedWriteConcurrencyTest {
 		CountDownLatch dutyChecked = new CountDownLatch(1);
 		CountDownLatch allowRecovery = new CountDownLatch(1);
 		pauseWriterAfterDutyLookup(campus.campusId(), owner.id(), DutyType.COFFEE, dutyChecked, allowRecovery);
-		Instant paidAt = Instant.now().minusSeconds(15);
+		Instant paidAt = Instant.now().minusSeconds(15).truncatedTo(ChronoUnit.MICROS);
 		ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {
 			Future<?> recovery = executor.submit(() -> {
