@@ -1690,6 +1690,12 @@ include::{snippets}/charge-admin-stale-duty-recovery-success/http-response.adoc[
 
 include::{snippets}/charge-admin-stale-duty-recovery-success/response-fields.adoc[]
 
+==== Campus Manager Recovery Forbidden (403)
+
+include::{snippets}/charge-admin-stale-duty-recovery-manager-forbidden/http-request.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-manager-forbidden/http-response.adoc[]
+
 ==== Stale MEAL Duty Recovery Example
 
 include::{snippets}/charge-admin-stale-meal-duty-recovery-success/http-request.adoc[]
@@ -1703,6 +1709,12 @@ include::{snippets}/charge-admin-stale-meal-duty-recovery-success/request-fields
 include::{snippets}/charge-admin-stale-meal-duty-recovery-success/http-response.adoc[]
 
 include::{snippets}/charge-admin-stale-meal-duty-recovery-success/response-fields.adoc[]
+
+==== ACTIVE MEAL Duty Is Not A Recovery Target (404)
+
+include::{snippets}/charge-admin-active-meal-duty-recovery-not-found/http-request.adoc[]
+
+include::{snippets}/charge-admin-active-meal-duty-recovery-not-found/http-response.adoc[]
 
 ==== Terminal To Paid Conflict (409)
 

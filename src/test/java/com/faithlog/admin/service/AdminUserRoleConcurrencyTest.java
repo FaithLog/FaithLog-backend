@@ -1,6 +1,7 @@
 package com.faithlog.admin.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doAnswer;
 
 import com.faithlog.admin.service.command.ChangeUserRoleCommand;
 import com.faithlog.global.exception.BusinessException;
@@ -14,11 +15,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest
@@ -29,7 +32,7 @@ class AdminUserRoleConcurrencyTest {
 	@Autowired
 	private AdminManagementService adminManagementService;
 
-	@Autowired
+	@MockitoSpyBean
 	private UserRepository userRepository;
 
 	@Test
@@ -78,6 +81,58 @@ class AdminUserRoleConcurrencyTest {
 			assertThat(userRepository.countByRoleAndIsActiveTrue(UserRole.ADMIN)).isEqualTo(1);
 		} finally {
 			start.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void role_change_rechecks_latest_target_role_before_last_admin_demotion() throws Exception {
+		User firstAdmin = saveAdmin("role-transition-first-admin@example.com");
+		User target = User.create("승격대상", "role-transition-target@example.com", "dummy-password-hash");
+		target = userRepository.saveAndFlush(target);
+		Long targetId = target.id();
+		CountDownLatch targetScopeRead = new CountDownLatch(1);
+		CountDownLatch allowTargetLock = new CountDownLatch(1);
+		AtomicBoolean paused = new AtomicBoolean();
+		doAnswer(invocation -> {
+			Object result = invocation.callRealMethod();
+			if (Thread.currentThread().getName().equals("stale-role-demotion")
+				&& paused.compareAndSet(false, true)) {
+				targetScopeRead.countDown();
+				if (!allowTargetLock.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("target role lock release timeout");
+				}
+			}
+			return result;
+		}).when(userRepository).findAdminUserById(targetId);
+
+		ExecutorService executor = Executors.newSingleThreadExecutor();
+		try {
+			Future<?> staleDemotion = executor.submit(() -> {
+				Thread.currentThread().setName("stale-role-demotion");
+				adminManagementService.changeUserRole(new ChangeUserRoleCommand(
+					targetId, targetId, UserRole.USER));
+			});
+			assertThat(targetScopeRead.await(5, TimeUnit.SECONDS)).isTrue();
+			adminManagementService.changeUserRole(new ChangeUserRoleCommand(
+				firstAdmin.id(), targetId, UserRole.ADMIN));
+			adminManagementService.changeUserRole(new ChangeUserRoleCommand(
+				firstAdmin.id(), firstAdmin.id(), UserRole.USER));
+			allowTargetLock.countDown();
+
+			org.assertj.core.api.Assertions.assertThatThrownBy(
+				() -> staleDemotion.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(BusinessException.class)
+				.satisfies(exception -> assertThat(((BusinessException) exception.getCause()).errorCode())
+					.isEqualTo(ErrorCode.ADMIN_LAST_ADMIN_DEMOTION_FORBIDDEN));
+			assertThat(userRepository.findById(targetId))
+				.get().satisfies(user -> {
+					assertThat(user.role()).isEqualTo(UserRole.ADMIN);
+					assertThat(user.isActive()).isTrue();
+				});
+			assertThat(userRepository.countByRoleAndIsActiveTrue(UserRole.ADMIN)).isEqualTo(1);
+		} finally {
+			allowTargetLock.countDown();
 			executor.shutdownNow();
 		}
 	}

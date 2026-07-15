@@ -491,6 +491,24 @@ class BillingApiRestDocsTest {
 		campusMemberRepository.saveAndFlush(staleMember);
 
 		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "WAIVED"
+					}
+					"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN"))
+			.andDo(document("charge-admin-stale-duty-recovery-manager-forbidden",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description("stale COFFEE 담당자 소유 미납 청구 ID")),
+				requestFields(fieldWithPath("status").description("복구 시도 상태")),
+				responseFields(errorResponseFields())
+			));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
 				.header("Authorization", "Bearer " + adminToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -534,6 +552,24 @@ class BillingApiRestDocsTest {
 			campusId, member.id(), PaymentCategory.MEAL, account.id(), account.bankName(),
 			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20095L,
 			"과거 밥 미납", "담당 해제 전 복구", 3500, null));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + adminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "CANCELED"
+					}
+					"""))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_ITEM_NOT_FOUND"))
+			.andDo(document("charge-admin-active-meal-duty-recovery-not-found",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description("ACTIVE MEAL 담당자 소유 청구 ID")),
+				requestFields(fieldWithPath("status").description("복구 시도 상태")),
+				responseFields(errorResponseFields())
+			));
 		CampusMember staleMember = campusMemberRepository.findByCampusIdAndUserId(campusId, duty.id()).orElseThrow();
 		staleMember.deactivate();
 		campusMemberRepository.saveAndFlush(staleMember);
@@ -559,6 +595,8 @@ class BillingApiRestDocsTest {
 					"복구할 terminal 상태. `PAID`, `WAIVED`, `CANCELED` 중 하나")),
 				responseFields(apiResponseFields(chargeFields("data.")))
 			));
+		chargeItemRepository.deleteById(charge.id());
+		chargeItemRepository.flush();
 	}
 
 	@Test

@@ -21,7 +21,9 @@ class BillingRestDocsIndexTest {
 		assertThat(index).contains("include::{snippets}/charge-admin-stale-duty-recovery-success/http-response.adoc[]");
 		assertThat(index).contains(
 			"include::{snippets}/charge-admin-stale-meal-duty-recovery-success/http-request.adoc[]",
-			"include::{snippets}/charge-admin-stale-meal-duty-recovery-success/http-response.adoc[]"
+			"include::{snippets}/charge-admin-stale-meal-duty-recovery-success/http-response.adoc[]",
+			"include::{snippets}/charge-admin-stale-duty-recovery-manager-forbidden/http-response.adoc[]",
+			"include::{snippets}/charge-admin-active-meal-duty-recovery-not-found/http-response.adoc[]"
 		);
 		assertThat(index).contains(
 			"`COFFEE`는 ACTIVE COFFEE 담당자가 본인 소유 계좌의 청구만",
