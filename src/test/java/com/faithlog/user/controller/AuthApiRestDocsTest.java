@@ -17,6 +17,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusDutyAssignment;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.user.service.port.AccessTokenBlacklistStore;
 import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationPort;
 import com.faithlog.user.service.port.RefreshTokenStore;
@@ -56,6 +62,15 @@ class AuthApiRestDocsTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Autowired
+	private CampusRepository campusRepository;
+
+	@Autowired
+	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private CampusDutyAssignmentRepository campusDutyAssignmentRepository;
 
 	@Test
 	void documents_signup_success() throws Exception {
@@ -269,6 +284,42 @@ class AuthApiRestDocsTest {
 				requestFields(
 					fieldWithPath("password").description("현재 비밀번호와 다른 값"),
 					fieldWithPath("confirmText").description("회원 탈퇴 확인 문구")
+				),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_delete_my_account_active_duty_conflict() throws Exception {
+		TokenPair tokens = signupAndLogin("docs-delete-active-duty@example.com");
+		User user = userRepository.findByEmail("docs-delete-active-duty@example.com").orElseThrow();
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"탈퇴담당충돌문서캠", "분당", "회원 탈퇴 담당 충돌 문서", "DELETE-DUTY-CONFLICT-CODE"
+		));
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(campus.id(), user.id()));
+		campusDutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignMeal(campus.id(), user.id()));
+
+		mockMvc.perform(delete("/api/v1/users/me")
+				.header("Authorization", "Bearer " + tokens.accessToken())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "password": "1234",
+					  "confirmText": "회원탈퇴"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT"))
+			.andDo(document("users-me-delete-active-duty-conflict",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("password").description("현재 비밀번호"),
+					fieldWithPath("confirmText").description("회원 탈퇴 확인 문구. `회원탈퇴` 고정")
 				),
 				responseFields(errorResponseFields())
 			));

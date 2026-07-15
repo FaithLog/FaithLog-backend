@@ -13,6 +13,10 @@ public interface PaymentAccountRepositoryPort {
 
 	Optional<PaymentAccount> findById(Long accountId);
 
+	Optional<PaymentAccountLockScope> findLockScopeById(Long accountId);
+
+	Optional<PaymentAccount> findByIdForUpdate(Long accountId);
+
 	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndIsActiveTrueAndDeletedAtIsNull(Long campusId, PaymentCategory accountType);
 
 	Optional<PaymentAccount> findByCampusIdAndAccountTypeAndOwnerUserIdAndIsActiveTrueAndDeletedAtIsNull(
@@ -44,6 +48,12 @@ public interface PaymentAccountRepositoryPort {
 	);
 
 	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndAccountTypeAndDeletedAtIsNullOrderByIdAsc(
+		Long campusId,
+		Long ownerUserId,
+		PaymentCategory accountType
+	);
+
+	List<PaymentAccount> findByCampusIdAndOwnerUserIdAndAccountTypeOrderByIdAsc(
 		Long campusId,
 		Long ownerUserId,
 		PaymentCategory accountType

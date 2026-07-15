@@ -2,6 +2,7 @@ package com.faithlog.poll.service;
 
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.entity.PollResponse;
+import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
@@ -56,6 +57,11 @@ public class PollQueryService {
 		if (visiblePolls.isEmpty()) {
 			return List.of();
 		}
+		boolean hasCoffeePoll = visiblePolls.stream().anyMatch(poll -> CoffeeOperationClassifier.isCoffeeOperation(
+			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory()));
+		boolean hasMealPoll = visiblePolls.stream().anyMatch(poll -> poll.pollType() == PollType.MEAL);
+		boolean activeCoffeeDuty = hasCoffeePoll && pollAccessService.isActiveCoffeeDuty(campusId, requesterId);
+		boolean activeMealDuty = hasMealPoll && pollAccessService.isActiveMealDuty(campusId, requesterId);
 		Set<Long> respondedPollIds = pollResponseRepository.findByPollIdInAndUserId(
 				visiblePolls.stream().map(Poll::id).toList(),
 				requesterId
@@ -64,7 +70,11 @@ public class PollQueryService {
 			.map(PollResponse::pollId)
 			.collect(HashSet::new, HashSet::add, HashSet::addAll);
 		return visiblePolls.stream()
-			.map(poll -> PollListItemResult.of(poll, respondedPollIds.contains(poll.id())))
+			.map(poll -> PollListItemResult.of(
+				poll,
+				respondedPollIds.contains(poll.id()),
+				isManageableByRequester(poll, requesterId, adminWindow, activeCoffeeDuty, activeMealDuty)
+			))
 			.toList();
 	}
 
@@ -75,11 +85,38 @@ public class PollQueryService {
 
 	@Transactional
 	public PollDetailResult getPollDetail(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupSupport.getVisiblePoll(campusId, pollId, requesterId);
+		PollLookupSupport.VisiblePollAccess access = pollLookupSupport.getVisiblePollWithAccess(
+			campusId, pollId, requesterId);
+		Poll poll = access.poll();
 		PollResponseResult myResponse = pollResponseRepository.findByPollIdAndUserId(poll.id(), requesterId)
 			.map(response -> PollResponseResult.of(response, optionIdsForResponse(response.id())))
 			.orElse(null);
-		return new PollDetailResult(pollResultAssembler.toResult(poll), myResponse);
+		boolean coffeeOperation = CoffeeOperationClassifier.isCoffeeOperation(
+			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory());
+		boolean manageableByMe = isManageableByRequester(poll, requesterId, access.adminVisibility(),
+			coffeeOperation && pollAccessService.isActiveCoffeeDuty(campusId, requesterId),
+			poll.pollType() == PollType.MEAL && pollAccessService.isActiveMealDuty(campusId, requesterId));
+		return new PollDetailResult(pollResultAssembler.toResult(poll), myResponse, manageableByMe);
+	}
+
+	private boolean isManageableByRequester(
+		Poll poll,
+		Long requesterId,
+		boolean adminVisibility,
+		boolean activeCoffeeDuty,
+		boolean activeMealDuty
+	) {
+		if (CoffeeOperationClassifier.isCoffeeOperation(
+			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory()
+		)) {
+			return CoffeeOperationClassifier.isConsistentConfiguration(
+				poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory()
+			) && activeCoffeeDuty && requesterId.equals(poll.createdBy());
+		}
+		if (poll.pollType() == PollType.MEAL) {
+			return activeMealDuty;
+		}
+		return adminVisibility;
 	}
 
 	private List<Long> optionIdsForResponse(Long responseId) {

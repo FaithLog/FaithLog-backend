@@ -9,15 +9,23 @@ public interface CampusDutyAssignmentRepositoryPort {
 
 	CampusDutyAssignment save(CampusDutyAssignment assignment);
 
-	Optional<CampusDutyAssignment> findByCampusIdAndDutyTypeAndIsActiveTrue(Long campusId, DutyType dutyType);
-
 	Optional<CampusDutyAssignment> findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
 		Long campusId,
 		DutyType dutyType,
 		Long userId
 	);
 
+	Optional<CampusDutyAssignment> findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+		Long campusId,
+		DutyType dutyType,
+		Long userId
+	);
+
+	List<CampusDutyAssignment> findActiveByCampusIdAndUserIdForUpdate(Long campusId, Long userId);
+
 	Optional<CampusDutyAssignment> findByCampusIdAndDutyTypeAndId(Long campusId, DutyType dutyType, Long id);
 
-	List<CampusDutyAssignment> findByCampusIdAndIsActiveTrueOrderByIdAsc(Long campusId);
+	List<CampusDutyAssignment> findActiveWithActiveMemberByCampusIdOrderByIdAsc(Long campusId);
+
+	List<CampusDutyAssignment> findActiveWithInactiveMemberByCampusIdOrderByIdAsc(Long campusId);
 }

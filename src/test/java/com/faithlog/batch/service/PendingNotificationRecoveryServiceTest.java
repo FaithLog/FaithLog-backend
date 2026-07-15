@@ -1,9 +1,9 @@
 package com.faithlog.batch.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.faithlog.notification.service.NotificationDeliveryWorker;
 import com.faithlog.notification.domain.entity.NotificationLog;
@@ -55,12 +55,12 @@ class PendingNotificationRecoveryServiceTest {
 		UUID recentRequestId = UUID.randomUUID();
 		savePendingLog(staleRequestId, 1L, 1L, Instant.parse("2026-06-22T01:49:59Z"));
 		savePendingLog(recentRequestId, 2L, 1L, Instant.parse("2026-06-22T01:50:01Z"));
-		doNothing().when(notificationDeliveryWorker).processRequest(staleRequestId);
+		when(notificationDeliveryWorker.tryProcessRequest(staleRequestId)).thenReturn(true);
 
 		int handled = pendingNotificationRecoveryService.reprocessStalePendingLogs(Instant.parse("2026-06-22T02:00:00Z"));
 
 		assertThat(handled).isEqualTo(1);
-		verify(notificationDeliveryWorker).processRequest(staleRequestId);
+		verify(notificationDeliveryWorker).tryProcessRequest(staleRequestId);
 		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(staleRequestId))
 			.extracting(NotificationLog::sendStatus)
 			.containsOnly(SendStatus.FAILED);
@@ -73,7 +73,7 @@ class PendingNotificationRecoveryServiceTest {
 	void reprocessPendingLogs_marks_still_pending_logs_failed_when_worker_fails() {
 		UUID requestId = UUID.randomUUID();
 		savePendingLog(requestId, 1L, 1L, Instant.parse("2026-06-22T01:49:59Z"));
-		doThrow(new RuntimeException("worker down")).when(notificationDeliveryWorker).processRequest(requestId);
+		doThrow(new RuntimeException("worker down")).when(notificationDeliveryWorker).tryProcessRequest(requestId);
 
 		int handled = pendingNotificationRecoveryService.reprocessStalePendingLogs(Instant.parse("2026-06-22T02:00:00Z"));
 
@@ -90,6 +90,21 @@ class PendingNotificationRecoveryServiceTest {
 		notificationConcurrencyPort.fail();
 
 		int handled = pendingNotificationRecoveryService.reprocessStalePendingLogs(Instant.parse("2026-06-22T02:00:00Z"));
+
+		assertThat(handled).isZero();
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(requestId))
+			.extracting(NotificationLog::sendStatus)
+			.containsOnly(SendStatus.PENDING);
+	}
+
+	@Test
+	void reprocessPendingLogs_keeps_pending_when_dispatch_worker_lock_is_still_owned() {
+		UUID requestId = UUID.randomUUID();
+		savePendingLog(requestId, 1L, 1L, Instant.parse("2026-06-22T01:49:59Z"));
+		when(notificationDeliveryWorker.tryProcessRequest(requestId)).thenReturn(false);
+
+		int handled = pendingNotificationRecoveryService.reprocessStalePendingLogs(
+			Instant.parse("2026-06-22T02:00:00Z"));
 
 		assertThat(handled).isZero();
 		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(requestId))

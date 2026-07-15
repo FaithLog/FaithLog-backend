@@ -40,6 +40,24 @@ public class NotificationLockService {
 		}
 	}
 
+	public boolean renewScheduledLock(NotificationLockLease lease) {
+		try {
+			return lockPort.renew(lease, DEFAULT_LOCK_TTL);
+		} catch (NotificationRedisOperationException exception) {
+			return false;
+		}
+	}
+
+	public void renewManualLock(NotificationLockLease lease) {
+		try {
+			if (!lockPort.renew(lease, DEFAULT_LOCK_TTL)) {
+				throw new BusinessException(ErrorCode.NOTIFICATION_LOCK_ALREADY_RUNNING);
+			}
+		} catch (NotificationRedisOperationException exception) {
+			throw new BusinessException(ErrorCode.NOTIFICATION_REDIS_UNAVAILABLE);
+		}
+	}
+
 	public void release(NotificationLockLease lease) {
 		if (lease == null) {
 			return;

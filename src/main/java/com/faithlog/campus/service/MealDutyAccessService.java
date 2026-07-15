@@ -28,17 +28,29 @@ public class MealDutyAccessService {
 	}
 
 	public CampusUserLookupResult requireActiveMealDuty(Long campusId, Long requesterId) {
+		return requireActiveMealDuty(campusId, requesterId, false);
+	}
+
+	public CampusUserLookupResult requireActiveMealDutyForUpdate(Long campusId, Long requesterId) {
+		return requireActiveMealDuty(campusId, requesterId, true);
+	}
+
+	private CampusUserLookupResult requireActiveMealDuty(Long campusId, Long requesterId, boolean forUpdate) {
 		CampusUserLookupResult requester = userLookupPort.findCampusUserById(requesterId)
 			.filter(CampusUserLookupResult::active)
 			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
 		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.MEAL_DUTY_REQUIRED));
-		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
-			campusId,
-			DutyType.MEAL,
-			requester.userId()
-		).orElseThrow(() -> new BusinessException(ErrorCode.MEAL_DUTY_REQUIRED));
+		if (forUpdate) {
+			dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+				campusId, DutyType.MEAL, requester.userId()
+			).orElseThrow(() -> new BusinessException(ErrorCode.MEAL_DUTY_REQUIRED));
+		} else {
+			dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+				campusId, DutyType.MEAL, requester.userId()
+			).orElseThrow(() -> new BusinessException(ErrorCode.MEAL_DUTY_REQUIRED));
+		}
 		return requester;
 	}
 }

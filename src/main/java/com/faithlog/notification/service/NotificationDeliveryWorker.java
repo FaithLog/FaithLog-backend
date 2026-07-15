@@ -9,7 +9,12 @@ import com.faithlog.notification.domain.entity.UserFcmToken;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
 import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import java.util.List;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -43,30 +48,63 @@ public class NotificationDeliveryWorker {
 	}
 
 	public void processRequest(UUID requestId) {
-		List<PendingNotificationLog> pendingLogs = transactionTemplate.execute(status -> notificationLogRepository
-			.findByRequestIdAndSendStatusOrderByIdAsc(requestId, SendStatus.PENDING)
-			.stream()
-			.map(PendingNotificationLog::from)
-			.toList());
-		if (pendingLogs == null || pendingLogs.isEmpty()) {
-			return;
-		}
-		notificationLockService.acquireScheduledLock(NotificationLockKey.dispatch(pendingLogs.get(0).campusId(), requestId))
-			.ifPresent(lease -> {
-				try {
-					pendingLogs.forEach(this::processLog);
-				} finally {
-					notificationLockService.release(lease);
-				}
-			});
+		tryProcessRequest(requestId);
 	}
 
-	private void processLog(PendingNotificationLog log) {
-		List<PendingFcmToken> tokens = transactionTemplate.execute(status -> userFcmTokenRepository
-			.findActiveSendableTokens(log.userId())
-			.stream()
-			.map(PendingFcmToken::from)
-			.toList());
+	public boolean tryProcessRequest(UUID requestId) {
+		Long campusId = transactionTemplate.execute(status -> notificationLogRepository
+			.findCampusIdByRequestId(requestId)
+			.orElse(null));
+		if (campusId == null) {
+			return true;
+		}
+		Optional<NotificationLockLease> acquired = notificationLockService.acquireScheduledLock(
+			NotificationLockKey.dispatch(campusId, requestId));
+		if (acquired.isEmpty()) {
+			return false;
+		}
+		NotificationLockLease lease = acquired.orElseThrow();
+		try {
+			List<PendingNotificationLog> pendingLogs = transactionTemplate.execute(status -> notificationLogRepository
+				.findByRequestIdAndSendStatusOrderByIdAsc(requestId, SendStatus.PENDING)
+				.stream()
+				.map(PendingNotificationLog::from)
+				.toList());
+			if (pendingLogs == null || pendingLogs.isEmpty()) {
+				return true;
+			}
+			Set<Long> pendingUserIds = pendingLogs.stream()
+				.map(PendingNotificationLog::userId)
+				.collect(Collectors.toSet());
+			Map<Long, List<PendingFcmToken>> tokensByUserId = transactionTemplate.execute(status ->
+				userFcmTokenRepository.findActiveSendableTokensByUserIdIn(pendingUserIds)
+					.stream()
+					.collect(Collectors.groupingBy(
+						UserFcmToken::userId,
+						Collectors.mapping(PendingFcmToken::from, Collectors.toList())
+					))
+			);
+			for (PendingNotificationLog log : pendingLogs) {
+				ensureLease(lease);
+				processLog(
+					log,
+					tokensByUserId == null ? List.of() : tokensByUserId.getOrDefault(log.userId(), List.of()),
+					lease
+				);
+			}
+			return true;
+		} catch (NotificationLockLostException exception) {
+			return false;
+		} finally {
+			notificationLockService.release(lease);
+		}
+	}
+
+	private void processLog(
+		PendingNotificationLog log,
+		List<PendingFcmToken> tokens,
+		NotificationLockLease lease
+	) {
 		if (tokens.isEmpty()) {
 			markLogSkipped(log.id(), "NO_ACTIVE_FCM_TOKEN");
 			return;
@@ -74,13 +112,20 @@ public class NotificationDeliveryWorker {
 
 		boolean sent = false;
 		String lastFailureReason = null;
-		for (PendingFcmToken token : tokens) {
+		for (Iterator<PendingFcmToken> iterator = tokens.iterator(); iterator.hasNext();) {
+			PendingFcmToken token = iterator.next();
 			try {
-				sendWithRetry(token, log);
+				sendWithRetry(token, log, lease);
 				sent = true;
+			} catch (NotificationLockLostException exception) {
+				throw exception;
 			} catch (FcmSendException exception) {
 				lastFailureReason = exception.getMessage();
-				recordTokenFailure(token.id(), lastFailureReason, exception.failureType() == FcmSendFailureType.PERMANENT);
+				boolean permanent = exception.failureType() == FcmSendFailureType.PERMANENT;
+				recordTokenFailure(token.id(), lastFailureReason, permanent);
+				if (permanent) {
+					iterator.remove();
+				}
 			} catch (RuntimeException exception) {
 				lastFailureReason = exception.getMessage();
 				recordTokenFailure(token.id(), lastFailureReason, false);
@@ -94,9 +139,14 @@ public class NotificationDeliveryWorker {
 		}
 	}
 
-	private void sendWithRetry(PendingFcmToken token, PendingNotificationLog log) {
+	private void sendWithRetry(
+		PendingFcmToken token,
+		PendingNotificationLog log,
+		NotificationLockLease lease
+	) {
 		int attempt = 0;
 		while (true) {
+			ensureLease(lease);
 			try {
 				fcmSendPort.send(new FcmSendCommand(token.token(), log.title(), log.body()));
 				return;
@@ -114,6 +164,15 @@ public class NotificationDeliveryWorker {
 				retryBackoff.sleepBeforeRetry(attempt);
 			}
 		}
+	}
+
+	private void ensureLease(NotificationLockLease lease) {
+		if (!notificationLockService.renewScheduledLock(lease)) {
+			throw new NotificationLockLostException();
+		}
+	}
+
+	private static class NotificationLockLostException extends RuntimeException {
 	}
 
 	private void markLogSkipped(Long logId, String failureReason) {

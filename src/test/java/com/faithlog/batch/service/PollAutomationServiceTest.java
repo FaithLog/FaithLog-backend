@@ -12,6 +12,9 @@ import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.poll.service.command.CreatePollCommand;
 import com.faithlog.poll.service.command.CreatePollTemplateCommand;
 import com.faithlog.poll.service.command.CreatePollTemplateOptionCommand;
 import com.faithlog.poll.service.PollService;
@@ -26,7 +29,11 @@ import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.domain.type.SelectionType;
 import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
+import com.faithlog.poll.infrastructure.repository.PollTemplateOptionRepository;
+import com.faithlog.poll.infrastructure.repository.PollTemplateRepository;
 import com.faithlog.poll.infrastructure.repository.CoffeeMenuCatalogRepository;
+import com.faithlog.poll.domain.entity.PollTemplate;
+import com.faithlog.poll.domain.entity.PollTemplateOption;
 import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
@@ -74,10 +81,19 @@ class PollAutomationServiceTest {
 	private PollOptionRepository pollOptionRepository;
 
 	@Autowired
+	private PollTemplateRepository pollTemplateRepository;
+
+	@Autowired
+	private PollTemplateOptionRepository pollTemplateOptionRepository;
+
+	@Autowired
 	private CoffeeMenuCatalogRepository coffeeMenuCatalogRepository;
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
 	private InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
@@ -142,6 +158,51 @@ class PollAutomationServiceTest {
 	}
 
 	@Test
+	void createDuePolls_excludes_active_auto_enabled_coffee_template() {
+		User manager = saveUser("batch-coffee-excluded-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("batch-coffee-excluded-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200커피자동제외캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		PollTemplateResult template = createCoffeeTemplate(campus.campusId(), duty.id(), accountId);
+
+		int created = pollAutomationService.createDuePolls(mondayAt(11, 0).toInstant());
+
+		assertThat(created).isZero();
+		assertThat(pollRepository.findAll()).noneMatch(poll -> template.id().equals(poll.templateId()));
+	}
+
+	@Test
+	void createDuePolls_fails_closed_for_legacy_mixed_coffee_template() {
+		User manager = saveUser("batch-legacy-mixed-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "200레거시혼합자동제외캠");
+		PollTemplate legacyMixed = pollTemplateRepository.saveAndFlush(PollTemplate.create(
+			campus.campusId(),
+			"레거시 혼합 커피 템플릿",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			null,
+			false,
+			true,
+			DayOfWeek.MONDAY,
+			LocalTime.of(11, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(12, 0),
+			false
+		));
+		pollTemplateOptionRepository.saveAndFlush(PollTemplateOption.create(
+			legacyMixed.id(), "레거시 커피", null, 1800, 1));
+
+		int created = pollAutomationService.createDuePolls(mondayAt(11, 0).toInstant());
+
+		assertThat(created).isZero();
+		assertThat(pollRepository.findAll()).noneMatch(poll -> legacyMixed.id().equals(poll.templateId()));
+	}
+
+	@Test
 	void createDuePolls_does_not_duplicate_same_campus_template_week() {
 		User manager = saveUser("batch-duplicate-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "24중복방지캠");
@@ -181,14 +242,11 @@ class PollAutomationServiceTest {
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
 		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
 		PollTemplateResult template = createCoffeeTemplate(campus.campusId(), duty.id(), accountId);
-		pollAutomationService.createDuePolls(mondayAt(11, 0).toInstant());
-		Poll poll = pollRepository.findAll().stream()
-			.filter(item -> template.id().equals(item.templateId()))
-			.findFirst()
-			.orElseThrow();
-		ReflectionTestUtils.setField(poll, "startsAt", Instant.now().minusSeconds(60));
-		ReflectionTestUtils.setField(poll, "endsAt", Instant.now().plusSeconds(3600));
-		pollRepository.saveAndFlush(poll);
+		Poll poll = pollRepository.findById(pollService.createPoll(new CreatePollCommand(
+			campus.campusId(), duty.id(), template.id(), "자동 마감 대상 커피 투표",
+			null, null, false, null, null, null, accountId,
+			Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600), List.of()
+		)).id()).orElseThrow();
 		Long optionId = pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id()).get(0).id();
 		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), member.id(), List.of(optionId), null));
 
@@ -208,6 +266,108 @@ class PollAutomationServiceTest {
 			.hasSize(1)
 			.extracting(ChargeItem::userId, ChargeItem::paymentCategory, ChargeItem::title, ChargeItem::amount)
 			.containsExactly(org.assertj.core.groups.Tuple.tuple(member.id(), PaymentCategory.COFFEE, "아이스 아메리카노", 1800));
+	}
+
+	@Test
+	void closeDueCoffeePolls_fails_closed_for_legacy_inconsistent_coffee_poll() {
+		User manager = saveUser("batch-close-legacy-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("batch-close-legacy-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200레거시불일치자동마감캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Poll legacyInconsistent = Poll.create(
+			campus.campusId(), null, "레거시 불일치 커피 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.NONE, PaymentCategory.COFFEE, accountId,
+			Instant.now().minusSeconds(3600), Instant.now().minusSeconds(60), duty.id()
+		);
+		legacyInconsistent.open();
+		pollRepository.saveAndFlush(legacyInconsistent);
+
+		int closed = pollAutomationService.closeDueCoffeePolls(Instant.now());
+
+		assertThat(closed).isZero();
+		assertThat(pollRepository.findById(legacyInconsistent.id()))
+			.get()
+			.extracting(Poll::status)
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(chargeItemRepository.findAll()).isEmpty();
+	}
+
+	@Test
+	void closeDueCoffeePolls_skips_legacy_ownerless_poll_without_blocking_later_valid_poll() {
+		User manager = saveUser("batch-close-ownerless-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("batch-close-ownerless-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200레거시소유자없는자동마감캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Instant startsAt = Instant.now().minusSeconds(3600);
+		Instant endsAt = Instant.now().minusSeconds(60);
+		Poll ownerless = Poll.create(
+			campus.campusId(), null, "레거시 소유자 없는 커피 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, accountId,
+			startsAt, endsAt, null
+		);
+		ownerless.open();
+		pollRepository.saveAndFlush(ownerless);
+		Poll valid = Poll.create(
+			campus.campusId(), null, "정상 커피 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, accountId,
+			startsAt, endsAt, duty.id()
+		);
+		valid.open();
+		pollRepository.saveAndFlush(valid);
+
+		int closed = pollAutomationService.closeDueCoffeePolls(Instant.now());
+
+		assertThat(closed).isEqualTo(1);
+		assertThat(pollRepository.findById(ownerless.id())).get()
+			.extracting(Poll::status)
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(valid.id())).get()
+			.extracting(Poll::status)
+			.isEqualTo(PollStatus.CLOSED);
+	}
+
+	@Test
+	void closeDueCoffeePolls_skips_inactive_member_with_stale_duty_without_blocking_later_valid_poll() {
+		User manager = saveUser("batch-close-inactive-manager@example.com", UserRole.MANAGER);
+		User staleDuty = saveUser("batch-close-inactive-duty@example.com", UserRole.USER);
+		User validDuty = saveUser("batch-close-valid-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200비활성담당자동마감캠");
+		joinCampus(campus, staleDuty);
+		joinCampus(campus, validDuty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), staleDuty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), validDuty.id()));
+		Long staleAccountId = createCoffeeAccount(campus.campusId(), staleDuty.id(), staleDuty.id());
+		Long validAccountId = createCoffeeAccount(campus.campusId(), validDuty.id(), validDuty.id());
+		Instant startsAt = Instant.now().minusSeconds(3600);
+		Instant endsAt = Instant.now().minusSeconds(60);
+		Poll stale = Poll.create(
+			campus.campusId(), null, "비활성 담당자 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, staleAccountId,
+			startsAt, endsAt, staleDuty.id());
+		stale.open();
+		pollRepository.saveAndFlush(stale);
+		Poll valid = Poll.create(
+			campus.campusId(), null, "정상 담당자 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, validAccountId,
+			startsAt, endsAt, validDuty.id());
+		valid.open();
+		pollRepository.saveAndFlush(valid);
+		CampusMember staleMembership = campusMemberRepository
+			.findByCampusIdAndUserId(campus.campusId(), staleDuty.id()).orElseThrow();
+		staleMembership.deactivate();
+		campusMemberRepository.flush();
+
+		int closed = pollAutomationService.closeDueCoffeePolls(Instant.now());
+
+		assertThat(closed).isEqualTo(1);
+		assertThat(pollRepository.findById(stale.id())).get()
+			.extracting(Poll::status).isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(valid.id())).get()
+			.extracting(Poll::status).isEqualTo(PollStatus.CLOSED);
 	}
 
 	private PollTemplateResult createTemplate(Long campusId, Long managerId, String title, boolean autoCreateEnabled) {

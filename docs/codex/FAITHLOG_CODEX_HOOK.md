@@ -182,9 +182,9 @@ GET   /api/v1/admin/campuses/{campusId}/charges/my-accounts
 
 `GET /api/v1/admin/campuses/{campusId}/payment-accounts`는 관리자/담당자용 계좌 목록이며 `ownerUserId`, `isActive`, `createdAt`, `deactivatedAt` 같은 관리 메타데이터를 포함한다.
 
-캠퍼스별 활성 계좌는 `account_type`별로 1개만 허용한다.
+활성 `PENALTY` 계좌는 캠퍼스별 1개만 허용한다. 활성 `COFFEE`와 `MEAL` 계좌는 `campusId + accountType + ownerUserId`별 1개만 허용한다.
 
-새 계좌를 활성으로 등록하면 같은 캠퍼스와 같은 `account_type`의 기존 활성 계좌는 자동 비활성화하고, 새 계좌만 활성 상태로 둔다.
+새 `PENALTY` 계좌를 활성으로 등록하면 같은 캠퍼스의 기존 활성 PENALTY 계좌를 비활성화한다. 새 `COFFEE` 또는 `MEAL` 계좌는 같은 소유자의 기존 활성 동일 유형 계좌만 비활성화한다.
 
 계좌 조회 응답은 납부에 필요하므로 계좌번호를 전체 노출한다. 단, 일반 멤버 조회 응답에는 관리용 정보가 필요 이상으로 노출되지 않게 한다.
 
@@ -198,10 +198,9 @@ payment_accounts.campus_id = 현재 campusId
 payment_accounts.is_active = true
 ```
 
-커피 청구는 CLOSED 커피 투표 정산 시 투표 또는 투표 템플릿에 연결된 계좌를 사용한다.
+COFFEE 투표 템플릿은 계좌 중립으로 `poll_templates.payment_account_id = null`을 유지한다. 커피 청구는 실제 COFFEE 투표 생성 시 담당자가 선택한 본인 소유 활성 계좌를 `polls.payment_account_id`에 저장하고 CLOSED 정산에서 사용한다.
 
 ```text
-poll_templates.payment_account_id
 polls.payment_account_id
 ```
 
@@ -454,14 +453,11 @@ MVP seed 기준:
 
 컴포즈커피 전체 메뉴 seed 목록과 가격은 개발 전에 공식 메뉴판 또는 사용자가 승인한 최신 자료로 검증해야 하며, Codex가 임의로 추측해서 채우지 않는다.
 
-커피 담당자는 기본 커피 투표 템플릿의 아래 시간을 설정할 수 있다.
-
-- 매주 커피 투표가 자동 생성되는 시간
-- 생성된 커피 투표가 마감되는 시간
+COFFEE 투표는 scheduler 자동 생성 대상에서 제외한다. 기존 템플릿의 시간 필드와 API 계약은 삭제하거나 변경하지 않지만 `autoCreateEnabled=true`인 COFFEE 템플릿도 자동 투표를 만들지 않는다. ACTIVE COFFEE 담당자가 투표를 수동 생성하며, 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산은 유지한다.
 
 COFFEE 투표와 COFFEE 투표 템플릿 생성/수정은 현재 활성 COFFEE 담당자만 수행할 수 있다. 캠퍼스 관리자 또는 전역 ADMIN이라도 현재 활성 COFFEE 담당자가 아니면 `pollType=COFFEE`, `paymentCategory=COFFEE`, 또는 `chargeGenerationType=OPTION_PRICE`와 `paymentCategory=COFFEE` 생성/수정은 403으로 거절한다.
 
-선택한 `paymentAccountId`는 요청자가 사용할 수 있는 활성 같은 캠퍼스 COFFEE 계좌여야 한다.
+COFFEE 템플릿의 호환 `paymentAccountId` 요청값은 저장하지 않고 응답은 null이다. 직접 또는 템플릿 기반 COFFEE 투표 생성에서 선택한 `paymentAccountId`는 요청자가 소유한 활성 같은 캠퍼스 COFFEE 계좌여야 한다.
 
 구현 시 실제 DB 칼럼명은 Notion ERD의 `poll_templates`/`polls` 설계를 따른다. Codex는 칼럼명을 추측해서 새로 정하지 않는다.
 
@@ -556,7 +552,7 @@ CampusDutyAssignment
 DutyType.COFFEE
 ```
 
-캠퍼스당 활성 `DutyType.COFFEE` 담당자는 1명만 둔다.
+캠퍼스에는 여러 ACTIVE `DutyType.COFFEE` 담당자를 둘 수 있다. 동일 캠퍼스·담당 유형·사용자의 ACTIVE 중복 지정만 금지하며, 기존 `PUT` 지정 API는 다른 담당자를 해제하지 않는 additive/idempotent 동작이다.
 
 Issue #30 커피 담당자 API 기준:
 

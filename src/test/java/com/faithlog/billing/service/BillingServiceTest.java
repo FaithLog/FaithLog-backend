@@ -18,7 +18,9 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
+import com.faithlog.campus.service.result.CampusMembershipResult;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
@@ -324,6 +326,36 @@ class BillingServiceTest {
 	}
 
 	@Test
+	void coffee_account_commands_reject_campus_manager_and_service_admin_without_active_coffee_duty() {
+		User manager = saveUser("billing-200-manager@example.com", UserRole.MANAGER);
+		User admin = saveUser("billing-200-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "200커피계좌전용권한캠");
+
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), manager.id(), PaymentCategory.COFFEE, "관리자 커피 계좌", "하나은행",
+			"200-MANAGER", "관리자", manager.id()
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN)
+			);
+		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), admin.id(), PaymentCategory.COFFEE, "서비스 관리자 커피 계좌", "국민은행",
+			"200-ADMIN", "서비스관리자", admin.id()
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN)
+			);
+
+		PaymentAccount ownedAccount = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "기존 관리자 계좌", "신한은행", "200-EXISTING", "관리자", manager.id()
+		));
+		assertThatThrownBy(() -> billingService.deactivatePaymentAccount(ownedAccount.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN)
+			);
+	}
+
+	@Test
 	void coffee_accounts_keep_active_scope_per_owner_and_do_not_reconnect_existing_charges() {
 		User minister = saveUser("billing-coffee-owner-minister@example.com", UserRole.MANAGER);
 		User elder = saveUser("billing-coffee-owner-elder@example.com", UserRole.USER);
@@ -331,6 +363,8 @@ class BillingServiceTest {
 		CampusCreateResult campus = createCampus(minister, "114커피소유캠");
 		campusService.joinCampus(new JoinCampusCommand(elder.id(), campus.inviteCode()));
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), minister.id(), minister.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), minister.id(), elder.id()));
 		CampusMember elderMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), elder.id())
 			.orElseThrow();
 		ReflectionTestUtils.setField(elderMembership, "campusRole", CampusRole.ELDER);
@@ -399,6 +433,7 @@ class BillingServiceTest {
 		User member = saveUser("billing-coffee-owner-mismatch-member@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "114커피본인계좌캠");
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 
 		assertThatThrownBy(() -> billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campus.campusId(),
@@ -425,6 +460,7 @@ class BillingServiceTest {
 		campusService.joinCampus(new JoinCampusCommand(otherDuty.id(), campus.inviteCode()));
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), otherDuty.id()));
 		CampusMember otherDutyMembership = campusMemberRepository.findByCampusIdAndUserId(campus.campusId(), otherDuty.id())
 			.orElseThrow();
 		ReflectionTestUtils.setField(otherDutyMembership, "campusRole", CampusRole.ELDER);
@@ -466,6 +502,7 @@ class BillingServiceTest {
 	void listAdminPaymentAccounts_defaults_to_active_only_and_can_include_inactive_penalty_accounts() {
 		User manager = saveUser("billing-admin-filter-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "116관리목록캠");
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 		PaymentAccountResult firstPenalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "이전 벌금 계좌", "하나은행", "116-PENALTY-1", "이전회계", null
 		));
@@ -533,6 +570,7 @@ class BillingServiceTest {
 		User manager = saveUser("billing-activate-invalid-manager@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "116활성화오류캠");
 		CampusCreateResult otherCampus = createCampus(manager, "116다른활성화오류캠");
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 		PaymentAccountResult penalty = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "벌금 계좌", "하나은행", "116-ACTIVATE-DEL", "벌금회계", null
 		));
@@ -927,6 +965,7 @@ class BillingServiceTest {
 		User member = saveUser("billing-coffee-upsert-member@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "커피청구갱신캠");
 		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), manager.id()));
 		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campus.campusId(),
 			manager.id(),
@@ -992,6 +1031,111 @@ class BillingServiceTest {
 		assertThat(preserved.amount()).isEqualTo(3500);
 		assertThat(preserved.accountNumberSnapshot()).isEqualTo("148-COFFEE-ACCOUNT");
 		assertThat(chargeItemRepository.count()).isEqualTo(1);
+	}
+
+	@Test
+	void coffee_charge_status_command_allows_only_active_duty_who_owns_the_linked_account() {
+		User manager = saveUser("billing-200-status-manager@example.com", UserRole.MANAGER);
+		User ownerDuty = saveUser("billing-200-status-owner@example.com", UserRole.USER);
+		User otherDuty = saveUser("billing-200-status-other@example.com", UserRole.USER);
+		User admin = saveUser("billing-200-status-admin@example.com", UserRole.ADMIN);
+		User member = saveUser("billing-200-status-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200커피청구소유권캠");
+		campusService.joinCampus(new JoinCampusCommand(ownerDuty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(otherDuty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), ownerDuty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), otherDuty.id()));
+		PaymentAccountResult ownerAccount = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), ownerDuty.id(), PaymentCategory.COFFEE, "소유자 계좌", "하나은행",
+			"200-STATUS-OWNER", "소유자", ownerDuty.id()
+		));
+		PaymentAccountResult otherAccount = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), otherDuty.id(), PaymentCategory.COFFEE, "다른 담당자 계좌", "국민은행",
+			"200-STATUS-OTHER", "다른담당자", otherDuty.id()
+		));
+		ChargeItem ownerCharge = saveCoffeeCharge(campus.campusId(), member.id(), ownerAccount, 20031L);
+		ChargeItem otherCharge = saveCoffeeCharge(campus.campusId(), member.id(), otherAccount, 20032L);
+
+		assertThat(billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			ownerCharge.id(), ownerDuty.id(), ChargeStatus.WAIVED
+		)).status()).isEqualTo(ChargeStatus.WAIVED);
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			otherCharge.id(), ownerDuty.id(), ChargeStatus.WAIVED
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN)
+			);
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			otherCharge.id(), manager.id(), ChargeStatus.WAIVED
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN)
+			);
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			otherCharge.id(), admin.id(), ChargeStatus.WAIVED
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN)
+			);
+	}
+
+	@Test
+	void service_admin_can_resolve_only_stale_duty_owned_unpaid_charge_for_recovery() {
+		User manager = saveUser("billing-stale-recovery-manager@example.com", UserRole.MANAGER);
+		User staleDuty = saveUser("billing-stale-recovery-duty@example.com", UserRole.USER);
+		User member = saveUser("billing-stale-recovery-member@example.com", UserRole.USER);
+		User admin = saveUser("billing-stale-recovery-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "200과거담당미납복구캠");
+		CampusMembershipResult staleMembership = campusService.joinCampus(new JoinCampusCommand(
+			staleDuty.id(), campus.inviteCode()
+		));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), staleDuty.id()));
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), staleDuty.id(), PaymentCategory.COFFEE, "과거 담당 계좌", "하나은행",
+			"200-STALE-RECOVERY", "과거담당", staleDuty.id()
+		));
+		ChargeItem charge = saveCoffeeCharge(campus.campusId(), member.id(), account, 20091L);
+		CampusMember inactive = campusMemberRepository.findById(staleMembership.membershipId()).orElseThrow();
+		inactive.deactivate();
+		campusMemberRepository.saveAndFlush(inactive);
+
+		assertThat(billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(), admin.id(), ChargeStatus.WAIVED
+		)).status()).isEqualTo(ChargeStatus.WAIVED);
+	}
+
+	@Test
+	void service_admin_can_resolve_stale_meal_duty_charge_but_not_active_owner_charge() {
+		User manager = saveUser("billing-stale-meal-manager@example.com", UserRole.MANAGER);
+		User mealDuty = saveUser("billing-stale-meal-duty@example.com", UserRole.USER);
+		User member = saveUser("billing-stale-meal-member@example.com", UserRole.USER);
+		User admin = saveUser("billing-stale-meal-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "200과거밥담당미납복구캠");
+		CampusMembershipResult dutyMembership = campusService.joinCampus(new JoinCampusCommand(
+			mealDuty.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), mealDuty.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.MEAL, "과거 밥 담당 계좌", "하나은행",
+			"200-STALE-MEAL", "과거밥담당", mealDuty.id()));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), member.id(), PaymentCategory.MEAL, account.id(), account.bankName(),
+			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20094L,
+			"과거 밥 미납", "담당 정리 전 복구", 3500, null));
+
+		assertThatThrownBy(() -> billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(), admin.id(), ChargeStatus.CANCELED)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_CHARGE_ITEM_NOT_FOUND));
+
+		CampusMember inactive = campusMemberRepository.findById(dutyMembership.membershipId()).orElseThrow();
+		inactive.deactivate();
+		campusMemberRepository.saveAndFlush(inactive);
+
+		assertThat(billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+			charge.id(), admin.id(), ChargeStatus.CANCELED)).status()).isEqualTo(ChargeStatus.CANCELED);
 	}
 
 	@Test
@@ -1344,6 +1488,29 @@ class BillingServiceTest {
 			"2026-06-15 주간",
 			2500,
 			LocalDate.of(2026, 6, 22)
+		));
+	}
+
+	private ChargeItem saveCoffeeCharge(
+		Long campusId,
+		Long userId,
+		PaymentAccountResult account,
+		Long sourceId
+	) {
+		return chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			userId,
+			PaymentCategory.COFFEE,
+			account.id(),
+			account.bankName(),
+			account.accountNumber(),
+			account.accountHolder(),
+			ChargeSourceType.POLL_RESPONSE,
+			sourceId,
+			"커피 주문",
+			"커피 정산",
+			2500,
+			null
 		));
 	}
 

@@ -28,9 +28,14 @@ public class PollTemplateQueryService {
 
 	@Transactional(readOnly = true)
 	public List<PollTemplateResult> listTemplates(Long campusId, Long requesterId) {
-		pollAccessService.requireTemplateManager(campusId, requesterId);
+		boolean manager = pollAccessService.hasAdminVisibility(campusId, requesterId);
+		if (!manager) {
+			pollAccessService.requireCoffeeTemplateManager(campusId, requesterId);
+		}
 		return pollTemplateRepository.findByCampusIdAndIsActiveTrueOrderByIdAsc(campusId)
 			.stream()
+			.filter(template -> manager || CoffeeOperationClassifier.isCoffeeOperation(
+				template.pollType(), template.chargeGenerationType(), template.paymentCategory()))
 			.map(this::toResult)
 			.toList();
 	}
@@ -42,7 +47,14 @@ public class PollTemplateQueryService {
 		if (!template.campusId().equals(campusId)) {
 			throw new BusinessException(ErrorCode.POLL_TEMPLATE_NOT_FOUND);
 		}
-		pollAccessService.requireTemplateManager(campusId, requesterId);
+		if (pollAccessService.hasAdminVisibility(campusId, requesterId)) {
+			return toResult(template);
+		}
+		if (!CoffeeOperationClassifier.isCoffeeOperation(
+			template.pollType(), template.chargeGenerationType(), template.paymentCategory())) {
+			throw new BusinessException(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
+		}
+		pollAccessService.requireCoffeeTemplateManager(campusId, requesterId);
 		return toResult(template);
 	}
 

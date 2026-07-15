@@ -24,16 +24,18 @@ class PollLookupSupport {
 	}
 
 	Poll getVisiblePoll(Long campusId, Long pollId, Long requesterId) {
+		return getVisiblePollWithAccess(campusId, pollId, requesterId).poll();
+	}
+
+	VisiblePollAccess getVisiblePollWithAccess(Long campusId, Long pollId, Long requesterId) {
 		pollAccessService.requirePollReader(campusId, requesterId);
 		Poll poll = getPollInCampus(campusId, pollId);
 		pollStatusSynchronizer.openScheduledPollIfCurrent(poll);
-		if (!pollStatusSynchronizer.isVisibleInWindow(
-			poll,
-			pollAccessService.hasAdminVisibility(campusId, requesterId)
-		)) {
+		boolean adminVisibility = pollAccessService.hasAdminVisibility(campusId, requesterId);
+		if (!pollStatusSynchronizer.isVisibleInWindow(poll, adminVisibility)) {
 			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
 		}
-		return poll;
+		return new VisiblePollAccess(poll, adminVisibility);
 	}
 
 	Poll getPollInCampus(Long campusId, Long pollId) {
@@ -45,8 +47,20 @@ class PollLookupSupport {
 		return poll;
 	}
 
+	PollRepository.PollLockScope getPollLockScopeInCampus(Long campusId, Long pollId) {
+		PollRepository.PollLockScope scope = pollRepository.findLockScopeById(pollId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
+		if (!scope.getCampusId().equals(campusId)) {
+			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
+		}
+		return scope;
+	}
+
 	Poll getPollInCampusForUpdate(Long campusId, Long pollId) {
 		return pollRepository.findByIdAndCampusIdForUpdate(pollId, campusId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
+	}
+
+	record VisiblePollAccess(Poll poll, boolean adminVisibility) {
 	}
 }

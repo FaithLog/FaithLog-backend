@@ -9,7 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.campus.domain.entity.CampusDutyAssignment;
 import com.faithlog.campus.domain.type.CampusMemberStatus;
+import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
 import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository;
 import com.faithlog.user.service.port.AccessTokenBlacklistStore;
@@ -49,6 +51,9 @@ class UserDeletionControllerTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private CampusDutyAssignmentRepository campusDutyAssignmentRepository;
 
 	@Autowired
 	private UserFcmTokenRepository userFcmTokenRepository;
@@ -168,6 +173,37 @@ class UserDeletionControllerTest {
 					"""))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+	}
+
+	@Test
+	void delete_me_rejects_active_campus_duty_before_deactivating_account_or_membership() throws Exception {
+		String managerToken = signupAndLogin("delete-duty-manager@example.com", UserRole.MANAGER).accessToken();
+		JsonNode campus = createCampus(managerToken, "탈퇴담당차단캠");
+		TokenPair tokens = signupAndLogin("delete-duty-member@example.com", UserRole.USER);
+		User user = userRepository.findByEmail("delete-duty-member@example.com").orElseThrow();
+		joinCampus(tokens.accessToken(), campus.path("inviteCode").asText());
+		CampusDutyAssignment assignment = campusDutyAssignmentRepository.saveAndFlush(
+			CampusDutyAssignment.assignCoffee(campus.path("campusId").asLong(), user.id())
+		);
+
+		mockMvc.perform(delete("/api/v1/users/me")
+				.header("Authorization", "Bearer " + tokens.accessToken())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "password": "1234",
+					  "confirmText": "회원탈퇴"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT"));
+
+		assertThat(userRepository.findById(user.id())).get().matches(User::isActive);
+		assertThat(campusMemberRepository.findByUserIdOrderByIdAsc(user.id()))
+			.allMatch(member -> member.status() == CampusMemberStatus.ACTIVE);
+		assertThat(campusDutyAssignmentRepository.findById(assignment.id()))
+			.get()
+			.matches(CampusDutyAssignment::isActive);
 	}
 
 	private TokenPair signupAndLogin(String email, UserRole role) throws Exception {

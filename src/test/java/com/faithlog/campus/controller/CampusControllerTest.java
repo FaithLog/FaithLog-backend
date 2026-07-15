@@ -371,7 +371,7 @@ class CampusControllerTest {
 			.andExpect(jsonPath("$.data.dutyType").value("COFFEE"))
 			.andExpect(jsonPath("$.data.isActive").value(true));
 
-		String replaceBody = mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee", campusId)
+		String secondBody = mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee", campusId)
 				.header("Authorization", "Bearer " + leaderToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -384,14 +384,15 @@ class CampusControllerTest {
 			.andReturn()
 			.getResponse()
 			.getContentAsString();
-		long assignmentId = objectMapper.readTree(replaceBody).path("data").path("assignmentId").asLong();
+		long assignmentId = objectMapper.readTree(secondBody).path("data").path("assignmentId").asLong();
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/duty-assignments", campusId)
 				.header("Authorization", "Bearer " + leaderToken))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.length()").value(1))
-			.andExpect(jsonPath("$.data[0].assignmentId").value(assignmentId))
-			.andExpect(jsonPath("$.data[0].userId").value(second.id()));
+			.andExpect(jsonPath("$.data.length()").value(2))
+			.andExpect(jsonPath("$.data[0].userId").value(first.id()))
+			.andExpect(jsonPath("$.data[1].assignmentId").value(assignmentId))
+			.andExpect(jsonPath("$.data[1].userId").value(second.id()));
 
 		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}", campusId, assignmentId)
 				.header("Authorization", "Bearer " + leaderToken))
@@ -400,7 +401,8 @@ class CampusControllerTest {
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/duty-assignments", campusId)
 				.header("Authorization", "Bearer " + leaderToken))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.length()").value(0));
+			.andExpect(jsonPath("$.data.length()").value(1))
+			.andExpect(jsonPath("$.data[0].userId").value(first.id()));
 	}
 
 	@Test

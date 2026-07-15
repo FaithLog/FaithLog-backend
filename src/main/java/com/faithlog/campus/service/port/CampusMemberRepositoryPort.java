@@ -16,6 +16,14 @@ public interface CampusMemberRepositoryPort {
 
 	Optional<CampusMember> findByCampusIdAndId(Long campusId, Long id);
 
+	Optional<CampusMemberLockScope> findLockScopeByCampusIdAndId(Long campusId, Long id);
+
+	List<CampusMemberLockScope> findLockScopesByUserIdOrderByCampusIdAsc(Long userId);
+
+	Optional<CampusMember> findByCampusIdAndIdForUpdate(Long campusId, Long id);
+
+	Optional<CampusMember> findByCampusIdAndUserIdForUpdate(Long campusId, Long userId);
+
 	List<CampusMember> findByCampusIdAndStatusOrderByIdAsc(Long campusId, CampusMemberStatus status);
 
 	long countByCampusIdAndStatus(Long campusId, CampusMemberStatus status);

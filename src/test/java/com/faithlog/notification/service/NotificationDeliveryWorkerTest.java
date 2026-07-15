@@ -4,6 +4,9 @@ import com.faithlog.notification.service.command.RegisterFcmTokenCommand;
 import com.faithlog.notification.service.command.SendNotificationCommand;
 import com.faithlog.notification.service.result.SendNotificationResult;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.domain.entity.CampusMember;
@@ -28,6 +31,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +45,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,7 +68,7 @@ class NotificationDeliveryWorkerTest {
 	@Autowired
 	private NotificationLogRepository notificationLogRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private UserFcmTokenRepository userFcmTokenRepository;
 
 	@Autowired
@@ -202,6 +212,97 @@ class NotificationDeliveryWorkerTest {
 		List<NotificationLog> logs = notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId());
 		assertThat(logs).extracting(NotificationLog::sendStatus).containsExactly(SendStatus.PENDING);
 		assertThat(fakeFcmSendPort.attempts("lock-held-token")).isZero();
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void worker_reloads_pending_logs_after_dispatch_lock_to_avoid_stale_snapshot_duplicate_send() throws Exception {
+		Campus campus = saveCampus("알림잠금후재조회캠");
+		User minister = saveUser("notification-worker-reload-minister@example.com", UserRole.USER);
+		User target = saveUser("notification-worker-reload-target@example.com", UserRole.USER);
+		saveMinister(campus.id(), minister.id());
+		saveMember(campus.id(), target.id());
+		registerToken(target, "reload-after-lock-token", "reload-after-lock-client");
+		SendNotificationResult result = notificationService.requestNotification(new SendNotificationCommand(
+			campus.id(), minister.id(), NotificationType.CUSTOM, List.of(target.id()), null, null,
+			"잠금 후 재조회", "중복 발송 방지"
+		));
+		notificationConcurrencyPort.pauseNextLockAcquire();
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> first = executor.submit(() -> worker.processRequest(result.notificationRequestId()));
+			assertThat(notificationConcurrencyPort.awaitLockAcquireStarted()).isTrue();
+
+			Future<?> second = executor.submit(() -> worker.processRequest(result.notificationRequestId()));
+			second.get(5, TimeUnit.SECONDS);
+			notificationConcurrencyPort.allowLockAcquire();
+			first.get(5, TimeUnit.SECONDS);
+
+			assertThat(fakeFcmSendPort.attempts("reload-after-lock-token")).isEqualTo(1);
+			assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(result.notificationRequestId()))
+				.extracting(NotificationLog::sendStatus)
+				.containsExactly(SendStatus.SENT);
+		} finally {
+			notificationConcurrencyPort.allowLockAcquire();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void worker_loads_all_pending_recipient_tokens_in_one_bulk_query() {
+		Campus campus = saveCampus("알림일괄토큰캠");
+		User minister = saveUser("notification-worker-bulk-minister@example.com", UserRole.USER);
+		User firstTarget = saveUser("notification-worker-bulk-first@example.com", UserRole.USER);
+		User secondTarget = saveUser("notification-worker-bulk-second@example.com", UserRole.USER);
+		saveMinister(campus.id(), minister.id());
+		saveMember(campus.id(), firstTarget.id());
+		saveMember(campus.id(), secondTarget.id());
+		registerToken(firstTarget, "bulk-first-token", "bulk-first-client");
+		registerToken(secondTarget, "bulk-second-token", "bulk-second-client");
+		SendNotificationResult result = notificationService.requestNotification(new SendNotificationCommand(
+			campus.id(),
+			minister.id(),
+			NotificationType.CUSTOM,
+			List.of(firstTarget.id(), secondTarget.id()),
+			null,
+			null,
+			"일괄 알림",
+			"일괄 토큰 조회"
+		));
+		clearInvocations(userFcmTokenRepository);
+
+		worker.processRequest(result.notificationRequestId());
+
+		verify(userFcmTokenRepository).findActiveSendableTokensByUserIdIn(
+			Set.of(firstTarget.id(), secondTarget.id())
+		);
+		verify(userFcmTokenRepository, never()).findActiveSendableTokens(firstTarget.id());
+		verify(userFcmTokenRepository, never()).findActiveSendableTokens(secondTarget.id());
+		assertThat(fakeFcmSendPort.attempts("bulk-first-token")).isEqualTo(1);
+		assertThat(fakeFcmSendPort.attempts("bulk-second-token")).isEqualTo(1);
+	}
+
+	@Test
+	void worker_does_not_reuse_a_permanently_failed_token_for_later_logs_in_the_same_request() {
+		Campus campus = saveCampus("알림영구실패스냅샷캠");
+		User target = saveUser("notification-worker-snapshot-target@example.com", UserRole.USER);
+		saveMember(campus.id(), target.id());
+		registerToken(target, "snapshot-permanent-token", "snapshot-permanent-client");
+		fakeFcmSendPort.failPermanent("snapshot-permanent-token");
+		UUID requestId = UUID.randomUUID();
+		notificationLogRepository.saveAndFlush(NotificationLog.pending(
+			requestId, target.id(), campus.id(), NotificationType.PAYMENT_UNPAID,
+			null, 20001L, "첫 계좌 미납", "첫 계좌 본문"));
+		notificationLogRepository.saveAndFlush(NotificationLog.pending(
+			requestId, target.id(), campus.id(), NotificationType.PAYMENT_UNPAID,
+			null, 20002L, "둘째 계좌 미납", "둘째 계좌 본문"));
+
+		worker.processRequest(requestId);
+
+		assertThat(notificationLogRepository.findByRequestIdOrderByIdAsc(requestId))
+			.extracting(NotificationLog::sendStatus)
+			.containsExactly(SendStatus.FAILED, SendStatus.SKIPPED);
+		assertThat(fakeFcmSendPort.attempts("snapshot-permanent-token")).isEqualTo(1);
 	}
 
 	@TestConfiguration

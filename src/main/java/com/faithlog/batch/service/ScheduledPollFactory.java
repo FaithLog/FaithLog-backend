@@ -8,6 +8,7 @@ import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollTemplateOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollTemplateRepository;
+import com.faithlog.poll.service.CoffeeOperationClassifier;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +34,10 @@ class ScheduledPollFactory {
 
 	boolean createIfAbsent(Long templateId, ScheduledPollWindow window) {
 		PollTemplate template = pollTemplateRepository.findById(templateId).orElseThrow();
+		if (CoffeeOperationClassifier.isCoffeeOperation(
+			template.pollType(), template.chargeGenerationType(), template.paymentCategory())) {
+			return false;
+		}
 		boolean exists = pollRepository.existsByCampusIdAndTemplateIdAndStartsAtGreaterThanEqualAndStartsAtLessThan(
 			template.campusId(),
 			template.id(),

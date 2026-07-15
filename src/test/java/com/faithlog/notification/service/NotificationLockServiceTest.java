@@ -43,6 +43,16 @@ class NotificationLockServiceTest {
 	}
 
 	@Test
+	void renewScheduledLock_extends_only_the_owned_lease() {
+		NotificationLockLease lease = service.acquireScheduledLock(
+			new NotificationLockKey("dispatch", 1L, "request:1")).orElseThrow();
+
+		assertThat(service.renewScheduledLock(lease)).isTrue();
+		assertThat(port.lastRenewedOwnerToken()).isEqualTo(lease.ownerToken());
+		assertThat(port.lastTtl()).isEqualTo(Duration.ofMinutes(10));
+	}
+
+	@Test
 	void acquireScheduledLock_fails_closed_when_redis_fails() {
 		port.fail = true;
 
@@ -72,6 +82,7 @@ class NotificationLockServiceTest {
 		private NotificationLockKey lastKey;
 		private Duration lastTtl;
 		private boolean fail;
+		private String lastRenewedOwnerToken;
 
 		@Override
 		public Optional<NotificationLockLease> acquire(NotificationLockKey key, Duration ttl) {
@@ -87,6 +98,13 @@ class NotificationLockServiceTest {
 		}
 
 		@Override
+		public boolean renew(NotificationLockLease lease, Duration ttl) {
+			this.lastTtl = ttl;
+			this.lastRenewedOwnerToken = lease.ownerToken();
+			return lockedKeys.contains(lease.key().value());
+		}
+
+		@Override
 		public void release(NotificationLockLease lease) {
 			lockedKeys.remove(lease.key().value());
 		}
@@ -97,6 +115,10 @@ class NotificationLockServiceTest {
 
 		private Duration lastTtl() {
 			return lastTtl;
+		}
+
+		private String lastRenewedOwnerToken() {
+			return lastRenewedOwnerToken;
 		}
 	}
 }

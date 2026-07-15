@@ -150,6 +150,29 @@ class NotificationUseCaseServiceStructureTest {
 		}
 	}
 
+	@Test
+	void chargeReminderLoadsSendableTokenOwnersInOneBulkQuery() {
+		String reminderService = read(SERVICE_ROOT.resolve("ChargeReminderService.java"));
+		String tokenRepository = read(
+			MAIN_ROOT.resolve("notification/infrastructure/repository/UserFcmTokenRepository.java"));
+
+		assertAll(
+			() -> assertTrue(tokenRepository.contains("findActiveSendableTokensByUserIdIn")),
+			() -> assertTrue(reminderService.contains("findActiveSendableTokensByUserIdIn")),
+			() -> assertFalse(reminderService.contains("findActiveSendableTokens(targetUserId)"))
+		);
+	}
+
+	@Test
+	void deliveryWorkerLoadsPendingRecipientTokensInOneBulkQuery() {
+		String deliveryWorker = read(SERVICE_ROOT.resolve("NotificationDeliveryWorker.java"));
+
+		assertAll(
+			() -> assertTrue(deliveryWorker.contains("findActiveSendableTokensByUserIdIn")),
+			() -> assertFalse(deliveryWorker.contains("findActiveSendableTokens(log.userId())"))
+		);
+	}
+
 	private void assertTransactional(String source, String method) {
 		assertTrue(Pattern.compile(
 			"@Transactional\\s+public\\s+[^\\n{]+\\s+" + Pattern.quote(method) + "\\s*\\("

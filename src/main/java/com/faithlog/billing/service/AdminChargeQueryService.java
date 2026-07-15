@@ -158,13 +158,15 @@ public class AdminChargeQueryService {
 		requireCampusChargeManager(query.campusId(), query.requesterId(), query.paymentCategory());
 		requireActiveCampusMember(query.campusId(), query.userId());
 		CampusUserLookupResult targetUser = getActiveUser(query.userId());
+		Set<Long> paymentAccountIds = resolveMemberChargePaymentAccountIds(
+			query.campusId(), query.requesterId(), query.paymentCategory());
 
 		ChargeSearchCriteria criteria = new ChargeSearchCriteria(
 			query.campusId(),
 			Set.of(query.userId()),
 			query.paymentCategory(),
 			query.status(),
-			null,
+			paymentAccountIds,
 			PaymentCategory.MEAL
 		);
 		List<ChargeItem> summaryTargets = chargeItemRepository.searchCharges(criteria);
@@ -318,9 +320,6 @@ public class AdminChargeQueryService {
 				return null;
 			}
 			PaymentAccount account = getAccountInCampus(campusId, paymentAccountId);
-			if (!requester.isAdmin()) {
-				requireOwnedCoffeeAccountForFilter(account, requester.userId());
-			}
 			return Set.of(account.id());
 		}
 		if (!isActiveCoffeeDuty(campusId, requester.userId())) {
@@ -375,6 +374,25 @@ public class AdminChargeQueryService {
 			);
 		}
 		throw forbidden();
+	}
+
+	private Set<Long> resolveMemberChargePaymentAccountIds(
+		Long campusId,
+		Long requesterId,
+		PaymentCategory paymentCategory
+	) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		if (requester.isAdmin() || isCampusChargeManager(campusId, requester.userId())) {
+			return null;
+		}
+		if (paymentCategory != PaymentCategory.COFFEE || !isActiveCoffeeDuty(campusId, requester.userId())) {
+			throw forbidden();
+		}
+		return paymentAccountRepository.findByCampusIdAndOwnerUserIdAndAccountTypeOrderByIdAsc(
+			campusId, requester.userId(), PaymentCategory.COFFEE)
+			.stream()
+			.map(PaymentAccount::id)
+			.collect(Collectors.toSet());
 	}
 
 	private List<PaymentAccount> managerMyAccountCandidates(
@@ -435,12 +453,6 @@ public class AdminChargeQueryService {
 		}
 	}
 
-	private void requireOwnedCoffeeAccountForFilter(PaymentAccount account, Long requesterId) {
-		if (account.accountType() == PaymentCategory.COFFEE && !requesterId.equals(account.ownerUserId())) {
-			throw forbidden();
-		}
-	}
-
 	private boolean isCampusChargeManager(Long campusId, Long requesterId) {
 		return campusMemberRepository.findByCampusIdAndUserId(campusId, requesterId)
 			.filter(CampusMember::isActive)
@@ -478,9 +490,9 @@ public class AdminChargeQueryService {
 	}
 
 	private boolean isActiveCoffeeDuty(Long campusId, Long userId) {
-		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-			.map(assignment -> assignment.userId().equals(userId))
-			.orElse(false);
+		return dutyAssignmentRepository
+			.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId)
+			.isPresent();
 	}
 
 	private void requireActiveCampusMember(Long campusId, Long userId) {

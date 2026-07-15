@@ -9,5 +9,7 @@ public interface NotificationLockPort {
 
 	Optional<NotificationLockLease> acquire(NotificationLockKey key, Duration ttl);
 
+	boolean renew(NotificationLockLease lease, Duration ttl);
+
 	void release(NotificationLockLease lease);
 }

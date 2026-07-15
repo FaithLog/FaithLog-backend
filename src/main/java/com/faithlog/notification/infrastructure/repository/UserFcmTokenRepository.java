@@ -4,6 +4,7 @@ import com.faithlog.notification.domain.entity.UserFcmToken;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -47,5 +48,23 @@ public interface UserFcmTokenRepository extends JpaRepository<UserFcmToken, Long
 
 	default List<UserFcmToken> findActiveSendableTokens(Long userId) {
 		return findActiveSendableTokens(userId, Instant.now().minus(java.time.Duration.ofDays(90)));
+	}
+
+	@Query("""
+		select token
+		from UserFcmToken token
+		where token.userId in :userIds
+			and token.isActive = true
+			and token.lastSeenAt >= :staleThreshold
+			and token.lastRefreshedAt >= :staleThreshold
+		order by token.id asc
+		""")
+	List<UserFcmToken> findActiveSendableTokensByUserIdIn(Set<Long> userIds, Instant staleThreshold);
+
+	default List<UserFcmToken> findActiveSendableTokensByUserIdIn(Set<Long> userIds) {
+		return findActiveSendableTokensByUserIdIn(
+			userIds,
+			Instant.now().minus(java.time.Duration.ofDays(90))
+		);
 	}
 }

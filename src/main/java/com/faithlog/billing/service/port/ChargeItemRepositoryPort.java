@@ -7,6 +7,7 @@ import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -18,6 +19,8 @@ public interface ChargeItemRepositoryPort {
 
 	Optional<ChargeItem> findChargeItemById(Long chargeItemId);
 
+	Optional<ChargeItemLockScope> findChargeItemLockScopeById(Long chargeItemId);
+
 	Optional<ChargeItem> findChargeItemByIdForUpdate(Long chargeItemId);
 
 	Page<ChargeItem> searchCharges(ChargeSearchCriteria criteria, Pageable pageable);
@@ -28,6 +31,20 @@ public interface ChargeItemRepositoryPort {
 		Long campusId,
 		PaymentCategory paymentCategory,
 		ChargeStatus status
+	);
+
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
+	);
+
+	boolean existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
 	);
 
 	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(

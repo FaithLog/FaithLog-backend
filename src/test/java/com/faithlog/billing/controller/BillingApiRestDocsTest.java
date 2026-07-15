@@ -28,10 +28,13 @@ import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusRole;
@@ -89,6 +92,9 @@ class BillingApiRestDocsTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private PaymentAccountRepository paymentAccountRepository;
 
 	@Autowired
 	private DevotionService devotionService;
@@ -442,6 +448,158 @@ class BillingApiRestDocsTest {
 	}
 
 	@Test
+	void documents_service_admin_stale_duty_charge_recovery_contract() throws Exception {
+		String managerToken = signupAndLogin("docs-stale-charge-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-stale-charge-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "200과거담당청구복구RESTDocs캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("docs-stale-charge-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("docs-stale-charge-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		String memberToken = signupAndLogin("docs-stale-charge-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-stale-charge-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String adminToken = signupAndLogin("docs-stale-charge-admin@example.com", UserRole.ADMIN);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), duty.id()));
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			duty.id(),
+			PaymentCategory.COFFEE,
+			"과거 담당 계좌",
+			"하나은행",
+			"200-STALE-DOCS",
+			"과거담당",
+			duty.id()
+		));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			member.id(),
+			PaymentCategory.COFFEE,
+			account.id(),
+			"하나은행",
+			"200-STALE-DOCS",
+			"과거담당",
+			ChargeSourceType.POLL_RESPONSE,
+			20092L,
+			"과거 커피 미납",
+			"담당 해제 전 복구",
+			4500,
+			null
+		));
+		CampusMember staleMember = campusMemberRepository.findByCampusIdAndUserId(campusId, duty.id()).orElseThrow();
+		staleMember.deactivate();
+		campusMemberRepository.saveAndFlush(staleMember);
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "WAIVED"
+					}
+					"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN"))
+			.andDo(document("charge-admin-stale-duty-recovery-manager-forbidden",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description("stale COFFEE 담당자 소유 미납 청구 ID")),
+				requestFields(fieldWithPath("status").description("복구 시도 상태")),
+				responseFields(errorResponseFields())
+			));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + adminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "WAIVED"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.status").value("WAIVED"))
+			.andDo(document("charge-admin-stale-duty-recovery-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description(
+					"INACTIVE 멤버십에 ACTIVE 담당이 남아 있는 계좌 소유자의 UNPAID COFFEE/MEAL 청구 ID")),
+				requestFields(fieldWithPath("status").description(
+					"복구할 terminal 상태. `PAID`, `WAIVED`, `CANCELED` 중 하나")),
+				responseFields(apiResponseFields(chargeFields("data.")))
+			));
+	}
+
+	@Test
+	void documents_service_admin_stale_meal_duty_charge_recovery_contract() throws Exception {
+		String managerToken = signupAndLogin("docs-stale-meal-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-stale-meal-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "200과거밥담당청구복구RESTDocs캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("docs-stale-meal-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("docs-stale-meal-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		String memberToken = signupAndLogin("docs-stale-meal-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-stale-meal-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String adminToken = signupAndLogin("docs-stale-meal-admin@example.com", UserRole.ADMIN);
+		campusService.assignMealDuty(new AssignMealDutyCommand(campusId, manager.id(), duty.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campusId, PaymentCategory.MEAL, "과거 밥 담당 계좌", "하나은행", "200-STALE-MEAL-DOCS",
+			"과거밥담당", duty.id()));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId, member.id(), PaymentCategory.MEAL, account.id(), account.bankName(),
+			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 20095L,
+			"과거 밥 미납", "담당 해제 전 복구", 3500, null));
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + adminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "CANCELED"
+					}
+					"""))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("BILLING_CHARGE_ITEM_NOT_FOUND"))
+			.andDo(document("charge-admin-active-meal-duty-recovery-not-found",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description("ACTIVE MEAL 담당자 소유 청구 ID")),
+				requestFields(fieldWithPath("status").description("복구 시도 상태")),
+				responseFields(errorResponseFields())
+			));
+		CampusMember staleMember = campusMemberRepository.findByCampusIdAndUserId(campusId, duty.id()).orElseThrow();
+		staleMember.deactivate();
+		campusMemberRepository.saveAndFlush(staleMember);
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + adminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "CANCELED"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.paymentCategory").value("MEAL"))
+			.andExpect(jsonPath("$.data.status").value("CANCELED"))
+			.andDo(document("charge-admin-stale-meal-duty-recovery-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description(
+					"INACTIVE 멤버십에 ACTIVE MEAL 담당이 남은 계좌 소유자의 UNPAID 청구 ID")),
+				requestFields(fieldWithPath("status").description(
+					"복구할 terminal 상태. `PAID`, `WAIVED`, `CANCELED` 중 하나")),
+				responseFields(apiResponseFields(chargeFields("data.")))
+			));
+		chargeItemRepository.deleteById(charge.id());
+		chargeItemRepository.flush();
+	}
+
+	@Test
 	void documents_devotion_penalty_cancel_and_weekly_reopen_contract() throws Exception {
 		String managerToken = signupAndLogin("docs-190-cancel-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("docs-190-cancel-manager@example.com").orElseThrow();
@@ -598,6 +756,7 @@ class BillingApiRestDocsTest {
 				))
 				));
 
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), manager.id()));
 		long managerCoffeeAccountId = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
 			manager.id(),
@@ -647,7 +806,7 @@ class BillingApiRestDocsTest {
 					parameterWithName("status").optional().description("청구 상태 필터. `UNPAID`, `PAID`, `WAIVED`, `CANCELED`"),
 					parameterWithName("userId").optional().description("사용자 ID 필터"),
 					parameterWithName("keyword").optional().description("이름 또는 이메일 검색어"),
-					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 지정 계좌에 연결된 청구만 집계. COFFEE 계좌는 캠퍼스 관리자/담당자 모두 본인 소유 계좌만 필터 가능하며 전역 ADMIN은 전체 접근 가능"),
+					parameterWithName("paymentAccountId").optional().description("납부 계좌 ID 필터. 캠퍼스 관리자와 전역 ADMIN은 캠퍼스 내 전체 계좌를 필터할 수 있고, COFFEE 담당자는 본인 소유 COFFEE 계좌만 필터 가능"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
 					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")

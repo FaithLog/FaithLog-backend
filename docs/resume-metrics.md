@@ -13,23 +13,71 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-14 #188/#189/#190 integration, 449 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #200 final review, 548 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.41% (7,223 / 7,651, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 75.77% (1,113 / 1,469, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.70% (510 / 522, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 89.79% (1,935 / 2,155, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 85 test files (2026-07-14 integration) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 151 snippet groups (2026-07-14 integration) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-14 integration) | 성공 |
+| 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 91 test files (2026-07-15 #200) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 170 snippet groups (2026-07-15 #200) | 증가 추적 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-15 #200) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 634 Java sources including tests (2026-07-13 #189) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 8 (Flyway V1-V8, 2026-07-13 #189) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 10 (Flyway V1-V10, 2026-07-15 #200) | 추적 |
 
 ## Daily Monitoring Notes
 
 ### 2026-07-14
+
+- #200 PM 전체 diff 재리뷰 finding 8건 보강:
+  - TDD: COFFEE 분류 우회·공용 템플릿, 관리자 COFFEE 계좌 필터 읽기, 삭제 계좌 알림·commit/release rollback dedupe·FCM token 일괄조회, duty-gated write·마감 잠금 순서를 4개 test-only 커밋으로 먼저 고정했다. 기존 구현에서 각 focused 범위가 `5 failures`, `1 failure`, `3 + 2 failures`, `4 failures`로 재현됐다.
+  - 계약/DB: COFFEE operation 판정을 pollType/chargeGenerationType/paymentCategory의 단일 classifier로 통일하고 혼합 설정 우회를 차단했다. 사용자 승인대로 COFFEE 템플릿을 계좌 중립으로 저장하고, 실제 템플릿 기반 투표 생성에서 요청자의 active owned 계좌를 받는다. V10은 기존 COFFEE template의 `payment_account_id`만 null로 갱신하며 row 삭제나 schema 변경은 없다.
+  - 동시성: 투표·템플릿·계좌·청구 상태·미납 알림 및 MEAL command가 담당 해제와 같은 duty row `PESSIMISTIC_WRITE`를 공유하고 `duty -> poll/account/charge` 순서를 사용한다. 수동/기한 마감 동시 테스트에서 잠금 전 managed Poll snapshot이 stale OPEN으로 재사용되는 추가 race를 발견해 projection으로 잠금 scope만 읽은 뒤 duty와 Poll을 순서대로 잠그도록 보강했다.
+  - 알림/조회: soft-deleted owned account의 UNPAID도 알림 범위에 포함하고, transaction rollback 시 Redis daily reservation을 보상한다. dispatch는 request의 전체 recipient token을 1회 bulk 조회한다. 캠퍼스 관리자/전역 ADMIN의 COFFEE 계좌 필터 읽기는 전체 campus 범위를 유지하고 담당자 write/필터 ownership은 그대로다.
+  - 자체 리뷰 추가 보완: MEAL 계좌 목록이 read-only transaction에서 duty write lock을 잡고, 계좌 비활성화 명령은 반대로 duty/account lock을 잡지 않는 누락을 RED 2건으로 재현했다. 목록은 non-locking duty 조회로 복원하고 비활성화는 `duty -> account` 잠금 순서로 통일했다. 계좌 중립 템플릿과 관리자 COFFEE 필터 범위에 어긋난 오래된 정책 문구도 실제 계약으로 정리했다.
+  - 검증: 최종 전체 `483 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, `git diff --check`를 통과했다. test suite 83개, test source 88개, REST Docs snippet group 155개, Flyway V1-V10이다. Docker/PostgreSQL/Flyway 실제 적용은 사용자 승인 범위에 따라 실행하지 않았다.
+  - 이력서 문장 후보: `다중 COFFEE 담당 권한·미납 알림 전체 diff 리뷰에서 인가·동시성·rollback·N+1 finding을 TDD로 재현하고 duty-first row lock, transaction completion 보상, recipient token bulk 조회, 계좌 중립 템플릿 V10으로 보강해 483개 전체 테스트와 REST Docs 155개 계약을 통과했다.`
+
+- #200 PM 최종 재리뷰 finding 3건 보강:
+  - TDD: 레거시 `CUSTOM + OPTION_PRICE + COFFEE` Poll 종료 우회, duty lock 대기 중 회원 PAID를 stale managed ChargeItem이 덮는 경합, 담당 해제의 캠퍼스 전체 UNPAID overfetch를 test-only 커밋 3개로 재현했다. 신규 focused 4 tests는 기존 구현에서 각각 assertion failure 또는 금지된 repository 호출로 RED였다.
+  - 최소 수정: Poll close는 세 분류 필드로 COFFEE 권한을 먼저 잠그고 잠긴 Poll의 구성을 다시 검증한다. 청구 상태 변경은 잠금 전 scalar projection만 읽고 `duty -> charge FOR UPDATE` 뒤 최신 campus/category/account ownership/status로 전이를 적용한다. 담당 해제는 owned account ID가 비면 청구 query를 생략하고, 아니면 해당 ID `IN` 범위로만 UNPAID를 조회한다.
+  - 자체 리뷰 추가 보완: `pollType=COFFEE`지만 나머지 필드가 불일치한 레거시 Poll을 due scheduler가 CLOSED로 만들고 정산을 생략하는 경계를 신규 1 test RED로 재현했다. 공통 classifier의 consistency 판정을 재사용해 불일치 행은 OPEN으로 유지하고 정상 due 마감은 보존했다.
+  - 프론트 계약 자체 리뷰: 일반 Poll 목록/상세가 전체 캠퍼스 투표를 반환하지만 현재 요청자의 관리 가능 필드가 없어 다른 담당자 COFFEE 투표의 write 버튼을 프론트가 안전하게 제어할 수 없는 누락을 발견했다. 사용자 승인에 따라 생성자 사용자 ID는 공개하지 않고 서버 계산 `manageableByMe`만 목록·상세에 추가했다. COFFEE는 ACTIVE duty + 내부 creator, MEAL은 ACTIVE MEAL duty, 그 외 투표는 기존 관리자 command 권한과 동일하게 계산한다.
+  - 검증: 신규 5 tests와 Poll/Campus/Billing/동시성/잠금 구조 focused suites가 GREEN이었다. 투표 필드 보강 focused 67 tests도 GREEN이었다. 최종 전체는 83 suites / 500 tests / 0 failures / 0 errors / 3 skipped, build와 asciidoctor 성공, REST Docs HTML 생성, diff check 성공이다. ErrorCode/Flyway/의존성은 이번 최종 수정에서 변경하지 않았고 Docker/PostgreSQL/Flyway 실제 적용은 실행하지 않았다.
+  - 통합 게이트: PM finding 0 뒤 최신 API·권한·에러·프론트 UI 명세를 지정된 프론트 세션에 전달하고, 프론트 정적 검증 전 backend 병합/Docker QA를 보류한다. Docker/iOS QA의 디스크 정리는 사용자 승인 안전 범위와 전후 용량 기록을 따른다.
+
+- #200 최종 API 결정 및 전체 diff 자체 리뷰 보강:
+  - 사용자 결정 반영: Poll 공개 목록·상세에는 서버 계산 `manageableByMe`만 유지하고 `createdByUserId`는 controller/service DTO, REST Docs, 테스트에서 제거했다. 내부 creator는 COFFEE 소유 권한 계산에만 사용한다. MEAL은 ACTIVE MEAL duty, COFFEE는 ACTIVE 멤버십 + ACTIVE duty + creator, 그 외 Poll은 관리자 command 권한과 동일하다.
+  - TDD/인가·동시성: 비활성 캠퍼스 멤버에게 남은 duty row가 Poll capability·due close·settlement를 통과하는 3건, COFFEE 계좌가 duty lock 대기 뒤 stale managed entity로 중복 삭제되는 1건, dispatch lock 전 PENDING snapshot 중복 발송 1건을 RED로 재현했다. ACTIVE membership fail-closed, immutable account scope + duty/account 재검증, dispatch lock 뒤 PENDING 재조회로 수정했다.
+  - 알림 복구: Redis dedupe 값을 owner token으로 예약하고 Lua compare-delete로 rollback 보상 소유권을 검증한다. manual/dispatch lock은 owner token 기준 TTL을 갱신하며, recovery는 현재 dispatch lease를 얻지 못하면 PENDING을 FAILED로 덮지 않는다. 발송 worker는 request token bulk lookup을 유지하면서 log/token/retry 경계에서 lease를 갱신한다.
+  - 조회/문서: Poll 목록은 실제 포함 유형에 필요한 COFFEE/MEAL duty만 조회하고, 상세는 visibility 계산 결과를 재사용한다. 알림 403 category별 code, 동시 요청 409, Redis 503과 COFFEE/MEAL 담당 해제 미납 409를 HTTP REST Docs snippet/index에 추가했다.
+  - 최종 검증: `./gradlew test`는 83 suites / 518 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`와 `./gradlew asciidoctor` 성공, REST Docs snippet group 161개, HTML 생성, `git diff --check origin/develop...HEAD` 성공이다. Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 실행하지 않았다.
+
+- #200 담당 회원 삭제 우회 PM finding 보강:
+  - TDD: ACTIVE COFFEE/MEAL 담당 회원 삭제, owned UNPAID 우회, INACTIVE 멤버의 담당 목록 노출, 재가입 시 stale capability 복원, 회원 삭제와 담당 지정/해제 경합을 test-only RED로 고정했다. 서비스·동시성 신규 6 failures와 REST Docs 신규 2 failures를 production 전에 확인했다.
+  - 사용자 결정/API: ACTIVE 담당 배정이 하나라도 남으면 회원 삭제와 stale 담당 재가입을 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 거부한다. 서버 자동 revoke/책임 이전은 하지 않고 프론트가 기존 개별 담당 해제를 먼저 수행한다. 소유 계좌 UNPAID가 있으면 기존 category별 409가 담당 해제를 계속 막는다.
+  - 동시성/조회: immutable member lock scope 뒤 `campus -> duty -> member` 순서로 회원 삭제·재가입을 직렬화하고, 담당 목록 query는 ACTIVE assignment와 ACTIVE membership을 DB에서 함께 결속한다.
+  - 최종 검증: campus focused와 전체 `83 suites / 526 tests / 0 failures / 0 errors / 3 skipped`, `./gradlew build`, `./gradlew asciidoctor`, REST Docs 163 groups/HTML, 전체 diff check가 성공했다. DB/Flyway/의존성 변경은 없고 Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 수행하지 않았다.
+
+- #200 stale 담당 복구·계정 탈퇴 우회·역할 변경 경합 최종 보강:
+  - TDD: 기본 담당 목록에 숨겨진 stale assignment의 공개 API 복구 불가, ACTIVE 담당 사용자의 계정 탈퇴 성공, 역할 변경의 stale managed membership이 성공한 회원 삭제를 되살릴 수 있는 경합을 REST Docs/Controller/실제 2-transaction 테스트 4건으로 재현했다. 최종 보정된 역할 경합 테스트는 이전 production에서 삭제 future가 즉시 완료되어 expected timeout assertion이 실패하는 실제 RED를 확인했다.
+  - 사용자 결정/API: 기존 `GET /api/v1/admin/campuses/{campusId}/duty-assignments`에 optional `staleOnly=true`를 추가했다. 기본값은 `false`이고 `true`이면 INACTIVE 멤버십에 남은 ACTIVE 담당만 기존 응답 구조로 반환한다. 관리자는 응답의 assignment ID로 기존 해제 API를 호출한 뒤 재가입을 완료한다. ACTIVE COFFEE/MEAL 담당이 하나라도 남은 `DELETE /api/v1/users/me`는 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 차단하며 자동 해제하지 않는다.
+  - 동시성: 계정 탈퇴는 immutable user/member scope를 읽은 뒤 campus ID 오름차순으로 `campus -> duty -> member -> user` 잠금을 획득해 담당 지정·해제와 직렬화한다. 캠퍼스 역할 변경도 `campus -> member` 잠금 뒤 최신 ACTIVE membership에만 적용해 삭제 후 stale flush가 상태를 ACTIVE로 복원하지 못하게 했다.
+  - 최종 검증: `./gradlew test` 83 suites / 530 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 11초, `./gradlew asciidoctor` 10초, REST Docs 165 groups/HTML 및 신규 2 snippet group 생성, 전체 diff check 성공이다. DB/Flyway/의존성 변경과 Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 없다.
+
+- #200 user-first 생명주기 잠금·stale 미납 복구 최종 보강:
+  - TDD: 관리자 직접 stale 멤버 재활성화, 잘못된 `staleOnly`, 담당 목록 user N+1, MEAL 오류 문구, 전역 ADMIN stale COFFEE 미납 복구 5건을 test-only RED로 고정했다. 이어 실제 2-transaction 테스트에서 탈퇴 중 신규 가입 성공, 로그인 stale flush의 탈퇴 계정 부활, 캠퍼스 역할 강등 뒤 회원 삭제 성공 3건을 추가 RED로 재현했다.
+  - 사용자 결정/API: lifecycle writer는 user ID 오름차순의 user row를 먼저 잠그고 `user -> campus -> duty -> member` 순서로 직렬화한다. `staleOnly=garbage`는 `400 GLOBAL_VALIDATION_FAILED`다. INACTIVE 멤버십에 ACTIVE COFFEE/MEAL 담당이 남은 계좌 소유자의 UNPAID만 서비스 전역 ADMIN이 기존 status PATCH로 명시 처리할 수 있으며 정상 담당자/일반 관리자 우회는 없다.
+  - 성능/인가: 담당 목록은 assignment user ID를 한 번에 bulk 조회하고, 담당 지정·해제와 회원 삭제는 캠퍼스 잠금 이후 최신 requester 멤버십/역할을 재검증한다. 관리자 직접 회원 추가도 stale ACTIVE 담당이 있으면 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`를 유지한다.
+  - 최종 검증: `./gradlew test` 84 suites / 539 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 12초, `./gradlew asciidoctor` 19초, REST Docs 167 groups/HTML, test source 89개, 전체 diff check 성공이다. DB/Flyway/의존성 변경과 Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 없다.
+
+- #200 stale 복구·전역 ADMIN 최신 권한 최종 보강:
+  - TDD/리뷰: stale 복구의 최신 PAID 보존, duty/member 교착, 동시 마지막 ADMIN 강등, requester ADMIN 강등, USER→ADMIN 승격 뒤 stale 자기 강등을 실제 동시성 테스트로 고정했다. 최종 두 권한 경합은 focused 19 tests 중 2 failures로 RED를 확인한 뒤 GREEN으로 전환했다.
+  - 잠금/인가: stale 복구는 requester user를 먼저 잠그고 `user -> campus -> duty -> member -> charge` 순서를 사용하며 locked charge의 UNPAID를 재검증한다. 전역 역할 변경은 최소 user ID row를 DB 공통 mutex로 사용한 뒤 requester/target 최신 역할과 마지막 ACTIVE ADMIN 수를 판단한다.
+  - API/문서: `staleOnly` 오류 변환을 해당 controller로 제한해 unrelated type mismatch 계약 변경을 제거했다. COFFEE/MEAL 일반 상태 변경 권한을 실제 production과 일치시켰고 stale COFFEE 일반 관리자 403, ACTIVE MEAL service ADMIN 404, stale MEAL 성공 REST Docs를 추가했다.
+  - 최종 검증: `./gradlew test` 86 suites / 548 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 12초, `./gradlew asciidoctor` 14초, REST Docs 170 groups/HTML, test source 91개, 전체 diff check 성공이다. Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 수행하지 않았다.
 
 - #188/#189/#190 통합 검증:
   - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
@@ -1134,6 +1182,21 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 날짜 | 명령/방법 | 결과 | 주요 수치 | 후속 조치 |
 | --- | --- | --- | --- | --- |
+| 2026-07-14 | #200 담당자 cardinality RED | 실패 확인 | 기존 구현 기준 focused 28 tests 중 승인된 다중 ACTIVE·동일 사용자 idempotency·동시 추가 계약 3건 실패 | 권한·소유권·DB unique 제약 최소 구현 |
+| 2026-07-14 | #200 권한·해제·미납 알림 RED | 실패 확인 | expanded focused 35 tests 중 새 전용 권한, 소유 청구, 해제 충돌, body 없는 202 알림·dedupe 계약 10건 실패 | production/API/Redis dedupe/Flyway 구현 |
+| 2026-07-14 | #200 미납 상세·해제 동시성 보완 RED/GREEN | 성공 | focused 13 tests에서 청구 title별 상세/5종 제한 3건과 COFFEE·MEAL 해제 잠금 3건이 RED였고, 동일 ACTIVE 담당 배정 `PESSIMISTIC_WRITE`와 상세 본문 구현 후 13/13 GREEN | 전체 회귀·build·asciidoctor 재검증 |
+| 2026-07-14 | #200 자체 리뷰 알림 토큰 N+1 보완 | 성공 | 수신자 반복문 내부 FCM token 조회를 발견해 bulk lookup 구조 테스트 8 tests 중 신규 1건 RED 확인 후 다중 user ID 1회 조회로 변경, notification 전체 focused GREEN | 최종 전체 회귀 재검증 |
+| 2026-07-14 | #200 COFFEE 자동 생성 제외 RED/GREEN | 성공 | `PollAutomationServiceTest` 6 tests 중 신규 제외 계약 1건 RED 확인 후 scheduler COFFEE 필터로 6/6 GREEN. 수동 생성 COFFEE 투표의 예정 마감·정산 유지 | 전체 회귀 검증으로 확대 |
+| 2026-07-14 | #200 full regression/build/docs | 성공 | 자체 리뷰 보완 포함 최종 `./gradlew test` 466 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 153개, `git diff --check` 성공 | PM 전체 diff 리뷰 요청. Docker/PostgreSQL 실마이그레이션은 사용자 금지에 따라 미실행 |
+| 2026-07-14 | #200 PM 재리뷰 후 자체 리뷰 추가 RED/GREEN | 성공 | MEAL 계좌 read-only duty write lock과 deactivate duty/account lock 누락을 focused 8 tests 중 2 failures로 재현. 최소 수정 후 focused GREEN, 최종 `483 tests / 0 failures / 0 errors / 3 skipped`, build/asciidoctor/diff check 성공, snippet group 155개 | 최신 `origin/develop...HEAD` PM 재리뷰 요청. Docker/PostgreSQL/Flyway 실적용은 금지에 따라 미실행 |
+| 2026-07-14 | #200 PM 3차 재리뷰 7 findings RED/GREEN | 성공 | 회원 상세 소유권, 레거시 혼합 template, 공유 template 동시성 3종, 담당 해제/재지정 2종, rollback/retry 간극, 영구 실패 token 재사용, 소유 계좌 DB query 범위를 finding별 RED로 재현. `campus -> duty -> entity` 및 `duty -> template` 잠금, transaction completion 뒤 dedupe/lock 정리, scoped `IN` query와 mutable token snapshot으로 GREEN | 최종 전체 회귀·문서·PM 재리뷰 |
+| 2026-07-14 | #200 최종 full regression/build/docs | 성공 | `./gradlew test` 495 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 155개, test suite 83개, `git diff --check` 성공. V10은 새 버전 없이 정상 COFFEE 계좌 중립화와 레거시 혼합 row 비활성 격리를 함께 수행 | 최신 `origin/develop...HEAD` PM finding 0 재리뷰 요청. Docker/PostgreSQL/Flyway 실적용은 사용자 금지에 따라 미실행 |
+| 2026-07-14 | #200 PM 최종 3 findings와 자체 리뷰 RED/GREEN | 성공 | 레거시 혼합 Poll 종료, 청구 최신 상태 경합, 담당 해제 overfetch 4 tests와 불일치 COFFEE due 마감 1 test를 RED 재현 후 projection·duty/charge lock·owned account scoped query·classifier fail-closed로 보강. 최종 83 suites / 500 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor/REST Docs/diff check 성공 | 최신 전체 diff PM finding 0 재리뷰 및 프론트 계약 전달. 프론트 정적 검증 전 backend 병합/Docker QA 보류 |
+| 2026-07-15 | #200 최종 API 결정·전체 diff 자체 리뷰 RED/GREEN | 성공 | `manageableByMe` 단일 공개 필드로 정정하고 비활성 duty authorization 3건, stale COFFEE account 1건, dispatch stale snapshot 1건, lock lease/dedupe owner/recovery/docs 경계를 RED 후 보강. 83 suites / 518 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 161 groups, diff check 성공 | 최신 전체 diff PM 재리뷰. frontend 정적 검증 전 merge/Docker 금지 유지 |
+| 2026-07-15 | #200 담당 회원 삭제 우회 RED/GREEN | 성공 | active COFFEE/MEAL 담당 삭제·미납 우회·stale 목록/재가입·지정/해제 경합 6 tests와 회원 삭제/재가입 409 REST Docs 2 tests를 RED로 재현. `CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`, `campus -> duty -> member` 잠금, ACTIVE membership 결속 조회로 보강. 최종 83 suites / 526 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 163 groups, diff check 성공 | 최신 전체 diff PM 재리뷰. frontend 명세에 회원 삭제/재가입 409와 담당 해제 선행 UI 추가 |
+| 2026-07-15 | #200 stale 담당 복구·탈퇴 우회·역할 경합 RED/GREEN | 성공 | `staleOnly=true` 복구 조회, ACTIVE 담당 계정 탈퇴 409, 역할 변경/회원 삭제 직렬화 4 tests RED 후 GREEN. stale 조회→기존 담당 해제→재가입 실제 API 흐름 통과. 최종 83 suites / 530 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 165 groups | 최신 전체 diff PM finding 0 재리뷰 및 frontend 최종 명세 전달. merge/Docker는 PM 승인 전 금지 |
+| 2026-07-15 | #200 user-first 생명주기·stale 미납 복구 RED/GREEN | 성공 | 8 residual findings를 test-only RED로 재현하고 user ID/campus ID 오름차순 `user -> campus -> duty -> member`, post-lock 인가 재검증, stale ADMIN 명시 복구, bulk user 조회, invalid query 400로 보강. 최종 84 suites / 539 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 167 groups | origin/develop...HEAD 전체 diff finding 0 재리뷰. frontend 전달/merge/Docker는 PM 승인 게이트 유지 |
+| 2026-07-15 | #200 stale 복구·ADMIN 최신 권한 RED/GREEN | 성공 | 최신 PAID 덮기·member/duty 교착·마지막 ADMIN 강등·stale requester/target 역할 경합을 보강하고 staleOnly 오류 범위를 controller로 제한. 최종 86 suites / 548 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 170 groups | 최신 전체 diff finding 0 재리뷰. frontend 전달/merge/Docker는 PM 승인 게이트 유지 |
 | 2026-06-19 | #61 TDD 실패 확인 | 실패 확인 | 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminManagementControllerTest`가 4 tests / 4 failed로 실패. 서비스 ADMIN 관리 endpoint와 role 변경 PATCH 미구현 확인 | admin application/presentation/port 계층 구현 |
 | 2026-06-19 | #61 focused admin tests | 성공 | `AdminManagementServiceTest`, `AdminManagementControllerTest`, `AdminManagementApiRestDocsTest` 성공. 사용자/캠퍼스 검색, 마지막 ADMIN 보호, 직접 멤버 추가/재활성화, REST Docs 계약 검증 | 전체 회귀 테스트로 확대 |
 | 2026-06-19 | #61 full regression/build/docs | 성공 | `./gradlew test` 성공(138 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 57개 | PM 리뷰 요청 |
@@ -1209,6 +1272,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-06-22 | #81 final validation | 성공 | `./gradlew test` 성공(236 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew build --warning-mode all` 성공, `./gradlew asciidoctor` 성공, `git diff --check` 성공 | Docker QA는 앱/빌드 설정 및 런타임 동작 변경이 없어 생략 |
 
 ## Resume Bullet Candidates
+
+- 2026-07-14 #200 다중 커피 담당자·소유권·미납 알림
+  - 캠퍼스별 ACTIVE COFFEE 담당자를 단일 교체에서 다중 additive/idempotent 지정으로 전환하고, `(campus_id, duty_type, user_id)` active partial unique migration으로 동시 중복을 방지.
+  - COFFEE command를 ACTIVE 담당자와 투표/계좌/청구 소유권으로 제한하고, 비활성 계좌까지 포함한 UNPAID 청구가 있으면 COFFEE/MEAL 담당 해제를 409로 차단.
+  - 요청 body 없이 담당자 소유 계좌의 전체 UNPAID를 계좌·수신자별 합산하는 202 알림 API 2개를 추가하고, Asia/Seoul 일자 Redis dedupe·토큰 없음 skip·dispatch 실패 rollback/retry를 검증.
+  - 알림 본문에 청구 title별 건수·금액을 최대 5종까지 표시하고 전체 합계를 유지했으며, 담당 해제와 COFFEE/MEAL 정산이 동일 배정 행 잠금을 공유해 동시 요청에서도 미납 해제 차단을 보장.
+  - 자체 리뷰에서 수신자별 FCM token N+1 조회를 발견해 다중 user ID bulk query 1회로 축소하고 구조 회귀 테스트를 추가.
+  - COFFEE 투표를 scheduler 자동 생성에서 제외하되 수동 생성 투표의 예정 마감·정산을 유지하고, 담당 회원 삭제 우회까지 차단한 전체 526 tests와 REST Docs 163개 snippet group으로 검증. Docker/실데이터 성과 수치는 측정하지 않음.
 
 - 2026-06-20 #38 PM 검토 보완
   - 컨트롤러 `@NotEmpty`로 빈 `optionIds`가 `GLOBAL_VALIDATION_FAILED`로 뭉개지던 경로를 제거하고, 서비스 검증에서 `POLL_RESPONSE_INVALID_SELECTION_COUNT` 계약을 반환하도록 보정.

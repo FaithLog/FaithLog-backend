@@ -3,6 +3,7 @@ package com.faithlog.batch.service;
 import com.faithlog.notification.service.NotificationLockKey;
 import com.faithlog.notification.service.NotificationLockService;
 import com.faithlog.poll.domain.entity.PollTemplate;
+import com.faithlog.poll.service.CoffeeOperationClassifier;
 import com.faithlog.poll.infrastructure.repository.PollTemplateRepository;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,10 @@ public class ScheduledPollCreationService {
 	public int createDuePolls(Instant now) {
 		int createdCount = 0;
 		for (PollTemplate template : pollTemplateRepository.findByIsActiveTrueAndAutoCreateEnabledTrueOrderByIdAsc()) {
+			if (CoffeeOperationClassifier.isCoffeeOperation(
+				template.pollType(), template.chargeGenerationType(), template.paymentCategory())) {
+				continue;
+			}
 			if (createDuePoll(template, now)) {
 				createdCount++;
 			}

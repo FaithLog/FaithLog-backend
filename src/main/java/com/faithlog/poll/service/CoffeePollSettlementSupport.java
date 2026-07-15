@@ -1,8 +1,12 @@
 package com.faithlog.poll.service;
 
 import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.domain.entity.PaymentAccount;
+import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.campus.domain.type.DutyType;
+import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
+import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.Poll;
@@ -32,36 +36,66 @@ class CoffeePollSettlementSupport {
 	private final PollResponseRepository pollResponseRepository;
 	private final PollResponseOptionRepository pollResponseOptionRepository;
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
+	private final CampusMemberRepositoryPort campusMemberRepository;
+	private final PaymentAccountRepositoryPort paymentAccountRepository;
 
 	CoffeePollSettlementSupport(
 		PollRepository pollRepository,
 		PollOptionRepository pollOptionRepository,
 		PollResponseRepository pollResponseRepository,
 		PollResponseOptionRepository pollResponseOptionRepository,
-		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository
+		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
+		CampusMemberRepositoryPort campusMemberRepository,
+		PaymentAccountRepositoryPort paymentAccountRepository
 	) {
 		this.pollRepository = pollRepository;
 		this.pollOptionRepository = pollOptionRepository;
 		this.pollResponseRepository = pollResponseRepository;
 		this.pollResponseOptionRepository = pollResponseOptionRepository;
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
+		this.campusMemberRepository = campusMemberRepository;
+		this.paymentAccountRepository = paymentAccountRepository;
 	}
 
 	SettlementContext prepare(Long campusId, Long pollId) {
-		Poll poll = pollRepository.findById(pollId)
+		PollRepository.PollLockScope scope = pollRepository.findLockScopeById(pollId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
-		if (!poll.campusId().equals(campusId)) {
+		if (!scope.getCampusId().equals(campusId)) {
 			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
 		}
+		if (scope.getStatus() != PollStatus.CLOSED) {
+			throw new BusinessException(ErrorCode.POLL_SETTLEMENT_NOT_CLOSED);
+		}
+		if (!isCoffeeSettlementTarget(scope)) {
+			return null;
+		}
+
+		campusMemberRepository.findByCampusIdAndUserId(campusId, scope.getCreatedBy())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+		dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campusId, DutyType.COFFEE, scope.getCreatedBy())
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+		Poll poll = pollRepository.findByIdAndCampusIdForUpdate(pollId, campusId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_NOT_FOUND));
 		if (poll.status() != PollStatus.CLOSED) {
 			throw new BusinessException(ErrorCode.POLL_SETTLEMENT_NOT_CLOSED);
 		}
 		if (!isCoffeeSettlementTarget(poll)) {
 			return null;
 		}
-
-		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+		if (poll.paymentAccountId() == null) {
+			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
+		}
+		PaymentAccount account = paymentAccountRepository.findById(poll.paymentAccountId())
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING));
+		if (account.isDeleted()
+			|| !account.isActive()
+			|| !account.campusId().equals(campusId)
+			|| account.accountType() != PaymentCategory.COFFEE
+			|| !poll.createdBy().equals(account.ownerUserId())) {
+			throw new BusinessException(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING);
+		}
 
 		Map<Long, PollOption> optionsById = optionsById(poll.id());
 		List<PollResponse> responses = pollResponseRepository.findByPollIdOrderByIdAsc(poll.id());
@@ -91,6 +125,12 @@ class CoffeePollSettlementSupport {
 		return poll.pollType() == PollType.COFFEE
 			&& poll.chargeGenerationType() == ChargeGenerationType.OPTION_PRICE
 			&& poll.paymentCategory() == PaymentCategory.COFFEE;
+	}
+
+	private boolean isCoffeeSettlementTarget(PollRepository.PollLockScope poll) {
+		return poll.getPollType() == PollType.COFFEE
+			&& poll.getChargeGenerationType() == ChargeGenerationType.OPTION_PRICE
+			&& poll.getPaymentCategory() == PaymentCategory.COFFEE;
 	}
 
 	private Map<Long, PollOption> optionsById(Long pollId) {

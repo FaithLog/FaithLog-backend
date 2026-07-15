@@ -5,6 +5,7 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.type.PollType;
+import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.service.result.PollResult;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
@@ -32,16 +33,24 @@ public class PollStatusCommandService {
 
 	@Transactional
 	public PollResult closePoll(Long campusId, Long pollId, Long requesterId) {
-		Poll poll = pollLookupSupport.getPollInCampusForUpdate(campusId, pollId);
-		if (poll.pollType() == PollType.MEAL) {
+		PollRepository.PollLockScope pollSnapshot = pollLookupSupport.getPollLockScopeInCampus(campusId, pollId);
+		boolean coffeeOperation = CoffeeOperationClassifier.isCoffeeOperation(
+			pollSnapshot.getPollType(), pollSnapshot.getChargeGenerationType(), pollSnapshot.getPaymentCategory());
+		if (coffeeOperation) {
+			pollAccessService.requireCoffeePollOwnerForUpdate(campusId, requesterId, pollSnapshot);
+		} else if (pollSnapshot.getPollType() == PollType.MEAL) {
 			throw new BusinessException(ErrorCode.POLL_NOT_FOUND);
+		} else {
+			pollAccessService.requirePollAdmin(campusId, requesterId, pollSnapshot.getPollType());
 		}
-		pollAccessService.requirePollAdmin(campusId, requesterId, poll.pollType());
+		Poll poll = pollLookupSupport.getPollInCampusForUpdate(campusId, pollId);
+		CoffeeOperationClassifier.requireConsistentConfiguration(
+			poll.pollType(), poll.chargeGenerationType(), poll.paymentCategory());
 		if (poll.status() != PollStatus.OPEN) {
 			throw new BusinessException(ErrorCode.POLL_CLOSE_NOT_ALLOWED);
 		}
 		poll.closeAt(Instant.now());
-		if (poll.pollType() == PollType.COFFEE) {
+		if (coffeeOperation) {
 			coffeePollSettlementService.settleClosedCoffeePoll(campusId, pollId);
 		}
 		return pollResultAssembler.toResult(poll);

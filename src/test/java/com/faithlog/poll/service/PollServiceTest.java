@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -38,12 +39,16 @@ import com.faithlog.billing.service.BillingService;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.billing.domain.entity.PaymentAccount;
+import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
+import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.result.CampusCreateResult;
 import com.faithlog.campus.service.CampusService;
 import com.faithlog.campus.service.command.CreateCampusCommand;
 import com.faithlog.campus.service.command.JoinCampusCommand;
 import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.domain.entity.CampusDutyAssignment;
 import com.faithlog.campus.domain.type.CampusRole;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
@@ -57,6 +62,7 @@ import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.entity.PollOption;
 import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.entity.PollTemplate;
+import com.faithlog.poll.domain.entity.PollTemplateOption;
 import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.domain.type.SelectionType;
 import com.faithlog.poll.infrastructure.repository.PollCommentRepository;
@@ -78,6 +84,13 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
@@ -126,13 +139,13 @@ class PollServiceTest {
 	@Autowired
 	private CoffeeBrandRepository coffeeBrandRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private CoffeeMenuCatalogRepository coffeeMenuCatalogRepository;
 
 	@Autowired
 	private PollTemplateRepository pollTemplateRepository;
 
-	@Autowired
+	@MockitoSpyBean
 	private PollTemplateOptionRepository pollTemplateOptionRepository;
 
 	@Autowired
@@ -152,6 +165,9 @@ class PollServiceTest {
 
 	@Autowired
 	private ChargeItemRepository chargeItemRepository;
+
+	@Autowired
+	private PaymentAccountRepository paymentAccountRepository;
 
 	@Autowired
 	private EntityManager entityManager;
@@ -209,7 +225,7 @@ class PollServiceTest {
 			null,
 			null,
 			null,
-			null,
+			accountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of()
@@ -219,7 +235,7 @@ class PollServiceTest {
 	}
 
 	@Test
-	void create_update_deactivate_template_requires_manager_and_stores_menu_snapshots() {
+	void create_update_deactivate_template_requires_matching_manager_and_stores_menu_snapshots() {
 		User manager = saveUser("poll-template-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-template-duty@example.com", UserRole.USER);
 		User member = saveUser("poll-template-member@example.com", UserRole.USER);
@@ -297,9 +313,235 @@ class PollServiceTest {
 		assertThat(updated.options()).extracting(PollTemplateOptionResult::content)
 			.containsExactly("아메리카노", "카페라떼");
 
-		PollTemplateResult deactivated = pollTemplateService.deactivateTemplate(campus.campusId(), created.id(), manager.id());
+		PollTemplateResult deactivated = pollTemplateService.deactivateTemplate(campus.campusId(), created.id(), duty.id());
 
 		assertThat(deactivated.isActive()).isFalse();
+	}
+
+	@Test
+	void coffee_operation_classification_cannot_be_bypassed_with_custom_poll_or_template_update() {
+		User manager = saveUser("poll-200-classification-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "200커피분류우회캠");
+		var assignment = campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), manager.id(), manager.id()
+		));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id(), manager.id());
+		PollTemplateResult customTemplate = createNonCoffeeTemplate(
+			campus.campusId(), manager.id(), PollType.CUSTOM, "커피 전환 전 템플릿"
+		);
+		campusService.revokeCoffeeDuty(campus.campusId(), assignment.assignmentId(), manager.id());
+
+		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			manager.id(),
+			null,
+			"CUSTOM 표기 커피 청구 투표",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("아메리카노", null, 1800, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CREATE_FORBIDDEN)
+			);
+		assertThatThrownBy(() -> pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+			campus.campusId(),
+			customTemplate.id(),
+			manager.id(),
+			"CUSTOM 표기 커피 청구 템플릿",
+			SelectionType.SINGLE,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			false,
+			false,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(18, 0),
+			List.of(new CreatePollTemplateOptionCommand("아메리카노", null, 1800, 1))
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN)
+			);
+	}
+
+	@Test
+	void coffee_template_is_account_neutral_on_create_and_update() {
+		User manager = saveUser("poll-200-neutral-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-200-neutral-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200계좌중립템플릿캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long dutyAccountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+
+		PollTemplateResult created = createCoffeeTemplate(campus.campusId(), duty.id(), dutyAccountId);
+		PollTemplateResult updated = updateCoffeeTemplate(campus.campusId(), created.id(), duty.id(), dutyAccountId);
+
+		assertThat(created.paymentAccountId()).isNull();
+		assertThat(updated.paymentAccountId()).isNull();
+	}
+
+	@Test
+	void coffee_duties_jointly_list_get_and_deactivate_shared_template_but_non_duty_manager_cannot_deactivate() {
+		User manager = saveUser("poll-200-shared-manager@example.com", UserRole.MANAGER);
+		User firstDuty = saveUser("poll-200-shared-first@example.com", UserRole.USER);
+		User secondDuty = saveUser("poll-200-shared-second@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200공용템플릿캠");
+		joinCampus(campus, firstDuty);
+		joinCampus(campus, secondDuty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), firstDuty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), secondDuty.id()));
+		PollTemplate template = saveAccountNeutralCoffeeTemplate(campus.campusId(), "공동 관리 커피 템플릿");
+
+		assertThat(pollTemplateService.listTemplates(campus.campusId(), secondDuty.id()))
+			.extracting(PollTemplateResult::id)
+			.contains(template.id());
+		assertThat(pollTemplateService.getTemplate(campus.campusId(), template.id(), secondDuty.id()).id())
+			.isEqualTo(template.id());
+		assertThatThrownBy(() -> pollTemplateService.deactivateTemplate(
+			campus.campusId(), template.id(), manager.id()
+		))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN)
+			);
+		assertThat(pollTemplateService.deactivateTemplate(
+			campus.campusId(), template.id(), secondDuty.id()
+		).isActive()).isFalse();
+	}
+
+	@Test
+	void coffee_poll_from_shared_template_uses_requesters_explicit_owned_account() {
+		User manager = saveUser("poll-200-shared-create-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-200-shared-create-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200공용템플릿생성캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		PollTemplate template = saveAccountNeutralCoffeeTemplate(campus.campusId(), "계좌 중립 커피 템플릿");
+
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(),
+			duty.id(),
+			template.id(),
+			"담당자 계좌 선택 커피 투표",
+			PollType.COFFEE,
+			SelectionType.SINGLE,
+			false,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			List.of()
+		));
+
+		assertThat(poll.paymentAccountId()).isEqualTo(accountId);
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void shared_coffee_template_updates_by_different_duties_are_serialized_on_the_template() throws Exception {
+		SharedTemplateFixture fixture = createSharedTemplateFixture("concurrent-update");
+		Long menuId = menuId("AMERICANO_HOT");
+		CountDownLatch firstUpdatePaused = new CountDownLatch(1);
+		CountDownLatch allowFirstUpdate = new CountDownLatch(1);
+		pauseMenuLookup("template-update-a", menuId, firstUpdatePaused, allowFirstUpdate);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> firstUpdate = executor.submit(() -> {
+				Thread.currentThread().setName("template-update-a");
+				updateCoffeeTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.firstDutyId(), fixture.firstAccountId());
+			});
+			assertThat(firstUpdatePaused.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> secondUpdate = executor.submit(() -> {
+				Thread.currentThread().setName("template-update-b");
+				updateCoffeeTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.secondDutyId(), fixture.secondAccountId());
+			});
+
+			assertThatThrownBy(() -> secondUpdate.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowFirstUpdate.countDown();
+			firstUpdate.get(5, TimeUnit.SECONDS);
+			secondUpdate.get(5, TimeUnit.SECONDS);
+		} finally {
+			allowFirstUpdate.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void shared_coffee_template_update_and_deactivate_are_serialized_on_the_template() throws Exception {
+		SharedTemplateFixture fixture = createSharedTemplateFixture("update-deactivate");
+		Long menuId = menuId("AMERICANO_HOT");
+		CountDownLatch updatePaused = new CountDownLatch(1);
+		CountDownLatch allowUpdate = new CountDownLatch(1);
+		pauseMenuLookup("template-update", menuId, updatePaused, allowUpdate);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> update = executor.submit(() -> {
+				Thread.currentThread().setName("template-update");
+				updateCoffeeTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.firstDutyId(), fixture.firstAccountId());
+			});
+			assertThat(updatePaused.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> deactivate = executor.submit(() -> {
+				Thread.currentThread().setName("template-deactivate");
+				pollTemplateService.deactivateTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.secondDutyId());
+			});
+
+			assertThatThrownBy(() -> deactivate.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowUpdate.countDown();
+			update.get(5, TimeUnit.SECONDS);
+			deactivate.get(5, TimeUnit.SECONDS);
+		} finally {
+			allowUpdate.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void shared_coffee_template_create_and_update_are_serialized_on_the_template() throws Exception {
+		SharedTemplateFixture fixture = createSharedTemplateFixture("create-update");
+		CountDownLatch createPaused = new CountDownLatch(1);
+		CountDownLatch allowCreate = new CountDownLatch(1);
+		pauseTemplateOptionLookup("template-create", fixture.templateId(), createPaused, allowCreate);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> create = executor.submit(() -> {
+				Thread.currentThread().setName("template-create");
+				pollService.createPoll(new CreatePollCommand(
+					fixture.campusId(), fixture.firstDutyId(), fixture.templateId(), "공유 템플릿 생성",
+					null, null, false, null, null, fixture.firstAccountId(),
+					Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600), List.of()));
+			});
+			assertThat(createPaused.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> update = executor.submit(() -> {
+				Thread.currentThread().setName("template-update-during-create");
+				updateCoffeeTemplate(
+					fixture.campusId(), fixture.templateId(), fixture.secondDutyId(), fixture.secondAccountId());
+			});
+
+			assertThatThrownBy(() -> update.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowCreate.countDown();
+			create.get(5, TimeUnit.SECONDS);
+			update.get(5, TimeUnit.SECONDS);
+		} finally {
+			allowCreate.countDown();
+			executor.shutdownNow();
+		}
 	}
 
 	@Test
@@ -381,7 +623,7 @@ class PollServiceTest {
 
 	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
-	void persisted_coffee_template_update_requires_requester_owned_active_same_campus_coffee_account() {
+	void persisted_coffee_template_update_remains_account_neutral_regardless_of_requested_account() {
 		User manager = saveUser("poll-179-account-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-179-account-duty@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "179계좌검증캠");
@@ -406,14 +648,14 @@ class PollServiceTest {
 			manager.id()
 		)).id();
 
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), null);
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), otherUserAccountId);
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), originalDutyAccountId);
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), otherCampusAccountId);
-		assertCoffeeTemplateAccountUpdateRejected(campus.campusId(), template.id(), duty.id(), penaltyAccountId);
+		for (Long requestedAccountId : List.of(
+			otherUserAccountId, originalDutyAccountId, otherCampusAccountId, penaltyAccountId, activeDutyAccountId)) {
+			assertThat(updateCoffeeTemplate(campus.campusId(), template.id(), duty.id(), requestedAccountId)
+				.paymentAccountId()).isNull();
+		}
 
-		PollTemplateResult updated = updateCoffeeTemplate(campus.campusId(), template.id(), duty.id(), activeDutyAccountId);
-		assertThat(updated.paymentAccountId()).isEqualTo(activeDutyAccountId);
+		PollTemplateResult updated = updateCoffeeTemplate(campus.campusId(), template.id(), duty.id(), null);
+		assertThat(updated.paymentAccountId()).isNull();
 		assertThat(updated.title()).isEqualTo("179 계좌 회귀 수정");
 	}
 
@@ -434,6 +676,33 @@ class PollServiceTest {
 
 		assertThat(managerUpdated.title()).isEqualTo("캠퍼스 관리자 수정");
 		assertThat(adminUpdated.title()).isEqualTo("서비스 관리자 수정");
+	}
+
+	@Test
+	void non_duty_manager_cannot_deactivate_legacy_mixed_coffee_template() {
+		User manager = saveUser("poll-200-legacy-mixed-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = createCampus(manager, "200레거시혼합권한캠");
+		PollTemplate legacyMixed = pollTemplateRepository.saveAndFlush(PollTemplate.create(
+			campus.campusId(),
+			"레거시 혼합 커피 템플릿",
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			null,
+			false,
+			true,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(18, 0),
+			false
+		));
+
+		assertThatThrownBy(() -> pollTemplateService.deactivateTemplate(
+			campus.campusId(), legacyMixed.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN));
 	}
 
 	@Test
@@ -477,7 +746,7 @@ class PollServiceTest {
 			false,
 			null,
 			null,
-			null,
+				coffeeAccountId,
 				Instant.now().plusSeconds(86_400),
 				Instant.now().plusSeconds(90_000),
 				List.of()
@@ -584,6 +853,49 @@ class PollServiceTest {
 		assertThat(pollTemplateRepository.findById(customTemplate.id())).get()
 			.extracting(PollTemplate::paymentCategory)
 			.isNull();
+	}
+
+	@Test
+	void meal_poll_manageability_matches_active_meal_duty_for_list_and_detail() {
+		User manager = saveUser("poll-200-meal-manage-manager@example.com", UserRole.MANAGER);
+		User mealDuty = saveUser("poll-200-meal-manage-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200밥투표관리권한캠");
+		joinCampus(campus, mealDuty);
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), mealDuty.id()));
+		Poll mealPoll = pollRepository.save(Poll.createMeal(
+			campus.campusId(),
+			"밥 담당자 관리 투표",
+			false,
+			false,
+			Instant.now(),
+			Instant.now().plusSeconds(3600),
+			mealDuty.id()
+		));
+
+		assertThat(pollService.listPolls(campus.campusId(), manager.id()))
+			.filteredOn(item -> item.id().equals(mealPoll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
+		assertThat(pollService.getPollDetail(campus.campusId(), mealPoll.id(), manager.id()).manageableByMe())
+			.isFalse();
+		assertThat(pollService.listPolls(campus.campusId(), mealDuty.id()))
+			.filteredOn(item -> item.id().equals(mealPoll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isTrue());
+		assertThat(pollService.getPollDetail(campus.campusId(), mealPoll.id(), mealDuty.id()).manageableByMe())
+			.isTrue();
+	}
+
+	@Test
+	void poll_public_service_results_expose_manageability_without_creator_user_id() {
+		assertThat(List.of(PollListItemResult.class.getRecordComponents()))
+			.extracting(component -> component.getName())
+			.contains("manageableByMe")
+			.doesNotContain("createdByUserId");
+		assertThat(List.of(com.faithlog.poll.service.result.PollDetailResult.class.getRecordComponents()))
+			.extracting(component -> component.getName())
+			.contains("manageableByMe")
+			.doesNotContain("createdByUserId");
 	}
 
 	@Test
@@ -832,7 +1144,7 @@ class PollServiceTest {
 	}
 
 	@Test
-	void coffee_poll_creation_requires_requester_owned_active_coffee_account_for_manager_and_duty() {
+	void coffee_poll_creation_requires_active_coffee_duty_and_requester_owned_account() {
 		User manager = saveUser("poll-112-manager-not-duty@example.com", UserRole.MANAGER);
 		User serviceAdmin = saveUser("poll-112-service-admin@example.com", UserRole.ADMIN);
 		User duty = saveUser("poll-112-duty@example.com", UserRole.USER);
@@ -840,7 +1152,7 @@ class PollServiceTest {
 		joinCampus(campus, duty);
 		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
 		Long dutyAccountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
-		Long managerAccountId = createCoffeeAccount(campus.campusId(), manager.id(), manager.id());
+		Long managerAccountId = saveLegacyCoffeeAccount(campus.campusId(), manager.id());
 
 		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
@@ -858,7 +1170,7 @@ class PollServiceTest {
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CREATE_FORBIDDEN)
 			);
 		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
@@ -876,10 +1188,10 @@ class PollServiceTest {
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CREATE_FORBIDDEN)
 			);
 
-		PollResult managerCreated = pollService.createPoll(new CreatePollCommand(
+		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
 			manager.id(),
 			null,
@@ -893,7 +1205,10 @@ class PollServiceTest {
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		));
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CREATE_FORBIDDEN)
+			);
 		PollResult dutyCreated = pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
 			duty.id(),
@@ -910,17 +1225,16 @@ class PollServiceTest {
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 
-		assertThat(managerCreated.paymentAccountId()).isEqualTo(managerAccountId);
 		assertThat(dutyCreated.paymentAccountId()).isEqualTo(dutyAccountId);
 	}
 
 	@Test
-	void campus_manager_can_create_coffee_poll_and_template_with_own_active_coffee_account() {
+	void campus_manager_without_coffee_duty_cannot_create_coffee_poll_or_template() {
 		User manager = saveUser("poll-114-manager-coffee-account@example.com", UserRole.MANAGER);
 		CampusCreateResult campus = createCampus(manager, "114관리자커피투표캠");
-		Long managerAccountId = createCoffeeAccount(campus.campusId(), manager.id(), manager.id());
+		Long managerAccountId = saveLegacyCoffeeAccount(campus.campusId(), manager.id());
 
-		PollResult poll = pollService.createPoll(new CreatePollCommand(
+		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
 			manager.id(),
 			null,
@@ -934,8 +1248,11 @@ class PollServiceTest {
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		));
-		PollTemplateResult template = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CREATE_FORBIDDEN)
+			);
+		assertThatThrownBy(() -> pollTemplateService.createTemplate(new CreatePollTemplateCommand(
 			campus.campusId(),
 			manager.id(),
 			"관리자 본인 계좌 커피 템플릿",
@@ -951,15 +1268,14 @@ class PollServiceTest {
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		));
-
-		assertThat(poll.pollType()).isEqualTo(PollType.COFFEE);
-		assertThat(poll.paymentAccountId()).isEqualTo(managerAccountId);
-		assertThat(template.paymentAccountId()).isEqualTo(managerAccountId);
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN)
+			);
 	}
 
 	@Test
-	void coffee_poll_and_template_require_requester_owned_active_coffee_account() {
+	void coffee_poll_requires_requester_owned_active_account_while_template_stays_account_neutral() {
 		User manager = saveUser("poll-114-account-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-114-account-duty@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "114커피계좌검증캠");
@@ -985,7 +1301,7 @@ class PollServiceTest {
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		)))
+			)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
 			);
@@ -1007,7 +1323,7 @@ class PollServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
 			);
-		assertThatThrownBy(() -> pollTemplateService.createTemplate(new CreatePollTemplateCommand(
+		assertThat(pollTemplateService.createTemplate(new CreatePollTemplateCommand(
 			campus.campusId(),
 			manager.id(),
 			"계좌 없는 커피 템플릿",
@@ -1023,10 +1339,7 @@ class PollServiceTest {
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		)))
-			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
-			);
+			)).paymentAccountId()).isNull();
 		assertThat(pollService.createPoll(new CreatePollCommand(
 			campus.campusId(),
 			manager.id(),
@@ -1096,7 +1409,7 @@ class PollServiceTest {
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN)
 			);
 
 		PollTemplateResult template = pollTemplateService.createTemplate(new CreatePollTemplateCommand(
@@ -1117,8 +1430,8 @@ class PollServiceTest {
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		));
 
-		assertThat(template.paymentAccountId()).isEqualTo(dutyAccountId);
-		assertThatThrownBy(() -> pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
+		assertThat(template.paymentAccountId()).isNull();
+		assertThat(pollTemplateService.updateTemplate(new UpdatePollTemplateCommand(
 			campus.campusId(),
 			template.id(),
 			duty.id(),
@@ -1134,10 +1447,7 @@ class PollServiceTest {
 			DayOfWeek.MONDAY,
 			LocalTime.of(18, 0),
 			List.of(new CreatePollTemplateOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
-		)))
-			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
-			);
+			)).paymentAccountId()).isNull();
 	}
 
 	@Test
@@ -1157,8 +1467,8 @@ class PollServiceTest {
 			false,
 			ChargeGenerationType.NONE,
 			null,
-			null,
-			Instant.now().minusSeconds(60),
+				null,
+				Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of(
 				new CreatePollOptionCommand("참석", null, 0, 1),
@@ -1230,8 +1540,8 @@ class PollServiceTest {
 			false,
 			null,
 			null,
-			null,
-			Instant.now().minusSeconds(60),
+				accountId,
+				Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
 			List.of()
 		));
@@ -1322,6 +1632,109 @@ class PollServiceTest {
 		pollService.closePoll(campus.campusId(), customPoll.id(), manager.id());
 
 		assertThat(chargesForCampus(campus.campusId())).hasSize((int) chargeCountBeforeCustomClose);
+	}
+
+	@Test
+	void coffee_poll_close_allows_only_active_coffee_duty_who_created_the_poll() {
+		User manager = saveUser("poll-200-owner-manager@example.com", UserRole.MANAGER);
+		User ownerDuty = saveUser("poll-200-owner-duty@example.com", UserRole.USER);
+		User otherDuty = saveUser("poll-200-other-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200커피투표소유권캠");
+		joinCampus(campus, ownerDuty);
+		joinCampus(campus, otherDuty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), ownerDuty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), ownerDuty.id(), ownerDuty.id());
+		PollResult poll = createOpenCoffeePoll(campus.campusId(), ownerDuty.id(), accountId, "담당자 소유 커피 투표");
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), otherDuty.id()));
+
+		assertThat(pollService.listPolls(campus.campusId(), ownerDuty.id()))
+			.filteredOn(item -> item.id().equals(poll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isTrue());
+		assertThat(pollService.listPolls(campus.campusId(), otherDuty.id()))
+			.filteredOn(item -> item.id().equals(poll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
+		assertThat(pollService.listPolls(campus.campusId(), manager.id()))
+			.filteredOn(item -> item.id().equals(poll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), ownerDuty.id()).manageableByMe())
+			.isTrue();
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), otherDuty.id()).manageableByMe())
+			.isFalse();
+
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), poll.id(), otherDuty.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_ADMIN_FORBIDDEN)
+			);
+		assertThat(pollService.closePoll(campus.campusId(), poll.id(), ownerDuty.id()).status())
+			.isEqualTo(PollStatus.CLOSED);
+	}
+
+	@Test
+	void inactive_campus_member_with_stale_coffee_duty_cannot_manage_poll_from_list_or_detail() {
+		User manager = saveUser("poll-200-inactive-duty-manager@example.com", UserRole.MANAGER);
+		User serviceAdmin = saveUser("poll-200-inactive-duty-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(manager, "200비활성커피담당관리권한캠");
+		joinCampus(campus, serviceAdmin);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), manager.id(), serviceAdmin.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), serviceAdmin.id(), serviceAdmin.id());
+		PollResult poll = createOpenCoffeePoll(
+			campus.campusId(), serviceAdmin.id(), accountId, "비활성 멤버의 커피 투표");
+		deactivateMembership(campus.campusId(), serviceAdmin.id());
+		campusMemberRepository.flush();
+
+		assertThat(pollService.listPolls(campus.campusId(), serviceAdmin.id()))
+			.filteredOn(item -> item.id().equals(poll.id()))
+			.singleElement()
+			.satisfies(item -> assertThat(item.manageableByMe()).isFalse());
+		assertThat(pollService.getPollDetail(campus.campusId(), poll.id(), serviceAdmin.id()).manageableByMe())
+			.isFalse();
+	}
+
+	@Test
+	void legacy_mixed_coffee_poll_close_fails_closed_for_manager_and_active_owner_duty() {
+		User manager = saveUser("poll-200-legacy-close-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("poll-200-legacy-close-duty@example.com", UserRole.USER);
+		User member = saveUser("poll-200-legacy-close-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200레거시혼합투표종료캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Poll managerTarget = saveOpenLegacyMixedCoffeePoll(
+			campus.campusId(), accountId, duty.id(), "관리자 종료 대상"
+		);
+		Poll dutyTarget = saveOpenLegacyMixedCoffeePoll(
+			campus.campusId(), accountId, duty.id(), "담당자 종료 대상"
+		);
+		PollOption option = pollOptionRepository.saveAndFlush(PollOption.create(
+			dutyTarget.id(), "레거시 아이스 아메리카노", null, 1800, 1
+		));
+		com.faithlog.poll.domain.entity.PollResponse response = pollResponseRepository.saveAndFlush(
+			com.faithlog.poll.domain.entity.PollResponse.create(dutyTarget.id(), member.id(), "레거시 응답")
+		);
+		pollResponseOptionRepository.saveAndFlush(
+			com.faithlog.poll.domain.entity.PollResponseOption.create(response.id(), option.id())
+		);
+
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), managerTarget.id(), manager.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_ADMIN_FORBIDDEN)
+			);
+		assertThatThrownBy(() -> pollService.closePoll(campus.campusId(), dutyTarget.id(), duty.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED)
+			);
+		assertThat(pollRepository.findById(managerTarget.id())).get()
+			.extracting(Poll::status)
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(dutyTarget.id())).get()
+			.extracting(Poll::status)
+			.isEqualTo(PollStatus.OPEN);
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
 	}
 
 	@Test
@@ -1713,7 +2126,7 @@ class PollServiceTest {
 			List.of(new CreatePollOptionCommand(null, menuId("AMERICANO_HOT"), null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_CREATE_FORBIDDEN)
 			);
 
 		assertThatThrownBy(() -> pollService.createPoll(new CreatePollCommand(
@@ -1932,6 +2345,7 @@ class PollServiceTest {
 		clearInvocations(pollResponseRepository);
 
 		List<PollListItemResult> results = pollService.listPolls(campus.campusId(), member.id());
+		List<PollListItemResult> managerResults = pollService.listPolls(campus.campusId(), manager.id());
 
 		assertThat(results)
 			.extracting(PollListItemResult::id, PollListItemResult::responded)
@@ -1943,6 +2357,12 @@ class PollServiceTest {
 			);
 		verify(pollResponseRepository).findByPollIdInAndUserId(any(), eq(member.id()));
 		verify(pollResponseRepository, never()).findByPollIdAndUserId(anyLong(), anyLong());
+		assertThat(results).allSatisfy(result -> {
+			assertThat(result.manageableByMe()).isFalse();
+		});
+		assertThat(managerResults).allSatisfy(result -> {
+			assertThat(result.manageableByMe()).isTrue();
+		});
 	}
 
 	@Test
@@ -2264,7 +2684,8 @@ class PollServiceTest {
 		PollResult missingDutyPoll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "담당자 누락 커피 투표");
 		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), missingDutyPoll.id(), member.id(), List.of(missingDutyPoll.options().get(0).id()), null));
 		closePoll(missingDutyPoll.id());
-		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campus.campusId(), DutyType.COFFEE)
+		dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+			campus.campusId(), DutyType.COFFEE, manager.id())
 			.orElseThrow()
 			.revoke();
 
@@ -2323,6 +2744,28 @@ class PollServiceTest {
 	}
 
 	@Test
+	void settle_closed_coffee_poll_rejects_creator_with_inactive_membership_even_if_duty_row_is_active() {
+		User manager = saveUser("coffee-inactive-member-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("coffee-inactive-member-target@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200비활성담당정산캠");
+		joinCampus(campus, member);
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult poll = createOpenCoffeePoll(
+			campus.campusId(), manager.id(), accountId, "비활성 담당자 정산 대상");
+		pollService.respondToPoll(new RespondToPollCommand(
+			campus.campusId(), poll.id(), member.id(), List.of(poll.options().get(0).id()), null));
+		closePoll(poll.id());
+		deactivateMembership(campus.campusId(), manager.id());
+		campusMemberRepository.flush();
+
+		assertThatThrownBy(() -> coffeePollSettlementService.settleClosedCoffeePoll(
+			campus.campusId(), poll.id()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_COFFEE_DUTY_MISSING));
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+	}
+
+	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	void settle_closed_coffee_poll_rolls_back_all_charge_changes_when_one_response_is_invalid() {
 		User manager = saveUser("coffee-rollback-manager@example.com", UserRole.MANAGER);
@@ -2357,6 +2800,10 @@ class PollServiceTest {
 	}
 
 	private Long createCoffeeAccount(Long campusId, Long requesterId, Long ownerUserId) {
+		if (dutyAssignmentRepository.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(
+			campusId, DutyType.COFFEE, requesterId).isEmpty()) {
+			dutyAssignmentRepository.saveAndFlush(CampusDutyAssignment.assignCoffee(campusId, requesterId));
+		}
 		return billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
 			requesterId,
@@ -2364,6 +2811,18 @@ class PollServiceTest {
 			"커피 계좌",
 			"카카오뱅크",
 			"3333-37-000001",
+			"커피회계",
+			ownerUserId
+		)).id();
+	}
+
+	private Long saveLegacyCoffeeAccount(Long campusId, Long ownerUserId) {
+		return paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campusId,
+			PaymentCategory.COFFEE,
+			"기존 커피 계좌",
+			"카카오뱅크",
+			"200-LEGACY-" + ownerUserId,
 			"커피회계",
 			ownerUserId
 		)).id();
@@ -2393,6 +2852,96 @@ class PollServiceTest {
 				new CreatePollTemplateOptionCommand(null, menuId("CAPPUCCINO"), null, 5)
 			)
 		));
+	}
+
+	private PollTemplate saveAccountNeutralCoffeeTemplate(Long campusId, String title) {
+		PollTemplate template = pollTemplateRepository.saveAndFlush(PollTemplate.create(
+			campusId,
+			title,
+			PollType.COFFEE,
+			SelectionType.SINGLE,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			null,
+			true,
+			false,
+			DayOfWeek.MONDAY,
+			LocalTime.of(9, 0),
+			DayOfWeek.MONDAY,
+			LocalTime.of(18, 0),
+			false
+		));
+		pollTemplateOptionRepository.saveAndFlush(PollTemplateOption.create(
+			template.id(), "아이스 아메리카노", "AMERICANO_ICE", 1800, 1
+		));
+		return template;
+	}
+
+	private SharedTemplateFixture createSharedTemplateFixture(String suffix) {
+		User manager = saveUser("poll-200-template-" + suffix + "-manager@example.com", UserRole.MANAGER);
+		User firstDuty = saveUser("poll-200-template-" + suffix + "-first@example.com", UserRole.USER);
+		User secondDuty = saveUser("poll-200-template-" + suffix + "-second@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "200공유템플릿" + suffix + "캠");
+		joinCampus(campus, firstDuty);
+		joinCampus(campus, secondDuty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), firstDuty.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), secondDuty.id()));
+		Long firstAccountId = createCoffeeAccount(campus.campusId(), firstDuty.id(), firstDuty.id());
+		Long secondAccountId = createCoffeeAccount(campus.campusId(), secondDuty.id(), secondDuty.id());
+		PollTemplate template = saveAccountNeutralCoffeeTemplate(campus.campusId(), "공유 동시성 템플릿");
+		return new SharedTemplateFixture(
+			campus.campusId(), template.id(), firstDuty.id(), secondDuty.id(), firstAccountId, secondAccountId);
+	}
+
+	private void pauseMenuLookup(
+		String threadName,
+		Long menuId,
+		CountDownLatch paused,
+		CountDownLatch proceed
+	) {
+		doAnswer(invocation -> {
+			if (Thread.currentThread().getName().equals(threadName)) {
+				paused.countDown();
+				if (!proceed.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("Timed out while coordinating template update.");
+				}
+			}
+			return Optional.ofNullable(entityManager.find(CoffeeMenuCatalog.class, menuId));
+		}).when(coffeeMenuCatalogRepository).findById(menuId);
+	}
+
+	private void pauseTemplateOptionLookup(
+		String threadName,
+		Long templateId,
+		CountDownLatch paused,
+		CountDownLatch proceed
+	) {
+		doAnswer(invocation -> {
+			if (Thread.currentThread().getName().equals(threadName)) {
+				paused.countDown();
+				if (!proceed.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("Timed out while coordinating template create.");
+				}
+			}
+			return entityManager.createQuery("""
+				select templateOption
+				from PollTemplateOption templateOption
+				where templateOption.templateId = :templateId
+				order by templateOption.sortOrder asc
+				""", PollTemplateOption.class)
+				.setParameter("templateId", templateId)
+				.getResultList();
+		}).when(pollTemplateOptionRepository).findByTemplateIdOrderBySortOrderAsc(templateId);
+	}
+
+	private record SharedTemplateFixture(
+		Long campusId,
+		Long templateId,
+		Long firstDutyId,
+		Long secondDutyId,
+		Long firstAccountId,
+		Long secondAccountId
+	) {
 	}
 
 	private void assertCoffeeDutyCannotUpdatePersistedNonCoffeeTemplate(
@@ -2492,18 +3041,6 @@ class PollServiceTest {
 		));
 	}
 
-	private void assertCoffeeTemplateAccountUpdateRejected(
-		Long campusId,
-		Long templateId,
-		Long requesterId,
-		Long paymentAccountId
-	) {
-		assertThatThrownBy(() -> updateCoffeeTemplate(campusId, templateId, requesterId, paymentAccountId))
-			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING)
-			);
-	}
-
 	private PollTemplateResult updateCoffeeTemplate(
 		Long campusId,
 		Long templateId,
@@ -2595,6 +3132,26 @@ class PollServiceTest {
 		ReflectionTestUtils.setField(savedPoll, "status", PollStatus.OPEN);
 		pollRepository.saveAndFlush(savedPoll);
 		return pollService.getPoll(campusId, poll.id(), requesterId);
+	}
+
+	private Poll saveOpenLegacyMixedCoffeePoll(Long campusId, Long accountId, Long createdBy, String title) {
+		Poll poll = Poll.create(
+			campusId,
+			null,
+			title,
+			PollType.CUSTOM,
+			SelectionType.SINGLE,
+			false,
+			false,
+			ChargeGenerationType.OPTION_PRICE,
+			PaymentCategory.COFFEE,
+			accountId,
+			Instant.now().minusSeconds(60),
+			Instant.now().plusSeconds(3600),
+			createdBy
+		);
+		poll.open();
+		return pollRepository.saveAndFlush(poll);
 	}
 
 	private PollResult createScheduledCustomPoll(Long campusId, Long managerId, String title, SelectionType selectionType, boolean anonymous, List<String> optionContents) {

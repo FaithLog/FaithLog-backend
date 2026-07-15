@@ -14,6 +14,9 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -52,8 +55,11 @@ public class AdminUserManagementService {
 
 	@Transactional
 	public AdminUserResult changeUserRole(ChangeUserRoleCommand command) {
-		requireAdmin(command.requesterId());
-		User user = getUserOrThrow(command.userId());
+		User mutationLock = userRepository.findFirstAdminMutationLockForUpdate()
+			.orElseThrow(() -> new BusinessException(ErrorCode.ADMIN_USER_NOT_FOUND));
+		Map<Long, User> lockedUsers = lockUsers(command.requesterId(), command.userId(), mutationLock);
+		AdminAccessPolicy.requireServiceAdmin(lockedUsers.get(command.requesterId()));
+		User user = lockedUsers.get(command.userId());
 		if (user.role() == UserRole.ADMIN
 			&& command.role() != UserRole.ADMIN
 			&& user.isActive()
@@ -62,6 +68,28 @@ public class AdminUserManagementService {
 		}
 		user.changeRole(command.role());
 		return AdminUserResult.of(user, userCampuses(user.id()));
+	}
+
+	private Map<Long, User> lockUsers(Long requesterId, Long targetId, User mutationLock) {
+		List<Long> userIds = java.util.stream.Stream.of(requesterId, targetId)
+			.distinct()
+			.filter(userId -> !userId.equals(mutationLock.id()))
+			.sorted()
+			.toList();
+		Map<Long, User> users = userIds.isEmpty()
+			? new java.util.HashMap<>()
+			: userRepository.findAdminUsersByIdsForUpdate(userIds)
+			.stream()
+			.collect(Collectors.toMap(User::id, Function.identity(), (left, right) -> left, java.util.HashMap::new));
+		if (requesterId.equals(mutationLock.id()) || targetId.equals(mutationLock.id())) {
+			users.put(mutationLock.id(), mutationLock);
+		}
+		java.util.Set<Long> requiredUserIds = java.util.stream.Stream.of(requesterId, targetId)
+			.collect(java.util.stream.Collectors.toSet());
+		if (!users.keySet().containsAll(requiredUserIds)) {
+			throw new BusinessException(ErrorCode.ADMIN_USER_NOT_FOUND);
+		}
+		return users;
 	}
 
 	private List<AdminUserCampusResult> userCampuses(Long userId) {

@@ -10,6 +10,10 @@ import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.type.PollType;
+import com.faithlog.poll.domain.type.ChargeGenerationType;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.poll.domain.entity.Poll;
+import com.faithlog.poll.infrastructure.repository.PollRepository;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -39,12 +43,30 @@ class PollAccessService {
 	}
 
 	void requireCoffeeTemplateManager(Long campusId, Long requesterId) {
-		requireCampusManagerOrCoffeeDuty(campusId, requesterId, PollType.COFFEE, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
+		requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
+	}
+
+	void requireCoffeeTemplateManagerForUpdate(Long campusId, Long requesterId) {
+		requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_TEMPLATE_MANAGE_FORBIDDEN);
 	}
 
 	void requirePollCreator(Long campusId, Long requesterId, PollType pollType) {
 		if (pollType == PollType.COFFEE) {
-			requireCampusManagerOrCoffeeDuty(campusId, requesterId, pollType, ErrorCode.POLL_CREATE_FORBIDDEN);
+			requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
+			return;
+		}
+		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
+	}
+
+	void requirePollCreatorForUpdate(
+		Long campusId,
+		Long requesterId,
+		PollType pollType,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory
+	) {
+		if (CoffeeOperationClassifier.isCoffeeOperation(pollType, chargeGenerationType, paymentCategory)) {
+			requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
 			return;
 		}
 		requireCampusManager(campusId, requesterId, ErrorCode.POLL_CREATE_FORBIDDEN);
@@ -73,6 +95,31 @@ class PollAccessService {
 
 	void requirePollAdmin(Long campusId, Long requesterId, PollType pollType) {
 		requireCampusManagerOrCoffeeDuty(campusId, requesterId, pollType, ErrorCode.POLL_ADMIN_FORBIDDEN);
+	}
+
+	void requireCoffeePollOwner(Long campusId, Long requesterId, Poll poll) {
+		requireActiveCoffeeDuty(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
+		if (!requesterId.equals(poll.createdBy())) {
+			throw new BusinessException(ErrorCode.POLL_ADMIN_FORBIDDEN);
+		}
+	}
+
+	void requireCoffeePollOwnerForUpdate(Long campusId, Long requesterId, Poll poll) {
+		requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
+		if (!requesterId.equals(poll.createdBy())) {
+			throw new BusinessException(ErrorCode.POLL_ADMIN_FORBIDDEN);
+		}
+	}
+
+	void requireCoffeePollOwnerForUpdate(
+		Long campusId,
+		Long requesterId,
+		PollRepository.PollLockScope poll
+	) {
+		requireActiveCoffeeDutyForUpdate(campusId, requesterId, ErrorCode.POLL_ADMIN_FORBIDDEN);
+		if (!requesterId.equals(poll.getCreatedBy())) {
+			throw new BusinessException(ErrorCode.POLL_ADMIN_FORBIDDEN);
+		}
 	}
 
 	boolean hasAdminVisibility(Long campusId, Long requesterId) {
@@ -146,10 +193,33 @@ class PollAccessService {
 		}
 	}
 
+	private void requireActiveCoffeeDutyForUpdate(Long campusId, Long requesterId, ErrorCode errorCode) {
+		CampusUserLookupResult requester = getActiveUser(requesterId);
+		campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
+			.filter(CampusMember::isActive)
+			.orElseThrow(() -> new BusinessException(errorCode));
+		if (dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
+			campusId, DutyType.COFFEE, requester.userId()).isEmpty()) {
+			throw new BusinessException(errorCode);
+		}
+	}
+
 	boolean isActiveCoffeeDuty(Long campusId, Long userId) {
-		return dutyAssignmentRepository.findByCampusIdAndDutyTypeAndIsActiveTrue(campusId, DutyType.COFFEE)
-			.map(assignment -> assignment.userId().equals(userId))
-			.orElse(false);
+		return campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
+			.filter(CampusMember::isActive)
+			.isPresent()
+			&& dutyAssignmentRepository
+				.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.COFFEE, userId)
+				.isPresent();
+	}
+
+	boolean isActiveMealDuty(Long campusId, Long userId) {
+		return campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
+			.filter(CampusMember::isActive)
+			.isPresent()
+			&& dutyAssignmentRepository
+				.findByCampusIdAndDutyTypeAndUserIdAndIsActiveTrue(campusId, DutyType.MEAL, userId)
+				.isPresent();
 	}
 
 	private CampusUserLookupResult getActiveUser(Long userId) {
