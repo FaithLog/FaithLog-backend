@@ -13,21 +13,30 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #200 final review, 548 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #202, 552 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.41% (7,223 / 7,651, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 75.77% (1,113 / 1,469, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.70% (510 / 522, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 89.79% (1,935 / 2,155, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 91 test files (2026-07-15 #200) | 증가 추적 |
 | 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 170 snippet groups (2026-07-15 #200) | 증가 추적 |
-| 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-15 #200) | 성공 |
+| 안정성 | 빌드 성공 여부 | `./gradlew build -x test` | 성공 (2026-07-15 #202, 27초) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
 | 운영 | 헬스체크 성공률 | Cloud Run `/api/v1/health` smoke | 100.00%, p95 224.61ms, failure 0.00% (2026-06-24, k6 VUS 1/30s, health-only) | 99%+ |
 | 유지보수 | 주요 모듈 수 | 패키지/도메인 기준 | 10 top-level modules, 634 Java sources including tests (2026-07-13 #189) | 추적 |
-| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 10 (Flyway V1-V10, 2026-07-15 #200) | 추적 |
+| 데이터 | DB 마이그레이션 수 | `src/main/resources/db/migration` | 11 (Flyway V1-V11, 2026-07-15 #202) | 추적 |
 
 ## Daily Monitoring Notes
+
+### 2026-07-15 - Issue #202 Supabase 공개 접근 차단
+
+- Supabase Security Advisor의 26개 `rls_disabled_in_public` Critical과 `payment_accounts.account_number`/`user_fcm_tokens.token`의 `sensitive_columns_exposed` Critical을 확인했다.
+- TDD RED로 V11 부재 1건과 Flyway history self-lock 1건을 재현한 뒤, 데이터 DML 없이 application public table RLS, Data API 역할의 schema/table/sequence/function 권한 회수, 미래 Flyway 객체 default privilege 회수를 구현했다.
+- 임시 PostgreSQL DB에서 V1-V11 clean migration을 검증했고 기존 DB/volume은 변경하지 않은 채 임시 DB만 삭제했다.
+- 운영 Supabase migration 후 public table RLS `26/26`, Data API table grants `0`, schema usage `false`, policy `0`, `SET ROLE anon` 조회 permission denied, active PostgreSQL JDBC sessions `5`를 확인했다.
+- Security Advisor 재검사에서 두 Critical 유형은 0건이 되었고, 의도한 deny-all을 설명하는 `rls_enabled_no_policy` INFO만 남았다.
+- 전체 `552 tests / 0 failures / 0 errors / 3 skipped`, `build -x test` 27초, AsciiDoc 27초, 최종 V1-V11 clean Flyway 28초와 `git diff --check`를 통과했다.
 
 ### 2026-07-14
 
