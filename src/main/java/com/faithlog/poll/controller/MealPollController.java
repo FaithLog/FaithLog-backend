@@ -90,12 +90,13 @@ public class MealPollController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long campusId,
 		@RequestParam(required = false) PollStatus status,
+		@RequestParam(defaultValue = "false") boolean includeArchived,
 		@RequestParam(defaultValue = "0") int page,
-		@RequestParam(defaultValue = "20") int size,
+		@RequestParam(defaultValue = "10") int size,
 		@RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
 		return ApiResponse.success(PageResponse.from(mealPollManagementQueryService.list(
-			campusId, authenticatedUser.userId(), status, pageable(page, size, sort)
+			campusId, authenticatedUser.userId(), status, includeArchived, pageable(page, size, sort)
 		).map(MealPollManagementListItemResponse::from)));
 	}
 

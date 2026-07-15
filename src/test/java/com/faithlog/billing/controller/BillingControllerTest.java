@@ -794,7 +794,7 @@ class BillingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.summary.totalAmount").value(5400))
 			.andExpect(jsonPath("$.data.page").value(0))
-			.andExpect(jsonPath("$.data.size").value(10))
+			.andExpect(jsonPath("$.data.size").value(20))
 			.andExpect(jsonPath("$.data.totalElements").value(1))
 			.andExpect(jsonPath("$.data.totalPages").value(1))
 			.andExpect(jsonPath("$.data.members[0].userId").value(member.id()))

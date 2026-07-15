@@ -1466,7 +1466,7 @@ include::{snippets}/payment-account-delete-success/http-response.adoc[]
 
 `GET /api/v1/campuses/{campusId}/charges/me`
 
-해당 캠퍼스의 ACTIVE 멤버 본인이 자신의 청구 목록을 조회한다. `startDate`/`endDate` 기간 필터는 사용하지 않고, 전체 이력을 `page`, `size`, `sort`, `paymentCategory`, `status`로 조회한다. 앱 화면에서 최근 납부 항목 노출 범위를 조정하더라도 백엔드는 과거 이력을 보존한다.
+해당 캠퍼스의 ACTIVE 멤버 본인이 자신의 청구 목록을 조회한다. 기본 페이지 크기는 10이고 최대 100이다. `includeArchived=false`에서는 `UNPAID`를 기간 제한 없이 포함하고, `PAID`는 `paidAt`, `WAIVED`/`CANCELED`는 `updatedAt` 기준 최근 1개월만 포함한다. `includeArchived=true`이면 이전 완료 기록도 조회하며 데이터는 삭제하지 않는다. 응답은 기존 `items`와 함께 `page`, `size`, `totalElements`, `totalPages`를 반환한다.
 
 ==== Request
 
@@ -1556,7 +1556,7 @@ include::{snippets}/charge-my-paid-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/charges`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 캠퍼스 청구 집계를 조회한다. 서비스 `MANAGER` 역할만으로는 권한이 없다. `paymentAccountId`가 있으면 해당 계좌에 연결된 청구만 `summary + members[]`로 집계하며, `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 캠퍼스 관리자와 전역 `ADMIN`은 캠퍼스 내 전체 COFFEE 계좌를 필터 조회할 수 있고, 활성 `COFFEE` 담당자는 본인 소유 COFFEE 계좌 범위로 제한된다. `PENALTY` 조회는 기존 관리자 권한을 요구한다. 응답은 `summary + members[]` 집계만 포함하고 개별 청구 item 목록은 포함하지 않는다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 캠퍼스 청구 집계를 조회한다. 서비스 `MANAGER` 역할만으로는 권한이 없다. `paymentAccountId`가 있으면 해당 계좌에 연결된 청구만 `summary + members[]`로 집계하며, `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 캠퍼스 관리자와 전역 `ADMIN`은 캠퍼스 내 전체 COFFEE 계좌를 필터 조회할 수 있고, 활성 `COFFEE` 담당자는 본인 소유 COFFEE 계좌 범위로 제한된다. `PENALTY` 조회는 기존 관리자 권한을 요구한다. 기본 페이지 크기는 기존대로 20이며 응답은 `summary + members[] + page + size + totalElements + totalPages`를 포함하고 개별 청구 item 목록은 포함하지 않는다. `includeArchived`의 기본 1개월 완료 기록 정책은 내 청구 목록과 동일하다.
 
 ==== Request
 
@@ -1586,7 +1586,7 @@ include::{snippets}/charge-admin-campus-summary-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`)와 전역 `ADMIN`은 active `PENALTY` 계좌를 `ownerUserId` 일치 여부와 무관하게 포함해 `summary + members[]`로 집계한다. 기존 `ownerUserId = null` active `PENALTY` 계좌도 포함한다. `COFFEE`는 계속 현재 로그인 사용자가 owner인 active `COFFEE` 계좌에 연결된 청구만 포함한다. 활성 `COFFEE` 담당자는 본인이 owner인 active `COFFEE` 계좌 범위만 조회할 수 있고 `PENALTY` 데이터는 조회할 수 없다. `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`)와 전역 `ADMIN`은 active `PENALTY` 계좌를 `ownerUserId` 일치 여부와 무관하게 포함해 `summary + members[]`로 집계한다. 기존 `ownerUserId = null` active `PENALTY` 계좌도 포함한다. `COFFEE`는 계속 현재 로그인 사용자가 owner인 active `COFFEE` 계좌에 연결된 청구만 포함한다. 활성 `COFFEE` 담당자는 본인이 owner인 active `COFFEE` 계좌 범위만 조회할 수 있고 `PENALTY` 데이터는 조회할 수 없다. `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 기본 페이지 크기는 20이며 `includeArchived`와 페이지 메타데이터 계약은 캠퍼스 청구 집계와 동일하다.
 
 ==== Request
 
@@ -1616,7 +1616,7 @@ include::{snippets}/charge-admin-my-accounts-summary-success/response-fields.ado
 
 `GET /api/v1/admin/campuses/{campusId}/members/{userId}/charges`
 
-캠퍼스 관리자 또는 전역 `ADMIN`이 특정 회원의 청구 상세를 조회한다. 활성 `COFFEE` 담당자는 `paymentCategory=COFFEE`로 제한된 회원 청구 상세만 조회할 수 있다. 응답에는 대상 회원의 `userId`, `name`, `email`이 포함되며, 청구 item은 내 청구 목록과 동일한 `account`/`source` 구조를 사용한다.
+캠퍼스 관리자 또는 전역 `ADMIN`이 특정 회원의 청구 상세를 조회한다. 활성 `COFFEE` 담당자는 `paymentCategory=COFFEE`로 제한된 회원 청구 상세만 조회할 수 있다. 응답에는 대상 회원의 `userId`, `name`, `email`이 포함되며, 청구 item은 내 청구 목록과 동일한 `account`/`source` 구조를 사용한다. 기본 페이지 크기는 20이며 `includeArchived`와 `page`, `size`, `totalElements`, `totalPages` 계약을 동일하게 적용한다.
 
 ==== Request
 
@@ -3046,7 +3046,7 @@ include::{snippets}/meal-poll-user-option-duplicate-conflict/http-response.adoc[
 
 === Manage and Close Meal Poll
 
-관리 목록은 MEAL poll만 pagination하며 마감 후 3일이 지난 CLOSED poll도 반환한다. `settlementStatus`는 `NOT_CHARGED` 또는 `CHARGED`다. 수동 종료는 OPEN MEAL poll의 상태만 CLOSED로 바꾸며 기존 `endsAt`을 유지하고 settlement나 charge를 만들지 않는다. 전용 종료 API에서 다른 캠퍼스와 non-MEAL poll은 모두 `404 POLL_NOT_FOUND`로 숨기며, 일반 관리자 종료 API로도 MEAL poll을 우회할 수 없다.
+관리 목록은 MEAL poll만 기본 10개씩 pagination한다. `includeArchived=false`에서는 `OPEN`/`SCHEDULED`를 기간 제한 없이 포함하고 `CLOSED`는 최근 90일만 반환한다. `includeArchived=true`이면 이전 마감 기록도 조회하며 데이터는 삭제하지 않는다. `settlementStatus`는 `NOT_CHARGED` 또는 `CHARGED`다. 수동 종료는 OPEN MEAL poll의 상태만 CLOSED로 바꾸며 기존 `endsAt`을 유지하고 settlement나 charge를 만들지 않는다. 전용 종료 API에서 다른 캠퍼스와 non-MEAL poll은 모두 `404 POLL_NOT_FOUND`로 숨기며, 일반 관리자 종료 API로도 MEAL poll을 우회할 수 없다.
 
 include::{snippets}/meal-polls-management-list-success/http-request.adoc[]
 include::{snippets}/meal-polls-management-list-success/http-response.adoc[]
@@ -3076,7 +3076,7 @@ include::{snippets}/meal-poll-management-detail-other-duty-redacted-success/http
 
 === Charges Connected to My Meal Accounts
 
-본인이 소유한 MEAL 계좌에 연결된 MEAL charge만 조회·집계하며 다른 담당자 계좌의 청구는 반환하지 않는다.
+본인이 소유한 MEAL 계좌에 연결된 MEAL charge만 조회·집계하며 다른 담당자 계좌의 청구는 반환하지 않는다. 기본 페이지 크기는 10이다. `includeArchived=false`에서는 `UNPAID`를 모두 포함하고 완료 청구는 최근 1개월만 포함하며, `includeArchived=true`이면 이전 완료 기록도 조회한다. 응답은 `members`와 함께 `page`, `size`, `totalElements`, `totalPages`를 반환한다.
 
 include::{snippets}/meal-charges-my-accounts-success/http-request.adoc[]
 include::{snippets}/meal-charges-my-accounts-success/http-response.adoc[]

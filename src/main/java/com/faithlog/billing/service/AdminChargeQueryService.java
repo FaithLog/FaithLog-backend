@@ -5,6 +5,7 @@ import com.faithlog.billing.domain.entity.PaymentAccount;
 import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.service.policy.BillingAccessPolicy;
+import com.faithlog.billing.service.policy.ChargeArchivePolicy;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.billing.service.query.AdminCampusChargeListQuery;
@@ -27,6 +28,7 @@ import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.campus.service.MealDutyAccessService;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -56,6 +58,7 @@ public class AdminChargeQueryService {
 	private final CampusDutyAssignmentRepositoryPort dutyAssignmentRepository;
 	private final PaymentAccountRepositoryPort paymentAccountRepository;
 	private final MealDutyAccessService mealDutyAccessService;
+	private final Clock clock;
 
 	public AdminChargeQueryService(
 		ChargeItemRepositoryPort chargeItemRepository,
@@ -64,7 +67,8 @@ public class AdminChargeQueryService {
 		CampusUserLookupPort userLookupPort,
 		CampusDutyAssignmentRepositoryPort dutyAssignmentRepository,
 		PaymentAccountRepositoryPort paymentAccountRepository,
-		MealDutyAccessService mealDutyAccessService
+		MealDutyAccessService mealDutyAccessService,
+		Clock clock
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusRepository = campusRepository;
@@ -73,6 +77,7 @@ public class AdminChargeQueryService {
 		this.dutyAssignmentRepository = dutyAssignmentRepository;
 		this.paymentAccountRepository = paymentAccountRepository;
 		this.mealDutyAccessService = mealDutyAccessService;
+		this.clock = clock;
 	}
 
 	@Transactional(readOnly = true)
@@ -100,15 +105,20 @@ public class AdminChargeQueryService {
 			query.paymentCategory(),
 			query.status(),
 			paymentAccountIds,
-			PaymentCategory.MEAL
+			PaymentCategory.MEAL,
+			ChargeArchivePolicy.terminalCompletedAtFrom(clock, query.includeArchived())
 		));
-		List<AdminCampusChargeMemberResult> members = aggregateMembers(charges, usersById, query.pageable());
+		MemberPage members = aggregateMembers(charges, usersById, query.pageable());
 		return new AdminCampusChargesResult(
 			campus.id(),
 			campus.name(),
 			campus.region(),
 			summarize(charges),
-			members
+			members.content(),
+			members.page(),
+			members.size(),
+			members.totalElements(),
+			members.totalPages()
 		);
 	}
 
@@ -137,15 +147,20 @@ public class AdminChargeQueryService {
 			query.paymentCategory(),
 			query.status(),
 			paymentAccountIds,
-			PaymentCategory.MEAL
+			PaymentCategory.MEAL,
+			ChargeArchivePolicy.terminalCompletedAtFrom(clock, query.includeArchived())
 		));
-		List<AdminCampusChargeMemberResult> members = aggregateMembers(charges, usersById, query.pageable());
+		MemberPage members = aggregateMembers(charges, usersById, query.pageable());
 		return new AdminCampusChargesResult(
 			campus.id(),
 			campus.name(),
 			campus.region(),
 			summarize(charges),
-			members
+			members.content(),
+			members.page(),
+			members.size(),
+			members.totalElements(),
+			members.totalPages()
 		);
 	}
 
@@ -167,7 +182,8 @@ public class AdminChargeQueryService {
 			query.paymentCategory(),
 			query.status(),
 			paymentAccountIds,
-			PaymentCategory.MEAL
+			PaymentCategory.MEAL,
+			ChargeArchivePolicy.terminalCompletedAtFrom(clock, query.includeArchived())
 		);
 		List<ChargeItem> summaryTargets = chargeItemRepository.searchCharges(criteria);
 		Page<ChargeItem> page = chargeItemRepository.searchCharges(criteria, query.pageable());
@@ -179,7 +195,11 @@ public class AdminChargeQueryService {
 			targetUser.name(),
 			targetUser.email(),
 			summarize(summaryTargets),
-			page.stream().map(ChargeListItemResult::from).toList()
+			page.stream().map(ChargeListItemResult::from).toList(),
+			page.getNumber(),
+			page.getSize(),
+			page.getTotalElements(),
+			page.getTotalPages()
 		);
 	}
 
@@ -196,11 +216,13 @@ public class AdminChargeQueryService {
 		Map<Long, CampusUserLookupResult> usersById = targetUsers.stream()
 			.collect(Collectors.toMap(CampusUserLookupResult::userId, Function.identity()));
 		List<ChargeItem> charges = chargeItemRepository.searchCharges(new ChargeSearchCriteria(
-			query.campusId(), targetUserIds, PaymentCategory.MEAL, query.status(), accountIds
+			query.campusId(), targetUserIds, PaymentCategory.MEAL, query.status(), accountIds, null,
+			ChargeArchivePolicy.terminalCompletedAtFrom(clock, query.includeArchived())
 		));
+		MemberPage members = aggregateMembers(charges, usersById, query.pageable());
 		return new AdminCampusChargesResult(
 			campus.id(), campus.name(), campus.region(), summarize(charges),
-			aggregateMembers(charges, usersById, query.pageable())
+			members.content(), members.page(), members.size(), members.totalElements(), members.totalPages()
 		);
 	}
 
@@ -223,7 +245,7 @@ public class AdminChargeQueryService {
 			|| user.email().toLowerCase(Locale.ROOT).contains(lowered);
 	}
 
-	private List<AdminCampusChargeMemberResult> aggregateMembers(
+	private MemberPage aggregateMembers(
 		List<ChargeItem> charges,
 		Map<Long, CampusUserLookupResult> usersById,
 		Pageable pageable
@@ -255,7 +277,18 @@ public class AdminChargeQueryService {
 			));
 		}
 		members.sort(memberComparator(pageable.getSort()));
-		return page(members, pageable);
+		List<AdminCampusChargeMemberResult> content = page(members, pageable);
+		long totalElements = members.size();
+		int totalPages = totalElements == 0
+			? 0
+			: Math.toIntExact((totalElements + pageable.getPageSize() - 1) / pageable.getPageSize());
+		return new MemberPage(
+			content,
+			pageable.getPageNumber(),
+			pageable.getPageSize(),
+			totalElements,
+			totalPages
+		);
 	}
 
 	private Comparator<AdminCampusChargeMemberResult> memberComparator(Sort sort) {
@@ -284,6 +317,15 @@ public class AdminChargeQueryService {
 		int start = Math.toIntExact(Math.min(pageable.getOffset(), members.size()));
 		int end = Math.min(start + pageable.getPageSize(), members.size());
 		return members.subList(start, end);
+	}
+
+	private record MemberPage(
+		List<AdminCampusChargeMemberResult> content,
+		int page,
+		int size,
+		long totalElements,
+		int totalPages
+	) {
 	}
 
 	private ChargeAmountSummaryResult summarize(List<ChargeItem> charges) {

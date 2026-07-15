@@ -158,6 +158,10 @@ class BillingQueryServiceTest {
 
 		assertThat(result.summary().totalAmount()).isEqualTo(3000);
 		assertThat(result.summary().unpaidAmount()).isEqualTo(3000);
+		assertThat(result.page()).isEqualTo(1);
+		assertThat(result.size()).isEqualTo(1);
+		assertThat(result.totalElements()).isEqualTo(2);
+		assertThat(result.totalPages()).isEqualTo(2);
 		assertThat(result.items())
 			.singleElement()
 			.satisfies(item -> assertThat(item.id()).isEqualTo(newerUnpaidPenalty.id()));
@@ -237,6 +241,18 @@ class BillingQueryServiceTest {
 			.filteredOn(memberResult -> memberResult.userId().equals(member.id()))
 			.first()
 			.satisfies(memberResult -> assertThat(memberResult.unpaidAmount()).isEqualTo(3000));
+
+		AdminCampusChargesResult secondPage = billingQueryService.listAdminCampusCharges(
+			new AdminCampusChargeListQuery(
+				campus.campusId(), manager.id(), null, null, null, "멤버",
+				PageRequest.of(1, 1, Sort.by(Sort.Direction.DESC, "createdAt"))
+			)
+		);
+		assertThat(secondPage.page()).isEqualTo(1);
+		assertThat(secondPage.size()).isEqualTo(1);
+		assertThat(secondPage.totalElements()).isEqualTo(2);
+		assertThat(secondPage.totalPages()).isEqualTo(2);
+		assertThat(secondPage.members()).hasSize(1);
 	}
 
 	@Test

@@ -83,8 +83,9 @@ public class MealBillingController {
 		@RequestParam(required = false) ChargeStatus status,
 		@RequestParam(required = false) Long userId,
 		@RequestParam(required = false) String keyword,
+		@RequestParam(defaultValue = "false") boolean includeArchived,
 		@RequestParam(defaultValue = "0") int page,
-		@RequestParam(defaultValue = "20") int size,
+		@RequestParam(defaultValue = "10") int size,
 		@RequestParam(defaultValue = "createdAt,desc") String sort
 	) {
 		return ApiResponse.success(AdminCampusChargesResponse.from(
@@ -96,6 +97,7 @@ public class MealBillingController {
 				userId,
 				keyword,
 				null,
+				includeArchived,
 				BillingPageRequests.adminMembers(page, size, sort)
 			))
 		));

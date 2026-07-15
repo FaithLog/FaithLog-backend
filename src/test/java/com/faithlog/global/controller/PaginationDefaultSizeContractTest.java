@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 class PaginationDefaultSizeContractTest {
 
 	private static final Path CONTROLLER_ROOT = Path.of("src/main/java/com/faithlog");
+
 	@Test
 	void adminEndpointsDefaultToTwentyAndMemberOrDutyEndpointsDefaultToTen() {
 		assertDefaultSize("admin/controller/AdminManagementController.java", 20, 2);

@@ -7,6 +7,10 @@ public record MyChargesResult(
 	String campusName,
 	String region,
 	ChargeAmountSummaryResult summary,
-	List<ChargeListItemResult> items
+	List<ChargeListItemResult> items,
+	int page,
+	int size,
+	long totalElements,
+	int totalPages
 ) {
 }

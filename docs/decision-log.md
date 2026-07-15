@@ -10,6 +10,16 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-15 - Issue #201 Pagination Metadata And Archived Record Visibility
+
+- Context: 청구 목록 응답 5개는 `members` 또는 `items`만 반환해 프론트가 다음 페이지 존재 여부를 정확히 판단할 수 없었다. 모바일 목록에 오래된 완료 청구와 마감 투표가 계속 쌓이지만, 사용자는 미납과 진행 중 데이터는 기간과 무관하게 확인해야 한다.
+- Decision: 관리자 사용자·캠퍼스·정산·알림 로그 화면의 기본 페이지 크기는 20을 유지하고, 사용자·담당자 모바일 목록은 기본 10을 사용한다. 모든 목록의 최대 `size`는 기존 100을 유지한다.
+- Decision: 관리자 캠퍼스 청구, 관리자 담당 계좌 청구, 관리자 회원 청구 상세, 회원 본인 청구, MEAL 담당 계좌 청구 응답은 기존 `members` 또는 `items`를 유지하면서 `page`, `size`, `totalElements`, `totalPages`를 필수로 추가한다.
+- Decision: 위 청구 5개 조회에 `includeArchived=false`를 추가한다. 기본 조회는 생성 시점과 무관하게 모든 `UNPAID`를 포함하고, `PAID`는 `paidAt`, `WAIVED`와 `CANCELED`는 `updatedAt` 기준 최근 1개월만 포함한다. `includeArchived=true`는 이전 완료 기록을 포함한다.
+- Decision: MEAL 담당 투표 목록에 `includeArchived=false`를 추가한다. `OPEN`과 `SCHEDULED`는 기간 제한 없이 포함하고 `CLOSED`는 `endsAt` 기준 최근 90일만 포함한다. `includeArchived=true`는 이전 마감 투표를 포함한다.
+- Decision: 과거 청구와 투표 row는 삭제하지 않는다. 프론트는 기본 조회와 분리된 `이전 기록 보기` 동작으로 `includeArchived=true`를 보내고 필터 변경 시 0페이지부터 다시 조회한다.
+- Impact: API path와 기존 목록 필드, 정렬, 최대 페이지 크기, 권한은 유지한다. REST Docs와 프론트 타입/runtime validation/페이지 이동 UI를 함께 갱신하며, 관리자 화면은 `size=20`, 사용자·담당자 화면은 `size=10`을 명시한다.
+
 ### 2026-07-14 - Issue #200 Coffee Duty Ownership And Duty Charge Reminders
 
 - Context: 기존 COFFEE 담당은 캠퍼스별 1명만 활성화할 수 있고 새 지정이 이전 담당을 자동 해제했다. service ADMIN과 캠퍼스 관리자는 담당 여부와 무관하게 COFFEE command를 수행할 수 있었으며, 일반 `PAYMENT_UNPAID` 알림은 PENALTY/COFFEE/MEAL 미납을 캠퍼스 단위로 함께 조회했다.

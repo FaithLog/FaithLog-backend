@@ -4,6 +4,7 @@ import com.faithlog.billing.domain.entity.ChargeItem;
 import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
+import com.faithlog.billing.service.policy.ChargeArchivePolicy;
 import com.faithlog.billing.service.query.ChargeSearchCriteria;
 import com.faithlog.billing.service.query.MyChargeListQuery;
 import com.faithlog.billing.service.query.MyChargeSummaryQuery;
@@ -21,6 +22,7 @@ import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.time.DateTimeException;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
@@ -40,17 +42,20 @@ public class MyChargeQueryService {
 	private final CampusRepositoryPort campusRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
+	private final Clock clock;
 
 	public MyChargeQueryService(
 		ChargeItemRepositoryPort chargeItemRepository,
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
-		CampusUserLookupPort userLookupPort
+		CampusUserLookupPort userLookupPort,
+		Clock clock
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
+		this.clock = clock;
 	}
 
 	@Transactional(readOnly = true)
@@ -64,7 +69,10 @@ public class MyChargeQueryService {
 			query.campusId(),
 			userIds,
 			query.paymentCategory(),
-			query.status()
+			query.status(),
+			null,
+			null,
+			ChargeArchivePolicy.terminalCompletedAtFrom(clock, query.includeArchived())
 		);
 		List<ChargeItem> summaryTargets = chargeItemRepository.searchCharges(criteria);
 		Page<ChargeItem> page = chargeItemRepository.searchCharges(criteria, query.pageable());
@@ -73,7 +81,11 @@ public class MyChargeQueryService {
 			campus.name(),
 			campus.region(),
 			summarize(summaryTargets),
-			page.stream().map(ChargeListItemResult::from).toList()
+			page.stream().map(ChargeListItemResult::from).toList(),
+			page.getNumber(),
+			page.getSize(),
+			page.getTotalElements(),
+			page.getTotalPages()
 		);
 	}
 

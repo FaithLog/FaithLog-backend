@@ -21,6 +21,9 @@ import com.faithlog.poll.service.result.MealPollManagementDetailResult;
 import com.faithlog.poll.service.result.MealPollManagementListItemResult;
 import com.faithlog.poll.service.result.MealPollManagementOptionResult;
 import com.faithlog.poll.service.result.MealPollOptionChargeResult;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +44,7 @@ public class MealPollManagementQueryService {
 	private final PollResponseOptionRepository pollResponseOptionRepository;
 	private final MealPollSettlementRepository settlementRepository;
 	private final MealPollChargeGroupRepository chargeGroupRepository;
+	private final Clock clock;
 
 	public MealPollManagementQueryService(
 		MealDutyAccessService mealDutyAccessService,
@@ -49,7 +53,8 @@ public class MealPollManagementQueryService {
 		PollResponseRepository pollResponseRepository,
 		PollResponseOptionRepository pollResponseOptionRepository,
 		MealPollSettlementRepository settlementRepository,
-		MealPollChargeGroupRepository chargeGroupRepository
+		MealPollChargeGroupRepository chargeGroupRepository,
+		Clock clock
 	) {
 		this.mealDutyAccessService = mealDutyAccessService;
 		this.pollRepository = pollRepository;
@@ -58,6 +63,7 @@ public class MealPollManagementQueryService {
 		this.pollResponseOptionRepository = pollResponseOptionRepository;
 		this.settlementRepository = settlementRepository;
 		this.chargeGroupRepository = chargeGroupRepository;
+		this.clock = clock;
 	}
 
 	@Transactional(readOnly = true)
@@ -65,12 +71,20 @@ public class MealPollManagementQueryService {
 		Long campusId,
 		Long requesterId,
 		PollStatus status,
+		boolean includeArchived,
 		Pageable pageable
 	) {
 		mealDutyAccessService.requireActiveMealDuty(campusId, requesterId);
-		Page<Poll> polls = status == null
-			? pollRepository.findByCampusIdAndPollType(campusId, PollType.MEAL, pageable)
-			: pollRepository.findByCampusIdAndPollTypeAndStatus(campusId, PollType.MEAL, status, pageable);
+		Instant closedCutoff = Instant.now(clock).minus(90, ChronoUnit.DAYS);
+		Page<Poll> polls = pollRepository.searchManagementPolls(
+			campusId,
+			PollType.MEAL,
+			status,
+			includeArchived,
+			PollStatus.CLOSED,
+			closedCutoff,
+			pageable
+		);
 		Set<Long> chargedPollIds = settlementRepository.findByPollIdIn(polls.getContent().stream().map(Poll::id).toList())
 			.stream().map(MealPollSettlement::pollId).collect(Collectors.toSet());
 		return polls.map(poll -> MealPollManagementListItemResult.of(poll, chargedPollIds.contains(poll.id())));

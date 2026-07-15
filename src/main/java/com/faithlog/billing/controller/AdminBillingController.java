@@ -144,6 +144,7 @@ public class AdminBillingController {
 		@org.springframework.web.bind.annotation.RequestParam(required = false) Long userId,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) String keyword,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) Long paymentAccountId,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean includeArchived,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
@@ -157,6 +158,7 @@ public class AdminBillingController {
 				userId,
 				keyword,
 				paymentAccountId,
+				includeArchived,
 				BillingPageRequests.adminMembers(page, size, sort)
 			))
 		);
@@ -171,6 +173,7 @@ public class AdminBillingController {
 		@org.springframework.web.bind.annotation.RequestParam(required = false) ChargeStatus status,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) Long userId,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) String keyword,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean includeArchived,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
@@ -184,6 +187,7 @@ public class AdminBillingController {
 				userId,
 				keyword,
 				null,
+				includeArchived,
 				BillingPageRequests.adminMembers(page, size, sort)
 			))
 		);
@@ -197,6 +201,7 @@ public class AdminBillingController {
 		@PathVariable Long userId,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) PaymentCategory paymentCategory,
 		@org.springframework.web.bind.annotation.RequestParam(required = false) ChargeStatus status,
+		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean includeArchived,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size,
 		@org.springframework.web.bind.annotation.RequestParam(defaultValue = "createdAt,desc") String sort
@@ -208,6 +213,7 @@ public class AdminBillingController {
 				authenticatedUser.userId(),
 				paymentCategory,
 				status,
+				includeArchived,
 				BillingPageRequests.chargeItems(page, size, sort)
 			))
 		);

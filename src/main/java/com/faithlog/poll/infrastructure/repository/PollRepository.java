@@ -28,6 +28,27 @@ public interface PollRepository extends JpaRepository<Poll, Long> {
 		Pageable pageable
 	);
 
+	@Query("""
+		select poll from Poll poll
+		where poll.campusId = :campusId
+			and poll.pollType = :pollType
+			and (:status is null or poll.status = :status)
+			and (
+				:includeArchived = true
+				or poll.status <> :closedStatus
+				or poll.endsAt >= :closedCutoff
+			)
+		""")
+	Page<Poll> searchManagementPolls(
+		@Param("campusId") Long campusId,
+		@Param("pollType") PollType pollType,
+		@Param("status") PollStatus status,
+		@Param("includeArchived") boolean includeArchived,
+		@Param("closedStatus") PollStatus closedStatus,
+		@Param("closedCutoff") Instant closedCutoff,
+		Pageable pageable
+	);
+
 	List<Poll> findByCampusIdOrderByIdDesc(Long campusId);
 
 	List<Poll> findByCampusIdAndStatusOrderByIdAsc(Long campusId, PollStatus status);
