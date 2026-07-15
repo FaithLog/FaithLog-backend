@@ -134,6 +134,8 @@ test('fixture models recent terminal, archived terminal, and old unpaid rows wit
 	assert.match(fixture, /ARCHIVED_TERMINAL/);
 	assert.match(fixture, /RECENT_TERMINAL/);
 	assert.match(fixture, /OLD_UNPAID/);
+	assert.match(fixture, /NOT EXISTS[\s\S]*account_type = 'COFFEE'[\s\S]*is_active = TRUE/i);
+	assert.match(fixture, /'PENALTY'::text AS category, 'DEVOTION_RECORD'::text AS source_type/);
 	assert.doesNotMatch(fixture, /\b(?:UPDATE|DELETE|TRUNCATE|DROP)\b/i);
 });
 
