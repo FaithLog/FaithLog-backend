@@ -272,7 +272,7 @@ SELECT
 	pa.account_holder,
 	a.source_type,
 	(hashtextextended(:'dataset_id' || ':' || :'fixture_run_id' || ':' || a.ordinal || ':' || s.ordinal, 0)
-		& 4611686018427387903) + 1,
+		& 4503599627370495) + 1,
 	'PERF_ISSUE_193 ' || :'dataset_id' || ' ' || :'fixture_run_id' || ' ' || s.shape,
 	'PERF_ISSUE_193:' || :'dataset_id' || ':' || :'fixture_run_id' || ':' || s.shape,
 	(1000 + a.ordinal * 1000 + (m.rn % 17) * 10 + s.ordinal)::integer,

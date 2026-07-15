@@ -188,6 +188,29 @@ export function validateExpectationsManifest(expectations, campusId) {
 		|| expectations.sourceDuplicateCount !== 0) {
 		throw new Error('Case manifest dataset shape is not exact.');
 	}
+	for (const field of [
+		'crossCampusId',
+		'requesterUserId',
+		'dutyUserId',
+		'targetUserId',
+		'archivedMemberUserId',
+		'fixtureAccountId',
+		'foreignCoffeeAccountId',
+		'crossCampusAccountId',
+		'ownedCoffeeAccountId',
+		'dutyOwnedCoffeeAccountId',
+		'dutyHistoricalCoffeeAccountId',
+	]) {
+		if (!Number.isSafeInteger(expectations[field]) || expectations[field] <= 0) {
+			throw new Error(`Case manifest ID is invalid: ${field}.`);
+		}
+	}
+	if (expectations.requesterUserId === expectations.dutyUserId
+		|| expectations.archivedMemberUserId !== expectations.targetUserId
+		|| typeof expectations.targetKeyword !== 'string'
+		|| expectations.targetKeyword.length === 0) {
+		throw new Error('Case manifest requester or target identity is invalid.');
+	}
 	const actualNames = Object.keys(expectations.cases ?? {}).sort();
 	if (!semanticEqual(actualNames, [...REQUEST_CASE_NAMES].sort())) {
 		throw new Error('Case manifest must contain exactly all 16 measured request cases.');
@@ -205,6 +228,18 @@ export function validateExpectationsManifest(expectations, campusId) {
 		validateAggregateExpectation(expectations.archiveCases[name], {identityRequired: true, exactKeys: true});
 		validateExpectedIdentity(expectations.archiveCases[name], expectations);
 	}
+	validateArchiveTerminalDelta(expectations.archiveCases.admin_archive_default,
+		expectations.archiveCases.admin_archive_included, {
+			unpaidAmount: 6011, paidAmount: 6012, waivedAmount: 6013, canceledAmount: 6014,
+		}, {
+			paidAmount: 6015, waivedAmount: 6016, canceledAmount: 6017,
+		}, 'admin archive');
+	validateArchiveTerminalDelta(expectations.archiveCases.my_archive_default,
+		expectations.archiveCases.my_archive_included, {
+			unpaidAmount: 3011, paidAmount: 3012, waivedAmount: 3013, canceledAmount: 3014,
+		}, {
+			paidAmount: 3015, waivedAmount: 3016, canceledAmount: 3017,
+		}, 'my archive');
 	const dutyNames = [
 		'duty_owned_accounts_visible',
 		'duty_owned_account_filter_visible',
@@ -407,6 +442,40 @@ function validateExpectedIdentity(expected, manifest) {
 		|| expected.campusName !== manifest.campusName
 		|| expected.region !== manifest.region) {
 		throw new Error('Expected campus identity does not match the dataset manifest.');
+	}
+}
+
+function validateArchiveTerminalDelta(defaultCase, includedCase, defaultAmounts, archivedAmounts, label) {
+	const expectedDefault = {
+		totalAmount: Object.values(defaultAmounts).reduce((sum, amount) => sum + amount, 0),
+		...defaultAmounts,
+	};
+	const expectedIncluded = {
+		totalAmount: expectedDefault.totalAmount + Object.values(archivedAmounts).reduce((sum, amount) => sum + amount, 0),
+		unpaidAmount: defaultAmounts.unpaidAmount,
+		paidAmount: defaultAmounts.paidAmount + archivedAmounts.paidAmount,
+		waivedAmount: defaultAmounts.waivedAmount + archivedAmounts.waivedAmount,
+		canceledAmount: defaultAmounts.canceledAmount + archivedAmounts.canceledAmount,
+	};
+	if (!semanticEqual(defaultCase.summary, expectedDefault)
+		|| !semanticEqual(includedCase.summary, expectedIncluded)
+		|| defaultCase.totalElements !== 1
+		|| includedCase.totalElements !== 1
+		|| defaultCase.memberRows.length !== 1
+		|| includedCase.memberRows.length !== 1
+		|| !semanticEqual(defaultCase.memberRows[0], {
+			userId: defaultCase.memberRows[0].userId,
+			name: defaultCase.memberRows[0].name,
+			email: defaultCase.memberRows[0].email,
+			...expectedDefault,
+		})
+		|| !semanticEqual(includedCase.memberRows[0], {
+			userId: defaultCase.memberRows[0].userId,
+			name: defaultCase.memberRows[0].name,
+			email: defaultCase.memberRows[0].email,
+			...expectedIncluded,
+		})) {
+		throw new Error(`${label} terminal cutoff expectation is invalid.`);
 	}
 }
 
