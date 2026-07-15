@@ -13,7 +13,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #200 final review, 547 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #200 final review, 548 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.41% (7,223 / 7,651, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 75.77% (1,113 / 1,469, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.70% (510 / 522, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
@@ -77,7 +77,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - TDD/리뷰: stale 복구의 최신 PAID 보존, duty/member 교착, 동시 마지막 ADMIN 강등, requester ADMIN 강등, USER→ADMIN 승격 뒤 stale 자기 강등을 실제 동시성 테스트로 고정했다. 최종 두 권한 경합은 focused 19 tests 중 2 failures로 RED를 확인한 뒤 GREEN으로 전환했다.
   - 잠금/인가: stale 복구는 requester user를 먼저 잠그고 `user -> campus -> duty -> member -> charge` 순서를 사용하며 locked charge의 UNPAID를 재검증한다. 전역 역할 변경은 최소 user ID row를 DB 공통 mutex로 사용한 뒤 requester/target 최신 역할과 마지막 ACTIVE ADMIN 수를 판단한다.
   - API/문서: `staleOnly` 오류 변환을 해당 controller로 제한해 unrelated type mismatch 계약 변경을 제거했다. COFFEE/MEAL 일반 상태 변경 권한을 실제 production과 일치시켰고 stale COFFEE 일반 관리자 403, ACTIVE MEAL service ADMIN 404, stale MEAL 성공 REST Docs를 추가했다.
-  - 최종 검증: `./gradlew test` 86 suites / 547 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 12초, `./gradlew asciidoctor` 14초, REST Docs 170 groups/HTML, test source 91개, 전체 diff check 성공이다. Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 수행하지 않았다.
+  - 최종 검증: `./gradlew test` 86 suites / 548 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 12초, `./gradlew asciidoctor` 14초, REST Docs 170 groups/HTML, test source 91개, 전체 diff check 성공이다. Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 수행하지 않았다.
 
 - #188/#189/#190 통합 검증:
   - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
@@ -1196,7 +1196,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-07-15 | #200 담당 회원 삭제 우회 RED/GREEN | 성공 | active COFFEE/MEAL 담당 삭제·미납 우회·stale 목록/재가입·지정/해제 경합 6 tests와 회원 삭제/재가입 409 REST Docs 2 tests를 RED로 재현. `CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`, `campus -> duty -> member` 잠금, ACTIVE membership 결속 조회로 보강. 최종 83 suites / 526 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 163 groups, diff check 성공 | 최신 전체 diff PM 재리뷰. frontend 명세에 회원 삭제/재가입 409와 담당 해제 선행 UI 추가 |
 | 2026-07-15 | #200 stale 담당 복구·탈퇴 우회·역할 경합 RED/GREEN | 성공 | `staleOnly=true` 복구 조회, ACTIVE 담당 계정 탈퇴 409, 역할 변경/회원 삭제 직렬화 4 tests RED 후 GREEN. stale 조회→기존 담당 해제→재가입 실제 API 흐름 통과. 최종 83 suites / 530 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 165 groups | 최신 전체 diff PM finding 0 재리뷰 및 frontend 최종 명세 전달. merge/Docker는 PM 승인 전 금지 |
 | 2026-07-15 | #200 user-first 생명주기·stale 미납 복구 RED/GREEN | 성공 | 8 residual findings를 test-only RED로 재현하고 user ID/campus ID 오름차순 `user -> campus -> duty -> member`, post-lock 인가 재검증, stale ADMIN 명시 복구, bulk user 조회, invalid query 400로 보강. 최종 84 suites / 539 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 167 groups | origin/develop...HEAD 전체 diff finding 0 재리뷰. frontend 전달/merge/Docker는 PM 승인 게이트 유지 |
-| 2026-07-15 | #200 stale 복구·ADMIN 최신 권한 RED/GREEN | 성공 | 최신 PAID 덮기·member/duty 교착·마지막 ADMIN 강등·stale requester/target 역할 경합을 보강하고 staleOnly 오류 범위를 controller로 제한. 최종 86 suites / 547 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 170 groups | 최신 전체 diff finding 0 재리뷰. frontend 전달/merge/Docker는 PM 승인 게이트 유지 |
+| 2026-07-15 | #200 stale 복구·ADMIN 최신 권한 RED/GREEN | 성공 | 최신 PAID 덮기·member/duty 교착·마지막 ADMIN 강등·stale requester/target 역할 경합을 보강하고 staleOnly 오류 범위를 controller로 제한. 최종 86 suites / 548 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 170 groups | 최신 전체 diff finding 0 재리뷰. frontend 전달/merge/Docker는 PM 승인 게이트 유지 |
 | 2026-06-19 | #61 TDD 실패 확인 | 실패 확인 | 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminManagementControllerTest`가 4 tests / 4 failed로 실패. 서비스 ADMIN 관리 endpoint와 role 변경 PATCH 미구현 확인 | admin application/presentation/port 계층 구현 |
 | 2026-06-19 | #61 focused admin tests | 성공 | `AdminManagementServiceTest`, `AdminManagementControllerTest`, `AdminManagementApiRestDocsTest` 성공. 사용자/캠퍼스 검색, 마지막 ADMIN 보호, 직접 멤버 추가/재활성화, REST Docs 계약 검증 | 전체 회귀 테스트로 확대 |
 | 2026-06-19 | #61 full regression/build/docs | 성공 | `./gradlew test` 성공(138 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 57개 | PM 리뷰 요청 |
