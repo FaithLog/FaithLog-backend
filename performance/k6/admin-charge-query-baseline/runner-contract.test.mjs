@@ -129,6 +129,10 @@ test('summary validation enforces exact count math, failure math, latency order,
 	}
 	const summary = {metrics};
 	assert.equal(validateMeasuredSummary(summary, {expectedRequestCount: 20}), true);
+	const directSummary = {metrics: Object.fromEntries(
+		Object.entries(metrics).map(([name, metric]) => [name, metric.values]),
+	)};
+	assert.equal(validateMeasuredSummary(directSummary, {expectedRequestCount: 20}), true);
 	for (const mutate of [
 		(value, name) => { value.metrics[`admin_charge_${name}_failure`].values.fails = 1; },
 		(value, name) => { value.metrics[`admin_charge_${name}_duration`].values.count = 19; },
@@ -150,7 +154,7 @@ test('PostgreSQL counter integrity preserves decimal strings across the JS safe 
 });
 
 test('resource evidence covers app, PostgreSQL, and Redis with exact immutable IDs', async () => {
-	const {validateDockerResourceEvidence} = await module('docker-resource-evidence.mjs');
+	const {normalizeDockerStats, validateDockerResourceEvidence} = await module('docker-resource-evidence.mjs');
 	const ids = {app: 'a'.repeat(64), postgres: 'b'.repeat(64), redis: 'c'.repeat(64)};
 	const containers = Object.entries(ids).map(([role, containerId]) => ({
 		role, containerId, cpuPercent: 1, memoryUsedBytes: 100, memoryLimitBytes: 1000, memoryPercent: 10,
@@ -166,6 +170,21 @@ test('resource evidence covers app, PostgreSQL, and Redis with exact immutable I
 		samplingIntervalSeconds: 1,
 	});
 	assert.equal(result.sampleCount, 2);
+	const normalized = normalizeDockerStats({
+		capturedAt: '2026-07-15T00:00:00.000Z',
+		expectedContainerIds: ids,
+		rawStats: Object.values(ids).map((id) => ({
+			ID: id, CPUPerc: '1%', MemUsage: '100B / 1000B', MemPerc: '10%',
+		})),
+	});
+	assert.deepEqual(normalized.containers.map(({role}) => role), ['app', 'postgres', 'redis']);
+	assert.throws(() => normalizeDockerStats({
+		capturedAt: '2026-07-15T00:00:00.000Z',
+		expectedContainerIds: ids,
+		rawStats: Object.values(ids).map((id) => ({
+			ID: id, CPUPerc: '1%', MemUsage: '100B / 1000B', MemPerc: '99%',
+		})),
+	}));
 	const missingRedis = structuredClone(containers).slice(0, 2);
 	assert.throws(() => validateDockerResourceEvidence({
 		samples: [
@@ -179,6 +198,25 @@ test('resource evidence covers app, PostgreSQL, and Redis with exact immutable I
 	}));
 });
 
+test('measurement integrity rejects activity, planner, maintenance, pgss, and counter drift', async () => {
+	const {validateMeasurementIntegrity} = await module('measurement-integrity.mjs');
+	const valid = integrityFixture();
+	const result = validateMeasurementIntegrity(valid);
+	assert.equal(result.evidenceIntegrity, 'valid-supporting-evidence');
+	assert.equal(result.observerAdjustedCounters.xactCommit, '100');
+	for (const mutate of [
+		(value) => { value.afterState.externalActiveCount = 1; },
+		(value) => { value.afterState.plannerSettings.work_mem = '8MB'; },
+		(value) => { value.afterState.tables.charge_items.autovacuumCount = 1; },
+		(value) => { value.afterState.pgStatStatements.dealloc = 1; },
+		(value) => { value.afterCounter.xactCommit = 1; },
+	]) {
+		const malformed = structuredClone(valid);
+		mutate(malformed);
+		assert.throws(() => validateMeasurementIntegrity(malformed));
+	}
+});
+
 test('database evidence is exact, non-mutating, and keeps optional pgss continuity', async () => {
 	const state = await read('collect-measurement-state.sql');
 	const counters = await read('collect-counter-boundary.sql');
@@ -190,7 +228,7 @@ test('database evidence is exact, non-mutating, and keeps optional pgss continui
 	assert.match(counters, /::text/);
 	assert.match(evidence, /EXPLAIN \(ANALYZE, BUFFERS, FORMAT JSON\)/);
 	for (const sql of [state, counters, evidence]) {
-		assert.doesNotMatch(sql, /\b(?:INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|VACUUM|ANALYZE)\b/i);
+		assert.doesNotMatch(sql, /^\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|VACUUM|ANALYZE)\b/im);
 	}
 });
 
@@ -213,3 +251,56 @@ test('measurement status stays separate from evidence integrity and cannot auto-
 	assert.match(runner, /evidence-integrity\.json/);
 	assert.doesNotMatch(runner, /(?:EMAIL|PASSWORD|ACCESS_TOKEN).*run-conditions|echo.*(?:PASSWORD|ACCESS_TOKEN)/i);
 });
+
+function integrityFixture() {
+	const plannerSettings = Object.fromEntries([
+		'enable_bitmapscan', 'enable_hashjoin', 'enable_indexonlyscan', 'enable_indexscan',
+		'enable_mergejoin', 'enable_nestloop', 'enable_seqscan', 'effective_cache_size',
+		'random_page_cost', 'seq_page_cost', 'work_mem',
+	].map((name) => [name, 'on']));
+	const table = {
+		nModSinceAnalyze: 0,
+		analyzeCount: 1,
+		autoanalyzeCount: 0,
+		vacuumCount: 0,
+		autovacuumCount: 0,
+		lastAnalyze: '2026-07-14T00:00:00.000Z',
+		lastAutoanalyze: null,
+		lastVacuum: null,
+		lastAutovacuum: null,
+	};
+	const database = {
+		name: 'faithlog',
+		serverAddress: '172.20.0.2',
+		serverPort: 5432,
+		postmasterStartTime: '2026-07-14T00:00:00.000Z',
+		statsReset: '2026-07-14T00:00:00.000Z',
+	};
+	const state = (capturedAt) => ({
+		capturedAt,
+		externalActiveCount: 0,
+		database: structuredClone(database),
+		plannerSettings: structuredClone(plannerSettings),
+		pgStatStatements: {
+			available: true,
+			statsReset: '2026-07-14T00:00:00.000Z',
+			dealloc: 0,
+		},
+		tables: Object.fromEntries(
+			['campus_members', 'charge_items', 'payment_accounts', 'users']
+				.map((name) => [name, structuredClone(table)]),
+		),
+	});
+	const counters = (value) => Object.fromEntries(
+		['xactCommit', 'xactRollback', 'blksRead', 'blksHit', 'tupReturned', 'tupFetched']
+			.map((name) => [name, value]),
+	);
+	return {
+		beforeState: state('2026-07-15T00:00:00.000Z'),
+		afterState: state('2026-07-15T00:03:00.000Z'),
+		calibrationCounter: counters('9007199254740992'),
+		beforeCounter: counters('9007199254740994'),
+		afterCounter: counters('9007199254741096'),
+		expectedDatabaseName: 'faithlog',
+	};
+}

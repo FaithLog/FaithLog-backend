@@ -516,7 +516,7 @@ test('manifest rejects archive false-greens without exact terminal status deltas
 
 test('documents scenario-only status, immutable baseline server, and the measurement approval gate', async () => {
 	const readme = await read('README.md');
-	assert.match(readme, /scenario-contract-ready, runner\/evidence pending, not measured/i);
+	assert.match(readme, /scenario and runner\/evidence contract-ready, fake\/static verified, not measured/i);
 	assert.match(readme, /355f79df5b2e47636b7d1a17dea029da6c93c62d/);
 	assert.match(readme, /901dbab3949fc669e7902e6c1471f4d60ffc80b049efa0f9a5203343710a7868/);
 	assert.match(readme, /사용자 승인.*before 측정.*production 최적화.*금지/s);

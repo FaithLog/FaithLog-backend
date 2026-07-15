@@ -1,8 +1,10 @@
 # Issue #193 Admin Charge Query Baseline
 
-Status: **scenario-contract-ready, runner/evidence pending, not measured**.
+Status: **scenario and runner/evidence contract-ready, fake/static verified, not measured**.
 
 이 디렉터리는 Issue #193의 current-develop 호환 correctness와 before 측정 계약만 준비한다. 현재 wave에서는 #192가 measurement slot을 먼저 사용하므로 fixture SQL, DB 조회, preflight HTTP, k6를 실행하지 않는다.
+
+`run-baseline.sh`도 실제 실행되지 않았다. 현재 검증은 Node fake contract, JS/MJS 구문, shell 구문, SQL 정적 mutation 차단에 한정한다.
 
 ## Immutable baseline server
 
@@ -71,3 +73,15 @@ PM 승인 요청용 추천값은 다음과 같다.
 - `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`: 3분 구간의 CPU/RAM peak를 놓치지 않고 #192 resource sampling과 같은 해상도를 사용한다.
 
 이 값은 추천일 뿐 승인값이 아니다. 승인 전에는 default로 실행되지 않는다. after 측정과 개별 branch Docker build는 PM integration branch까지 금지한다.
+
+## Runner/evidence boundary
+
+runner는 workload와 target 값을 하나도 default하지 않는다. 실행 시 `DATASET_ID`, `FIXTURE_RUN_ID`, execution ID, workload 7개 값, ADMIN/duty user ID와 runtime-only credential, numeric loopback `BASE_URL`, PostgreSQL DB/user, 실제 Compose project와 app/PostgreSQL/Redis service, 세 container의 full immutable ID/image ID, source commit provenance를 모두 명시해야 한다. credential과 token 원문은 report, console용 조건 파일, classification에 기록하지 않는다.
+
+fixture write 전에 workload parsing, app/PostgreSQL/Redis immutable identity, DB identity, numeric loopback published port, canonical actual-project lock 이후 continuity, quiet DB boundary, ADMIN/duty login identity와 token TTL을 모두 통과해야 한다. 그 뒤 execution 전용 campus를 create-only 생성하며, 기존 row 삭제나 reset/config/extension/Flyway/Docker lifecycle 변경은 하지 않는다.
+
+측정 구간의 write는 새 fixture campus의 membership/duty/account/charge 생성과 report 파일 생성뿐이다. read는 login/`users/me` 및 correctness HTTP, Docker inspect/stats, PostgreSQL identity/activity/planner/table-maintenance/counter/선택적 `pg_stat_statements`, synthetic `EXPLAIN (ANALYZE, BUFFERS)`로 제한한다. EXPLAIN은 production plan 또는 독립 최적화 기여 증거가 아니며 #194 전달용 supporting evidence다.
+
+k6는 16 cases를 frontend 순서로 한 iteration 안에서 실행한다. warmup은 승인된 shared iterations, measured는 승인된 constant VUS로 분리하고 warmup 뒤 measured ADMIN JWT를 새로 발급한다. summary는 direct/`values` shape 모두에서 case별 동일 count, failure rate/passes/fails 수학, Trend count, avg/median/p50/p95/p99/max 순서, throughput을 fail-closed 검증한다. DB counters는 decimal string을 `BigInt`로 계산하고, planner/maintenance/activity와 선택적 pgss availability/reset/dealloc continuity, app/PostgreSQL/Redis CPU/RAM sample coverage를 별도 검증한다.
+
+공유 stack의 quiet snapshot은 경계 관찰일 뿐이다. `measurementStatus`는 최대 `conditional-shared-stack`, `evidenceIntegrity`는 별도 검증 상태이며 `automaticAdoption=false`다. PM이 exclusive-use 전체 window와 evidence를 검토하기 전 baseline으로 채택할 수 없다.
