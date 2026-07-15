@@ -78,7 +78,7 @@ class DutyGatedWriteConcurrencyTest {
 	@Autowired
 	private MealPaymentAccountService mealPaymentAccountService;
 
-	@Autowired
+	@MockitoSpyBean
 	private UserRepository userRepository;
 
 	@MockitoSpyBean
@@ -494,6 +494,65 @@ class DutyGatedWriteConcurrencyTest {
 				.get().extracting(User::role).isEqualTo(UserRole.USER);
 		} finally {
 			allowCampusLock.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void stale_recovery_reads_latest_admin_role_when_demotion_commits_before_user_lock() throws Exception {
+		User owner = saveUser("stale-role-refresh-owner@example.com", UserRole.MANAGER);
+		User target = saveUser("stale-role-refresh-target@example.com", UserRole.USER);
+		User recoveryAdmin = saveUser("stale-role-refresh-requester@example.com", UserRole.ADMIN);
+		User guardAdmin = saveUser("stale-role-refresh-guard@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(owner, "200복구요청자최신역할캠");
+		campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), owner.id(), owner.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "최신 역할 계좌", "하나은행", "200-ROLE-REFRESH",
+			"과거담당", owner.id()));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), target.id(), PaymentCategory.COFFEE, account.id(), account.bankName(),
+			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 200905L,
+			"커피 주문", "복구 요청자 최신 역할 검증", 1800, null));
+		CampusMember ownerMembership = campusMemberRepository
+			.findByCampusIdAndUserId(campus.campusId(), owner.id()).orElseThrow();
+		ownerMembership.deactivate();
+		campusMemberRepository.saveAndFlush(ownerMembership);
+
+		CountDownLatch userLockBoundary = new CountDownLatch(1);
+		CountDownLatch allowUserLock = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			if (Thread.currentThread().getName().equals("stale-role-refresh")) {
+				userLockBoundary.countDown();
+				if (!allowUserLock.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("user lock release timeout");
+				}
+			}
+			return java.util.Optional.ofNullable(entityManager.find(
+				User.class, recoveryAdmin.id(), LockModeType.PESSIMISTIC_WRITE));
+		}).when(userRepository).findByIdForUpdate(recoveryAdmin.id());
+
+		ExecutorService executor = Executors.newSingleThreadExecutor();
+		try {
+			Future<?> recovery = executor.submit(() -> {
+				Thread.currentThread().setName("stale-role-refresh");
+				billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+					charge.id(), recoveryAdmin.id(), ChargeStatus.WAIVED));
+			});
+			assertThat(userLockBoundary.await(5, TimeUnit.SECONDS)).isTrue();
+			adminManagementService.changeUserRole(new ChangeUserRoleCommand(
+				guardAdmin.id(), recoveryAdmin.id(), UserRole.USER));
+			allowUserLock.countDown();
+
+			assertThatThrownBy(() -> recovery.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(BusinessException.class)
+				.satisfies(exception -> assertThat(((BusinessException) exception.getCause()).errorCode())
+					.isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN));
+			assertThat(chargeItemRepository.findById(charge.id()))
+				.get().extracting(ChargeItem::status).isEqualTo(ChargeStatus.UNPAID);
+		} finally {
+			allowUserLock.countDown();
 			executor.shutdownNow();
 		}
 	}
