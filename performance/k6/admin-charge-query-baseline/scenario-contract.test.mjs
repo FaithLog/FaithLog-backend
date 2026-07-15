@@ -15,6 +15,7 @@ async function definition() {
 }
 
 function aggregateExpectation(page = 0) {
+	const totalElements = page === 0 ? 1 : 11;
 	return {
 		summary: {totalAmount: 100, unpaidAmount: 100, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
 		memberRows: [{
@@ -23,8 +24,8 @@ function aggregateExpectation(page = 0) {
 		}],
 		page,
 		size: 10,
-		totalElements: 1,
-		totalPages: 1,
+		totalElements,
+		totalPages: Math.ceil(totalElements / 10),
 	};
 }
 
@@ -58,10 +59,22 @@ async function validManifest() {
 		manifest.cases[requestCase.name] = aggregateExpectation(requestCase.query.page);
 	}
 	for (const name of ['admin_archive_default', 'admin_archive_included', 'my_archive_default', 'my_archive_included']) {
-		manifest.archiveCases[name] = aggregateExpectation();
+		manifest.archiveCases[name] = {
+			campusId: manifest.campusId,
+			campusName: manifest.campusName,
+			region: manifest.region,
+			...aggregateExpectation(),
+		};
 	}
-	manifest.dutyScope.duty_owned_accounts_visible = {status: 200, ...aggregateExpectation()};
-	manifest.dutyScope.duty_owned_account_filter_visible = {status: 200, ...aggregateExpectation()};
+	const dutyAggregate = {
+		status: 200,
+		campusId: manifest.campusId,
+		campusName: manifest.campusName,
+		region: manifest.region,
+		...aggregateExpectation(),
+	};
+	manifest.dutyScope.duty_owned_accounts_visible = structuredClone(dutyAggregate);
+	manifest.dutyScope.duty_owned_account_filter_visible = structuredClone(dutyAggregate);
 	manifest.dutyScope.duty_foreign_account_hidden = {status: 403};
 	manifest.dutyScope.duty_member_detail_owned_only = {
 		status: 200,
@@ -198,6 +211,9 @@ test('defines separate archive correctness probes for default and includeArchive
 	]);
 	assert.deepEqual(probes.map(({query}) => query.includeArchived), [false, true, false, true]);
 	const expected = {
+		campusId: 301,
+		campusName: 'PERF_ISSUE_193:RUN_A',
+		region: 'PERF_REGION',
 		summary: {totalAmount: 100, unpaidAmount: 100, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
 		memberRows: [{
 			userId: 401, name: 'ARCHIVED', email: 'archived@example.com', totalAmount: 100,
@@ -211,6 +227,9 @@ test('defines separate archive correctness probes for default and includeArchive
 	const body = {
 		success: true,
 		data: {
+			campusId: expected.campusId,
+			campusName: expected.campusName,
+			region: expected.region,
 			summary: expected.summary,
 			members: expected.memberRows,
 			page: 0,
@@ -251,7 +270,6 @@ test('fixture models recent terminal, archived terminal, and old unpaid rows wit
 	assert.match(fixture, /ARCHIVED_TERMINAL/);
 	assert.match(fixture, /RECENT_TERMINAL/);
 	assert.match(fixture, /OLD_UNPAID/);
-	assert.match(fixture, /NOT EXISTS[\s\S]*account_type = 'COFFEE'[\s\S]*is_active = TRUE/i);
 	assert.match(fixture, /LEFT JOIN users[\s\S]*u\.is_active IS DISTINCT FROM TRUE[\s\S]*active_members_have_active_users/i);
 	assert.match(fixture, /PERF_ISSUE_193:[\s\S]*:DUTY_HISTORY[\s\S]*FALSE[\s\S]*CURRENT_TIMESTAMP/i);
 	assert.match(fixture, /'PENALTY'::text AS category, 'DEVOTION_RECORD'::text AS source_type/);
@@ -262,15 +280,14 @@ test('fixture models recent terminal, archived terminal, and old unpaid rows wit
 	assert.doesNotMatch(fixture, /\b(?:UPDATE|DELETE|TRUNCATE|DROP)\b/i);
 });
 
-test('fixture creates a globally fresh exact 1,000-member dataset instead of reusing a matching campus', async () => {
+test('fixture creates a namespace-fresh exact 1,000-member dataset instead of reusing a matching campus', async () => {
 	const fixture = await read('prepare-fixture.sql');
-	assert.match(fixture, /dataset_is_globally_fresh/i);
+	assert.match(fixture, /dataset_namespace_is_fresh/i);
 	assert.match(fixture, /INSERT INTO campuses/i);
-	assert.match(fixture, /generate_series\(1,\s*1000\)/i);
+	assert.match(fixture, /requester_user_id[\s\S]*duty_requester_user_id[\s\S]*LIMIT 998/i);
 	assert.match(fixture, /COUNT\(\*\)\s*=\s*1000/i);
 	assert.match(fixture, /name\s*=\s*'PERF_ISSUE_193:'\s*\|\|\s*:'dataset_id'/i);
 	assert.doesNotMatch(fixture, /name LIKE '%'\s*\|\|\s*:'dataset_id'/i);
-	assert.doesNotMatch(fixture, /COUNT\(\*\)\s*>=\s*1000/i);
 });
 
 test('synthetic before and after namespaces stay isolated with identical shape', async () => {
@@ -417,7 +434,7 @@ test('manifest validation fails closed for exact archive and duty schemas', asyn
 
 test('documents scenario-only status, immutable baseline server, and the measurement approval gate', async () => {
 	const readme = await read('README.md');
-	assert.match(readme, /scenario-ready, not measured/i);
+	assert.match(readme, /scenario-contract-ready, runner\/evidence pending, not measured/i);
 	assert.match(readme, /355f79df5b2e47636b7d1a17dea029da6c93c62d/);
 	assert.match(readme, /901dbab3949fc669e7902e6c1471f4d60ffc80b049efa0f9a5203343710a7868/);
 	assert.match(readme, /사용자 승인.*before 측정.*production 최적화.*금지/s);

@@ -56,9 +56,9 @@ async function verifyDutyScope() {
 		if (response.status !== expected.status && expected.status !== undefined) {
 			throw new Error(`Duty scope status failed: ${probe.name}, status=${response.status}.`);
 		}
-		if (probe.name === 'duty_owned_account_visible'
+		if ((probe.name === 'duty_owned_accounts_visible' || probe.name === 'duty_owned_account_filter_visible')
 			&& (response.status !== 200 || !validateDutyAggregateResponse(body, probe, expectations.dutyScope))) {
-			throw new Error('Duty owned-account aggregate correctness failed.');
+			throw new Error(`Duty owned-account aggregate correctness failed: ${probe.name}.`);
 		}
 		if (probe.name === 'duty_member_detail_owned_only'
 			&& (response.status !== 200 || !validateDutyMemberDetailResponse(body, expected))) {

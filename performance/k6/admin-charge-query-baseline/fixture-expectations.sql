@@ -1,13 +1,14 @@
 \set ON_ERROR_STOP on
 \pset tuples_only on
 \pset format unaligned
+SET TIME ZONE 'Asia/Seoul';
 
 WITH ids AS (
 	SELECT
 		(SELECT id FROM payment_accounts
-		 WHERE nickname = 'PERF_ISSUE_193:' || :'fixture_run_id' || ':FOREIGN') AS fixture_account_id,
+		 WHERE nickname = 'PERF_ISSUE_193:' || :'dataset_id' || ':' || :'fixture_run_id' || ':FOREIGN') AS fixture_account_id,
 		(SELECT id FROM payment_accounts
-		 WHERE nickname = 'PERF_ISSUE_193:' || :'fixture_run_id' || ':CROSS') AS cross_campus_account_id,
+		 WHERE nickname = 'PERF_ISSUE_193:' || :'dataset_id' || ':' || :'fixture_run_id' || ':CROSS') AS cross_campus_account_id,
 		(SELECT MIN(id) FROM payment_accounts
 		 WHERE campus_id = :'campus_id'::bigint
 			AND owner_user_id = :'requester_user_id'::bigint
@@ -15,13 +16,43 @@ WITH ids AS (
 		(SELECT MIN(id) FROM payment_accounts
 		 WHERE campus_id = :'campus_id'::bigint
 			AND owner_user_id = :'duty_requester_user_id'::bigint
-			AND account_type = 'COFFEE' AND is_active = TRUE AND deleted_at IS NULL) AS duty_owned_coffee_account_id
+			AND account_type = 'COFFEE' AND is_active = TRUE AND deleted_at IS NULL) AS duty_owned_coffee_account_id,
+		(SELECT MIN(id) FROM payment_accounts
+		 WHERE campus_id = :'campus_id'::bigint
+			AND owner_user_id = :'duty_requester_user_id'::bigint
+			AND account_type = 'COFFEE' AND is_active = FALSE AND deleted_at IS NOT NULL) AS duty_historical_coffee_account_id
+), campus_identity AS (
+	SELECT id, name, region
+	FROM campuses
+	WHERE id = :'campus_id'::bigint
+), dataset_shape AS (
+	SELECT
+		(SELECT COUNT(*) FROM campus_members
+		 WHERE campus_id = :'campus_id'::bigint AND status = 'ACTIVE')::integer AS active_member_count,
+		(SELECT COUNT(*) FROM payment_accounts
+		 WHERE campus_id = :'campus_id'::bigint)::integer AS fixture_account_count,
+		(SELECT COUNT(*) FROM charge_items
+		 WHERE campus_id = :'campus_id'::bigint)::integer AS fixture_charge_count
+), duty_active_accounts AS (
+	SELECT id
+	FROM payment_accounts
+	WHERE campus_id = :'campus_id'::bigint
+		AND owner_user_id = :'duty_requester_user_id'::bigint
+		AND account_type = 'COFFEE'
+		AND is_active = TRUE
+		AND deleted_at IS NULL
+), duty_all_accounts AS (
+	SELECT id
+	FROM payment_accounts
+	WHERE campus_id = :'campus_id'::bigint
+		AND owner_user_id = :'duty_requester_user_id'::bigint
+		AND account_type = 'COFFEE'
 ), target AS (
-	SELECT c.user_id, u.email AS keyword
+	SELECT c.user_id, u.name, u.email AS keyword
 	FROM charge_items c
 	JOIN ids ON c.payment_account_id = ids.fixture_account_id
 	JOIN users u ON u.id = c.user_id
-	WHERE c.reason LIKE 'PERF_ISSUE_193:' || :'fixture_run_id' || ':%'
+	WHERE c.reason LIKE 'PERF_ISSUE_193:' || :'dataset_id' || ':' || :'fixture_run_id' || ':%'
 	ORDER BY c.user_id
 	LIMIT 1
 ), admin_my_accounts AS (
@@ -58,7 +89,8 @@ WITH ids AS (
 		('admin_archive_included', 'archive', 'admin', 'COFFEE', NULL::text, (SELECT user_id FROM target), NULL::text, (SELECT fixture_account_id FROM ids), 0, TRUE),
 		('my_archive_default', 'archive', 'my', 'COFFEE', NULL::text, (SELECT user_id FROM target), NULL::text, NULL::bigint, 0, FALSE),
 		('my_archive_included', 'archive', 'my', 'COFFEE', NULL::text, (SELECT user_id FROM target), NULL::text, NULL::bigint, 0, TRUE),
-		('duty_owned_account_visible', 'duty', 'duty', 'COFFEE', NULL::text, NULL::bigint, NULL::text, (SELECT duty_owned_coffee_account_id FROM ids), 0, FALSE)
+		('duty_owned_accounts_visible', 'duty', 'duty', 'COFFEE', NULL::text, NULL::bigint, NULL::text, NULL::bigint, 0, FALSE),
+		('duty_owned_account_filter_visible', 'duty', 'duty', 'COFFEE', NULL::text, NULL::bigint, NULL::text, (SELECT duty_owned_coffee_account_id FROM ids), 0, FALSE)
 	) AS configured(
 		name, group_type, scope, category, status, user_id, keyword, account_id, page, include_archived
 	)
@@ -86,7 +118,10 @@ WITH ids AS (
 		AND (
 			(cs.scope = 'admin' AND (cs.account_id IS NULL OR c.payment_account_id = cs.account_id))
 			OR (cs.scope = 'my' AND c.payment_account_id IN (SELECT id FROM admin_my_accounts))
-			OR (cs.scope = 'duty' AND c.payment_account_id = cs.account_id)
+			OR (cs.scope = 'duty' AND (
+				(cs.account_id IS NULL AND c.payment_account_id IN (SELECT id FROM duty_active_accounts))
+				OR c.payment_account_id = cs.account_id
+			))
 		)
 ), summaries AS (
 	SELECT
@@ -159,9 +194,16 @@ WITH ids AS (
 			'size', 10,
 			'totalElements', s.total_elements,
 			'totalPages', CASE WHEN s.total_elements = 0 THEN 0 ELSE CEIL(s.total_elements / 10.0)::integer END
-		) AS value
+		) || CASE WHEN s.group_type IN ('archive', 'duty') THEN JSONB_BUILD_OBJECT(
+			'campusId', ci.id,
+			'campusName', ci.name,
+			'region', ci.region
+		) ELSE '{}'::jsonb END
+		|| CASE WHEN s.group_type = 'duty' THEN JSONB_BUILD_OBJECT('status', 200)
+			ELSE '{}'::jsonb END AS value
 	FROM summaries s
 	JOIN pages p ON p.name = s.name
+	CROSS JOIN campus_identity ci
 ), grouped_cases AS (
 	SELECT
 		COALESCE(JSONB_OBJECT_AGG(name, value) FILTER (WHERE group_type = 'measured'), '{}'::jsonb) AS measured,
@@ -174,7 +216,7 @@ WITH ids AS (
 	WHERE c.campus_id = :'campus_id'::bigint
 		AND c.user_id = (SELECT user_id FROM target)
 		AND c.payment_category = 'COFFEE'
-		AND c.payment_account_id = ids.duty_owned_coffee_account_id
+		AND c.payment_account_id IN (SELECT id FROM duty_all_accounts)
 		AND (
 			c.status = 'UNPAID'
 			OR (c.status = 'PAID' AND c.paid_at >= CURRENT_TIMESTAMP - INTERVAL '1 month')
@@ -191,7 +233,24 @@ WITH ids AS (
 	FROM duty_detail_charges
 ), duty_detail_items AS (
 	SELECT COALESCE(JSONB_AGG(
-		JSONB_BUILD_OBJECT('id', id, 'paymentAccountId', payment_account_id)
+		JSONB_BUILD_OBJECT(
+			'id', id,
+			'paymentCategory', payment_category,
+			'title', title,
+			'reason', reason,
+			'amount', amount,
+			'status', status,
+			'dueDate', due_date,
+			'paidAt', paid_at,
+			'account', JSONB_BUILD_OBJECT(
+				'paymentAccountId', payment_account_id,
+				'bankName', bank_name_snapshot,
+				'accountNumber', account_number_snapshot,
+				'accountHolder', account_holder_snapshot
+			),
+			'source', JSONB_BUILD_OBJECT('sourceType', source_type, 'sourceId', source_id),
+			'_sortCreatedAt', created_at
+		)
 		ORDER BY created_at DESC, id DESC
 	), '[]'::jsonb) AS items
 	FROM (
@@ -202,7 +261,7 @@ WITH ids AS (
 	FROM (
 		SELECT campus_id, user_id, payment_category, source_type, source_id
 		FROM charge_items
-		WHERE reason LIKE 'PERF_ISSUE_193:' || :'fixture_run_id' || ':%'
+		WHERE reason LIKE 'PERF_ISSUE_193:' || :'dataset_id' || ':' || :'fixture_run_id' || ':%'
 		GROUP BY campus_id, user_id, payment_category, source_type, source_id
 		HAVING COUNT(*) > 1
 	) duplicate_sources
@@ -211,6 +270,11 @@ SELECT JSONB_BUILD_OBJECT(
 	'datasetId', :'dataset_id',
 	'fixtureRunId', :'fixture_run_id',
 	'campusId', :'campus_id'::bigint,
+	'campusName', ci.name,
+	'region', ci.region,
+	'activeMemberCount', ds.active_member_count,
+	'fixtureAccountCount', ds.fixture_account_count,
+	'fixtureChargeCount', ds.fixture_charge_count,
 	'crossCampusId', :'cross_campus_id'::bigint,
 	'requesterUserId', :'requester_user_id'::bigint,
 	'dutyUserId', :'duty_requester_user_id'::bigint,
@@ -219,6 +283,7 @@ SELECT JSONB_BUILD_OBJECT(
 	'crossCampusAccountId', ids.cross_campus_account_id,
 	'ownedCoffeeAccountId', ids.owned_coffee_account_id,
 	'dutyOwnedCoffeeAccountId', ids.duty_owned_coffee_account_id,
+	'dutyHistoricalCoffeeAccountId', ids.duty_historical_coffee_account_id,
 	'targetUserId', target.user_id,
 	'archivedMemberUserId', target.user_id,
 	'targetKeyword', target.keyword,
@@ -229,7 +294,12 @@ SELECT JSONB_BUILD_OBJECT(
 		'duty_foreign_account_hidden', JSONB_BUILD_OBJECT('status', 403),
 		'duty_member_detail_owned_only', JSONB_BUILD_OBJECT(
 			'status', 200,
+			'campusId', ci.id,
+			'campusName', ci.name,
+			'region', ci.region,
 			'userId', target.user_id,
+			'name', target.name,
+			'email', target.keyword,
 			'summary', JSONB_BUILD_OBJECT(
 				'totalAmount', duty_detail_summary.total_amount,
 				'unpaidAmount', duty_detail_summary.unpaid_amount,
@@ -246,4 +316,5 @@ SELECT JSONB_BUILD_OBJECT(
 		)
 	)
 )
-FROM ids, target, grouped_cases, duty_detail_summary, duty_detail_items, duplicates;
+FROM ids, target, campus_identity ci, dataset_shape ds, grouped_cases,
+	duty_detail_summary, duty_detail_items, duplicates;
