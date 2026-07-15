@@ -17,8 +17,10 @@ import com.faithlog.billing.service.command.ChangeChargeStatusCommand;
 import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.campus.domain.entity.CampusDutyAssignment;
+import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.infrastructure.repository.CampusDutyAssignmentRepository;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.campus.service.command.AssignCoffeeDutyCommand;
 import com.faithlog.campus.service.command.AssignMealDutyCommand;
 import com.faithlog.campus.service.command.CreateCampusCommand;
@@ -74,6 +76,9 @@ class DutyGatedWriteConcurrencyTest {
 
 	@MockitoSpyBean
 	private CampusDutyAssignmentRepository dutyAssignmentRepository;
+
+	@MockitoSpyBean
+	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
 	private PaymentAccountRepository paymentAccountRepository;
@@ -360,6 +365,134 @@ class DutyGatedWriteConcurrencyTest {
 				});
 		} finally {
 			allowWrite.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void stale_duty_recovery_cannot_reopen_latest_member_payment_as_unpaid() throws Exception {
+		User owner = saveUser("stale-recovery-latest-owner@example.com", UserRole.MANAGER);
+		User target = saveUser("stale-recovery-latest-target@example.com", UserRole.USER);
+		User admin = saveUser("stale-recovery-latest-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(owner, "200과거담당최신납부캠");
+		campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), owner.id(), owner.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "과거 담당 계좌", "하나은행", "200-STALE-LATEST",
+			"과거담당", owner.id()
+		));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), target.id(), PaymentCategory.COFFEE, account.id(), account.bankName(),
+			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 200902L,
+			"커피 주문", "과거 담당 최신 납부 검증", 1800, null
+		));
+		CampusMember ownerMembership = campusMemberRepository
+			.findByCampusIdAndUserId(campus.campusId(), owner.id()).orElseThrow();
+		ownerMembership.deactivate();
+		campusMemberRepository.saveAndFlush(ownerMembership);
+
+		CountDownLatch dutyChecked = new CountDownLatch(1);
+		CountDownLatch allowRecovery = new CountDownLatch(1);
+		pauseWriterAfterDutyLookup(campus.campusId(), owner.id(), DutyType.COFFEE, dutyChecked, allowRecovery);
+		Instant paidAt = Instant.now().minusSeconds(15);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> recovery = executor.submit(() -> {
+				Thread.currentThread().setName("duty-writer");
+				billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+					charge.id(), admin.id(), ChargeStatus.UNPAID
+				));
+			});
+			assertThat(dutyChecked.await(5, TimeUnit.SECONDS)).isTrue();
+
+			billingService.completeMyChargePayment(new CompleteChargePaymentCommand(
+				campus.campusId(), charge.id(), target.id(), paidAt
+			));
+			allowRecovery.countDown();
+
+			assertThatThrownBy(() -> recovery.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(BusinessException.class)
+				.satisfies(exception -> assertThat(((BusinessException) exception.getCause()).errorCode())
+					.isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_TRANSITION_CONFLICT));
+			assertThat(chargeItemRepository.findById(charge.id()))
+				.get()
+				.satisfies(saved -> {
+					assertThat(saved.status()).isEqualTo(ChargeStatus.PAID);
+					assertThat(saved.paidAt()).isEqualTo(paidAt);
+				});
+		} finally {
+			allowRecovery.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void stale_recovery_and_idempotent_assignment_do_not_deadlock_member_and_duty_locks() throws Exception {
+		User owner = saveUser("stale-lock-order-owner@example.com", UserRole.MANAGER);
+		User target = saveUser("stale-lock-order-target@example.com", UserRole.USER);
+		User admin = saveUser("stale-lock-order-admin@example.com", UserRole.ADMIN);
+		CampusCreateResult campus = createCampus(owner, "200과거복구잠금순서캠");
+		campusService.joinCampus(new JoinCampusCommand(target.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+			campus.campusId(), owner.id(), owner.id()));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.campusId(), PaymentCategory.COFFEE, "잠금 순서 계좌", "하나은행", "200-STALE-ORDER",
+			"담당자", owner.id()
+		));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campus.campusId(), target.id(), PaymentCategory.COFFEE, account.id(), account.bankName(),
+			account.accountNumber(), account.accountHolder(), ChargeSourceType.POLL_RESPONSE, 200903L,
+			"커피 주문", "잠금 순서 검증", 1800, null
+		));
+
+		CountDownLatch memberLocked = new CountDownLatch(1);
+		CountDownLatch allowAssignment = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			Object result = entityManager.createQuery("""
+				select member from CampusMember member
+				where member.campusId = :campusId and member.userId = :userId
+				""", CampusMember.class)
+				.setParameter("campusId", campus.campusId())
+				.setParameter("userId", owner.id())
+				.setLockMode(LockModeType.PESSIMISTIC_WRITE)
+				.getResultStream()
+				.findFirst();
+			if (Thread.currentThread().getName().equals("duty-assign")) {
+				memberLocked.countDown();
+				if (!allowAssignment.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("assignment release timeout");
+				}
+			}
+			return result;
+		}).when(campusMemberRepository)
+			.findByCampusIdAndUserIdForUpdate(campus.campusId(), owner.id());
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			Future<?> assignment = executor.submit(() -> {
+				Thread.currentThread().setName("duty-assign");
+				campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(
+					campus.campusId(), owner.id(), owner.id()));
+			});
+			assertThat(memberLocked.await(5, TimeUnit.SECONDS)).isTrue();
+			Future<?> recovery = executor.submit(() -> {
+				Thread.currentThread().setName("stale-recovery");
+				billingService.changeChargeStatus(new ChangeChargeStatusCommand(
+					charge.id(), admin.id(), ChargeStatus.WAIVED
+				));
+			});
+
+			assertThatThrownBy(() -> recovery.get(300, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+			allowAssignment.countDown();
+			assignment.get(5, TimeUnit.SECONDS);
+			assertThatThrownBy(() -> recovery.get(5, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(BusinessException.class)
+				.satisfies(exception -> assertThat(((BusinessException) exception.getCause()).errorCode())
+					.isEqualTo(ErrorCode.BILLING_CHARGE_STATUS_MANAGE_FORBIDDEN));
+		} finally {
+			allowAssignment.countDown();
 			executor.shutdownNow();
 		}
 	}
