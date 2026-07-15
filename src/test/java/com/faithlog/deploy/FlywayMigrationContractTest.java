@@ -287,6 +287,7 @@ class FlywayMigrationContractTest {
 			"ALTER TABLE %I ENABLE ROW LEVEL SECURITY",
 			"n.nspname = 'public'",
 			"c.relkind IN ('r', 'p')",
+			"c.relname <> 'flyway_schema_history'",
 			"REVOKE USAGE, CREATE ON SCHEMA public FROM PUBLIC",
 			"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC",
 			"REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC",
