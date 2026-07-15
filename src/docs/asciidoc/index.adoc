@@ -720,6 +720,16 @@ include::{snippets}/admin-stale-duty-assignments-list-success/http-response.adoc
 
 include::{snippets}/admin-stale-duty-assignments-list-success/response-fields.adoc[]
 
+==== Invalid `staleOnly` (400)
+
+include::{snippets}/admin-duty-assignments-invalid-stale-only/http-request.adoc[]
+
+include::{snippets}/admin-duty-assignments-invalid-stale-only/query-parameters.adoc[]
+
+include::{snippets}/admin-duty-assignments-invalid-stale-only/http-response.adoc[]
+
+include::{snippets}/admin-duty-assignments-invalid-stale-only/response-fields.adoc[]
+
 === Assign Coffee Duty
 
 `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee`
@@ -1663,6 +1673,22 @@ include::{snippets}/charge-admin-status-change-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/charge-admin-status-change-success/response-fields.adoc[]
+
+==== Stale Duty Charge Recovery By Service ADMIN
+
+INACTIVE 캠퍼스 멤버십에 같은 category의 ACTIVE COFFEE/MEAL 담당 배정이 남아 있고, 해당 담당자가 소유한 계좌의 UNPAID 청구인 경우에만 서비스 전역 `ADMIN`이 기존 상태 변경 API로 `PAID`, `WAIVED`, `CANCELED` 중 하나를 명시해 복구할 수 있다. 정상 ACTIVE 담당자의 청구나 다른 계좌에는 이 예외가 적용되지 않으며, 일반 관리자 우회 권한도 추가되지 않는다.
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/http-request.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/request-headers.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/path-parameters.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/request-fields.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/http-response.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/response-fields.adoc[]
 
 ==== Terminal To Paid Conflict (409)
 

@@ -16,5 +16,8 @@ class BillingRestDocsIndexTest {
 		assertThat(index).contains("include::{snippets}/charge-admin-status-change-conflict/request-fields.adoc[]");
 		assertThat(index).contains("include::{snippets}/charge-admin-status-change-conflict/http-response.adoc[]");
 		assertThat(index).contains("include::{snippets}/charge-admin-status-change-conflict/response-fields.adoc[]");
+		assertThat(index).contains("include::{snippets}/charge-admin-stale-duty-recovery-success/http-request.adoc[]");
+		assertThat(index).contains("include::{snippets}/charge-admin-stale-duty-recovery-success/request-fields.adoc[]");
+		assertThat(index).contains("include::{snippets}/charge-admin-stale-duty-recovery-success/http-response.adoc[]");
 	}
 }

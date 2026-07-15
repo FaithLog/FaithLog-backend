@@ -442,6 +442,72 @@ class BillingApiRestDocsTest {
 	}
 
 	@Test
+	void documents_service_admin_stale_duty_charge_recovery_contract() throws Exception {
+		String managerToken = signupAndLogin("docs-stale-charge-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-stale-charge-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "200과거담당청구복구RESTDocs캠");
+		long campusId = campus.path("campusId").asLong();
+		String dutyToken = signupAndLogin("docs-stale-charge-duty@example.com", UserRole.USER);
+		User duty = userRepository.findByEmail("docs-stale-charge-duty@example.com").orElseThrow();
+		joinCampus(dutyToken, campus.path("inviteCode").asText());
+		String memberToken = signupAndLogin("docs-stale-charge-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("docs-stale-charge-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		String adminToken = signupAndLogin("docs-stale-charge-admin@example.com", UserRole.ADMIN);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campusId, manager.id(), duty.id()));
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			duty.id(),
+			PaymentCategory.COFFEE,
+			"과거 담당 계좌",
+			"하나은행",
+			"200-STALE-DOCS",
+			"과거담당",
+			duty.id()
+		));
+		ChargeItem charge = chargeItemRepository.saveAndFlush(ChargeItem.create(
+			campusId,
+			member.id(),
+			PaymentCategory.COFFEE,
+			account.id(),
+			"하나은행",
+			"200-STALE-DOCS",
+			"과거담당",
+			ChargeSourceType.POLL_RESPONSE,
+			20092L,
+			"과거 커피 미납",
+			"담당 해제 전 복구",
+			4500,
+			null
+		));
+		CampusMember staleMember = campusMemberRepository.findByCampusIdAndUserId(campusId, duty.id()).orElseThrow();
+		staleMember.deactivate();
+		campusMemberRepository.saveAndFlush(staleMember);
+
+		mockMvc.perform(patch("/api/v1/admin/charges/{chargeItemId}/status", charge.id())
+				.header("Authorization", "Bearer " + adminToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "WAIVED"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.status").value("WAIVED"))
+			.andDo(document("charge-admin-stale-duty-recovery-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("chargeItemId").description(
+					"INACTIVE 멤버십에 ACTIVE 담당이 남아 있는 계좌 소유자의 UNPAID COFFEE/MEAL 청구 ID")),
+				requestFields(fieldWithPath("status").description(
+					"복구할 terminal 상태. `PAID`, `WAIVED`, `CANCELED` 중 하나")),
+				responseFields(apiResponseFields(chargeFields("data.")))
+			));
+	}
+
+	@Test
 	void documents_devotion_penalty_cancel_and_weekly_reopen_contract() throws Exception {
 		String managerToken = signupAndLogin("docs-190-cancel-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("docs-190-cancel-manager@example.com").orElseThrow();

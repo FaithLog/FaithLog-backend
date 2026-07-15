@@ -13,13 +13,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #200 final review, 530 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #200 final review, 539 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.41% (7,223 / 7,651, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 75.77% (1,113 / 1,469, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.70% (510 / 522, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Method coverage | `./gradlew test jacocoTestReport` | 89.79% (1,935 / 2,155, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
-| 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 88 test files (2026-07-15 #200) | 증가 추적 |
-| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 165 snippet groups (2026-07-15 #200) | 증가 추적 |
+| 품질 | 테스트 코드 파일 수 | `find src/test/java -name '*.java'` | 89 test files (2026-07-15 #200) | 증가 추적 |
+| 품질 | 인증/문서 스니펫 묶음 수 | `find build/generated-snippets -mindepth 1 -maxdepth 1 -type d` | 167 snippet groups (2026-07-15 #200) | 증가 추적 |
 | 안정성 | 빌드 성공 여부 | `./gradlew build` | 성공 (2026-07-15 #200) | 성공 |
 | API | 응답 시간 | 로컬 Docker Compose + Docker k6 | p50 8.47ms / p95 44.60ms / p99 89.37ms / avg 16.93ms, 295.92 req/s, failure 0.00% (2026-07-07 after #134 prayer/poll read optimization, `PERF_1000_20260707_A`) | local Docker VUS 30, 5m, failure < 1%, p95 중심 |
 | 운영 API | Cloud Run steady-state read baseline | Cloud Run + k6 | p50 124.13ms / p95 257.51ms / p99 401.71ms / avg 144.29ms, 130.64 req/s, failure 0.00% (2026-06-24, VUS 30/5m, `PERF_20260624_CLOUDRUN_A`, 사용자 Cloud Run 설정 변경 후; 실제 설정값은 gcloud 부재로 확인 불가) | Cloud Run read-only, failure < 1%, p95 중심 |
@@ -66,6 +66,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 사용자 결정/API: 기존 `GET /api/v1/admin/campuses/{campusId}/duty-assignments`에 optional `staleOnly=true`를 추가했다. 기본값은 `false`이고 `true`이면 INACTIVE 멤버십에 남은 ACTIVE 담당만 기존 응답 구조로 반환한다. 관리자는 응답의 assignment ID로 기존 해제 API를 호출한 뒤 재가입을 완료한다. ACTIVE COFFEE/MEAL 담당이 하나라도 남은 `DELETE /api/v1/users/me`는 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 차단하며 자동 해제하지 않는다.
   - 동시성: 계정 탈퇴는 immutable user/member scope를 읽은 뒤 campus ID 오름차순으로 `campus -> duty -> member -> user` 잠금을 획득해 담당 지정·해제와 직렬화한다. 캠퍼스 역할 변경도 `campus -> member` 잠금 뒤 최신 ACTIVE membership에만 적용해 삭제 후 stale flush가 상태를 ACTIVE로 복원하지 못하게 했다.
   - 최종 검증: `./gradlew test` 83 suites / 530 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 11초, `./gradlew asciidoctor` 10초, REST Docs 165 groups/HTML 및 신규 2 snippet group 생성, 전체 diff check 성공이다. DB/Flyway/의존성 변경과 Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 없다.
+
+- #200 user-first 생명주기 잠금·stale 미납 복구 최종 보강:
+  - TDD: 관리자 직접 stale 멤버 재활성화, 잘못된 `staleOnly`, 담당 목록 user N+1, MEAL 오류 문구, 전역 ADMIN stale COFFEE 미납 복구 5건을 test-only RED로 고정했다. 이어 실제 2-transaction 테스트에서 탈퇴 중 신규 가입 성공, 로그인 stale flush의 탈퇴 계정 부활, 캠퍼스 역할 강등 뒤 회원 삭제 성공 3건을 추가 RED로 재현했다.
+  - 사용자 결정/API: lifecycle writer는 user ID 오름차순의 user row를 먼저 잠그고 `user -> campus -> duty -> member` 순서로 직렬화한다. `staleOnly=garbage`는 `400 GLOBAL_VALIDATION_FAILED`다. INACTIVE 멤버십에 ACTIVE COFFEE/MEAL 담당이 남은 계좌 소유자의 UNPAID만 서비스 전역 ADMIN이 기존 status PATCH로 명시 처리할 수 있으며 정상 담당자/일반 관리자 우회는 없다.
+  - 성능/인가: 담당 목록은 assignment user ID를 한 번에 bulk 조회하고, 담당 지정·해제와 회원 삭제는 캠퍼스 잠금 이후 최신 requester 멤버십/역할을 재검증한다. 관리자 직접 회원 추가도 stale ACTIVE 담당이 있으면 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`를 유지한다.
+  - 최종 검증: `./gradlew test` 84 suites / 539 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build` 12초, `./gradlew asciidoctor` 19초, REST Docs 167 groups/HTML, test source 89개, 전체 diff check 성공이다. DB/Flyway/의존성 변경과 Docker/PostgreSQL/Flyway 실적용, push, PR, merge는 없다.
 
 - #188/#189/#190 통합 검증:
   - 이력 보존: 최신 `origin/develop` `c7761da`에서 `integration/188-190-devotion-meal-billing`을 만들고 #188 `26bcc7f`, #189 `df94038`, #190 `bd9f604`를 각각 merge commit으로 병합했다. 문서 충돌은 세 기능의 승인 계약을 union으로 유지했고, Billing repository/service 충돌은 #188 weekly bulk query, #189 MEAL 격리, #190 charge/source-key `PESSIMISTIC_WRITE`와 Devotion reopen을 함께 보존했다.
@@ -1183,6 +1189,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 | 2026-07-15 | #200 최종 API 결정·전체 diff 자체 리뷰 RED/GREEN | 성공 | `manageableByMe` 단일 공개 필드로 정정하고 비활성 duty authorization 3건, stale COFFEE account 1건, dispatch stale snapshot 1건, lock lease/dedupe owner/recovery/docs 경계를 RED 후 보강. 83 suites / 518 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 161 groups, diff check 성공 | 최신 전체 diff PM 재리뷰. frontend 정적 검증 전 merge/Docker 금지 유지 |
 | 2026-07-15 | #200 담당 회원 삭제 우회 RED/GREEN | 성공 | active COFFEE/MEAL 담당 삭제·미납 우회·stale 목록/재가입·지정/해제 경합 6 tests와 회원 삭제/재가입 409 REST Docs 2 tests를 RED로 재현. `CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`, `campus -> duty -> member` 잠금, ACTIVE membership 결속 조회로 보강. 최종 83 suites / 526 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 163 groups, diff check 성공 | 최신 전체 diff PM 재리뷰. frontend 명세에 회원 삭제/재가입 409와 담당 해제 선행 UI 추가 |
 | 2026-07-15 | #200 stale 담당 복구·탈퇴 우회·역할 경합 RED/GREEN | 성공 | `staleOnly=true` 복구 조회, ACTIVE 담당 계정 탈퇴 409, 역할 변경/회원 삭제 직렬화 4 tests RED 후 GREEN. stale 조회→기존 담당 해제→재가입 실제 API 흐름 통과. 최종 83 suites / 530 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 165 groups | 최신 전체 diff PM finding 0 재리뷰 및 frontend 최종 명세 전달. merge/Docker는 PM 승인 전 금지 |
+| 2026-07-15 | #200 user-first 생명주기·stale 미납 복구 RED/GREEN | 성공 | 8 residual findings를 test-only RED로 재현하고 user ID/campus ID 오름차순 `user -> campus -> duty -> member`, post-lock 인가 재검증, stale ADMIN 명시 복구, bulk user 조회, invalid query 400로 보강. 최종 84 suites / 539 tests / 0 failures / 0 errors / 3 skipped, build/asciidoctor, REST Docs 167 groups | origin/develop...HEAD 전체 diff finding 0 재리뷰. frontend 전달/merge/Docker는 PM 승인 게이트 유지 |
 | 2026-06-19 | #61 TDD 실패 확인 | 실패 확인 | 구현 전 `./gradlew test --tests com.faithlog.admin.presentation.AdminManagementControllerTest`가 4 tests / 4 failed로 실패. 서비스 ADMIN 관리 endpoint와 role 변경 PATCH 미구현 확인 | admin application/presentation/port 계층 구현 |
 | 2026-06-19 | #61 focused admin tests | 성공 | `AdminManagementServiceTest`, `AdminManagementControllerTest`, `AdminManagementApiRestDocsTest` 성공. 사용자/캠퍼스 검색, 마지막 ADMIN 보호, 직접 멤버 추가/재활성화, REST Docs 계약 검증 | 전체 회귀 테스트로 확대 |
 | 2026-06-19 | #61 full regression/build/docs | 성공 | `./gradlew test` 성공(138 tests / 0 failures / 0 errors / 0 skipped), `./gradlew build` 성공, `./gradlew asciidoctor` 성공, REST Docs snippet group 57개 | PM 리뷰 요청 |
