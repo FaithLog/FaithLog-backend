@@ -23,6 +23,9 @@ class FlywayMigrationContractTest {
 	private static final Path COFFEE_TEMPLATE_ACCOUNT_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V10__neutralize_coffee_template_accounts.sql"
 	);
+	private static final Path SUPABASE_DATA_API_SECURITY_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V11__secure_supabase_data_api.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -273,5 +276,37 @@ class FlywayMigrationContractTest {
 			"AND NOT ("
 		);
 		assertThat(sql).doesNotContain("DELETE FROM", "DROP ", "ALTER TABLE");
+	}
+
+	@Test
+	void v11MigrationBlocksSupabaseDataApiAccessWithoutChangingApplicationRows() throws IOException {
+		assertThat(SUPABASE_DATA_API_SECURITY_MIGRATION).exists();
+		String sql = Files.readString(SUPABASE_DATA_API_SECURITY_MIGRATION);
+
+		assertThat(sql).contains(
+			"ALTER TABLE %I ENABLE ROW LEVEL SECURITY",
+			"n.nspname = 'public'",
+			"c.relkind IN ('r', 'p')",
+			"REVOKE USAGE, CREATE ON SCHEMA public FROM PUBLIC",
+			"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC",
+			"REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC",
+			"REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC",
+			"ARRAY['anon', 'authenticated', 'service_role']",
+			"FROM pg_roles",
+			"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I",
+			"REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I",
+			"REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM %I",
+			"ALTER DEFAULT PRIVILEGES IN SCHEMA public",
+			"REVOKE ALL PRIVILEGES ON TABLES FROM %I",
+			"REVOKE ALL PRIVILEGES ON SEQUENCES FROM %I",
+			"REVOKE EXECUTE ON FUNCTIONS FROM %I"
+		);
+		assertThat(sql).doesNotContain(
+			"CREATE POLICY",
+			"FORCE ROW LEVEL SECURITY",
+			"DELETE FROM",
+			"INSERT INTO",
+			"UPDATE "
+		);
 	}
 }
