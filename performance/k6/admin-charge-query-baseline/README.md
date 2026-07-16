@@ -227,3 +227,13 @@ Measured window는 `2026-07-16T07:27:07.498Z`부터 `07:30:10.197Z`까지다. 16
 Resource evidence 93 samples가 유효했다. App peak CPU는 `286.51%`, RAM displayed `756MiB`; PostgreSQL peak CPU `241.69%`, RAM displayed `277MiB`; Redis peak CPU `21.93%`, RAM displayed `19.56MiB`였다. External active query는 before/after와 quiet snapshots 모두 0이었고 planner/table maintenance, pgss unavailable continuity, runtime/DB/postmaster/target binding이 exact stable했다.
 
 Users update delta는 exact `+2`였고 임시 ADMIN은 USER로 복구됐다. Rejection artifact와 credential-pattern report hit는 없었다. Runner의 `conditional-shared-stack/automaticAdoption=false`는 자동 채택 금지 경계로 유지하며, 위 수치는 PM의 exclusive-window 독립 확인에 따른 수동 before 채택값이다. 개별 after는 PM integration branch에서 동일 조건으로만 수집한다.
+
+## Production optimization implemented (2026-07-16)
+
+Commit `93bbe64`는 `listAdminCampusCharges`와 `listAdminCampusChargesForMyAccounts`만 전용 `AdminChargeAggregationQueryPort`로 전환했다. 각 응답은 같은 endpoint-local `REPEATABLE_READ` read-only transaction 안에서 DB summary 1회, member aggregate/page 1회, distinct member count 1회의 고정 read query를 사용한다.
+
+집계 query는 `charge_items`를 ACTIVE `campus_members`와 active `users`에 결합해 status별 `SUM`, `MAX(created_at)`, user/category/status/account/archive/keyword predicate, 승인된 정렬과 page/count를 DB에서 계산한다. 캠퍼스 멤버별 User lookup과 전체 `ChargeItem` entity materialization은 두 endpoint에서 0회다. 금액은 long projection에서 기존 API int로 exact 변환해 overflow를 fail-fast 처리하고, keyword `%`/`_`는 기존 literal contains 의미를 보존하도록 escape한다.
+
+API path/query/response/page metadata, 권한, #200 owned-account scope, 1개월 archive cutoff와 #206 charge-item ordering 계약은 변경하지 않았다. `listAdminMemberCharges`, MEAL 경로, Flyway, dependency, schema와 index도 변경하지 않았다. After 측정은 아직 실행하지 않았고 PM integration branch의 동일 조건 순차 측정 전까지 개선 성과 수치로 보고하지 않는다.
+
+#194에는 실제 PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)`로만 채택할 후보로 `charge_items`의 campus/account/category/status/user filter-group 축과 `campus_members(campus_id, status, user_id)`를 전달한다. 이번 브랜치에는 index/Flyway를 추가하지 않는다.

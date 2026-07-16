@@ -864,3 +864,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Recommendation: Provide one stable local transcript source path or leave transcript analysis disabled.
 - Current action: No transcript source was provided, so conversation transcripts were not inspected.
 <!-- daily-resume-monitor:end:decision-log:2026-06-16 -->
+## 2026-07-16 - Issue #193 관리자 청구 집계 production 최적화 승인 및 snapshot 경계
+
+- 사용자는 O actual-before 수동 채택 뒤 `listAdminCampusCharges`와 `listAdminCampusChargesForMyAccounts`의 production 최적화를 승인했다.
+- 두 endpoint는 전용 `AdminChargeAggregationQueryPort`를 사용하며 DB summary 1회, member aggregate/page 1회, distinct member count 1회의 고정 query 구조를 사용한다.
+- `charge_items`를 ACTIVE `campus_members`와 active `users`에 결합하고 status별 합계, 최신 생성 시각, user/category/status/account/archive/keyword predicate, 기존 정렬과 pagination을 DB에서 처리한다.
+- 멤버별 User lookup과 전체 `ChargeItem` entity materialization은 두 endpoint에서 제거한다. API path/query/response/page metadata, 권한, account ownership, archive cutoff 의미는 변경하지 않는다.
+- 세 statement가 동시 write 사이에서 서로 다른 `READ_COMMITTED` snapshot을 볼 수 있는 반례가 재현됐으므로, 승인된 두 public endpoint에만 read-only `REPEATABLE_READ`를 적용한다. 다른 query service와 member-detail/MEAL 경로의 isolation은 변경하지 않는다.
+- 금액 projection은 long으로 보존한 뒤 기존 API int 경계에서 exact 변환하고 overflow는 fail-fast한다. Nullable latest-created projection과 기존 primary 방향 + userId asc tie 계약을 유지한다.
+- Issue #193에서는 index/Flyway/dependency/schema/API 변경을 금지한다. index 후보와 PostgreSQL EXPLAIN 실행계획은 #194 통합 단계에만 전달한다.
+- After 성능 측정은 개별 branch에서 실행하지 않고 PM integration branch에서 before와 동일 조건으로 수행한다. 그 전에는 production 구현 완료를 성능 개선 수치로 해석하지 않는다.
