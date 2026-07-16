@@ -83,7 +83,7 @@ test('devotion runner takes a common lock, records real Compose labels, samples 
 	assert.match(runner, /verify-devotion\.sql/);
 	assert.match(runner, /preflight-devotion\.sql/);
 	assert.match(runner, /scenario-contract\.mjs/);
-	assert.doesNotMatch(runner, /REPORT_ROOT:-/);
+	assert.doesNotMatch(runner, /\$\{REPORT_ROOT:-/);
 	assert.doesNotMatch(runner, /WARMUP_VUS:-|MEASURED_VUS:-|ROLLBACK_VUS:-|MAX_DURATION\s*:-/);
 	assert.ok(runner.indexOf('PHASE=warmup') < runner.indexOf('sample_stats &'));
 	assert.ok(runner.indexOf("STATS_PID=''", runner.indexOf('sample_stats &')) < runner.indexOf('PHASE=rollback'));

@@ -46,7 +46,7 @@ current-develop correctness drift는 다음처럼 분리 고정한다.
 6. Compose inspect 뒤 실제 project-keyed lock을 원자 획득한다. 실패 시 같은 stack의 다른 부하가 진행 중인 것으로 보고 즉시 종료하며, runner가 직접 획득한 빈 lock만 종료 시 `rmdir`한다. stale/non-empty lock은 자동 삭제하지 않는다.
 7. lock 전 검증한 source/image provenance, app image/JAR/API-contract digest와 app/DB/Redis full container ID, image ID, StartedAt을 initial capture와 다시 비교한다. 이후 warmup 직전, measured 직전, measured 직후, final snapshot의 source, Compose, PostgreSQL/Flyway, Redis run identity가 한 field라도 바뀌거나 source가 dirty/attached가 되면 non-zero로 종료한다.
 8. `REJECTION_EVIDENCE_FILE`은 fixture run별 fresh ignored report/temp 경로여야 한다. 실패하면 최초 stage/exit code만 mode 600 JSON으로 보존하고 이후 실패가 이를 덮어쓰지 않으며 `automaticAdoption=false`다.
-9. `build/reports/k6/issue-197/<fixtureRunId>`는 mode 700으로 원자 생성한다. 이미 존재하면 이전 evidence와 결합하거나 덮어쓰지 않고 즉시 거부하므로 devotion과 retention은 서로 다른 fresh `fixtureRunId`를 사용한다.
+9. 기본 `build/reports/k6/issue-197/<fixtureRunId>` 또는 optional `PERF_REPORT_ROOT/<fixtureRunId>`는 mode 700으로 원자 생성한다. 이미 존재하면 이전 evidence와 결합하거나 덮어쓰지 않고 즉시 거부하므로 devotion과 retention은 서로 다른 fresh `fixtureRunId`를 사용한다. fake/static suite는 invocation별 임시 `PERF_REPORT_ROOT`를 사용하지만 runtime target/workload 입력에는 어떤 fallback도 추가하지 않는다.
 
 ## 경건 write fixture 계약
 

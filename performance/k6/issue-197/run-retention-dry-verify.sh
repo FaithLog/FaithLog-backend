@@ -167,8 +167,9 @@ fixture_run_id="$(node "$SCRIPT_DIR/lib/fixture-contract.mjs" field "$RETENTION_
 dataset_id="$(node "$SCRIPT_DIR/lib/fixture-contract.mjs" field "$RETENTION_MANIFEST" datasetId)"
 dataset_prefix="$(node "$SCRIPT_DIR/lib/fixture-contract.mjs" field "$RETENTION_MANIFEST" datasetPrefix)"
 reference_instant="$(node "$SCRIPT_DIR/lib/fixture-contract.mjs" field "$RETENTION_MANIFEST" referenceInstant)"
-fixture_report_root="build/reports/k6/issue-197/$fixture_run_id"
-mkdir -p build/reports/k6/issue-197
+report_base="${PERF_REPORT_ROOT:-build/reports/k6/issue-197}"
+fixture_report_root="$report_base/$fixture_run_id"
+mkdir -p "$report_base"
 if ! mkdir -m 700 "$fixture_report_root" 2>/dev/null; then
 	printf 'Fixture report namespace already exists; fresh fixtureRunId is required: %s\n' "$fixture_report_root" >&2
 	exit 1

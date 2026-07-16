@@ -728,24 +728,6 @@ test('retention rejects a PostgreSQL restart after candidate SQL before adoption
 	}
 });
 
-test('independent retention invocations use separate report bases without weakening exclusive fixture namespaces', () => {
-	const harness = createRunnerHarness();
-	try {
-		const first = harness.run('retention', {
-			PERF_REPORT_ROOT: harness.reportBase('first'),
-			REJECTION_EVIDENCE_FILE: harness.rejectionPath('first-report-root-rejection.json'),
-		});
-		assert.equal(first.status, 0, first.stderr);
-		const second = harness.run('retention', {
-			PERF_REPORT_ROOT: harness.reportBase('second'),
-			REJECTION_EVIDENCE_FILE: harness.rejectionPath('second-report-root-rejection.json'),
-		});
-		assert.equal(second.status, 0, second.stderr);
-	} finally {
-		harness.cleanup();
-	}
-});
-
 function devotionManifest() {
 	const referenceDate = seoulToday();
 	return {
@@ -1035,6 +1017,7 @@ function createRunnerHarness() {
 		annualForeignKeyBlockers: 0, outsideFixtureCandidateRoots: 0,
 	});
 	const rejectionPath = path.join(temporaryDirectory, 'first-rejection.json');
+	let invocationCount = 0;
 
 	fs.writeFileSync(path.join(fakeBin, 'node'), `#!/usr/bin/env bash
 if [[ "\${1:-}" == '--test' ]]; then exit 0; fi
@@ -1136,17 +1119,17 @@ exit 1
 	return {
 		composeProject,
 		run(kind, overrides = {}) {
+			invocationCount += 1;
 			return spawnSync('bash', [path.join(ISSUE_DIR, kind === 'devotion' ? 'run-devotion-baseline.sh' : 'run-retention-dry-verify.sh')], {
-				cwd: REPO_ROOT, encoding: 'utf8', env: { ...baseEnvironment, ...overrides },
+				cwd: REPO_ROOT,
+				encoding: 'utf8',
+				env: { ...baseEnvironment, PERF_REPORT_ROOT: path.join(temporaryDirectory, 'reports', String(invocationCount)), ...overrides },
 			});
 		},
 		log() { return fs.existsSync(fakeLog) ? fs.readFileSync(fakeLog, 'utf8').trim().split('\n').filter(Boolean) : []; },
 		rejection() { return JSON.parse(fs.readFileSync(rejectionPath, 'utf8')); },
 		rejectionPath(name) { return path.join(temporaryDirectory, name); },
-		reportBase(name) { return path.join(temporaryDirectory, 'reports', name); },
 		cleanup() {
-			fs.rmSync(path.join(REPO_ROOT, 'build/reports/k6/issue-197', manifest.fixtureRunId), { recursive: true, force: true });
-			fs.rmSync(path.join(REPO_ROOT, 'build/reports/k6/issue-197', retentionFixtureRunId), { recursive: true, force: true });
 			fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 		},
 	};

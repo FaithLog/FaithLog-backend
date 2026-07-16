@@ -189,8 +189,9 @@ measured_user_ids="$(node "$SCRIPT_DIR/lib/fixture-contract.mjs" cohort-ids "$FI
 rollback_user_ids="$(node "$SCRIPT_DIR/lib/fixture-contract.mjs" cohort-ids "$FIXTURE_MANIFEST" rollback)"
 warmup_user_count="$(node -e 'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(m.warmupUserIds.length));' "$FIXTURE_MANIFEST")"
 rollback_user_count="$(node -e 'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(m.rollbackUserIds.length));' "$FIXTURE_MANIFEST")"
-fixture_report_root="build/reports/k6/issue-197/$fixture_run_id"
-mkdir -p build/reports/k6/issue-197
+report_base="${PERF_REPORT_ROOT:-build/reports/k6/issue-197}"
+fixture_report_root="$report_base/$fixture_run_id"
+mkdir -p "$report_base"
 if ! mkdir -m 700 "$fixture_report_root" 2>/dev/null; then
 	printf 'Fixture report namespace already exists; fresh fixtureRunId is required: %s\n' "$fixture_report_root" >&2
 	exit 1

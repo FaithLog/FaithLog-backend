@@ -231,7 +231,8 @@ test('devotion credentials are child-scoped and every fixture report namespace i
 	assert.match(devotionRunner, /credentials_file="\$CREDENTIALS_FILE"[\s\S]*unset CREDENTIALS_FILE/);
 	assert.match(devotionRunner, /CREDENTIALS_FILE="\$credentials_file"[\s\\]*\n[\t ]*PHASE="?\$phase"?/);
 	for (const runner of [devotionRunner, retentionRunner]) {
-		assert.match(runner, /fixture_report_root="build\/reports\/k6\/issue-197\/\$fixture_run_id"/);
+		assert.match(runner, /report_base="\$\{PERF_REPORT_ROOT:-build\/reports\/k6\/issue-197\}"/);
+		assert.match(runner, /fixture_report_root="\$report_base\/\$fixture_run_id"/);
 		assert.match(runner, /mkdir -m 700 "\$fixture_report_root"/);
 		assert.match(runner, /fixture report namespace already exists/i);
 		assert.doesNotMatch(runner, /mkdir -p "\$report_root"/);
