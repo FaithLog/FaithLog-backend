@@ -1721,6 +1721,183 @@ printf '%s\\n' '{"snapshotCapturedAt":"2026-07-16T12:48:36.050Z"}'
 	}
 });
 
+test('DB-wide commit evidence uses only the publication-safe request lower bound', () => {
+	const tokenVersionChecker = read(path.join(
+		repositoryRoot,
+		'src/main/java/com/faithlog/user/infrastructure/adapter/UserAccessTokenVersionChecker.java',
+	));
+	const adminUserService = read(path.join(
+		repositoryRoot,
+		'src/main/java/com/faithlog/admin/service/AdminUserManagementService.java',
+	));
+	assert.match(tokenVersionChecker, /matchesCurrentVersion[\s\S]*userRepository\.findById/);
+	assert.match(adminUserService, /@Transactional\(readOnly = true\)\s+public Page<AdminUserResult> searchUsers/);
+
+	const runner = read(files.runner);
+	const measuredK6 = runner.indexOf('CURRENT_STAGE=measured-k6');
+	const measuredEnd = runner.indexOf('record_case_window "$SCENARIO" "$CASE" measured-end');
+	const resourceAfter = runner.indexOf('CURRENT_STAGE=measured-resource-after');
+	const evidenceAfter = runner.indexOf('CURRENT_STAGE=measured-evidence-after');
+	assert.ok(measuredK6 < measuredEnd && measuredEnd < resourceAfter && resourceAfter < evidenceAfter);
+	assert.doesNotMatch(
+		runner.slice(measuredEnd, evidenceAfter),
+		/pg_stat_(?:clear_snapshot|force_next_flush)|stats settle|DB_STATS_SETTLE/i,
+		'the runner has no explicit cross-backend cumulative-statistics settle proof',
+	);
+
+	const requestCount = 12_342;
+	const { before, after, measured } = validDbIntegritySnapshots(requestCount);
+	after.databaseStats.xactCommit = (
+		BigInt(before.databaseStats.xactCommit) + BigInt(requestCount) + 1n
+	).toString();
+	withTempJsonFiles('faithlog-195-db-publication-lower-bound-', [
+		before, after, measured, validDbControlAdoption(),
+	], (paths, directory) => {
+		const outputPath = path.join(directory, 'adoption.json');
+		const result = runJsonTool(files.dbIntegrityValidator, [
+			...paths, outputPath, 'admin_users-first_page', '2m', '10',
+		]);
+		assert.equal(result.status, 0, result.stderr);
+		const output = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+		assert.equal(output.status, 'supporting-only');
+		assert.equal(output.automaticAdoption, false);
+		assert.equal(output.minimumApplicationTransactionsPerRequest, 1);
+		assert.equal(output.sourceObservedApplicationTransactionsPerRequest, 2);
+		assert.equal(output.minimumCommitDelta, String(requestCount + 1));
+		assert.equal(output.sourceRequiredCommitDelta, String(requestCount * 2 + 1));
+		assert.equal(output.sourceCommitCoverage, 'not-proven-by-database-wide-snapshot');
+		assert.equal(output.backgroundSubtractionApplied, false);
+	});
+
+	const belowMinimum = validDbIntegritySnapshots(requestCount);
+	belowMinimum.after.databaseStats.xactCommit = (
+		BigInt(belowMinimum.before.databaseStats.xactCommit) + BigInt(requestCount)
+	).toString();
+	withTempJsonFiles('faithlog-195-db-below-request-lower-bound-', [
+		belowMinimum.before,
+		belowMinimum.after,
+		belowMinimum.measured,
+		validDbControlAdoption(),
+	], (paths) => {
+		const result = runJsonTool(files.dbIntegrityValidator, [
+			...paths, '', 'admin_users-first_page', '2m', '10',
+		]);
+		assert.notEqual(result.status, 0, 'requestCount + observer remains the strict minimum');
+	});
+});
+
+test('preserved F actual evidence is a read-only fixture for the two-per-request false rejection', (t) => {
+	const reportDirectory = process.env.ISSUE195_EXECUTION_F_REPORT;
+	if (!reportDirectory) {
+		t.skip('ISSUE195_EXECUTION_F_REPORT is required for the preserved F fixture');
+		return;
+	}
+	assert.ok(path.isAbsolute(reportDirectory));
+	assert.equal(path.basename(reportDirectory), 'EXEC195_BEFORE_20260716_F');
+
+	const inventory = (directory) => {
+		const result = new Map();
+		const visit = (current) => {
+			for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+				const absolute = path.join(current, entry.name);
+				if (entry.isDirectory()) {
+					visit(absolute);
+				} else if (entry.isFile()) {
+					const content = fs.readFileSync(absolute);
+					const stats = fs.statSync(absolute, { bigint: true });
+					result.set(path.relative(directory, absolute), {
+						content,
+						hash: createHash('sha256').update(content).digest('hex'),
+						size: stats.size,
+						mtimeNs: stats.mtimeNs,
+					});
+				}
+			}
+		};
+		visit(directory);
+		return result;
+	};
+	const beforeInventory = inventory(reportDirectory);
+
+	const evidenceDirectory = path.join(reportDirectory, 'db-evidence', 'admin_users-middle_page');
+	const paths = {
+		rejection: path.join(reportDirectory, 'first-rejection.json'),
+		windows: path.join(reportDirectory, 'case-windows.ndjson'),
+		measuredSummary: path.join(reportDirectory, 'measured-admin_users-middle_page.json'),
+		measured: path.join(reportDirectory, 'measured-admin_users-middle_page-adoption.json'),
+		before: path.join(evidenceDirectory, 'before-runtime-integrity.json'),
+		after: path.join(evidenceDirectory, 'after-runtime-integrity.json'),
+		control: path.join(evidenceDirectory, 'control-window-adoption.json'),
+	};
+	const rejection = JSON.parse(read(paths.rejection));
+	assert.deepEqual({ stage: rejection.stage, scenario: rejection.scenario, case: rejection.case }, {
+		stage: 'measured-evidence-after', scenario: 'admin_users', case: 'middle_page',
+	});
+	const measured = JSON.parse(read(paths.measured));
+	const measuredSummary = JSON.parse(read(paths.measuredSummary));
+	const before = JSON.parse(read(paths.before));
+	const after = JSON.parse(read(paths.after));
+	const control = JSON.parse(read(paths.control));
+	assert.equal(measured.requestCount, 12_342);
+	assert.equal(before.databaseStats.xactCommit, '167243');
+	assert.equal(after.databaseStats.xactCommit, '191857');
+	assert.equal(BigInt(after.databaseStats.xactCommit) - BigInt(before.databaseStats.xactCommit), 24_614n);
+	assert.equal(control.controlCommitDelta, '40');
+	assert.equal(control.backgroundCommitDelta, '39');
+	assert.equal(control.rollbackDelta, '0');
+	assert.equal(control.automaticAdoption, false);
+
+	const windows = read(paths.windows).trim().split('\n').map((line) => JSON.parse(line));
+	const measuredEnd = windows.find((entry) => entry.scenario === 'admin_users'
+		&& entry.case === 'middle_page' && entry.event === 'measured-end');
+	assert.ok(measuredEnd);
+	const afterGapMilliseconds = Date.parse(after.snapshotCapturedAt) - Date.parse(measuredEnd.at);
+	const httpDuration = measuredSummary.metrics.http_req_duration;
+	const measuredMaximumMilliseconds = (httpDuration.values ?? httpDuration).max;
+	assert.equal(afterGapMilliseconds, 6_304);
+	assert.equal(measuredMaximumMilliseconds, 4_117.026);
+	assert.ok(afterGapMilliseconds > measuredMaximumMilliseconds);
+
+	const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-f-actual-'));
+	try {
+		const outputPath = path.join(outputDirectory, 'db-integrity-adoption.json');
+		const result = runJsonTool(files.dbIntegrityValidator, [
+			paths.before,
+			paths.after,
+			paths.measured,
+			paths.control,
+			outputPath,
+			'admin_users-middle_page',
+			'2m',
+			'10',
+		]);
+		assert.equal(result.status, 0, result.stderr);
+		const output = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+		assert.equal(output.status, 'conditional-not-adoptable');
+		assert.equal(output.automaticAdoption, false);
+		assert.equal(output.minimumApplicationTransactionsPerRequest, 1);
+		assert.equal(output.sourceObservedApplicationTransactionsPerRequest, 2);
+		assert.equal(output.minimumCommitDelta, '12343');
+		assert.equal(output.sourceRequiredCommitDelta, '24685');
+		assert.equal(output.sourceCommitCoverage, 'not-proven-by-database-wide-snapshot');
+		assert.equal(output.sourceUnattributedCommitDelta, '12271');
+		assert.equal(output.backgroundSubtractionApplied, false);
+	} finally {
+		fs.rmSync(outputDirectory, { recursive: true, force: true });
+	}
+
+	const afterInventory = inventory(reportDirectory);
+	assert.deepEqual([...afterInventory.keys()], [...beforeInventory.keys()]);
+	for (const [relative, beforeFile] of beforeInventory) {
+		const afterFile = afterInventory.get(relative);
+		assert.ok(afterFile, relative);
+		assert.deepEqual(afterFile.content, beforeFile.content, `${relative} content changed`);
+		assert.equal(afterFile.hash, beforeFile.hash, `${relative} hash changed`);
+		assert.equal(afterFile.size, beforeFile.size, `${relative} size changed`);
+		assert.equal(afterFile.mtimeNs, beforeFile.mtimeNs, `${relative} mtime changed`);
+	}
+});
+
 test('runtime integrity excludes only its own PID and counts same-name observer sessions', () => {
 	const runtimeSql = read(files.dbRuntimeIntegrity);
 	assert.match(runtimeSql, /pid\s*<>\s*pg_backend_pid\(\)/i);
