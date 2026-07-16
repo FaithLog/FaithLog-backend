@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -229,6 +230,28 @@ test('approved clean detached checkout and later image creation replace unavaila
 	assert.throws(
 		() => validateSourceImageProvenance({ ...facts, composeWorkingDir: '/private/tmp/other' }, expected),
 		/working directory/i,
+	);
+});
+
+test('API contract digest requires every current devotion, notification, batch, and migration tree', async () => {
+	const contractPath = path.join(ISSUE_DIR, 'lib/source-image-provenance.mjs');
+	const { API_CONTRACT_PATHS, collectApiContractInventory } = await import(`${pathToFileURL(contractPath).href}?inventory=${Date.now()}`);
+	const expectedPaths = [
+		'src/main/java/com/faithlog/devotion',
+		'src/main/java/com/faithlog/notification',
+		'src/main/java/com/faithlog/batch/infrastructure/scheduler',
+		'src/main/java/com/faithlog/batch/service',
+		'src/main/resources/db/migration',
+	];
+	assert.deepEqual(API_CONTRACT_PATHS, expectedPaths);
+	const revision = execFileSync('git', ['-C', REPOSITORY_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+	const inventory = collectApiContractInventory(REPOSITORY_ROOT, revision);
+	for (const requiredPath of expectedPaths) {
+		assert.match(inventory, new RegExp(`\\t${requiredPath.replaceAll('/', '\\/')}(?:\\/|$)`));
+	}
+	assert.throws(
+		() => collectApiContractInventory(REPOSITORY_ROOT, revision, [...expectedPaths, 'src/main/java/com/faithlog/missing-contract-tree']),
+		/missing-contract-tree.*must exist/i,
 	);
 });
 
