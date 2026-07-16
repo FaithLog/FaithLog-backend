@@ -21,6 +21,7 @@ set -euo pipefail
 : "${PERF_PRELOCK_REDIS_CONFIG_HASH:?PERF_PRELOCK_REDIS_CONFIG_HASH is required.}"
 : "${PERF_PRELOCK_POSTGRES_HOST_PORT:?PERF_PRELOCK_POSTGRES_HOST_PORT is required.}"
 : "${PERF_PRELOCK_REDIS_HOST_PORT:?PERF_PRELOCK_REDIS_HOST_PORT is required.}"
+: "${PERF_EXPECTED_POSTGRES_SERVER_ADDRESS:?PERF_EXPECTED_POSTGRES_SERVER_ADDRESS is required.}"
 
 OUTPUT_PATH="${1:?Output path is required.}"
 TEMP_PATH="${OUTPUT_PATH}.tmp.$$"
@@ -91,6 +92,10 @@ PGPASSWORD="${POSTGRES_PASSWORD}" docker exec -e PGPASSWORD "${PG_CONTAINER_ID}"
 		'port', inet_server_port(),
 		'postmasterStartTime', pg_postmaster_start_time()
 	);" > "${PG_SERVER_PATH}"
+PG_ACTUAL_SERVER_ADDRESS="$(node -p \
+	'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).address' "${PG_SERVER_PATH}")"
+node "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/runtime-inet-contract.mjs" validate \
+	"${PG_ACTUAL_SERVER_ADDRESS}" "${PERF_EXPECTED_POSTGRES_SERVER_ADDRESS}"
 if [[ "${PERF_REDIS_AUTH_MODE}" == "password" ]]; then
 	: "${REDIS_PASSWORD:?REDIS_PASSWORD is required when PERF_REDIS_AUTH_MODE=password.}"
 	REDISCLI_AUTH="${REDIS_PASSWORD}" docker exec -e REDISCLI_AUTH "${REDIS_CONTAINER_ID}" \
@@ -123,7 +128,7 @@ node -e '
 	assert.equal(process.env.REDIS_CONTAINER_IMAGE_ID, process.env.PERF_EXPECTED_REDIS_IMAGE_ID);
 	assert.equal(process.env.PG_COMPOSE_SERVICE, process.env.PERF_EXPECTED_POSTGRES_SERVICE);
 	assert.equal(process.env.REDIS_COMPOSE_SERVICE, process.env.PERF_EXPECTED_REDIS_SERVICE);
-	assert.match(postgresServer.address, /^\d{1,3}(\.\d{1,3}){3}$|^[0-9a-f:]+$/i);
+	assert.equal(typeof postgresServer.address, "string");
 	assert.ok(Number.isInteger(postgresServer.port) && postgresServer.port > 0);
 	assert.match(process.env.PG_CONTAINER_HOST_PORT, /^[1-9][0-9]*$/);
 	assert.match(process.env.REDIS_CONTAINER_HOST_PORT, /^[1-9][0-9]*$/);

@@ -140,6 +140,7 @@ PERF_SPRING_PROFILE=local \
 PERF_FCM_ADAPTER=fake \
 PERF_EXPECTED_COMPOSE_PROJECT=<user-approved-dedicated-project> \
 PERF_EXPECTED_POSTGRES_ROLE=<user-approved-direct-owner-role> \
+PERF_EXPECTED_POSTGRES_SERVER_ADDRESS=127.0.0.1 \
 POSTGRES_CONTAINER=<dedicated-postgres-container> \
 REDIS_CONTAINER=<dedicated-redis-container> \
 PERF_EXPECTED_POSTGRES_CONTAINER_ID=<full-container-id> \
@@ -176,6 +177,7 @@ PERF_SPRING_PROFILE=local \
 PERF_FCM_ADAPTER=fake \
 PERF_EXPECTED_COMPOSE_PROJECT=<user-approved-dedicated-project> \
 PERF_EXPECTED_POSTGRES_ROLE=<user-approved-direct-owner-role> \
+PERF_EXPECTED_POSTGRES_SERVER_ADDRESS=127.0.0.1 \
 POSTGRES_CONTAINER=<dedicated-postgres-container> \
 REDIS_CONTAINER=<dedicated-redis-container> \
 PERF_EXPECTED_POSTGRES_CONTAINER_ID=<full-container-id> \
@@ -203,6 +205,10 @@ bash performance/k6/notification-batch/run-before.sh
 fixture preparation과 runner는 #198 전용 host-global `/tmp/faithlog-performance-global.lock`과 저장소 performance runner의 canonical `/tmp/faithlog-performance-${actualComposeProject}.lock`을 같은 순서로 함께 획득한다. 실제 Compose project 검증 뒤 canonical lock 획득에 실패하면 fixture SQL 또는 Gradle을 시작하지 않는다. 따라서 같은 Compose project를 쓰는 다른 issue runner와 상호 배제되며, global lock은 서로 다른 #198 worktree/project의 동시 실행까지 막는 추가 안전장치일 뿐 canonical project lock을 대체하지 않는다. 별도 project가 실제로 같은 외부 자원을 공유하는 구성은 lock만으로 판별할 수 있으므로 실행자는 병렬 부하 부재를 계속 확인한다. runner는 clean index/worktree만 허용하고 run ID가 이미 있으면 overwrite하지 않고 즉시 거부한다.
 
 lock 획득 직후 fixture prep과 runner는 published host port를 포함한 PostgreSQL/Redis container `.Id`, image ID, `.State.StartedAt`, Compose project/service/config hash와 server identity를 다시 읽고 post-lock truth로 고정한다. pre-lock 값은 canonical lock 이름을 찾는 project discovery에만 사용한다. runner는 locked/initial/before/after/final 다섯 시점, fixture prep은 locked/before-fixture/after-fixture 세 시점을 exact 비교하므로 guard와 lock 사이, SQL/workload 직전, fixture mutation 도중의 same-name 교체도 실패한다. PostgreSQL은 current database, server address/port, postmaster start time을, Redis는 run ID, port, monotonic uptime을 함께 고정한다. 같은 container 이름과 image/project를 유지한 재생성도 container ID, host port 또는 server identity가 달라 실패한다.
+
+PostgreSQL `inet_server_addr()::text` 원문은 evidence에 그대로 보존한다. 비교할 때만 actual IPv4의 optional exact `/32`, IPv6의 optional exact `/128`, expanded/compressed IPv6 loopback spelling을 canonicalize한다. runtime 승인 입력 `PERF_EXPECTED_POSTGRES_SERVER_ADDRESS`는 CIDR 없는 plain `127.0.0.1` 또는 `::1`만 허용한다. `/24`, `/64`, 다른 loopback/external address, malformed/multiple CIDR와 CIDR-bearing 승인 입력은 모두 거부한다.
+
+actual attempt `before-20260717-01` / project `faithlog-perf-198-20260717`은 PostgreSQL raw address `127.0.0.1/32`를 구 validator가 거부해 synthetic seed runtime preflight에서 종료됐다. migration/seed/canonical fixture/snapshot/Gradle sample은 모두 0이며 report, containers, volumes는 forensic 보존하고 재사용하지 않는다. 다음 fresh namespace는 project `faithlog-perf-198-20260717-02`, batch `before-20260717-02`, report `/private/tmp/faithlog-perf-198-reports/20260717-02`와 unique container/volume names다.
 
 Docker stats뿐 아니라 fixture SQL, PostgreSQL/Redis snapshot, runtime server identity query도 container 이름이 아니라 locked immutable container ID를 대상으로 사용한다. 각 resource sample 직전에 실제 `.Id`를 다시 읽어 expected ID와 대조한 값만 CSV에 기록한다. Redis `cmdstat_set` 누락은 0으로 보정하지 않고 capture 단계에서 실패한다. fixture prep과 runner는 lock 획득 전에 HUP/INT/TERM/EXIT cleanup을 설치한다. runner는 background sampler를 종료·wait하고 marker를 지운 뒤 자신이 실제 획득한 두 lock만 해제하며, 다른 runner가 선점한 canonical lock은 절대 제거하지 않는다.
 

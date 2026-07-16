@@ -37,6 +37,7 @@ test('all target, service, image, credential, and workload inputs are runtime-re
 		'POSTGRES_PASSWORD',
 		'POSTGRES_DB',
 		'PERF_EXPECTED_POSTGRES_ROLE',
+		'PERF_EXPECTED_POSTGRES_SERVER_ADDRESS',
 		'PERF_REDIS_AUTH_MODE',
 		'PERF_MEMBER_COUNT',
 		'PERF_SUCCESS_COUNT',
@@ -249,6 +250,7 @@ test('entrypoint preflight rejects missing runtime inputs before Docker and pres
 		const harnessEnv = {
 			...baseEnv, POSTGRES_USER: 'owner', POSTGRES_PASSWORD: 'runtime-secret',
 			POSTGRES_DB: 'faithlog_perf', PERF_EXPECTED_POSTGRES_ROLE: 'owner',
+			PERF_EXPECTED_POSTGRES_SERVER_ADDRESS: '127.0.0.1',
 			PERF_EXPECTED_HARNESS_CONTRACT_DIGEST: 'a'.repeat(64),
 		};
 		const missingHead = spawnSync('bash', [join(scenario, 'run-before.sh')], {

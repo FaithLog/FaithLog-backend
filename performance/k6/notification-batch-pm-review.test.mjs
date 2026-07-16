@@ -399,6 +399,7 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 		mkdirSync(syntheticScenario, { recursive: true });
 		for (const name of [
 			'guard-runtime.sh', 'runner-lifecycle.sh', 'rejection-contract.mjs',
+			'runtime-inet-contract.mjs',
 			'prepare-fixtures.sh', 'prepare-fixtures.sql', 'run-before.sh',
 		]) {
 			copyFileSync(scenarioPath(name), join(syntheticScenario, name));
@@ -438,6 +439,7 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 			PERF_FCM_ADAPTER: 'fake',
 			PERF_EXPECTED_COMPOSE_PROJECT: project,
 			PERF_EXPECTED_POSTGRES_ROLE: 'postgres',
+			PERF_EXPECTED_POSTGRES_SERVER_ADDRESS: '127.0.0.1',
 			POSTGRES_CONTAINER: 'pg-198',
 			REDIS_CONTAINER: 'redis-198',
 			PERF_EXPECTED_POSTGRES_CONTAINER_ID: 'a'.repeat(64),
@@ -724,6 +726,7 @@ verify_notification_batch_runtime_after_lock "${join(root, 'runtime-identity-loc
 				POSTGRES_PASSWORD: 'runtime-only-synthetic',
 				POSTGRES_DB: 'faithlog',
 				PERF_EXPECTED_POSTGRES_ROLE: 'faithlog',
+				PERF_EXPECTED_POSTGRES_SERVER_ADDRESS: '127.0.0.1',
 				PERF_REDIS_AUTH_MODE: 'none',
 				REDIS_PASSWORD: '',
 				FIREBASE_CONFIG_JSON: '',

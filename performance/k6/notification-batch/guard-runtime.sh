@@ -17,7 +17,13 @@ guard_notification_batch_runtime() {
 	: "${POSTGRES_PASSWORD:?Set the runtime-only PostgreSQL password.}"
 	: "${POSTGRES_DB:?Set the runtime PostgreSQL database.}"
 	: "${PERF_EXPECTED_POSTGRES_ROLE:?Set the approved direct owner JDBC role.}"
+	: "${PERF_EXPECTED_POSTGRES_SERVER_ADDRESS:?Set the approved plain PostgreSQL loopback server address.}"
 	: "${PERF_REDIS_AUTH_MODE:?Set PERF_REDIS_AUTH_MODE=none or password.}"
+
+	local guard_script_dir
+	guard_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+	node "${guard_script_dir}/runtime-inet-contract.mjs" validate-approved \
+		"${PERF_EXPECTED_POSTGRES_SERVER_ADDRESS}" >/dev/null
 
 	if [[ "${ALLOW_NOTIFICATION_BATCH_BASELINE}" != "true" ]]; then
 		echo "ALLOW_NOTIFICATION_BATCH_BASELINE must be exactly true." >&2
@@ -78,7 +84,7 @@ guard_notification_batch_runtime() {
 		return 2
 	fi
 	export POSTGRES_CONTAINER REDIS_CONTAINER POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
-	export PERF_EXPECTED_POSTGRES_ROLE PERF_REDIS_AUTH_MODE REDIS_PASSWORD
+	export PERF_EXPECTED_POSTGRES_ROLE PERF_EXPECTED_POSTGRES_SERVER_ADDRESS PERF_REDIS_AUTH_MODE REDIS_PASSWORD
 	export PERF_EXPECTED_POSTGRES_CONTAINER_ID PERF_EXPECTED_REDIS_CONTAINER_ID
 	export PERF_EXPECTED_POSTGRES_SERVICE PERF_EXPECTED_REDIS_SERVICE
 	export PERF_EXPECTED_POSTGRES_IMAGE_ID PERF_EXPECTED_REDIS_IMAGE_ID
