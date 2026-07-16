@@ -218,6 +218,7 @@ test('fake full run prepares once, captures once, restores before every sample, 
 	try {
 		const actions = [];
 		const childEnvironments = [];
+		const forbiddenDefaultRoot = join(temporaryRoot, 'forbidden-default');
 		let lockHeld = false;
 		const lockCoordinator = ({ batchRoot, composeProject }) => {
 			const receiptPath = join(batchRoot, 'orchestration-lock.json');
@@ -240,6 +241,7 @@ test('fake full run prepares once, captures once, restores before every sample, 
 			baseChildEnvironment: {
 				PATH: process.env.PATH,
 				HOME: temporaryRoot,
+				PERF_REPORT_ROOT: forbiddenDefaultRoot,
 				PERF_DATASET_ID: 'PERFORMANCE_198_FAKE',
 				POSTGRES_PASSWORD: 'runtime-secret',
 				REDIS_PASSWORD: 'runtime-secret',
@@ -248,8 +250,9 @@ test('fake full run prepares once, captures once, restores before every sample, 
 				COOKIE: 'must-not-leak',
 			},
 		}, {
-			provisionSyntheticDataset: async ({ receiptPath }) => {
+			provisionSyntheticDataset: async ({ receiptPath, childEnvironment }) => {
 				actions.push('seed');
+				childEnvironments.push(childEnvironment);
 				writeFileSync(receiptPath, `${JSON.stringify({
 					schemaVersion: 1, composeProject: 'faithlog-perf-198-before',
 					postgresDatabase: 'faithlog', datasetId: 'PERFORMANCE_198_FAKE', campusId: 198,
@@ -318,6 +321,10 @@ test('fake full run prepares once, captures once, restores before every sample, 
 					notification_batch_duration: { values: { 'p(50)': 10, 'p(95)': 20, 'p(99)': 25, max: 30 } },
 				} })}\n`, { flag: 'wx' });
 			},
+			summarize: async ({ childEnvironment }) => {
+				actions.push('summarize');
+				childEnvironments.push(childEnvironment);
+			},
 		});
 		assert.equal(result.captureCount, 1);
 		assert.equal(result.fixturePrepareCount, 1);
@@ -332,12 +339,24 @@ test('fake full run prepares once, captures once, restores before every sample, 
 		assert.equal(actions.filter((action) => action.startsWith('restore:')).length, 11);
 		assert.equal(actions.filter((action) => action.startsWith('fixture:')).length, 1);
 		assert.equal(actions.filter((action) => action.startsWith('run:')).length, 11);
+		assert.equal(actions.filter((action) => action === 'summarize').length, 1);
 		for (const childEnvironment of childEnvironments) {
 			assert.ok(childEnvironment.PERF_ORCHESTRATION_LOCK_RECEIPT);
+			assert.equal(childEnvironment.PERF_REPORT_ROOT, temporaryRoot);
+			for (const key of [
+				'PERF_SEED_RECEIPT_PATH', 'PERF_SNAPSHOT_ROOT', 'PERF_SNAPSHOT_RECEIPT_PATH',
+				'PERF_RESTORE_RECEIPT_PATH', 'MANIFEST_PATH', 'RUN_DIRS_FILE', 'OUTPUT_PATH',
+				'SNAPSHOT_RECEIPT_PATH', 'RESTORE_RECEIPTS_FILE',
+			]) {
+				if (childEnvironment[key] !== undefined) {
+					assert.ok(childEnvironment[key].startsWith(`${temporaryRoot}/`), `${key} escaped report root`);
+				}
+			}
 			assert.equal(childEnvironment.API_KEY, undefined);
 			assert.equal(childEnvironment.AUTHORIZATION, undefined);
 			assert.equal(childEnvironment.COOKIE, undefined);
 		}
+		assert.equal(existsSync(forbiddenDefaultRoot), false, 'orchestration must not write to a fallback report root');
 
 		let runCount = 0;
 		let driftLockHeld = false;
