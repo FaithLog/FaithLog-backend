@@ -1466,7 +1466,7 @@ include::{snippets}/payment-account-delete-success/http-response.adoc[]
 
 `GET /api/v1/campuses/{campusId}/charges/me`
 
-해당 캠퍼스의 ACTIVE 멤버 본인이 자신의 청구 목록을 조회한다. 기본 페이지 크기는 10이고 최대 100이다. `includeArchived=false`에서는 `UNPAID`를 기간 제한 없이 포함하고, `PAID`는 `paidAt`, `WAIVED`/`CANCELED`는 `updatedAt` 기준 최근 1개월만 포함한다. `includeArchived=true`이면 이전 완료 기록도 조회하며 데이터는 삭제하지 않는다. 응답은 기존 `items`와 함께 `page`, `size`, `totalElements`, `totalPages`를 반환한다.
+해당 캠퍼스의 ACTIVE 멤버 본인이 자신의 청구 목록을 조회한다. 기본 페이지 크기는 10이고 최대 100이다. `includeArchived=false`에서는 `UNPAID`를 기간 제한 없이 포함하고, `PAID`는 `paidAt`, `WAIVED`/`CANCELED`는 `updatedAt` 기준 최근 1개월만 포함한다. `includeArchived=true`이면 이전 완료 기록도 조회하며 데이터는 삭제하지 않는다. 응답은 기존 `items`와 함께 `page`, `size`, `totalElements`, `totalPages`를 반환한다. 허용된 primary 정렬 값이 같으면 요청한 방향과 같은 `id` secondary 정렬을 적용해 페이지 순서를 안정화한다.
 
 ==== Request
 
@@ -1616,7 +1616,7 @@ include::{snippets}/charge-admin-my-accounts-summary-success/response-fields.ado
 
 `GET /api/v1/admin/campuses/{campusId}/members/{userId}/charges`
 
-캠퍼스 관리자 또는 전역 `ADMIN`이 특정 회원의 청구 상세를 조회한다. 활성 `COFFEE` 담당자는 `paymentCategory=COFFEE`로 제한된 회원 청구 상세만 조회할 수 있다. 응답에는 대상 회원의 `userId`, `name`, `email`이 포함되며, 청구 item은 내 청구 목록과 동일한 `account`/`source` 구조를 사용한다. 기본 페이지 크기는 20이며 `includeArchived`와 `page`, `size`, `totalElements`, `totalPages` 계약을 동일하게 적용한다.
+캠퍼스 관리자 또는 전역 `ADMIN`이 특정 회원의 청구 상세를 조회한다. 활성 `COFFEE` 담당자는 `paymentCategory=COFFEE`로 제한된 회원 청구 상세만 조회할 수 있다. 응답에는 대상 회원의 `userId`, `name`, `email`이 포함되며, 청구 item은 내 청구 목록과 동일한 `account`/`source` 구조를 사용한다. 기본 페이지 크기는 20이며 `includeArchived`와 `page`, `size`, `totalElements`, `totalPages`, 동일 방향 `id` secondary 정렬 계약을 내 청구 목록과 동일하게 적용한다.
 
 ==== Request
 
