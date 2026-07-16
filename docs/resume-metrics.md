@@ -17,6 +17,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 최종 검증: `./gradlew test`는 88 suites / 555 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`와 `./gradlew asciidoctor`는 모두 성공했다. REST Docs 170 snippet groups와 최신 `build/docs/asciidoc/index.html` 생성을 확인했다.
 - 프론트 영향: path/query/response shape와 sort parameter 형식이 동일하므로 production API client/type/UI 수정은 필요 없다. 별도 frontend integration mock의 `getMockAdminMemberChargeState`, `getMockMemberChargeList`는 primary 방향과 무관하게 ID ASC tie-break를 사용해 DESC에서 backend와 불일치하므로 mock과 관련 테스트의 최소 수정은 필요하다. 이 backend 작업에서는 frontend 파일을 편집하지 않았다.
 
+## 2026-07-16 - Issue #195 멤버 목록 current-develop 시나리오 보정
+
+- 상태: `scenario-ready/not-measured`. 성능 수치와 개선 성과는 없으며 resume 성과로 집계하지 않는다.
+- TDD: 최신 develop의 page size, 미지원 archive, #200 권한·lookup, #202 owner-JDBC RLS 경계, #206 ordering 적용 범위를 고정한 계약 테스트를 먼저 추가했고 기존 manifest에서 targeted `1 test / 1 failure` RED를 확인했다.
+- 시나리오 계약: 관리자 사용자·캠퍼스는 `size=20`/`size=100`을 분리하고 explicit `id,asc`를 사용한다. 캠퍼스 멤버는 ACTIVE membership/ID ASC, 담당자는 `staleOnly=false`/ACTIVE assignment+membership/ID ASC다. `includeArchived`는 네 endpoint 모두 보내지 않는다. #200 이후 duty user lookup은 이미 bulk, campus member lookup은 per-member인 current-develop 상태를 측정 대상으로 고정한다.
+- 실행 정책: #192-#199 issue-local test code는 병렬 보정하지만 실제 fixture/HTTP/DB/Docker/k6 부하는 PM exclusive measurement slot에서만 순차 실행한다. 이번 작업에서는 actual load와 전체 Gradle/build/asciidoctor를 실행하지 않는다.
+
 ## 핵심 지표 후보
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |

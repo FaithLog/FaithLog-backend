@@ -97,6 +97,7 @@ export default function ({ token }) {
 		[`${metricName} filter contract`]: () => validateFilters(body),
 		[`${metricName} exact cardinality`]: () => validateExactCardinality(body),
 		[`${metricName} campus isolation`]: () => validateCampusIsolation(body),
+		[`${metricName} current develop list contract`]: () => validateCurrentDevelopListContract(body),
 	});
 	endpointFailures.add(!valid);
 	if (!valid) {
@@ -206,6 +207,21 @@ function validateExactCardinality(body) {
 		return Array.isArray(body.data) && body.data.length === EXPECTED_ACTIVE_MEMBERS;
 	}
 	return Array.isArray(body.data) && body.data.length === EXPECTED_DUTY_ASSIGNMENTS;
+}
+
+function validateCurrentDevelopListContract(body) {
+	if (Object.prototype.hasOwnProperty.call(scenarioCase.query || {}, 'includeArchived')) {
+		return false;
+	}
+	if (SCENARIO === 'campus_members') {
+		return Array.isArray(body.data) && body.data.every((member) => member.status === 'ACTIVE');
+	}
+	if (SCENARIO === 'duty_assignments') {
+		return scenarioCase.query.staleOnly === false
+			&& Array.isArray(body.data)
+			&& body.data.every((assignment) => assignment.isActive === true);
+	}
+	return true;
 }
 
 function pageOrList(body) {

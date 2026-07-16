@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-16 - Issue #195 Current-Develop Member List Scenario Boundary
+
+- Context: 사용자는 성능 이슈 #192-#199의 test/scenario code는 병렬 보정하되 실제 measurement slot은 PM만 순차 사용하도록 결정했다. 기존 #195 before 시나리오는 최신 `origin/develop`의 #200 권한/담당자 조회, #201 page/archive, #202 RLS, #206 ordering 계약을 다시 대조해야 한다.
+- Decision: #195는 `scenario-ready/not-measured` 상태에서 관리자 사용자·캠퍼스 목록과 캠퍼스 멤버·담당자 목록 시나리오만 유지한다. 관리자 목록은 기본 `size=20`, 최대 `size=100`을 분리하고, 멤버 목록은 ACTIVE membership과 ID 오름차순, 담당자 목록은 명시적 `staleOnly=false`와 ACTIVE assignment/ACTIVE membership 및 ID 오름차순을 검증한다. 네 endpoint 모두 지원하지 않는 `includeArchived`를 보내지 않는다.
+- Decision: #200 반영 후 담당자 목록의 사용자 조회는 이미 bulk이고 캠퍼스 멤버 목록은 per-member인 current-develop 상태를 그대로 기록한다. #202는 `FORCE ROW LEVEL SECURITY`를 사용하지 않는 owner-JDBC 경계만 정적으로 기록하고 실제 연결 연속성은 승인된 측정까지 미검증으로 둔다. #206 billing tie-break는 #195 endpoint에 적용하지 않으며, #195는 각 API의 명시적 ID 오름차순 계약만 검증한다.
+- Impact: production Java/API/권한/응답/오류/트랜잭션/Entity/DB/Flyway/dependency를 변경하지 않는다. test code는 병렬 보정할 수 있지만 fixture/HTTP/DB/Docker/k6 actual load는 PM exclusive window에서만 순차 수행한다. 수치와 개선 성과는 실제 측정 전까지 기록하지 않는다.
+
 ### 2026-07-16 - Issue #206 Stable Charge Item Pagination Ordering
 
 - Context: Issue #193 current-develop before preflight에서 `sort=createdAt,desc`로 조회한 회원별 청구 상세의 동일 `created_at` 행이 일부는 ID 오름차순, 일부는 내림차순으로 반환됐다. primary 정렬만 있는 offset paging은 동률 행의 페이지 간 중복·누락 가능성이 있어 정확한 baseline 검증을 중단했다.

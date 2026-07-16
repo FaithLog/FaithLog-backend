@@ -128,7 +128,7 @@ const primaryMembers = (await get(
 	token,
 )).data;
 const primaryDuties = (await get(
-	`/api/v1/admin/campuses/${primaryCampus.campusId}/duty-assignments`,
+	`/api/v1/admin/campuses/${primaryCampus.campusId}/duty-assignments?staleOnly=false`,
 	token,
 )).data;
 if (primaryMembers.length !== requiredActiveMembers) {

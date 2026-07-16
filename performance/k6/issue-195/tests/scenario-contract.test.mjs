@@ -467,6 +467,7 @@ test('current develop page, archive, permission, RLS, and ordering drift is expl
 	const memberRepository = readRepository('src/main/java/com/faithlog/campus/infrastructure/repository/CampusMemberRepository.java');
 	const dutyRepository = readRepository('src/main/java/com/faithlog/campus/infrastructure/repository/CampusDutyAssignmentRepository.java');
 	const rlsMigration = readRepository('src/main/resources/db/migration/V11__secure_supabase_data_api.sql');
+	const currentAdminRestDocs = readRepository('src/test/java/com/faithlog/admin/controller/AdminManagementApiRestDocsTest.java');
 
 	assert.equal((adminController.match(/defaultValue = "20"\) int size/g) || []).length, 2);
 	assert.match(pageValidator, /MAX_SIZE\s*=\s*100/);
@@ -482,6 +483,8 @@ test('current develop page, archive, permission, RLS, and ordering drift is expl
 	assert.match(memberRepository, /findByCampusIdAndStatusOrderByIdAsc/);
 	assert.match(dutyRepository, /findActiveWithActiveMemberByCampusIdOrderByIdAsc/);
 	assert.match(dutyRepository, /order by assignment\.id asc/);
+	assert.match(currentAdminRestDocs, /document\("admin-stale-duty-assignments-list-success"/);
+	assert.match(currentAdminRestDocs, /queryParameters\(parameterWithName\("staleOnly"\)/);
 	assert.match(rlsMigration, /ENABLE ROW LEVEL SECURITY/);
 	assert.doesNotMatch(rlsMigration, /FORCE ROW LEVEL SECURITY/);
 
@@ -552,8 +555,9 @@ test('scenario manifest separates endpoints, page depths, filters, and correctne
 		endpoints.duty_assignments.authorization,
 		'active service ADMIN or active campus MINISTER/ELDER/CAMPUS_LEADER',
 	);
-	assert.deepEqual(endpoints.duty_assignments.queryParameters, []);
+	assert.deepEqual(endpoints.duty_assignments.queryParameters, ['staleOnly']);
 	assert.deepEqual(endpoints.duty_assignments.cases.map(({ key }) => key), ['full_list']);
+	assert.deepEqual(endpoints.duty_assignments.cases[0].query, { staleOnly: false });
 
 	assert.deepEqual(contract.metrics, [
 		'p50', 'p95', 'p99', 'max', 'throughput', 'failureRate',
@@ -568,6 +572,8 @@ test('scenario manifest separates endpoints, page depths, filters, and correctne
 		'filterContract',
 		'exactCardinality',
 		'campusIsolation',
+		'activeMembershipOnly',
+		'noUnsupportedArchiveParameter',
 	]);
 	assert.deepEqual(contract.adoption, [
 		'approvedPublishedTargetIdentity',

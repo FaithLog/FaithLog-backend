@@ -8,6 +8,16 @@
     "pageableCampusCount": 25,
     "activeDutyAssignments": 101
   },
+  "currentDevelop": {
+    "adminDefaultPageSize": 20,
+    "maximumPageSize": 100,
+    "includeArchivedSupported": false,
+    "dutyDefaultStaleOnly": false,
+    "dutyUserLookup": "bulk-current-develop",
+    "campusMemberUserLookup": "per-member-current-develop",
+    "rlsJdbcBoundary": "owner-jdbc-no-force-rls-runtime-verification-required",
+    "stableOrdering": "explicit-id-asc; issue-206-billing-tie-break-not-applicable"
+  },
   "endpoints": [
     {
       "key": "admin_users",
@@ -72,8 +82,8 @@
       "key": "duty_assignments",
       "path": "/api/v1/admin/campuses/{campusId}/duty-assignments",
       "authorization": "active service ADMIN or active campus MINISTER/ELDER/CAMPUS_LEADER",
-      "queryParameters": [],
-      "cases": [{"key": "full_list", "query": {}}]
+      "queryParameters": ["staleOnly"],
+      "cases": [{"key": "full_list", "query": {"staleOnly": false}}]
     }
   ],
   "metrics": ["p50", "p95", "p99", "max", "throughput", "failureRate", "cpuBoundarySnapshots", "memoryBoundarySnapshots"],
@@ -85,7 +95,9 @@
     "pageMetadata",
     "filterContract",
     "exactCardinality",
-    "campusIsolation"
+    "campusIsolation",
+    "activeMembershipOnly",
+    "noUnsupportedArchiveParameter"
   ],
   "adoption": [
     "approvedPublishedTargetIdentity",
