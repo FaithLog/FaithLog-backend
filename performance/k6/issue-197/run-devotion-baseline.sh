@@ -358,6 +358,18 @@ collect_db_counters() {
 		<"$SCRIPT_DIR/collect-db-counters.sql" >"$output_file"
 }
 
+capture_devotion_cardinality() {
+	local output_file="$1"
+	docker exec -i "$DB_CONTAINER" psql -h "$DB_HOST" -X -q -tA -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" \
+		-v dataset_id="$dataset_id" -v fixture_run_id="$fixture_run_id" \
+		-v campus_id="$campus_id" -v rollback_campus_id="$rollback_campus_id" \
+		-v warmup_week_start_date="$warmup_week" -v measured_week_start_date="$measured_week" \
+		-v rollback_week_start_date="$rollback_week" -v expected_measured_user_count="$expected_user_count" \
+		-v expected_penalty_amount="$expected_penalty_amount" -v warmup_user_ids="$warmup_user_ids" \
+		-v measured_user_ids="$measured_user_ids" -v rollback_user_ids="$rollback_user_ids" \
+		<"$SCRIPT_DIR/verify-devotion.sql" >"$output_file"
+}
+
 CURRENT_STAGE='warmup'
 capture_runtime_identity "$report_root/runtime-identity-warmup-before.json" warmupBefore
 validate_runtime_checkpoint warmupBefore "$report_root/runtime-identity-warmup-before.json"
@@ -391,6 +403,12 @@ STATS_PID=''
 collect_db_counters "$report_root/db-counters-after.jsonl"
 capture_runtime_identity "$report_root/runtime-identity-measured-after.json" measuredAfter
 validate_runtime_checkpoint measuredAfter "$report_root/runtime-identity-measured-after.json"
+capture_devotion_cardinality "$report_root/measured-direct-cardinality.json"
+node "$SCRIPT_DIR/lib/validate-devotion-cardinality.mjs" \
+	"$FIXTURE_MANIFEST" "$report_root/measured-direct-cardinality.json" measured \
+	"$report_root/measured-direct-cardinality-gate.json" >/dev/null
+capture_runtime_identity "$report_root/runtime-identity-measured-cardinality-after.json" measuredCardinalityAfter
+validate_runtime_checkpoint measuredCardinalityAfter "$report_root/runtime-identity-measured-cardinality-after.json"
 node "$SCRIPT_DIR/lib/validate-resource-window.mjs" write-config \
 	"$report_root/resource-window-config.json" \
 	"$RESOURCE_SAMPLE_INTERVAL_SECONDS" "$RESOURCE_SAMPLE_MAX_GAP_SECONDS" \
@@ -408,14 +426,10 @@ node "$SCRIPT_DIR/lib/validate-k6-summary.mjs" "$report_root/rollback-summary.js
 	>"$report_root/rollback-adoption-gate.json"
 
 CURRENT_STAGE='correctness'
-docker exec -i "$DB_CONTAINER" psql -h "$DB_HOST" -X -q -tA -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" \
-	-v dataset_id="$dataset_id" -v fixture_run_id="$fixture_run_id" \
-	-v campus_id="$campus_id" -v rollback_campus_id="$rollback_campus_id" \
-	-v warmup_week_start_date="$warmup_week" -v measured_week_start_date="$measured_week" \
-	-v rollback_week_start_date="$rollback_week" -v expected_measured_user_count="$expected_user_count" \
-	-v expected_penalty_amount="$expected_penalty_amount" -v warmup_user_ids="$warmup_user_ids" \
-	-v measured_user_ids="$measured_user_ids" -v rollback_user_ids="$rollback_user_ids" \
-	<"$SCRIPT_DIR/verify-devotion.sql" >"$report_root/db-counters.json"
+capture_devotion_cardinality "$report_root/db-counters.json"
+node "$SCRIPT_DIR/lib/validate-devotion-cardinality.mjs" \
+	"$FIXTURE_MANIFEST" "$report_root/db-counters.json" final \
+	"$report_root/final-cardinality-gate.json" >/dev/null
 
 CURRENT_STAGE='final-identity'
 capture_runtime_identity "$report_root/runtime-identity-final.json" final
@@ -434,10 +448,12 @@ node "$SCRIPT_DIR/lib/scenario-contract.mjs" \
 	"$report_root/warmup-summary.json" \
 	"$report_root/measured-summary.json" \
 	"$report_root/rollback-summary.json" \
-	"$report_root/db-counters.json" \
+	"$report_root/measured-direct-cardinality-gate.json" \
+	"$report_root/final-cardinality-gate.json" \
 	"$report_root/resource-window-evidence.json" \
 	"$report_root/db-window-evidence.json" \
 	"$report_root/runtime-identity-evidence.json" \
+	"$report_root/runtime-identity-measuredCardinalityAfter-gate.json" \
 	"$report_root/scenario-evidence.json" \
 	"$app_compose_project"
 

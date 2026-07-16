@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CHECKPOINTS = ['warmupBefore', 'measuredBefore', 'measuredAfter', 'final'];
-const PAIR_CHECKPOINTS = [...CHECKPOINTS, 'retentionAfter'];
+const PAIR_CHECKPOINTS = [...CHECKPOINTS, 'measuredCardinalityAfter', 'retentionAfter'];
 const ROOT_KEYS = ['app', 'databaseContainer', 'databaseServer', 'redisContainer', 'redisServer'].sort();
 const APP_KEYS = ['apiContractSha256', 'composeProject', 'composeService', 'containerId', 'imageId', 'jarSha256', 'publishedPort', 'revision', 'startedAt'].sort();
 const CONTAINER_KEYS = ['composeProject', 'composeService', 'containerId', 'imageId', 'startedAt'].sort();

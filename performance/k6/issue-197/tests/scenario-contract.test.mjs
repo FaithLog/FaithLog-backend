@@ -75,6 +75,9 @@ test('devotion runner takes a common lock, records real Compose labels, samples 
 	assert.match(runner, /issue-197/);
 	assert.match(runner, /devotion-write\.js/);
 	assert.match(runner, /verify-devotion\.sql/);
+	assert.match(runner, /measured-direct-cardinality\.json/);
+	assert.match(runner, /validate-devotion-cardinality\.mjs/);
+	assert.match(runner, /measuredCardinalityAfter/);
 	assert.match(runner, /preflight-devotion\.sql/);
 	assert.match(runner, /scenario-contract\.mjs/);
 	assert.doesNotMatch(runner, /\$\{REPORT_ROOT:-/);
@@ -115,6 +118,13 @@ test('devotion SQL evidence locks weekly, seven daily, charge amount/source uniq
 	assert.match(sql, /PENALTY/);
 	assert.match(sql, /expected_penalty_amount/);
 	assert.match(sql, /daily_count\s*=\s*7/i);
+	assert.match(sql, /distinctWeeklyUsers/);
+	assert.match(sql, /distinctDailyUsers/);
+	assert.match(sql, /correctDailyDateCount/);
+	assert.match(sql, /distinctChargeUsers/);
+	assert.match(sql, /correctChargeBindingCount/);
+	assert.match(sql, /chargeAmountSum/);
+	assert.match(sql, /successCampusDevotionChargeCount/);
 	assert.match(sql, /rollback/i);
 	assert.match(sql, /JOIN rollback_users fixture_user ON fixture_user\.user_id = charge\.user_id/);
 	assert.doesNotMatch(sql, /JOIN rollback_weekly weekly ON weekly\.id = charge\.source_id/);
@@ -170,6 +180,9 @@ test('devotion evidence requires every measured and rollback transaction attempt
 	assert.match(contract, /rollback transaction attempts/);
 	assert.match(contract, /conditional-not-adoptable/);
 	assert.match(contract, /automaticAdoption:\s*false/);
+	assert.match(contract, /measuredDirectCardinalityEvidence/);
+	assert.match(contract, /correctChargeBindingCount/);
+	assert.match(contract, /chargeAmountSum/);
 });
 
 test('measured window records pure database, table, planner, activity, and optional query counters', () => {

@@ -57,11 +57,11 @@ test('fresh preparation replaces impossible pre-run DB-wide attribution with sup
 	assert.match(scenario, /conditional-not-adoptable/);
 	assert.match(scenario, /automaticAdoption:\s*false/);
 	assert.doesNotMatch(scenario, /activityAttributionEvidence|baseline-measured/);
-	assert.match(dbWindow, /BigInt\(databaseDelta\.tup_inserted\)\s*<\s*9000n/);
-	assert.match(dbWindow, /weekly_devotion_records.*1000/s);
-	assert.match(dbWindow, /devotion_daily_checks.*7000/s);
-	assert.match(dbWindow, /charge_items.*1000/s);
-	assert.match(dbWindow, /xact_rollback/);
+	assert.match(dbWindow, /sourceUnattributedDeltas/);
+	assert.match(dbWindow, /runtime-observed-cumulative-counters-not-request-attributed/);
+	assert.doesNotMatch(dbWindow, /databaseDelta\.tup_inserted\)\s*<\s*9000n/);
+	assert.match(runner, /measured-direct-cardinality\.json/);
+	assert.match(runner, /validate-devotion-cardinality\.mjs/);
 	assert.match(dbWindow, /externalActiveSessions/);
 	assert.match(dbWindow, /autoanalyze_count|autovacuum_count/);
 });

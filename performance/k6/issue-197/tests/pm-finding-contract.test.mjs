@@ -455,7 +455,7 @@ test('pg_stat_statements duplicate normalized queries are database-scoped and ag
 	assert.match(sql, /GROUP\s+BY\s+query/i);
 });
 
-test('database window rejects activity in another database in the same container', async () => {
+test('database window records activity in another database as source-unattributed supporting evidence', async () => {
 	const { validateDbWindow } = await import(
 		`${pathToFileURL(requiredPath('lib/validate-db-window.mjs')).href}?instance=${Date.now()}`
 	);
@@ -464,10 +464,11 @@ test('database window rejects activity in another database in the same container
 	after.snapshot.allDatabases.find((database) => database.datname === 'postgres').xact_commit = '1';
 	const evidence = validateDbWindow(before, after, 'none');
 	assert.equal(evidence.adoptable, false);
-	assert.match(JSON.stringify(evidence.failures), /postgres/);
+	assert.equal(evidence.supporting, true);
+	assert.equal(evidence.sourceUnattributedDeltas.nonCurrentDatabases.postgres.xact_commit, '1');
 });
 
-test('database supporting window records current-source target upserts but rejects writes outside the three business tables', async () => {
+test('database supporting window records target and unrelated writes without request attribution', async () => {
 	const { validateDbWindow } = await import(
 		`${pathToFileURL(requiredPath('lib/validate-db-window.mjs')).href}?supporting-writes=${Date.now()}`
 	);
@@ -483,9 +484,10 @@ test('database supporting window records current-source target upserts but rejec
 	unexpectedWrite.snapshot.database.tup_updated = '5001';
 	unexpectedWrite.snapshot.allDatabases[0].tup_updated = '5001';
 	unexpectedWrite.snapshot.tables.find(({ relname }) => relname === 'users').n_tup_upd = '1';
-	const rejected = validateDbWindow(before, unexpectedWrite, 'none');
-	assert.equal(rejected.supporting, false);
-	assert.match(JSON.stringify(rejected.failures), /users\.n_tup_upd/);
+	const supporting = validateDbWindow(before, unexpectedWrite, 'none');
+	assert.equal(supporting.supporting, true);
+	assert.equal(supporting.adoptable, false);
+	assert.equal(supporting.sourceUnattributedDeltas.tables.users.n_tup_upd, '1');
 });
 
 test('H-shaped asynchronous PostgreSQL publication lag remains supporting-only and records source-unattributed deltas', async () => {
@@ -508,7 +510,14 @@ test('H-shaped asynchronous PostgreSQL publication lag remains supporting-only a
 		blks_hit: '54', tup_returned: '21', tup_fetched: '13', tup_inserted: '5355', tup_updated: '9',
 	});
 	after.snapshot.allDatabases[0] = structuredClone(after.snapshot.database);
-	Object.assign(after.snapshot.allDatabases[1], { blks_hit: '54', tup_returned: '21', tup_fetched: '13' });
+	const sharedBefore = {
+		datname: null, stats_reset: null,
+		xact_commit: '0', xact_rollback: '0', blks_read: '0', blks_hit: '0',
+		tup_returned: '0', tup_fetched: '0', tup_inserted: '0', tup_updated: '0', tup_deleted: '0',
+	};
+	const sharedAfter = { ...sharedBefore, blks_hit: '54', tup_returned: '21', tup_fetched: '13' };
+	before.snapshot.allDatabases.unshift(sharedBefore);
+	after.snapshot.allDatabases.unshift(sharedAfter);
 
 	const evidence = validateDbWindow(before, after, 'none');
 	assert.equal(evidence.supporting, true, JSON.stringify(evidence.failures));
@@ -520,7 +529,7 @@ test('H-shaped asynchronous PostgreSQL publication lag remains supporting-only a
 	assert.equal(evidence.tableDeltas.charge_items.n_tup_ins, '595');
 	assert.equal(evidence.sourceUnattributedDeltas.tables.users.n_tup_upd, '9');
 	assert.equal(evidence.sourceUnattributedDeltas.database.tup_inserted, '5355');
-	assert.equal(evidence.sourceUnattributedDeltas.nonCurrentDatabases.postgres.blks_hit, '54');
+	assert.equal(evidence.sourceUnattributedDeltas.nonCurrentDatabases['<shared>'].blks_hit, '54');
 
 	const regressedBefore = dbSnapshot();
 	regressedBefore.snapshot.tables.find(({ relname }) => relname === 'weekly_devotion_records').n_tup_ins = '596';
@@ -533,6 +542,7 @@ test('measured direct fixture cardinality is exact before rollback and enclosed 
 	const validatorPath = requiredPath('lib/validate-devotion-cardinality.mjs');
 	const { validateDevotionCardinality } = await import(`${pathToFileURL(validatorPath).href}?direct=${Date.now()}`);
 	const manifest = devotionManifest();
+	manifest.expectedPenaltyAmount = 2250;
 	const exact = directDevotionCardinality(manifest);
 	const evidence = validateDevotionCardinality(manifest, exact, 'measured');
 	assert.equal(evidence.exact, true);
@@ -571,6 +581,29 @@ test('measured direct fixture cardinality is exact before rollback and enclosed 
 	assert.ok(directAfterIdentity < rollback);
 	assert.match(runner, /validate-devotion-cardinality\.mjs/);
 	assert.match(runner, /measuredCardinalityAfter/);
+
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-197-direct-cardinality-'));
+	try {
+		const manifestPath = writeJson(temporaryDirectory, 'manifest.json', manifest);
+		const countsPath = writeJson(temporaryDirectory, 'counts.json', exact);
+		const cardinalityGate = path.join(temporaryDirectory, 'cardinality-gate.json');
+		const cardinalityResult = runNode(validatorPath, manifestPath, countsPath, 'measured', cardinalityGate);
+		assert.equal(cardinalityResult.status, 0, cardinalityResult.stderr);
+		assert.equal(JSON.parse(fs.readFileSync(cardinalityGate, 'utf8')).exact, true);
+
+		const identity = runtimeIdentity();
+		const initialPath = writeJson(temporaryDirectory, 'initial-identity.json', identity);
+		const afterPath = writeJson(temporaryDirectory, 'after-cardinality-identity.json', identity);
+		const identityGate = path.join(temporaryDirectory, 'identity-gate.json');
+		const identityResult = runNode(
+			requiredPath('lib/validate-runtime-identity.mjs'), 'validate-pair', initialPath, afterPath,
+			'measuredCardinalityAfter', identityGate,
+		);
+		assert.equal(identityResult.status, 0, identityResult.stderr);
+		assert.equal(JSON.parse(fs.readFileSync(identityGate, 'utf8')).checkpoint, 'measuredCardinalityAfter');
+	} finally {
+		fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+	}
 });
 
 test('database window preserves cumulative counter deltas beyond MAX_SAFE_INTEGER', async () => {

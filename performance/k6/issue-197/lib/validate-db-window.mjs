@@ -4,12 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validatePgStatStatementsSnapshot } from './pg-stat-statements-contract.mjs';
 
-const EXPECTED_INSERTS = {
-	weekly_devotion_records: 1000,
-	devotion_daily_checks: 7000,
-	charge_items: 1000,
-};
-const EXPECTED_TABLES = ['users', 'campuses', 'campus_members', 'penalty_rules', 'payment_accounts', ...Object.keys(EXPECTED_INSERTS)].sort();
+const EXPECTED_TABLES = [
+	'users', 'campuses', 'campus_members', 'penalty_rules', 'payment_accounts',
+	'weekly_devotion_records', 'devotion_daily_checks', 'charge_items',
+].sort();
 const COUNTER_FIELDS = ['seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch', 'n_tup_ins', 'n_tup_upd', 'n_tup_del', 'n_mod_since_analyze'];
 const DATABASE_COUNTER_FIELDS = ['xact_commit', 'xact_rollback', 'blks_read', 'blks_hit', 'tup_returned', 'tup_fetched', 'tup_inserted', 'tup_updated', 'tup_deleted'];
 const STABLE_MAINTENANCE_FIELDS = [
@@ -71,12 +69,6 @@ export function validateDbWindow(before, after, externalActivity) {
 				failures.push({ name: `${relname}.${field}`, expected: beforeTable[field] ?? null, actual: afterTable[field] ?? null });
 			}
 		}
-		const expectedInserts = BigInt(EXPECTED_INSERTS[relname] || 0);
-		if (BigInt(delta.n_tup_ins) !== expectedInserts) failures.push({ name: `${relname}.n_tup_ins delta`, expected: expectedInserts.toString(), actual: delta.n_tup_ins });
-		if (BigInt(delta.n_tup_del) !== 0n) failures.push({ name: `${relname}.n_tup_del delta`, expected: '0', actual: delta.n_tup_del });
-		if (!Object.hasOwn(EXPECTED_INSERTS, relname) && BigInt(delta.n_tup_upd) !== 0n) {
-			failures.push({ name: `${relname}.n_tup_upd delta`, expected: '0', actual: delta.n_tup_upd });
-		}
 		tableDeltas[relname] = delta;
 	}
 	const beforePlanner = exactMap(before.snapshot?.plannerSettings, 'name', REQUIRED_PLANNER_SETTINGS, 'plannerSettings.before', failures);
@@ -90,12 +82,17 @@ export function validateDbWindow(before, after, externalActivity) {
 	for (const [field, delta] of Object.entries(databaseDelta)) {
 		if (BigInt(delta) < 0n) failures.push({ name: `database.${field} delta`, expected: 'non-negative', actual: delta });
 	}
-	if (BigInt(databaseDelta.tup_inserted) < 9000n) failures.push({ name: 'database.tup_inserted delta', expected: 'at least 9000', actual: databaseDelta.tup_inserted });
-	if (BigInt(databaseDelta.tup_deleted) !== 0n) failures.push({ name: 'database.tup_deleted delta', expected: '0', actual: databaseDelta.tup_deleted });
-	if (BigInt(databaseDelta.xact_commit) < 1000n) failures.push({ name: 'database.xact_commit delta', expected: 'at least 1000', actual: databaseDelta.xact_commit });
-	if (BigInt(databaseDelta.xact_rollback) !== 0n) failures.push({ name: 'database.xact_rollback delta', expected: '0', actual: databaseDelta.xact_rollback });
 	const databaseInstanceDelta = validateDatabaseInstance(before.snapshot, after.snapshot, failures);
 	const statementDelta = pgStatementDelta(before.pgStatStatements, after.pgStatStatements, failures);
+	const sourceUnattributedDeltas = {
+		classification: 'runtime-observed-cumulative-counters-not-request-attributed',
+		database: nonZeroDeltas(databaseDelta),
+		nonCurrentDatabases: Object.fromEntries(Object.entries(databaseInstanceDelta.nonCurrentDatabaseDeltas)
+			.map(([database, deltas]) => [database, nonZeroDeltas(deltas)])),
+		tables: Object.fromEntries(Object.entries(tableDeltas)
+			.map(([table, deltas]) => [table, nonZeroDeltas(deltas)])),
+		pgStatStatements: statementDelta,
+	};
 	return {
 		status: failures.length === 0 ? 'supporting-clean' : 'contaminated',
 		supporting: failures.length === 0,
@@ -107,6 +104,7 @@ export function validateDbWindow(before, after, externalActivity) {
 		databaseInstanceDelta,
 		tableDeltas,
 		pgStatStatements: statementDelta,
+		sourceUnattributedDeltas,
 		failures,
 	};
 }
@@ -159,10 +157,14 @@ function validateDatabaseInstance(before, after, failures) {
 		for (const field of DATABASE_COUNTER_FIELDS) {
 			const value = counterDelta(beforeDatabase[field], afterDatabase[field], `${datname}.${field}`);
 			deltas[datname][field] = value.toString();
-			if (value !== 0n) failures.push({ name: `databaseInstance.${datname}.${field}`, expected: '0', actual: value.toString() });
+			if (value < 0n) failures.push({ name: `databaseInstance.${datname}.${field} delta`, expected: 'non-negative', actual: value.toString() });
 		}
 	}
 	return { currentDatabase, databaseSet: beforeKeys, nonCurrentDatabaseDeltas: deltas };
+}
+
+function nonZeroDeltas(deltas) {
+	return Object.fromEntries(Object.entries(deltas).filter(([, value]) => BigInt(value) !== 0n));
 }
 
 function readEvidence(filePath) {
