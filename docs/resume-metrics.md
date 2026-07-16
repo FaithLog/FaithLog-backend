@@ -1418,4 +1418,16 @@ Metric candidates:
 - 미실행 범위: measured k6 summary 0건, adoption/classification 없음. baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
 - 복구/보존: 측정 계정 15018/15019는 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. F namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 재발 방지: scalar byte 수치를 제거하고 `MemUsage` used/limit를 표시 정밀도의 inclusive integer-byte min/max decimal-string으로, `MemPerc`를 exact rational rounding interval로 보존한다. 가능한 used/limit ratio와 MemPerc 구간 교집합, full ID/role/set, positive limit, used≤limit, CPU, percent 0..100, safe magnitude와 unit schema를 `BigInt` 기반으로 fail-closed 검증한다.
-- 다음 제안: `I193_BEFORE_20260716_G / I193_FIXTURE_20260716_G / EXEC193_BEFORE_20260716_G`. PM 독립 리뷰 전에는 생성하거나 실행하지 않는다.
+- 후속 G는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 resource cadence validator 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt G rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_G / I193_FIXTURE_20260716_G / EXEC193_BEFORE_20260716_G`.
+- fixture 결과: campus ID 27, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- warmup 결과: 5 iterations, HTTP request 80개, failure 0. 이 warmup은 성능 baseline이나 성과 수치로 채택하지 않는다.
+- measured 진행: 16 cases 각각 request count 239, custom failure value 0. Resource sample 90개가 `2026-07-16T04:54:06.025Z`부터 `2026-07-16T04:57:16.941Z`까지 수집됐고 관찰 gap은 최소 1.869초, 최대 4.807초였다.
+- 거부 원인: blocking `docker stats --no-stream` capture가 약 1.37~4.31초 걸리는데 runner가 각 capture 뒤 nominal interval의 절반인 0.5초 sleep을 추가하고, nominal `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`을 maximum gap으로도 사용해 1초 gate를 구조적으로 만족할 수 없었다.
+- evidence 경계: measured summary, counter-after, measurement-state-after, PostgreSQL-after는 존재하지만 resource validator에서 중단됐다. runtime-final과 adoption/classification은 생성되지 않았으므로 G의 measured 요청 수, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15020/15021은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. G namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: runtime-required `DOCKER_STATS_MAX_GAP_SECONDS=5`를 별도 추가하고 nominal interval 1초와 함께 run conditions/validator output에 기록한다. Sampler는 blocking capture를 back-to-back으로 수행하고 unconditional post-capture sleep을 제거한다. maxGap 누락·비정상 값·nominal 미만·실제 gap 초과는 fail-closed다.
+- 다음 제안: `I193_BEFORE_20260716_H / I193_FIXTURE_20260716_H / EXEC193_BEFORE_20260716_H`. PM 독립 리뷰와 사용자 승인 전에는 생성하거나 실행하지 않는다.
