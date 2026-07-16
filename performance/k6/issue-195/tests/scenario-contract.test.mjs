@@ -1908,7 +1908,9 @@ test('README keeps reports ignored and records scenario-ready/not-measured statu
 	assert.doesNotMatch(readme, /BASE_URL=http:\/\/localhost:8080/);
 	assert.match(readme, /EXEC195_BEFORE_20260716_A[\s\S]*non-reusable/);
 	assert.match(readme, /warmup and measured HTTP request counts were both exactly `0`/i);
-	assert.match(readme, /EXEC195_BEFORE_20260716_B/);
+	assert.match(readme, /EXEC195_BEFORE_20260716_B[\s\S]*non-reusable/);
+	assert.match(readme, /Measured HTTP requests were exactly 0/i);
+	assert.match(readme, /EXEC195_BEFORE_20260716_C/);
 	assert.equal(
 		(readme.match(/BASE_URL=http:\/\/127\.0\.0\.1:28080/g) || []).length,
 		3,

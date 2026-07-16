@@ -22,16 +22,16 @@ if (!(duration['p(50)'] <= duration['p(95)']
 }
 requirePositiveSafeInteger(requests?.count, `${metricName}_requests.count`);
 requirePositiveFinite(requests?.rate, `${metricName}_requests.rate`);
-if (!Number.isFinite(failures?.rate) || failures.rate !== 0) {
-	throw new Error(`${metricName}_failures.rate must be finite and exactly zero.`);
+if (!Number.isFinite(failures?.value) || failures.value !== 0) {
+	throw new Error(`${metricName}_failures.value must be finite and exactly zero.`);
 }
 requireNonNegativeSafeInteger(failures?.passes, `${metricName}_failures.passes`);
 requireNonNegativeSafeInteger(failures?.fails, `${metricName}_failures.fails`);
-if (failures.fails !== 0) {
-	throw new Error(`${metricName}_failures.fails must be exactly zero.`);
+if (failures.passes !== 0) {
+	throw new Error(`${metricName}_failures.passes must be exactly zero.`);
 }
-if (failures.passes + failures.fails !== requests.count) {
-	throw new Error(`${metricName}_failures observations must equal ${metricName}_requests.count.`);
+if (failures.fails !== requests.count) {
+	throw new Error(`${metricName}_failures.fails must equal ${metricName}_requests.count.`);
 }
 const normalized = {
 	status: 'adoptable',
@@ -41,7 +41,7 @@ const normalized = {
 	metricName,
 	requestCount: requests.count,
 	throughput: requests.rate,
-	failureRate: failures.rate,
+	failureRate: failures.value,
 	latency: {
 		p50: duration['p(50)'],
 		p95: duration['p(95)'],
