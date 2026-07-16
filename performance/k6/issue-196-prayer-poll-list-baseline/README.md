@@ -15,7 +15,7 @@ Status: `scenario-ready / not-measured`
 - After app/DB/Redis label attestation, seed, shaping, and load all acquire the same canonical `/tmp/faithlog-performance-{actualComposeProject}.lock`. The path has no caller override, and the runner also refuses to start while another k6 process exists. Each entrypoint captures all three containers' full ID, image ID, `StartedAt`, Compose labels/config hash, the published app endpoint, PostgreSQL identity, and Redis process `run_id` before lock acquisition, then requires an exact post-lock match before login, fixture mutation, or k6. The runner repeats this continuity gate before warmup, before/after measured, and before final report creation.
 - Seed, shaping, the baseline runner, and the direct k6 entrypoint have no target defaults. They require an explicit numeric loopback `BASE_URL` (`127.0.0.1` or `[::1]`), app/DB/Redis container names, exact Compose service labels, exact image tags and immutable image IDs, source revision, Flyway version, Redis port, credentials, and workload inputs at runtime. `localhost` and implicit host resolution are rejected pending a separate approved resolution rule. A shared validator requires exactly one same-address-family exact/wildcard Docker binding on the requested host port. Seed records the immutable runtime and published target; shaping and baseline require the same identity before touching the fixture or measuring it.
 - The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
-- Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory, and an existing path is never deleted, reused, or overwritten.
+- Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory by default. Optional `PERF_REPORT_ROOT` may select another local ignored artifact base; the runner still appends `{fixtureRunId}/{executionRunId}` and never deletes, reuses, or overwrites an existing path.
 - Sampling can detect observed conflicts but cannot prove that a short transient request never occurred. No exclusive-window boolean or sampling values have user approval as an adoption method yet, so every otherwise-clean report remains `accepted=false`, `automaticAdoption=false`, and `measurementStatus=conditional-not-adoptable` until a separate user decision changes that policy.
 - `BASE_URL`, app/DB/Redis container names, expected Compose service labels, expected image tags/IDs, source/Flyway/Redis identity, credentials, date, load, sampling, execution, and mode values are runtime-required approval inputs at their relevant entrypoints. Missing input fails before Docker/API/DB/k6 work; actual labels/images/ports/process identities and the seed manifest must match exactly. Redis currently has no scenario credential because the current Compose source config has no Redis authentication input; the scenario does not invent one.
 
@@ -171,11 +171,14 @@ bash performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 
 ### 3. Run endpoint phases sequentially
 
-Warmup/measured VUS/duration, sampling interval/max-gap, and target identity have no hidden defaults. The summarizer validates the exact positive runtime sampling values and `maxGap >= interval`; it does not substitute or require 1/2 seconds. A future approved measurement session must provide those values, a new `executionRunId`, and an explicit mode. The current runner still exits non-zero after preserving otherwise-clean evidence because automatic adoption is pending user approval.
+Warmup/measured VUS/duration, sampling interval/max-gap, and target identity have no hidden defaults. The summarizer validates the exact positive runtime sampling values and `maxGap >= interval`; it does not substitute or require 1/2 seconds. A future approved measurement session must provide those values, a new `executionRunId`, and an explicit mode. A clean `conditional-not-adoptable` endpoint report does not abort the explicit sequential scope; the runner collects every requested endpoint and exits 2 only after the scope is complete. A rejected or malformed report still stops at the first failed endpoint. Automatic adoption remains disabled.
+
+`PERF_REPORT_ROOT` controls only the optional local artifact base; it is not a target, workload, or credential fallback. The fake orchestration suite sets it to a temporary directory so tests do not depend on repository `build/reports` permissions or stale artifacts.
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
 EXECUTION_RUN_ID=i196-exec-20260714-a \
+PERF_REPORT_ROOT='<optional-local-artifact-base>' \
 BASE_URL='<approved-loopback-base-url>' \
 APP_CONTAINER='<approved-app-container>' \
 DB_CONTAINER='<approved-db-container>' \

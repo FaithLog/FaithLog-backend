@@ -96,11 +96,46 @@ Fixture manifest에는 ID와 테스트 이메일만 기록한다. password, Acce
 
 실제 app/DB/Redis Compose label 일치를 확인한 뒤 seed/shaper/runner 모두 `/tmp/faithlog-performance-{actualComposeProject}.lock`을 사용한다. lock 전 세 container와 DB/Redis process identity를 승인 snapshot으로 잡고 lock 직후 exact 재검증이 끝나기 전에는 login/API write/Poll UPDATE/k6를 시작하지 않는다. caller lock override는 없다. mode도 runtime 필수이며 `all`은 명시했을 때만 전체 27 endpoint로 확장된다. millisecond RFC3339 Docker log 경계로 login/BCrypt/JWT 쿼리를 endpoint query count에서 분리하고 app scheduler를 끈다.
 
-sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transient 요청의 절대 부재를 단독 증명하지 못한다. sampling cadence/max-gap과 exclusive-window 채택 방식은 사용자 미승인 상태다. 입력값은 default 없이 runtime에서 받고 positive 및 `maxGap >= interval`과 실제 coverage에 exact 결속하며 1초/2초 상수를 강제하지 않는다. 따라서 현재 summarizer는 clean evidence에도 `accepted=false`, `automaticAdoption=false`, `measurementStatus=conditional-not-adoptable`과 `adoption-policy-pending-user-approval`을 기록하고 runner를 non-zero로 끝낸다.
+sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transient 요청의 절대 부재를 단독 증명하지 못한다. sampling cadence/max-gap과 exclusive-window 채택 방식은 사용자 미승인 상태다. 입력값은 default 없이 runtime에서 받고 positive 및 `maxGap >= interval`과 실제 coverage에 exact 결속하며 1초/2초 상수를 강제하지 않는다. 따라서 현재 summarizer는 clean evidence에도 `accepted=false`, `automaticAdoption=false`, `measurementStatus=conditional-not-adoptable`과 `adoption-policy-pending-user-approval`을 기록한다. Conditional endpoint는 다음 순차 endpoint로 진행하지만 requested scope 전체 수집 뒤 runner가 exit 2로 끝난다. Rejected/malformed evidence는 최초 endpoint에서 즉시 중단한다.
 
 `BASE_URL`, app/DB/Redis container name, expected Compose service/image tag/immutable ID, source revision, Flyway version, Redis port, credential/workload 값은 기본값 없는 runtime 승인 입력이다. seed/shape/run은 하나라도 없으면 API/Docker/DB 작업 전에 실패하고 direct k6도 자신에게 필요한 target/service/image/workload/credential이 없으면 request 전에 실패한다. `BASE_URL`은 explicit numeric loopback `127.0.0.1` 또는 `[::1]`만 허용하고 `localhost`는 승인된 해석 규칙이 없으므로 거부한다. 공통 validator가 같은 address family의 exact/wildcard Docker binding 중 requested host port와 맞는 항목이 exact 1개인지 확인하며, actual target은 seed manifest의 Compose/runtime identity와 다시 exact 결속한다. Resource evidence는 metadata의 app/DB/Redis exact 3-container name/full-ID set만 허용하고 CPU가 finite/nonnegative가 아니거나 RAM used/limit unit·byte invariant·reported `0..100%`가 잘못됐거나 foreign container row가 있으면 rejected다.
 
 최초 machine-readable rejection은 `primaryRejectionReason`으로 보존하고 report는 exclusive create해 기존 evidence를 덮어쓰지 않는다. clean evidence도 `automaticAdoption=false`, `conditional-not-adoptable`이다. #192~#199 test-code 감사는 병렬 가능하지만 shared stack 실제 load는 PM exclusive window에서 이슈별 순차 실행한다.
+
+## 2026-07-16 read-only handoff 감사
+
+아래 값은 2026-07-16 KST 확인 시점의 후보 runtime snapshot이다. 실행 직전 runner가 모두 다시 exact inspect하므로 하나라도 바뀌면 사용하지 않는다.
+
+| 항목 | read-only 확인값 |
+| --- | --- |
+| Compose project | `faithlog-frontend-latest` |
+| BASE_URL 후보 | `http://127.0.0.1:28080` (`0.0.0.0:28080`/`[::]:28080`, IPv4 validator PASS) |
+| app | `faithlog-latest-app`, service `app`, image `faithlog-frontend-latest-app`, ID `sha256:8e0f8d85d697a7d34aabf3703ddb27b4f1af326dec4f7c35556986303b0b816c`, container ID `a7df78b330f457a7fd60a9531362d0f1f063ae7aa6cae5f2d996eb8cb51fe79d`, StartedAt `2026-07-16T04:23:10.082407837Z` |
+| PostgreSQL | `faithlog-latest-postgres`, service `postgres`, image `postgres:17`, image ID `sha256:48d29282d2b43c402465c28f8572021b59aaf43574056faaad2fd7bb85ffdd4e`, container ID `81aa74ca1b491b45eb691b3d65de9e42eb47ef64a6bcb961d0b627b030139ae9` |
+| Redis | `faithlog-latest-redis`, service `redis`, image `redis:7-alpine`, image ID `sha256:80dd823f4d2bf93dd5e418a0ae2817319a1ba279953e234082e54a5a18306223`, container ID `4109f6525948d12d1e5377fb6160c8955f6c3fcd7816e02786b2dd8031e23de9` |
+| DB identity | database/user `faithlog`, TCP `127.0.0.1:5432`, postmaster `2026-07-15T08:32:56.137385Z`, Flyway 11, 27/27 RLS, FORCE RLS/policy 0, JDBC owner 27, pgss coherent unavailable |
+| Redis process | run ID `77684c2eb9ea13438a15e81e190b3fec43e60c6c`, Redis 7.4.9, internal port 6379 |
+
+PM이 승인한 operational provenance는 clean detached `/private/tmp/FaithLog-perf-206-deploy` HEAD `6796ed146244d8f3f5b5dd7048ebe16865084a97`과 그 뒤 생성된 app image(`2026-07-16T04:22:48.810414883Z`)의 결속이다. OCI revision label, repo digest, `git.properties`가 없어 image 단독 cryptographic source proof는 제공하지 못한다는 limitation을 유지한다. Runner의 source input과 full container/image/StartedAt/Compose gate는 완화하지 않는다.
+
+현재 app container에는 `FAITHLOG_SCHEDULER_ENABLED=false`만 확인됐고 runner가 요구하는 `LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG`, `SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false` env는 확인되지 않았다. 따라서 PM slot 전에 외부 runtime 준비가 필요하며 이 세션에서는 container lifecycle을 변경하지 않는다.
+
+Fresh 후보는 dataset `issue-196-prayer-poll-list-v2`, fixture `i196-20260716-a`, execution `i196-exec-20260716-a`다. 해당 local report 경로는 없고 DB의 campus/user/Poll/Prayer season/Poll template namespace count가 모두 0임을 SELECT-only로 확인했다. 이 freshness는 확인 시점 snapshot이며 seed 직전에 다시 확인한다.
+
+승인이 필요한 값과 제안값을 분리한다.
+
+- 승인 필수: 위 runtime exact identity를 계속 사용할지, 세 app evidence env가 준비된 새 identity, admin/member/DB credentials, `PERF_WEEK_START_DATE`, warmup/measured VUS·duration, sampling interval/max-gap, explicit mode, actual measurement slot.
+- 비적용 제안: `PERF_WEEK_START_DATE=2026-07-13`, `WARMUP_VUS=2`, `WARMUP_DURATION=30s`, `MEASURED_VUS=5`, `MEASURED_DURATION=2m`, `SAMPLING_INTERVAL_SECONDS=1`, `SAMPLING_MAX_GAP_SECONDS=3`, mode `all`. 이는 default나 승인값이 아니며 사용자 승인 전 실행하지 않는다.
+
+승인 후 예상 순서와 side effect는 다음과 같다.
+
+1. identity/credential/namespace read-only preflight, 약 2~5분, write 0.
+2. seed, 약 30~90분 추정. 1,048명 signup/login/join과 800명 Poll 응답 등 5,700건을 넘는 HTTP operation으로 fixture-owned row와 Redis session을 생성한다. 기존 row 삭제·수정은 하지 않는다. 최초 실패 시 partial fixture를 보존하고 새 fixture ID로만 재시도한다.
+3. shape, 약 1~3분. exact current-run Poll 8개만 한 transaction으로 UPDATE하고 attempt receipt/manifest를 기록한다. 실패 시 즉시 중단하고 같은 fixture를 재사용하지 않는다.
+4. explicit `all`: `prayer -> poll-member -> poll-admin -> poll-duty`, 27 endpoint별 warmup 후 measured를 순차 실행한다. 위 제안값이면 pure phase time 67.5분이며 identity/log/resource overhead를 포함해 약 75~90분을 예상한다. 각 endpoint마다 warmup/measured 전 5 actor login으로 Redis session write가 발생하지만 measured DB window 밖이다. Target workload는 GET이며 measured DB write delta는 exact 0이어야 한다.
+5. report 검토, 약 15~30분. Conditional report는 전부 수집하되 automatic adoption은 하지 않는다. Warmup, identity, k6, correctness, DB write, sampling, external activity, report schema 중 첫 실패에서 뒤 endpoint를 실행하지 않는다.
+
+전체 예상은 승인 후 약 2~3.5시간이다. 이는 planning estimate이며 baseline 또는 성능 성과 수치가 아니다.
 
 ## 정적 코드에서 확인한 측정 후보
 
@@ -131,5 +166,6 @@ sampling은 관찰된 외부 activity를 거부할 수 있지만 짧은 transien
 - PM 4차 finding 재현: test-only commit에서 `14 tests / 11 pass / 3 fail` RED
 - PM 5차 finding 재현: test-only commit에서 `16 tests / 11 pass / 5 fail` RED
 - 최신 develop drift RED: `962e0e3`에서 `18 tests / 16 pass / 2 fail`, 공통 감사 RED: `6ecd59b`에서 source/DB/Redis/pgss/resource 신규 계약 실패를 test-only로 고정
-- 최종 계약: pending automatic adoption, seed/shape/run/direct k6 runtime-required target, current-develop pagination/archive/#200/#202 ordering, numeric loopback 결속, lock 전후 app/DB/Redis와 PostgreSQL/Redis process continuity, pgss 두 정상 state와 drift, k6 v2 direct/values 수학, strict memory/full ID/cadence, decimal-string/BigInt, namespace/rejection 보존 fake evidence를 포함한 `21 tests / 0 failures` GREEN
+- 최종 계약: pending automatic adoption, seed/shape/run/direct k6 runtime-required target, current-develop pagination/archive/#200/#202 ordering, numeric loopback 결속, lock 전후 app/DB/Redis와 PostgreSQL/Redis process continuity, pgss 두 정상 state와 drift, k6 v2 direct/values 수학, strict memory/full ID/cadence, decimal-string/BigInt, namespace/rejection 보존, conditional 전체 순차 수집과 first rejected/operational-failure stop fake/static evidence를 포함한 `23 tests / 0 failures` GREEN
+- report artifact는 기본 ignored 경로 또는 optional `PERF_REPORT_ROOT` 아래에 항상 `{fixtureRunId}/{executionRunId}`를 붙인다. 실행형 fake 계약은 temp base를 사용해 repository `build/reports` 권한이나 잔존 artifact에 의존하지 않는다.
 - Node/Bash syntax와 `git diff --check`를 수행한다. 이 검증은 실제 seed/k6/Docker/DB를 실행하지 않는다.
