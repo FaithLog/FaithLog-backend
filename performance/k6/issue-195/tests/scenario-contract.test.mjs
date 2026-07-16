@@ -947,6 +947,123 @@ test('DB evidence captures table counters and optional query evidence without wr
 	assert.match(delta, /after\.totalExecTime - before\.totalExecTime/);
 });
 
+test('DB collector keeps every table, runtime, and query artifact free of psql status banners', () => {
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-psql-machine-output-'));
+	const binDirectory = path.join(directory, 'bin');
+	const reportDirectory = path.join(directory, 'report');
+	fs.mkdirSync(binDirectory);
+	const dockerPath = path.join(binDirectory, 'docker');
+	fs.writeFileSync(dockerPath, `#!/usr/bin/env bash
+set -euo pipefail
+quiet=0
+for argument in "$@"; do
+	if [[ "$argument" == '-q' || "$argument" == '--quiet' ]]; then quiet=1; fi
+done
+if [[ "$*" == *to_regclass* ]]; then
+	if [[ "\${FAKE_PGSS_STATUS}" == available ]]; then printf 'pg_stat_statements\\n'; fi
+	exit 0
+fi
+if [[ "$*" == *json_build_object* && "$*" == *pg_stat_statements* ]]; then
+	printf '%s\\n' '{"userId":"1","dbId":"1","queryId":"1","topLevel":true,"calls":"1","rows":"1","totalExecTime":1,"query":"select * from users"}'
+	exit 0
+fi
+payload=$(cat)
+if [[ "$payload" == *faithlog_issue195_runtime_integrity_observer* ]]; then
+	if [[ "$quiet" == 0 ]]; then
+		printf '%s\\n' 'Tuples only is on.' 'Output format is unaligned.'
+	fi
+	printf '%s\\n' '{"database":"runtime-db","observerApplicationName":"faithlog-issue195-observer-admin_users-first_page-before"}'
+else
+	if [[ "$quiet" == 0 ]]; then
+		printf '%s\\n' 'Output format is csv.' 'Tuples only is on.'
+	fi
+	printf '%s\\n' 'users_total,1001' 'users_active,1001'
+fi
+`);
+	fs.chmodSync(dockerPath, 0o755);
+
+	const runCollector = (phase, pgssStatus, reportRoot) => spawnSync(
+		'bash',
+		[files.dbCollector, 'admin_users-first_page', phase],
+		{
+			cwd: repositoryRoot,
+			encoding: 'utf8',
+			env: {
+				PATH: `${binDirectory}:${process.env.PATH}`,
+				FAKE_PGSS_STATUS: pgssStatus,
+				PERF_REPORT_DIR: reportRoot,
+				POSTGRES_CONTAINER_ID: 'fake-postgres',
+				POSTGRES_USER: 'runtime-user',
+				POSTGRES_DB: 'runtime-db',
+				POSTGRES_PASSWORD: 'runtime-only-password',
+				PERF_DATASET_ID: 'PERF_FAKE_DATASET',
+				PERF_FIXTURE_RUN_ID: 'ISSUE195_FAKE_FIXTURE',
+				CAMPUS_ID: '101',
+				ISOLATION_CAMPUS_ID: '102',
+			},
+		},
+	);
+	const assertNoStatusBanner = (contents, label) => {
+		assert.doesNotMatch(contents, /^(?:Output format is .+|Tuples only is (?:on|off)\.)$/m, label);
+	};
+
+	try {
+		for (const phase of ['before', 'after']) {
+			const result = runCollector(phase, 'available', reportDirectory);
+			assert.equal(result.status, 0, `${phase}: collector failed without exposing stderr`);
+			const evidenceDirectory = path.join(reportDirectory, 'db-evidence', 'admin_users-first_page');
+			const table = read(path.join(evidenceDirectory, `${phase}-table-counters.csv`));
+			const runtime = read(path.join(evidenceDirectory, `${phase}-runtime-integrity.json`));
+			const availability = read(path.join(evidenceDirectory, `${phase}-query-availability.json`));
+			const queries = read(path.join(evidenceDirectory, `${phase}-query-evidence.ndjson`));
+			assertNoStatusBanner(table, `${phase} table counters`);
+			assertNoStatusBanner(runtime, `${phase} runtime integrity`);
+			assertNoStatusBanner(availability, `${phase} query availability`);
+			assertNoStatusBanner(queries, `${phase} query evidence`);
+			assert.doesNotThrow(() => JSON.parse(runtime));
+			assert.doesNotThrow(() => JSON.parse(availability));
+			for (const line of queries.trim().split('\n')) assert.doesNotThrow(() => JSON.parse(line));
+		}
+
+		const unavailableReport = path.join(directory, 'unavailable-report');
+		const unavailable = runCollector('before', 'unavailable', unavailableReport);
+		assert.equal(unavailable.status, 0, 'unavailable collector failed without exposing stderr');
+		const unavailableDirectory = path.join(unavailableReport, 'db-evidence', 'admin_users-first_page');
+		const marker = read(path.join(unavailableDirectory, 'before-query-availability.json'));
+		assertNoStatusBanner(marker, 'unavailable query marker');
+		assert.equal(JSON.parse(marker).status, 'unavailable');
+		assert.equal(fs.existsSync(path.join(unavailableDirectory, 'before-query-evidence.ndjson')), false);
+
+		const preservedReport = process.env.ISSUE195_EXECUTION_D_REPORT;
+		if (preservedReport) {
+			assert.ok(path.isAbsolute(preservedReport));
+			const paths = {
+				rejection: path.join(preservedReport, 'first-rejection.json'),
+				table: path.join(preservedReport, 'db-evidence', 'admin_users-first_page', 'after-table-counters.csv'),
+				beforeRuntime: path.join(preservedReport, 'db-evidence', 'admin_users-first_page', 'before-runtime-integrity.json'),
+				afterRuntime: path.join(preservedReport, 'db-evidence', 'admin_users-first_page', 'after-runtime-integrity.json'),
+			};
+			const before = Object.fromEntries(Object.entries(paths).map(([key, filePath]) => [key, {
+				content: fs.readFileSync(filePath, 'utf8'),
+				stats: fs.statSync(filePath),
+			}]));
+			const rejection = JSON.parse(before.rejection.content);
+			assert.equal(rejection.stage, 'measured-evidence-after');
+			assert.equal(rejection.scenario, 'admin_users');
+			assert.equal(rejection.case, 'first_page');
+			assert.match(before.table.content, /^Output format is csv\.$/m);
+			for (const [key, filePath] of Object.entries(paths)) {
+				assert.equal(fs.readFileSync(filePath, 'utf8'), before[key].content);
+				const afterStats = fs.statSync(filePath);
+				assert.equal(afterStats.size, before[key].stats.size);
+				assert.equal(afterStats.mtimeMs, before[key].stats.mtimeMs);
+			}
+		}
+	} finally {
+		fs.rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 test('query delta rejects a pg_stat_statements counter reset', () => {
 	const result = runQueryDelta(
 		[pgQueryRow()],
