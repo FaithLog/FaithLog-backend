@@ -1472,3 +1472,13 @@ Metric candidates:
 - 복구/보존: 측정 계정 15028/15029는 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. K namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 재발 방지: fresh measured login 직후, before evidence/stable-pair/counter/window보다 앞서 immutable PostgreSQL ID의 stdin으로 exact `VACUUM (ANALYZE) users;`를 실행하고 users-only completion marker를 남긴다. 다른 table, `VACUUM FULL`, `FREEZE`, 데이터/schema/index/Flyway/config/reset/extension 변경은 없고 fixture 3-table VACUUM 및 measured strict continuity는 유지한다.
 - Fresh L 제안: `I193_BEFORE_20260716_L / I193_FIXTURE_20260716_L / EXEC193_BEFORE_20260716_L`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_L/I193_FIXTURE_20260716_L/EXEC193_BEFORE_20260716_L`. 개발 세션 actual 실행은 금지한다.
+
+### 2026-07-16 Issue #193 actual-before attempt L rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_L / I193_FIXTURE_20260716_L / EXEC193_BEFORE_20260716_L`.
+- 실행 범위: fresh measured login 뒤 users VACUUM(ANALYZE)을 완료했고 measured 16 cases summary가 생성됐다. 최초 validator는 users `nModSinceAnalyze` 변경에서 중단했다.
+- 거부 원인: users before `nModSinceAnalyze=0`, after 1이며 lastVacuum/lastAnalyze와 vacuum/analyze counts는 안정적이었다. Login `last_login_at` commit `2026-07-16T06:00:28.808644Z`에서 약 166ms 뒤 `2026-07-16T06:00:28.974009Z`에 VACUUM이 시작되고 ANALYZE는 `2026-07-16T06:00:29.394557Z`에 실행돼 app backend의 login UPDATE counter flush 전에 maintenance가 시작됐다. 지연된 login 통계가 measured 중 +1로 반영된 false contamination이다.
+- 해석 경계: JWT tokenVersion checker는 read-only `findById`이며 measured 6,000 GET 자체의 users write 증거는 없다. L latency/throughput/resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15030/15031은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. L namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: measured login 직전 users `n_tup_upd` canonical decimal counter를 캡처하고, login 뒤 immutable PostgreSQL ID read-only polling에서 exact `before+1`을 ACK한 뒤에만 users VACUUM을 실행한다. `+0`은 기존 1초/최대 5회 안에서 pending이며 감소, `>+1`, timeout, malformed/bigint 범위 초과는 fail-closed한다. Stable-pair와 measured strict continuity는 유지한다.
+- Fresh M 제안: `I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_M/I193_FIXTURE_20260716_M/EXEC193_BEFORE_20260716_M`. 개발 세션 actual 실행은 금지한다.

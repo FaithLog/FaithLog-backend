@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-16 - Issue #193 Measured Login Update Counter ACK
+
+- Context: Actual-before L은 fresh measured login 뒤 users VACUUM(ANALYZE)을 완료했지만 users `nModSinceAnalyze`가 before 0, after 1로 바뀌어 rejected됐다. Login commit은 `06:00:28.808644Z`, VACUUM start는 약 166ms 뒤인 `06:00:28.974009Z`, ANALYZE는 `06:00:29.394557Z`여서 app backend의 login UPDATE 통계가 flush되기 전에 maintenance를 시작한 것이 원인이었다.
+- Decision: Measured login 직전에 `pg_stat_user_tables.users.n_tup_upd`를 canonical decimal string으로 캡처한다. Login 뒤 immutable PostgreSQL container ID의 read-only polling으로 counter가 정확히 `before + 1`이 될 때만 ACK하고 users VACUUM(ANALYZE)을 실행한다. `+0`은 기존 pre-boundary 1초/최대 5회 상수 안에서만 pending이며 감소, `>+1`, timeout, malformed, PostgreSQL bigint 범위 초과는 fail-closed한다.
+- Impact: ACK와 users VACUUM은 PostgreSQL before evidence·stable pair·counter·resource sampler·measured window보다 앞선다. Existing fixture 3-table VACUUM, users stable-pair, measured strict maintenance continuity는 완화하지 않는다. Measured 6,000 GET 자체의 users write 증거로 해석하지 않으며 `src/main`/Flyway는 변경하지 않는다. 다음 actual은 fresh M namespace만 사용한다.
+
 ### 2026-07-16 - Issue #193 Fresh Measured Login Users Statistics Boundary
 
 - Context: Actual-before K는 fixture와 exact 3-table VACUUM(ANALYZE), warmup, measured 16 cases/6,000 HTTP를 failure 0으로 완료했다. 그러나 fresh measured login의 `users.last_login_at` UPDATE 통계가 1초 간격 stable pair의 72/72 뒤에 늦게 반영돼 after 73으로 나타났고 strict integrity가 false contamination으로 측정을 거부했다.
