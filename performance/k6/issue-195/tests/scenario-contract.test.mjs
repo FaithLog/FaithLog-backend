@@ -1765,6 +1765,56 @@ test('README keeps reports ignored and records scenario-ready/not-measured statu
 	);
 });
 
+test('installed k6 can inspect the scenario contract without treating JSON as a JavaScript module', (t) => {
+	const k6Bin = process.env.ISSUE195_K6_BIN || '/opt/homebrew/bin/k6';
+	if (!fs.existsSync(k6Bin)) {
+		t.skip(`installed k6 is unavailable at ${k6Bin}`);
+		return;
+	}
+
+	const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-k6-inspect-'));
+	try {
+		const contract = JSON.parse(read(files.contract));
+		const result = spawnSync(k6Bin, [
+			'inspect',
+			'--no-thresholds',
+			'-e', 'BASE_URL=http://127.0.0.1:28080',
+			'-e', 'SCENARIO=admin_users',
+			'-e', 'CASE=first_page',
+			'-e', 'PERF_DATASET_ID=PERF_INSPECT_ONLY',
+			'-e', 'PERF_FIXTURE_RUN_ID=ISSUE195_INSPECT_ONLY',
+			'-e', 'PERF_EXECUTION_RUN_ID=EXEC195_INSPECT_ONLY',
+			'-e', 'CAMPUS_ID=1',
+			'-e', 'ISOLATION_CAMPUS_ID=2',
+			'-e', 'ISOLATION_USER_ID=3',
+			'-e', `EXPECTED_ACTIVE_MEMBERS=${contract.dataset.requiredActiveMembers}`,
+			'-e', `EXPECTED_DUTY_ASSIGNMENTS=${contract.dataset.activeDutyAssignments}`,
+			'-e', 'VUS=1',
+			'-e', 'DURATION=1s',
+			'-e', 'MAX_FAILURE_RATE=0',
+			'-e', 'PERF_ACCESS_TOKEN=inspect-only-placeholder',
+			files.scenario,
+		], {
+			cwd: issueRoot,
+			encoding: 'utf8',
+			env: {
+				PATH: process.env.PATH,
+				HOME: tempHome,
+				TMPDIR: process.env.TMPDIR || os.tmpdir(),
+				LANG: 'C',
+				LC_ALL: 'C',
+			},
+		});
+		assert.equal(
+			result.status,
+			0,
+			`k6 inspect must initialize without HTTP execution\nstdout=${result.stdout}\nstderr=${result.stderr}`,
+		);
+	} finally {
+		fs.rmSync(tempHome, { recursive: true, force: true });
+	}
+});
+
 test('common integrity audit - source, target image, credential, and workload inputs have no fallback', () => {
 	const contract = JSON.parse(read(files.contract));
 	const runner = read(files.runner);
