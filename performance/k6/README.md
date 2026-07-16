@@ -4,7 +4,7 @@ Issue #90 uses k6 to collect reproducible local performance numbers. Defaults ta
 
 ## Issue #196 Prayer/Poll Before Scenario
 
-Issue #196 has an independent, local-Docker-only scenario under [`issue-196-prayer-poll-list-baseline/`](issue-196-prayer-poll-list-baseline/README.md). It prepares a 1,000-active-member Prayer/Poll fixture, runs Prayer, Poll member, and Poll admin endpoints in separate sequential phases, and contracts endpoint-specific HTTP/CPU/RAM/SQL/table-counter evidence.
+Issue #196 has an independent, local-Docker-only scenario under [`issue-196-prayer-poll-list-baseline/`](issue-196-prayer-poll-list-baseline/README.md). Its current-develop v2 contract prepares a 1,000-active-member Prayer/Poll fixture, runs Prayer, Poll member, Poll admin, and COFFEE/MEAL duty endpoints in separate sequential phases, and contracts endpoint-specific HTTP/app-DB-Redis resource/SQL/table-counter evidence.
 
 Current status is `scenario-ready / not-measured`. Do not quote baseline or improvement numbers until the approved seed, Docker, DB, and k6 measurement session produces reports under ignored `build/reports/k6/issue-196/`.
 

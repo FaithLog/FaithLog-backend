@@ -6,18 +6,18 @@ Status: `scenario-ready / not-measured`
 
 ## Scope and safety boundary
 
-- Local Docker only. Remote URLs are rejected by both seed and k6 scripts.
-- The stable `datasetId` is `issue-196-prayer-poll-list-v1`; every preparation requires a new immutable `fixtureRunId`.
+- Local Docker only. Remote URLs are rejected by seed, shaping, runner, and direct k6 entrypoints.
+- The stable current-develop `datasetId` is `issue-196-prayer-poll-list-v2`; every preparation requires a new immutable `fixtureRunId`.
 - The fixture creates new campuses and new rows. It never deletes fixture data and never updates/deletes rows that existed before the current `fixtureRunId`.
-- `shape-fixture.sh` atomically shapes all five Poll rows created by the current run. It verifies exact IDs/campus plus deterministic run titles, rejects an already-shaped manifest, and rolls back all five updates if any ownership check misses.
+- `shape-fixture.sh` atomically shapes all eight Poll rows created by the current run: five CUSTOM visibility rows, one current COFFEE row, one current MEAL row, and one archived MEAL row. It verifies exact IDs/campus plus deterministic run titles, rejects an already-shaped manifest, and rolls back all eight updates if any ownership check misses.
 - A 0600 `shape-attempted` receipt makes shaping one-shot even if the process stops after the database statement but before manifest persistence. Any shaping failure requires a new `fixtureRunId`.
 - Passwords, DB credentials, and Access Tokens are runtime-only. The manifest records IDs and generated test emails, but not credentials or tokens.
-- After app/DB label attestation, seed, shaping, and load all acquire the same canonical `/tmp/faithlog-performance-{actualComposeProject}.lock`. The path has no caller override, and the runner also refuses to start while another k6 process exists. Each entrypoint captures app/DB container ID, image ID, `StartedAt`, Compose labels/config hash, the published endpoint, and PostgreSQL identity before lock acquisition, then requires an exact post-lock match before login, fixture mutation, or k6.
-- Seed, shaping, the baseline runner, and the direct k6 entrypoint have no target defaults. They require an explicit numeric loopback `BASE_URL` (`127.0.0.1` or `[::1]`), app/DB container names, exact Compose service labels, and exact app image at runtime. `localhost` and implicit host resolution are rejected pending a separate approved resolution rule. A shared validator requires exactly one same-address-family exact/wildcard Docker binding on the requested host port. Seed records the immutable runtime and published target; shaping and baseline require the same identity before touching the fixture or measuring it.
+- After app/DB/Redis label attestation, seed, shaping, and load all acquire the same canonical `/tmp/faithlog-performance-{actualComposeProject}.lock`. The path has no caller override, and the runner also refuses to start while another k6 process exists. Each entrypoint captures all three containers' full ID, image ID, `StartedAt`, Compose labels/config hash, the published app endpoint, PostgreSQL identity, and Redis process `run_id` before lock acquisition, then requires an exact post-lock match before login, fixture mutation, or k6. The runner repeats this continuity gate before warmup, before/after measured, and before final report creation.
+- Seed, shaping, the baseline runner, and the direct k6 entrypoint have no target defaults. They require an explicit numeric loopback `BASE_URL` (`127.0.0.1` or `[::1]`), app/DB/Redis container names, exact Compose service labels, exact image tags and immutable image IDs, source revision, Flyway version, Redis port, credentials, and workload inputs at runtime. `localhost` and implicit host resolution are rejected pending a separate approved resolution rule. A shared validator requires exactly one same-address-family exact/wildcard Docker binding on the requested host port. Seed records the immutable runtime and published target; shaping and baseline require the same identity before touching the fixture or measuring it.
 - The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
 - Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory, and an existing path is never deleted, reused, or overwritten.
 - Sampling can detect observed conflicts but cannot prove that a short transient request never occurred. No exclusive-window boolean or sampling values have user approval as an adoption method yet, so every otherwise-clean report remains `accepted=false`, `automaticAdoption=false`, and `measurementStatus=conditional-not-adoptable` until a separate user decision changes that policy.
-- `BASE_URL`, app/DB container names, expected Compose service labels, and expected app image are runtime-required approval inputs at every relevant entrypoint. Missing input fails seed/shape/run before Docker/API/DB work, and direct k6 fails before a request; actual labels/image/port and the seed manifest must match exactly.
+- `BASE_URL`, app/DB/Redis container names, expected Compose service labels, expected image tags/IDs, source/Flyway/Redis identity, credentials, date, load, sampling, execution, and mode values are runtime-required approval inputs at their relevant entrypoints. Missing input fails before Docker/API/DB/k6 work; actual labels/images/ports/process identities and the seed manifest must match exactly. Redis currently has no scenario credential because the current Compose source config has no Redis authentication input; the scenario does not invent one.
 
 ## Fixture contract
 
@@ -31,7 +31,7 @@ Status: `scenario-ready / not-measured`
 | Poll comments | 200 on the OPEN target | none |
 | Poll templates | 40 × 8 options | none |
 
-The five primary Poll visibility cases are:
+The five primary CUSTOM Poll visibility cases are:
 
 1. `open`: member/admin visible, `OPEN`.
 2. `closed_member_visible`: ended 2 days ago, member/admin visible, `CLOSED`.
@@ -39,9 +39,16 @@ The five primary Poll visibility cases are:
 4. `closed_expired`: ended 8 days ago, hidden from member/admin, `CLOSED`.
 5. `scheduled_future`: future window, hidden from member/admin, `SCHEDULED`.
 
+The v2 fixture also creates duty actors and type-specific Polls required by current develop:
+
+- one COFFEE creator who is the active COFFEE duty and can manage only their own current COFFEE Poll;
+- a second active COFFEE duty who cannot manage that Poll;
+- one active MEAL duty who can manage the current and archived MEAL Polls;
+- a normal member and service admin, neither of whom receives COFFEE/MEAL duty ownership merely from membership or global role.
+
 ## Actual read flows
 
-The top-level runner starts a separate k6 process for every endpoint. It completes all Prayer phases before Poll member phases, then Poll admin phases. Prayer and Poll traffic is therefore never mixed in one load segment.
+The top-level runner starts a separate k6 process for every endpoint. Explicit `all` completes Prayer, Poll member, Poll admin, and Poll duty phases in that order. Prayer and Poll traffic, and the three Poll actor modes, are therefore never mixed in one load segment.
 
 | Mode | Endpoint phase | API |
 | --- | --- | --- |
@@ -54,20 +61,25 @@ The top-level runner starts a separate k6 process for every endpoint. It complet
 | `poll-admin` | list/detail/results/comments/isolation | service admin credentials and the common Poll APIs |
 | `poll-admin` | missing members | `GET /api/v1/admin/campuses/{campusId}/polls/{pollId}/missing-members` |
 | `poll-admin` | template list/detail | `GET /api/v1/admin/campuses/{campusId}/poll-templates[/{templateId}]` |
+| `poll-duty` | COFFEE list/detail | common Poll list/detail with the creator and a different active COFFEE duty |
+| `poll-duty` | MEAL list/detail | common Poll list/detail with the active MEAL duty |
+| `poll-duty` | MEAL management default/archive | `GET /api/v1/campuses/{campusId}/meal/polls?includeArchived={false|true}&page=0&size=100&sort=id%2Cdesc` |
+| `poll-duty` | MEAL management forbidden | the same management list with a normal member, expecting `403 MEAL_DUTY_REQUIRED` |
 
 ## Correctness gates
 
 Every load response is checked, not merely timed.
 
 - Prayer: exact season/campus/status, 40-group and 1,000-member counts, group/member order, 800/200 submission split, member `myGroupId`, admin all-editable behavior, member own-item-only `editable`, and isolation IDs absent.
-- Poll list: exact descending ID order, member 3-day vs admin 7-day visibility, OPEN/CLOSED/SCHEDULED expectations, `responded`, expired/future/isolation exclusion.
-- Poll detail: target campus/ID/status, option count and `sortOrder,id` order, member `myResponse`, admin no-response shape.
+- Generic Poll list: the current API is an unpaginated array. It must have exact descending ID order, member 3-day vs admin 7-day visibility, OPEN/CLOSED/SCHEDULED expectations, `responded`, Poll type, `manageableByMe`, absence of `createdBy`, and expired/future/isolation exclusion.
+- MEAL management list: exact `PageResponse` metadata, explicit `id,desc` ordering, default exclusion of the 90-day archive boundary, explicit archive inclusion, MEAL-only rows, duty ownership, and normal-member denial.
+- Poll detail: target campus/ID/status, option count and `sortOrder,id` order, member `myResponse`, admin no-response shape, Poll type, current-develop `manageableByMe`, and absence of `createdBy`.
 - Poll results: target/responded/not-responded counts, option order, response count sum, non-anonymous 800 respondents, anonymous zero respondent identities.
 - Comments/templates/missing members: exact count and stable order.
 - Cross-campus Poll ID through the primary campus path: `404 POLL_NOT_FOUND`.
 - A primary-only member querying the isolation campus and its Poll directly: `403 POLL_ACCESS_FORBIDDEN`.
 - Exact `startsAt`/`endsAt` values match the atomically shaped manifest. The runner checks all five windows at global preflight and immediately before and after every endpoint phase; crossing a boundary rejects that endpoint report.
-- DB snapshots must contain the exact required table set and exact field schema, increasing `capturedAt`, all eight required non-empty planner settings, and a stable database/server/postmaster identity. Analyze, autoanalyze, vacuum, and autovacuum counts/timestamps must be present (`null` or a valid timestamp) and unchanged. PostgreSQL counters are emitted as strict nonnegative decimal strings and compared with `BigInt`; deltas are also decimal strings, so values beyond `Number.MAX_SAFE_INTEGER` cannot collapse. Cumulative counters must be monotonic, and every table's `n_tup_ins`, `n_tup_upd`, and `n_tup_del` delta must individually equal zero.
+- DB snapshots must contain the exact 27-table current-develop set and exact field schema, increasing `capturedAt`, all eight required non-empty planner settings, Flyway version 11, all 27 tables RLS-enabled, zero FORCE RLS/policies, JDBC database-owner continuity, and stable database/server/postmaster identity. Analyze, autoanalyze, vacuum, and autovacuum counts/timestamps must be present (`null` or a valid timestamp) and unchanged. `pg_stat_statements` installed/preloaded/view-available state may be consistently available or unavailable, but malformed or changing state is rejected. PostgreSQL counters are strict nonnegative decimal strings compared with `BigInt`; deltas are also decimal strings, so values beyond `Number.MAX_SAFE_INTEGER` cannot collapse. Cumulative counters must be monotonic, and every table's `n_tup_ins`, `n_tup_upd`, and `n_tup_del` delta must individually equal zero.
 - Runtime-integrity and per-container resource sampling interval/max-gap have no defaults and require explicit runtime approval inputs. Given inputs are recorded and used for timestamp order, measured-window boundary coverage, maximum gap, and duration-derived minimum count validation. These checks prepare evidence only and do not enable automatic adoption while the adoption policy is pending.
 - Any response correctness failure uses an immutable zero-failure threshold. A non-zero warmup, k6, resource-sampler, activity-sampler, fixture-window, log-capture, or after-DB-snapshot status writes or preserves non-adoptable evidence; missing or malformed latency/throughput/table/resource/activity evidence and any read-path write delta are listed in `rejectionReasons`. Every rejected report stops the sequential runner with a non-zero status.
 
@@ -78,14 +90,14 @@ Each endpoint report includes:
 - exact endpoint custom k6 Trend: finite nonnegative `p50 <= p95 <= p99 <= max`, accepting both k6 v2 direct and `values` summary shapes;
 - exact endpoint custom request Counter: positive count and positive throughput/second;
 - exact endpoint custom failure Rate equal to zero;
-- application/PostgreSQL container CPU and RAM samples whose container set is exactly the two attested runtime names. CPU is finite/nonnegative; memory usage and limit use strict Docker byte units, are safe nonnegative byte counts with `limit > 0` and `used <= limit`, and reported memory percentage is finite in `0..100`. Reports derive canonical memory percent and exact decimal byte totals from parsed usage/limit rather than inventing a tolerance;
+- application/PostgreSQL/Redis CPU and RAM samples whose container set and full immutable IDs are exactly the three attested runtime identities. CPU is finite/nonnegative; memory usage and limit use strict Docker byte units, are safe nonnegative byte counts with `limit > 0` and `used <= limit`, and reported memory percentage is finite in `0..100`. Reports derive canonical memory percent and exact decimal byte totals from parsed usage/limit rather than inventing a tolerance;
 - Hibernate SQL log query count and `queriesPerRequest`;
 - repeated normalized SQL patterns as loop/N+1 evidence;
 - per-table PostgreSQL estimated row counts plus monotonic `seq_scan`, `seq_tup_read`, `idx_scan`, `idx_tup_fetch`, and individually zero write-counter deltas;
 - before/after planner and analyze/autoanalyze/vacuum/autovacuum state plus measured-window DB activity and host-port client samples; only the current observer PID, attested app-container client address, measured k6 PID, and Docker proxy processes are excluded, while any other same-name or different session/client makes the report non-adoptable;
-- actual app/DB container IDs, immutable image IDs, `StartedAt`, PostgreSQL database/address/port/postmaster start time, app image tag, published target port, and Compose `project`, `service`, and `config-hash` labels. Exact continuity is checked before warmup, immediately before measured, immediately after measured, and before report adoption.
+- actual app/DB/Redis full container IDs, immutable image IDs, `StartedAt`, PostgreSQL database/address/port/postmaster start time and extension state, Redis `run_id`/port, source revision, Flyway version, image tags, published target port, and Compose `project`, `service`, and `config-hash` labels. Exact continuity is checked before warmup, immediately before measured, immediately after measured, and before report creation.
 
-Query logs and PostgreSQL counters are container-wide. The attested project-scoped canonical lock, runtime activity evidence, disabled scheduler, endpoint-per-process execution, and prohibition on other traffic are part of the evidence contract. If any of those conditions are not satisfied, do not treat the report as an Issue #196 baseline.
+Query logs and PostgreSQL counters are container-wide. The attested project-scoped canonical lock, runtime activity evidence, disabled scheduler, endpoint-per-process execution, and prohibition on other traffic are part of the evidence contract. The summarizer preserves the first machine-readable rejection as `primaryRejectionReason` and never overwrites an existing report. Even clean evidence remains `automaticAdoption=false` and conditional/non-adoptable. If any condition is not satisfied, do not treat the report as an Issue #196 baseline.
 
 ## Runtime preparation (do not run in this development session)
 
@@ -103,12 +115,23 @@ Supply all credentials directly in the runtime shell or an approved secret manag
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
+PERF_WEEK_START_DATE='<approved-monday-yyyy-mm-dd>' \
 BASE_URL='<approved-loopback-base-url>' \
 APP_CONTAINER='<approved-app-container>' \
 DB_CONTAINER='<approved-db-container>' \
+REDIS_CONTAINER='<approved-redis-container>' \
 EXPECTED_APP_SERVICE='<approved-app-service-label>' \
 EXPECTED_DB_SERVICE='<approved-db-service-label>' \
+EXPECTED_REDIS_SERVICE='<approved-redis-service-label>' \
 EXPECTED_APP_IMAGE='<approved-exact-app-image>' \
+EXPECTED_APP_IMAGE_ID='<approved-immutable-app-image-id>' \
+EXPECTED_DB_IMAGE='<approved-exact-db-image>' \
+EXPECTED_DB_IMAGE_ID='<approved-immutable-db-image-id>' \
+EXPECTED_REDIS_IMAGE='<approved-exact-redis-image>' \
+EXPECTED_REDIS_IMAGE_ID='<approved-immutable-redis-image-id>' \
+EXPECTED_REDIS_PORT='<approved-redis-port>' \
+EXPECTED_FLYWAY_VERSION='<approved-flyway-version>' \
+EXPECTED_SOURCE_REVISION='<approved-source-revision>' \
 PERF_ADMIN_EMAIL='<runtime-admin-email>' \
 PERF_ADMIN_PASSWORD='<runtime-admin-password>' \
 PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \
@@ -127,9 +150,19 @@ FIXTURE_RUN_ID=i196-20260714-a \
 BASE_URL='<approved-loopback-base-url>' \
 APP_CONTAINER='<approved-app-container>' \
 DB_CONTAINER='<approved-db-container>' \
+REDIS_CONTAINER='<approved-redis-container>' \
 EXPECTED_APP_SERVICE='<approved-app-service-label>' \
 EXPECTED_DB_SERVICE='<approved-db-service-label>' \
+EXPECTED_REDIS_SERVICE='<approved-redis-service-label>' \
 EXPECTED_APP_IMAGE='<approved-exact-app-image>' \
+EXPECTED_APP_IMAGE_ID='<approved-immutable-app-image-id>' \
+EXPECTED_DB_IMAGE='<approved-exact-db-image>' \
+EXPECTED_DB_IMAGE_ID='<approved-immutable-db-image-id>' \
+EXPECTED_REDIS_IMAGE='<approved-exact-redis-image>' \
+EXPECTED_REDIS_IMAGE_ID='<approved-immutable-redis-image-id>' \
+EXPECTED_REDIS_PORT='<approved-redis-port>' \
+EXPECTED_FLYWAY_VERSION='<approved-flyway-version>' \
+EXPECTED_SOURCE_REVISION='<approved-source-revision>' \
 PERF_DB_USER='<runtime-db-user>' \
 PERF_DB_NAME='<runtime-db-name>' \
 PERF_DB_PASSWORD='<runtime-db-password>' \
@@ -146,9 +179,19 @@ EXECUTION_RUN_ID=i196-exec-20260714-a \
 BASE_URL='<approved-loopback-base-url>' \
 APP_CONTAINER='<approved-app-container>' \
 DB_CONTAINER='<approved-db-container>' \
+REDIS_CONTAINER='<approved-redis-container>' \
 EXPECTED_APP_SERVICE='<approved-app-service-label>' \
 EXPECTED_DB_SERVICE='<approved-db-service-label>' \
+EXPECTED_REDIS_SERVICE='<approved-redis-service-label>' \
 EXPECTED_APP_IMAGE='<approved-exact-app-image>' \
+EXPECTED_APP_IMAGE_ID='<approved-immutable-app-image-id>' \
+EXPECTED_DB_IMAGE='<approved-exact-db-image>' \
+EXPECTED_DB_IMAGE_ID='<approved-immutable-db-image-id>' \
+EXPECTED_REDIS_IMAGE='<approved-exact-redis-image>' \
+EXPECTED_REDIS_IMAGE_ID='<approved-immutable-redis-image-id>' \
+EXPECTED_REDIS_PORT='<approved-redis-port>' \
+EXPECTED_FLYWAY_VERSION='<approved-flyway-version>' \
+EXPECTED_SOURCE_REVISION='<approved-source-revision>' \
 WARMUP_VUS='<approved-warmup-vus>' \
 WARMUP_DURATION='<approved-warmup-duration>' \
 MEASURED_VUS='<approved-measured-vus>' \
@@ -164,7 +207,7 @@ PERF_DB_PASSWORD='<runtime-db-password>' \
 bash performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh all
 ```
 
-The mode argument is required. Pass `all` explicitly for the complete sequential scope, or `prayer`, `poll-member`, or `poll-admin` only when the PM explicitly wants that partial scope. Partial reports must not be presented as a complete baseline.
+The mode argument is required. Pass `all` explicitly for the complete sequential scope, or `prayer`, `poll-member`, `poll-admin`, or `poll-duty` only when the PM explicitly wants that partial scope. Partial reports must not be presented as a complete baseline.
 
 ## Static verification
 
@@ -177,10 +220,12 @@ node --check performance/k6/issue-196-prayer-poll-list-baseline/seed-fixture.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/scenario.js
 node --check performance/k6/issue-196-prayer-poll-list-baseline/token-lifetime.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/activity-sample.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/redis-runtime-identity.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/validate-published-target.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/validate-runtime-identity.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh
 ```
 
-This session syntax-checks `scenario.js` without executing k6; the contract test separately fixes its endpoint, metric, sequencing, and correctness markers.
+This session syntax-checks `scenario.js` without executing k6; the contract test separately fixes its endpoint, metric, sequencing, correctness, current-develop source/Flyway/RLS identity, app/DB/Redis continuity, pgss state, BigInt counter, and resource evidence markers. Test-code auditing across performance issues may run in parallel, but actual shared-stack seed/load measurement remains PM-controlled and strictly sequential.
