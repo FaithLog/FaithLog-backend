@@ -1687,6 +1687,255 @@ test('actual k6 v2 Trend, Counter, and Rate shapes normalize losslessly through 
 	assert.match(read(files.runner), /validate-k6-summary\.mjs[\s\S]*MEASURED_ADOPTION[\s\S]*validate-db-integrity\.mjs/);
 });
 
+test('actual Docker rounded memory units normalize to safe bytes through resource adoption', () => {
+	const identities = {
+		app: { containerId: 'a'.repeat(64), name: '/faithlog-app', imageId: 'b'.repeat(64), startedAt: '2026-07-16T00:00:00Z' },
+		postgres: { containerId: 'c'.repeat(64), name: '/faithlog-postgres', imageId: 'd'.repeat(64), startedAt: '2026-07-16T00:00:00Z' },
+		redis: { containerId: 'e'.repeat(64), name: '/faithlog-redis', imageId: 'f'.repeat(64), startedAt: '2026-07-16T00:00:00Z' },
+	};
+	const capture = (memory, phase = 'before') => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-memory-capture-'));
+		try {
+			const outputPath = path.join(directory, 'resource.ndjson');
+			const env = {
+				APP_ACTUAL_ID: identities.app.containerId,
+				APP_ACTUAL_NAME: identities.app.name,
+				APP_IMAGE_ID: identities.app.imageId,
+				APP_STARTED_AT: identities.app.startedAt,
+				APP_STATS_JSON: JSON.stringify({ CPUPerc: '1.25%', MemUsage: memory.app }),
+				POSTGRES_ACTUAL_ID: identities.postgres.containerId,
+				POSTGRES_ACTUAL_NAME: identities.postgres.name,
+				POSTGRES_IMAGE_ID: identities.postgres.imageId,
+				POSTGRES_STARTED_AT: identities.postgres.startedAt,
+				POSTGRES_STATS_JSON: JSON.stringify({ CPUPerc: '0.50%', MemUsage: memory.postgres }),
+				REDIS_ACTUAL_ID: identities.redis.containerId,
+				REDIS_ACTUAL_NAME: identities.redis.name,
+				REDIS_IMAGE_ID: identities.redis.imageId,
+				REDIS_STARTED_AT: identities.redis.startedAt,
+				REDIS_STATS_JSON: JSON.stringify({ CPUPerc: '0.10%', MemUsage: memory.redis }),
+			};
+			const result = spawnSync(process.execPath, [
+				files.resourceSnapshotCapture,
+				'admin_users',
+				'first_page',
+				phase,
+				outputPath,
+			], { encoding: 'utf8', env });
+			const snapshot = fs.existsSync(outputPath)
+				? JSON.parse(fs.readFileSync(outputPath, 'utf8').trim())
+				: null;
+			return { ...result, snapshot };
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	};
+
+	const actual = capture({
+		app: '766.3MiB / 7.653GiB',
+		postgres: '268.3MiB / 7.653GiB',
+		redis: '19.55MiB / 7.653GiB',
+	});
+	assert.equal(actual.status, 0, actual.stderr);
+	assert.deepEqual(actual.snapshot.containers.map(({ role, memoryBytes }) => [role, memoryBytes]), [
+		['app', 803_523_789],
+		['postgres', 281_332_941],
+		['redis', 20_499_661],
+	]);
+
+	for (const [unit, expected] of Object.entries({
+		B: 2,
+		kB: 1_500,
+		KB: 1_500,
+		KiB: 1_536,
+		MB: 1_500_000,
+		MiB: 1_572_864,
+		GB: 1_500_000_000,
+		GiB: 1_610_612_736,
+		TB: 1_500_000_000_000,
+		TiB: 1_649_267_441_664,
+	})) {
+		const result = capture({
+			app: `1.5${unit} / 2${unit}`,
+			postgres: `1.5${unit} / 2${unit}`,
+			redis: `1.5${unit} / 2${unit}`,
+		});
+		assert.equal(result.status, 0, `${unit}: ${result.stderr}`);
+		assert.deepEqual(result.snapshot.containers.map(({ memoryBytes }) => memoryBytes), [expected, expected, expected]);
+	}
+
+	const maximumSafe = capture({
+		app: '9007199254740991B / 9007199254740991B',
+		postgres: '9007199254740991B / 9007199254740991B',
+		redis: '9007199254740991B / 9007199254740991B',
+	});
+	assert.equal(maximumSafe.status, 0, maximumSafe.stderr);
+	assert.deepEqual(maximumSafe.snapshot.containers.map(({ memoryBytes }) => memoryBytes), [
+		Number.MAX_SAFE_INTEGER,
+		Number.MAX_SAFE_INTEGER,
+		Number.MAX_SAFE_INTEGER,
+	]);
+
+	for (const invalid of [
+		'-1MiB / 1GiB',
+		'NaNMiB / 1GiB',
+		'InfinityMiB / 1GiB',
+		'1.5XB / 2XB',
+		'9007199254740992B / 9007199254740992B',
+	]) {
+		const result = capture({ app: invalid, postgres: '1MiB / 1GiB', redis: '1MiB / 1GiB' });
+		assert.notEqual(result.status, 0, invalid);
+	}
+
+	const before = structuredClone(actual.snapshot);
+	before.phase = 'before';
+	before.capturedAt = '2026-07-16T00:00:01.000Z';
+	const after = structuredClone(actual.snapshot);
+	after.phase = 'after';
+	after.capturedAt = '2026-07-16T00:00:04.000Z';
+	const windows = [
+		{ scenario: 'admin_users', case: 'first_page', event: 'measured-start', status: 'pending', at: '2026-07-16T00:00:02.000Z' },
+		{ scenario: 'admin_users', case: 'first_page', event: 'measured-end', status: 'passed', at: '2026-07-16T00:00:03.000Z' },
+	];
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-memory-adoption-'));
+	try {
+		const identityPath = path.join(directory, 'identity.json');
+		const resourcePath = path.join(directory, 'resource.ndjson');
+		const windowsPath = path.join(directory, 'windows.ndjson');
+		const outputPath = path.join(directory, 'adoption.json');
+		fs.writeFileSync(identityPath, `${JSON.stringify(identities)}\n`);
+		fs.writeFileSync(resourcePath, `${JSON.stringify(before)}\n${JSON.stringify(after)}\n`);
+		fs.writeFileSync(windowsPath, `${windows.map(JSON.stringify).join('\n')}\n`);
+		assert.equal(runJsonTool(files.resourceSnapshotValidator, [
+			identityPath,
+			resourcePath,
+			windowsPath,
+			'admin_users',
+			'first_page',
+			'10',
+			outputPath,
+		]).status, 0);
+		after.containers[0].memoryBytes = 803_523_789.5;
+		fs.writeFileSync(resourcePath, `${JSON.stringify(before)}\n${JSON.stringify(after)}\n`);
+		assert.notEqual(runJsonTool(files.resourceSnapshotValidator, [
+			identityPath,
+			resourcePath,
+			windowsPath,
+			'admin_users',
+			'first_page',
+			'10',
+			outputPath,
+		]).status, 0);
+	} finally {
+		fs.rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test('preserved C evidence stays read-only and future summaries cannot persist the access token', () => {
+	const scenario = read(files.scenario);
+	assert.doesNotMatch(scenario, /return\s*\{\s*token:\s*PERF_ACCESS_TOKEN\s*\}/);
+	assert.match(scenario, /export default function\s*\(\s*\)/);
+	assert.match(scenario, /Authorization:\s*`Bearer \$\{PERF_ACCESS_TOKEN\}`/);
+
+	const reportDirectory = process.env.ISSUE195_EXECUTION_C_REPORT;
+	if (!reportDirectory) return;
+	assert.ok(path.isAbsolute(reportDirectory));
+	const paths = {
+		rejection: path.join(reportDirectory, 'first-rejection.json'),
+		adoption: path.join(reportDirectory, 'warmup-admin_users-first_page-adoption.json'),
+		summary: path.join(reportDirectory, 'warmup-admin_users-first_page.json'),
+	};
+	const before = Object.fromEntries(Object.entries(paths).map(([key, filePath]) => [key, {
+		content: fs.readFileSync(filePath, 'utf8'),
+		stats: fs.statSync(filePath),
+	}]));
+	assert.deepEqual(JSON.parse(before.rejection.content), {
+		schemaVersion: 1,
+		status: 'non-adoptable',
+		automaticAdoption: false,
+		stage: 'measured-resource-before',
+		scenario: 'admin_users',
+		case: 'first_page',
+		exitCode: 1,
+	});
+	const adoption = JSON.parse(before.adoption.content);
+	assert.equal(adoption.requestCount, 530);
+	assert.equal(adoption.failureRate, 0);
+	const historicalSummary = JSON.parse(before.summary.content);
+	assert.equal(typeof historicalSummary.setup_data?.token, 'string', 'C must preserve the historical leak evidence');
+	assert.ok(historicalSummary.setup_data.token.length > 0, 'historical token evidence must be non-empty');
+	for (const [key, filePath] of Object.entries(paths)) {
+		assert.equal(fs.readFileSync(filePath, 'utf8'), before[key].content);
+		const afterStats = fs.statSync(filePath);
+		assert.equal(afterStats.size, before[key].stats.size);
+		assert.equal(afterStats.mtimeMs, before[key].stats.mtimeMs);
+	}
+});
+
+test('installed k6 no-HTTP serialization keeps the runtime token out of handleSummary', (t) => {
+	const k6Bin = process.env.ISSUE195_K6_BIN || '/opt/homebrew/bin/k6';
+	if (!fs.existsSync(k6Bin)) {
+		t.skip(`installed k6 is unavailable at ${k6Bin}`);
+		return;
+	}
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-k6-no-http-'));
+	try {
+		fs.copyFileSync(files.scenario, path.join(directory, 'member-list-baseline.js'));
+		fs.copyFileSync(files.contract, path.join(directory, 'scenario-contract.json'));
+		fs.writeFileSync(path.join(directory, 'micro.js'), `
+import { setup as scenarioSetup } from './member-list-baseline.js';
+export function setup() { return scenarioSetup(); }
+export default function () {}
+export function handleSummary(data) {
+	return { 'micro-summary.json': JSON.stringify(data) };
+}
+`);
+		const sentinel = 'ISSUE195_SENTINEL_TOKEN_MUST_NOT_SERIALIZE';
+		const contract = JSON.parse(read(files.contract));
+		const result = spawnSync(k6Bin, [
+			'run',
+			'--quiet',
+			'--vus', '1',
+			'--iterations', '1',
+			'-e', 'BASE_URL=http://127.0.0.1:28080',
+			'-e', 'SCENARIO=admin_users',
+			'-e', 'CASE=first_page',
+			'-e', 'PERF_DATASET_ID=PERF_NO_HTTP_ONLY',
+			'-e', 'PERF_FIXTURE_RUN_ID=ISSUE195_NO_HTTP_ONLY',
+			'-e', 'PERF_EXECUTION_RUN_ID=EXEC195_NO_HTTP_ONLY',
+			'-e', 'CAMPUS_ID=1',
+			'-e', 'ISOLATION_CAMPUS_ID=2',
+			'-e', 'ISOLATION_USER_ID=3',
+			'-e', `EXPECTED_ACTIVE_MEMBERS=${contract.dataset.requiredActiveMembers}`,
+			'-e', `EXPECTED_DUTY_ASSIGNMENTS=${contract.dataset.activeDutyAssignments}`,
+			'-e', 'VUS=1',
+			'-e', 'DURATION=1s',
+			'-e', 'MAX_FAILURE_RATE=0',
+			'-e', `PERF_ACCESS_TOKEN=${sentinel}`,
+			'micro.js',
+		], {
+			cwd: directory,
+			encoding: 'utf8',
+			env: {
+				PATH: process.env.PATH,
+				HOME: directory,
+				TMPDIR: process.env.TMPDIR || os.tmpdir(),
+				LANG: 'C',
+				LC_ALL: 'C',
+			},
+		});
+		assert.equal(result.status, 0, result.stderr);
+		const summaryPath = path.join(directory, 'micro-summary.json');
+		const serialized = fs.readFileSync(summaryPath, 'utf8');
+		assert.doesNotMatch(serialized, new RegExp(sentinel));
+		const summary = JSON.parse(serialized);
+		const httpRequests = summary.metrics?.http_reqs;
+		const httpRequestValues = httpRequests?.values ?? httpRequests;
+		assert.ok(!httpRequests || httpRequestValues?.count === 0, 'no-HTTP micro script must emit zero HTTP requests');
+	} finally {
+		fs.rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 test('resource boundary validator binds exact case, identities, metrics, and event ordering', () => {
 	assert.ok(fs.existsSync(files.resourceSnapshotValidator), 'resource snapshot validator is required');
 	const identity = {
