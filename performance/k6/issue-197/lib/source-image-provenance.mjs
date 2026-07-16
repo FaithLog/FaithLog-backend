@@ -30,6 +30,18 @@ function strictTimestamp(value, label) {
 	assert.ok(Number.isFinite(Date.parse(value)), `${label} must be a valid timestamp`);
 }
 
+export function parseNewestHeadReflogCheckoutAt(reflog) {
+	nonEmptyString(reflog, 'HEAD reflog');
+	const newestLine = reflog.split(/\r?\n/, 1)[0];
+	const fields = newestLine.split('\t');
+	assert.ok(fields.length >= 2, 'HEAD reflog selector timestamp is missing');
+	const selector = fields[1];
+	const match = /^HEAD@\{(.+)\}$/.exec(selector);
+	assert.ok(match, 'HEAD reflog selector timestamp is malformed');
+	strictTimestamp(match[1], 'HEAD reflog selector timestamp');
+	return match[1];
+}
+
 export function validateSourceImageProvenance(facts, expected) {
 	exactObject(facts, [
 		'schemaVersion', 'proofMode', 'sourceWorktree', 'composeWorkingDir', 'revision', 'detached', 'clean',
@@ -81,10 +93,8 @@ function collectFacts(sourceWorktreeInput, composeWorkingDirInput, expectedRevis
 		if (error.status !== 1) throw error;
 		detached = true;
 	}
-	const reflog = git(sourceWorktree, ['reflog', '--date=iso-strict', '--format=%cI%x09%gs', 'HEAD']);
-	const checkoutLine = reflog.split(/\r?\n/).find((line) => line.includes('\tcheckout: moving from '));
-	assert.ok(checkoutLine, 'source worktree checkout timestamp is unavailable');
-	const checkoutAt = checkoutLine.slice(0, checkoutLine.indexOf('\t'));
+	const reflog = git(sourceWorktree, ['reflog', '--date=iso-strict', '--format=%cI%x09%gD%x09%gs', 'HEAD']);
+	const checkoutAt = parseNewestHeadReflogCheckoutAt(reflog);
 	const treeInventory = git(sourceWorktree, ['ls-tree', '-r', expectedRevision, '--', ...API_CONTRACT_PATHS]);
 	assert.ok(treeInventory.length > 0, 'source API contract inventory must not be empty');
 	const apiContractSha256 = crypto.createHash('sha256').update(`${treeInventory}\n`).digest('hex');

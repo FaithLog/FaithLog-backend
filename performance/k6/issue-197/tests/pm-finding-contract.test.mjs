@@ -1030,7 +1030,7 @@ fs.writeFileSync(path.join(fakeBin, 'git'), `#!/usr/bin/env bash
 if [[ "$*" == *" status --porcelain=v1 --untracked-files=all"* ]]; then exit 0; fi
 if [[ "$*" == *" symbolic-ref -q HEAD"* ]]; then exit 1; fi
 if [[ "$*" == *" rev-parse HEAD"* ]]; then printf '%s\n' "$EXPECTED_APP_REVISION"; exit 0; fi
-if [[ "$*" == *" reflog --date=iso-strict"* ]]; then printf '2026-07-16T04:20:28.000Z\tcheckout: moving from develop to 6796ed1\n'; exit 0; fi
+if [[ "$*" == *" reflog --date=iso-strict"* ]]; then printf '2026-07-16T04:19:29.000Z\tHEAD@{2026-07-16T04:20:28.000Z}\t\n'; exit 0; fi
 if [[ "$*" == *" ls-tree -r "* ]]; then printf '%s\n' "$FAKE_API_TREE_INVENTORY"; exit 0; fi
 exit 1
 `);

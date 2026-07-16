@@ -6,7 +6,7 @@
 
 이 시나리오는 `origin/develop` exact HEAD `6796ed146244d8f3f5b5dd7048ebe16865084a97`(#200, #201, #202, #206 포함)를 기준으로 보정했다. 이 값은 작성 기준일 뿐 실행할 서버 identity를 추측하는 default가 아니다. 실제 baseline은 preparation과 measurement를 분리하는 **two-session / one-load** 정책을 따른다. preparation session은 scenario/test/validator/docs만 다루고, measurement session 하나만 공통 lock을 소유해 fixture·DB·HTTP·k6를 순차 실행한다. 다른 이슈 또는 같은 이슈의 load와 동시에 실행하지 않는다.
 
-실행 전에는 runtime에서 승인한 `EXPECTED_APP_REVISION`, app/DB/Redis image ID, app JAR/API-contract SHA-256, 최신 적용 Flyway version/script/checksum, DB/Redis target host/port를 반드시 제공한다. runner는 실행 중인 container의 OCI revision/API-contract label, Docker image ID, `/app/app.jar` SHA-256, `flyway_schema_history`, Redis `INFO server`를 직접 읽어 initial과 모든 checkpoint에서 exact 비교하고 app의 DB/Redis target도 승인 service/port와 대조한다. `BASE_URL`, `DB_HOST`, `REDIS_HOST`는 DNS 이름이나 암묵적 Unix socket이 아닌 numeric loopback(`127.0.0.1` 또는 `::1`)만 허용한다. 값이 없거나 current develop 서버임을 증명하지 못하면 측정하지 않는다.
+실행 전에는 runtime에서 승인한 `APP_SOURCE_WORKTREE`, `EXPECTED_APP_REVISION`, app/DB/Redis image ID, app JAR/API-contract SHA-256, 최신 적용 Flyway version/script/checksum, DB/Redis target host/port를 반드시 제공한다. app image에는 revision/API-contract OCI label이 없으므로 image 단독 revision 증명은 limitation으로 남긴다. 대신 runner는 Compose `project.working_dir`와 같은 realpath의 clean detached checkout, exact HEAD, newest `HEAD@{<iso-strict>}` reflog selector 시각, 그 시각 뒤에 생성된 exact app image, source tree API-contract SHA-256을 pre-lock과 모든 checkpoint에서 다시 확인한다. `%cI` commit 시각과 empty reflog subject는 checkout 시각 근거로 사용하지 않는다. Docker image ID, `/app/app.jar` SHA-256, `flyway_schema_history`, Redis `INFO server`도 exact 비교하고 app의 DB/Redis target을 승인 service/port와 대조한다. `BASE_URL`, `DB_HOST`, `REDIS_HOST`는 DNS 이름이나 암묵적 Unix socket이 아닌 numeric loopback(`127.0.0.1` 또는 `::1`)만 허용한다. 값이 없거나 current develop 서버임을 증명하지 못하면 측정하지 않는다.
 
 current-develop correctness drift는 다음처럼 분리 고정한다.
 
@@ -23,6 +23,7 @@ current-develop correctness drift는 다음처럼 분리 고정한다.
 - `collect-db-counters.sql`, `lib/validate-db-window.mjs`: warmup 뒤 measured 직전/직후의 DB 인스턴스 전체 database counter, 대상 DB table/query counter와 외부 session, analyze/autoanalyze/vacuum/autovacuum/planner 상태를 strict schema로 비교하고 오염된 run의 baseline 채택을 거부한다.
 - `activity-signature.schema.json`, `lib/validate-activity-attribution.mjs`: warmup 결과를 신뢰 signature로 학습하지 않는다. 사용자가 runtime에 별도로 승인한 exact warmup/measured table/query/transaction signature와 두 window를 각각 비교하고, 같은 PostgreSQL 컨테이너의 다른 database activity도 거부한다.
 - `lib/runtime-contract.mjs`: 승인 workload와 JWT exp/sub/user coverage, inspected app published port와 `BASE_URL` 동일성을 어떤 write보다 먼저 확인한다.
+- `lib/source-image-provenance.mjs`: OCI revision label이 없는 app의 clean detached source/Compose working directory/exact HEAD/newest reflog selector/image creation/API tree digest를 fail-closed로 결속한다.
 - `lib/rejection-contract.mjs`: runtime 필수 fresh rejection path에 최초 실패 stage를 mode 600 JSON으로 한 번만 기록하고 `automaticAdoption=false`를 고정한다.
 - `lib/validate-k6-summary.mjs`: k6 direct metric과 `metric.values` shape 모두에서 필수 metric, 양의 정수 transaction, 양의 throughput, non-negative·ordered p50/p95/p99/max와 failure gate를 검증한다.
 - `runtime-identity.sql`, `lib/validate-runtime-identity.mjs`: app/DB/Redis full container ID, image ID, StartedAt, Compose project/service, app published port, PostgreSQL database/address/port/postmaster/Flyway identity, Redis run ID/version/port를 initial/warmup 직전/measured 직전·직후/final에 exact 비교한다.
@@ -38,13 +39,14 @@ current-develop correctness drift는 다음처럼 분리 고정한다.
 두 runner 모두 다음을 강제한다.
 
 1. `datasetId`는 `PERFORMANCE_`로 시작하고 `fixtureRunId`는 별도의 `ISSUE197_` 값이다.
-2. runtime credential은 저장소 파일과 분리한다. `CREDENTIALS_FILE`은 `build/reports/k6/issue-197/...` 또는 OS 임시 디렉터리에 owner-only mode `600`으로만 둘 수 있으며 커밋하지 않는다.
+2. runtime credential은 저장소 파일과 분리한다. `CREDENTIALS_FILE`은 `build/reports/k6/issue-197/...` 또는 OS 임시 디렉터리에 owner-only mode `600`으로만 둘 수 있으며 커밋하지 않는다. runner는 입력 직후 부모 environment에서 이를 unset하고 fixture/JWT validator와 각 k6 child에만 명시적으로 전달한다.
 3. app/DB/Redis container의 실제 `com.docker.compose.project` label은 `EXPECTED_COMPOSE_PROJECT`와, 각 `com.docker.compose.service` label은 default 없는 승인 service와 정확히 같아야 한다. DB/Redis image ID도 runtime 승인값과 같아야 한다. mismatch는 lock, DB, k6, HTTP write 전에 거부하며 evidence에는 실제 project/service를 기록한다.
 4. `FAITHLOG_SCHEDULER_ENABLED=false`가 아니면 실행하지 않는다. 실제 FCM 전송, scheduler retention, recovery가 baseline과 겹치지 않는다.
 5. runner는 container 생성, 재시작, build, down, prune, volume 조작을 수행하지 않는다.
 6. Compose inspect 뒤 실제 project-keyed lock을 원자 획득한다. 실패 시 같은 stack의 다른 부하가 진행 중인 것으로 보고 즉시 종료하며, runner가 직접 획득한 빈 lock만 종료 시 `rmdir`한다. stale/non-empty lock은 자동 삭제하지 않는다.
-7. lock 전 inspect한 app revision/image/JAR/API-contract digest와 app/DB/Redis full container ID, image ID, StartedAt을 initial capture와 다시 비교한다. 이후 warmup 직전, measured 직전, measured 직후, final snapshot의 Compose, PostgreSQL/Flyway, Redis run identity가 initial과 한 field라도 다르면 non-zero로 종료한다.
+7. lock 전 검증한 source/image provenance, app image/JAR/API-contract digest와 app/DB/Redis full container ID, image ID, StartedAt을 initial capture와 다시 비교한다. 이후 warmup 직전, measured 직전, measured 직후, final snapshot의 source, Compose, PostgreSQL/Flyway, Redis run identity가 한 field라도 바뀌거나 source가 dirty/attached가 되면 non-zero로 종료한다.
 8. `REJECTION_EVIDENCE_FILE`은 fixture run별 fresh ignored report/temp 경로여야 한다. 실패하면 최초 stage/exit code만 mode 600 JSON으로 보존하고 이후 실패가 이를 덮어쓰지 않으며 `automaticAdoption=false`다.
+9. `build/reports/k6/issue-197/<fixtureRunId>`는 mode 700으로 원자 생성한다. 이미 존재하면 이전 evidence와 결합하거나 덮어쓰지 않고 즉시 거부하므로 devotion과 retention은 서로 다른 fresh `fixtureRunId`를 사용한다.
 
 ## 경건 write fixture 계약
 
@@ -112,6 +114,7 @@ ATTRIBUTION_SIGNATURE_FILE=build/reports/k6/issue-197/ISSUE197_YYYYMMDD_A/runtim
     APP_CONTAINER=faithlog-backend \
     DB_CONTAINER=faithlog-postgres \
     REDIS_CONTAINER=faithlog-redis \
+    APP_SOURCE_WORKTREE="${APPROVED_APP_SOURCE_WORKTREE:?}" \
 EXPECTED_COMPOSE_PROJECT=actual-compose-label \
     EXPECTED_APP_COMPOSE_SERVICE="${APPROVED_APP_COMPOSE_SERVICE:?}" \
     EXPECTED_DB_COMPOSE_SERVICE="${APPROVED_DB_COMPOSE_SERVICE:?}" \
@@ -146,7 +149,7 @@ EXTERNAL_ACTIVITY=none \
 performance/k6/issue-197/run-devotion-baseline.sh
 ```
 
-경건 report 경로는 `build/reports/k6/issue-197/<fixtureRunId>/devotion/`이다. warmup/measured/rollback raw summary, Docker stats, DB counters, 합성 evidence를 서로 덮어쓰지 않는다.
+경건 report 경로는 `build/reports/k6/issue-197/<fixtureRunId>/devotion/`이다. fresh fixture root가 이미 있으면 실행하지 않으며 warmup/measured/rollback raw summary, Docker stats, DB counters, 합성 evidence를 서로 덮어쓰지 않는다.
 
 ## Retention isolated dry verification 계약
 
@@ -173,6 +176,7 @@ RETENTION_MANIFEST=build/reports/k6/issue-197/ISSUE197_YYYYMMDD_R/runtime/retent
     APP_CONTAINER=faithlog-perf-197-app \
     DB_CONTAINER=faithlog-perf-197-postgres \
     REDIS_CONTAINER=faithlog-perf-197-redis \
+    APP_SOURCE_WORKTREE="${APPROVED_APP_SOURCE_WORKTREE:?}" \
 EXPECTED_COMPOSE_PROJECT=faithlog-perf-197-YYYYMMDD-r \
     EXPECTED_APP_COMPOSE_SERVICE="${APPROVED_APP_COMPOSE_SERVICE:?}" \
     EXPECTED_DB_COMPOSE_SERVICE="${APPROVED_DB_COMPOSE_SERVICE:?}" \
@@ -200,6 +204,23 @@ retention report 경로는 `build/reports/k6/issue-197/<fixtureRunId>/retention/
 
 실제 retention baseline은 PM이 isolated fixture seed와 안전한 manual trigger/test 경로를 별도로 승인한 뒤에만 추가한다. 그때도 trigger 전후 exact row count, batch별 처리 row 수, transaction 성공/rollback, p50/p95/p99/max, throughput, failure, CPU/RAM을 새 report에 기록해야 한다.
 
+## Current-develop handoff
+
+read-only audit에서 확인한 실행 stack은 Compose project `faithlog-frontend-latest`, services `app`/`postgres`/`redis`, app published port `28080`이다. 승인 source는 `/private/tmp/FaithLog-perf-206-deploy`의 clean detached `6796ed146244d8f3f5b5dd7048ebe16865084a97`, newest HEAD reflog selector `2026-07-16T13:20:28+09:00`이고 app image `sha256:8e0f8d85d697a7d34aabf3703ddb27b4f1af326dec4f7c35556986303b0b816c`는 `2026-07-16T04:22:48.810414883Z`에 생성됐다. source API tree digest는 `2ccb072bd3d5be1c65acd43b99d3a36c27a810c93e86dbe64b19fd89841562bd`다. image-alone revision label 부재는 명시 limitation이며 이 결합 근거를 대체하지 않는다.
+
+fresh namespace 추천값은 아직 실행 승인값이 아니다.
+
+- devotion: `datasetId=PERFORMANCE_1000_20260716_DEVOTION_197_A`, `fixtureRunId=ISSUE197_20260716_DEVOTION_BEFORE_A`, rollback/warmup/measured week는 각각 `2026-07-13`/`2026-07-20`/`2026-07-27`.
+- retention: `datasetId=PERFORMANCE_1000_20260716_RETENTION_197_A`, `fixtureRunId=ISSUE197_20260716_RETENTION_DRY_A`, 두 값을 모두 포함한 별도 `datasetPrefix`, reference instant `2027-01-31T15:00:00Z`.
+
+사용자 승인이 필요한 값은 fixture와 runtime credential, exact activity signature, `BASE_URL`, 세 phase VUS/MAX_DURATION, token TTL safety, resource interval/max gap, app JAR SHA-256, DB/Redis image와 Flyway identity, numeric-loopback DB/Redis target이다. observed Compose/source/image/API digest는 승인 후보일 뿐 runner default가 아니다. warmup/rollback VUS 1, measured VUS 30, resource interval 1초/max gap 2초는 추천값이며 승인 전 실행하지 않는다.
+
+devotion 실행 순서는 no-default/JWT/source/runtime preflight → project lock → fresh namespace → initial identity와 read-only cohort preflight → warmup → measured 전 DB snapshot → measured 1,000 제출과 resource sampling → measured 후 DB snapshot/오염 gate → rollback → read-only correctness/final identity/evidence다. 정적 예상은 HTTP 1,002건, 성공 cohort의 committed weekly/daily/charge 9,009행, rollback weekly/daily 8행 시도 후 persisted 0행, repository read call-site 약 15,028회다. 실제 SQL/시간은 측정하지 않았으며 최대 소요시간은 승인된 세 `MAX_DURATION` 합과 pre/post evidence overhead 이하다.
+
+retention은 current shared project에서 project-name guard로 즉시 거부된다. 별도 `faithlog-perf-197-*` isolated Compose와 fresh retention fixture가 준비돼도 현재 순서는 source/runtime preflight → common lock → fresh namespace → initial identity → explicit read-only candidate SQL → post identity → `not-measured` evidence뿐이다. 예상 write/cleanup/FCM/HTTP는 모두 0이며 manual trigger와 batch 성과는 범위 밖이다.
+
+필수 입력 누락, existing report namespace, lock 충돌, source/Compose/image/JAR/API/Flyway/Redis identity 불일치, scheduler enabled, target mismatch, stale fixture, JWT TTL 부족, external activity/session, DB maintenance/planner/counter drift, resource cadence 누락, k6 metric/correctness 실패 중 하나라도 발생하면 최초 rejection을 남기고 즉시 중단한다.
+
 ## SQL/query counter 해석 한계
 
 이번 계약은 DB row/transaction counter와 이미 활성화된 경우의 `pg_stat_statements` query delta를 수집한다. shared Docker 재시작, stats reset, extension/config 변경, datasource proxy 추가는 하지 않는다. 따라서 `pg_stat_statements` unavailable이면 그 상태를 승인 signature와 evidence에 명시하고 table/database delta는 반드시 보존한다. 대상 DB counter는 observer transaction을 포함하고, 다른 database의 counter 변화는 동일 컨테이너 CPU/RAM 오염으로 간주해 채택을 거부한다. 실제 baseline 실행 전에는 현재 production 쿼리/트랜잭션 흐름에서 도출한 exact activity signature에 대한 사용자 승인이 별도로 필요하다.
@@ -211,7 +232,8 @@ node --test performance/k6/issue-197/tests/*.test.mjs
 node --check performance/k6/issue-197/lib/fixture-contract.mjs
     node --check performance/k6/issue-197/lib/runtime-contract.mjs
     node --check performance/k6/issue-197/lib/current-develop-contract.mjs
-    node --check performance/k6/issue-197/lib/rejection-contract.mjs
+node --check performance/k6/issue-197/lib/rejection-contract.mjs
+node --check performance/k6/issue-197/lib/source-image-provenance.mjs
 node --check performance/k6/issue-197/lib/validate-devotion-preflight.mjs
 node --check performance/k6/issue-197/lib/validate-k6-summary.mjs
 node --check performance/k6/issue-197/lib/validate-db-window.mjs
