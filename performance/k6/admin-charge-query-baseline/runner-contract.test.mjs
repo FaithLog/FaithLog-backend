@@ -247,6 +247,90 @@ test('resource evidence covers app, PostgreSQL, and Redis with exact immutable I
 	}));
 });
 
+test('Docker decimal binary-unit displays preserve rounding ranges without false byte precision', async () => {
+	const {normalizeDockerStats, validateDockerResourceEvidence} = await module('docker-resource-evidence.mjs');
+	const ids = {app: 'a'.repeat(64), postgres: 'b'.repeat(64), redis: 'c'.repeat(64)};
+	const rawStats = [
+		{ID: ids.app, CPUPerc: '1.25%', MemUsage: '499.7MiB / 7.653GiB', MemPerc: '6.38%'},
+		{ID: ids.postgres, CPUPerc: '2.5%', MemUsage: '264.9MiB / 7.653GiB', MemPerc: '3.38%'},
+		{ID: ids.redis, CPUPerc: '0%', MemUsage: '19.5MiB / 7.653GiB', MemPerc: '0.25%'},
+	];
+	const normalized = normalizeDockerStats({
+		capturedAt: '2026-07-16T00:00:00.000Z',
+		expectedContainerIds: ids,
+		rawStats,
+	});
+	assert.deepEqual(normalized.containers.map((container) => ({
+		role: container.role,
+		memoryUsed: container.memoryUsed,
+		memoryLimit: container.memoryLimit,
+		memoryPercent: container.memoryPercent,
+	})), [
+		{
+			role: 'app',
+			memoryUsed: {
+				displayed: '499.7MiB', minimumBytesInclusive: '523920999', maximumBytesInclusive: '524025855',
+			},
+			memoryLimit: {
+				displayed: '7.653GiB', minimumBytesInclusive: '8216809309', maximumBytesInclusive: '8217883049',
+			},
+			memoryPercent: {
+				displayed: '6.38%', minimumNumeratorInclusive: '1275', maximumNumeratorExclusive: '1277', denominator: '200',
+			},
+		},
+		{
+			role: 'postgres',
+			memoryUsed: {
+				displayed: '264.9MiB', minimumBytesInclusive: '277715354', maximumBytesInclusive: '277820211',
+			},
+			memoryLimit: {
+				displayed: '7.653GiB', minimumBytesInclusive: '8216809309', maximumBytesInclusive: '8217883049',
+			},
+			memoryPercent: {
+				displayed: '3.38%', minimumNumeratorInclusive: '675', maximumNumeratorExclusive: '677', denominator: '200',
+			},
+		},
+		{
+			role: 'redis',
+			memoryUsed: {
+				displayed: '19.5MiB', minimumBytesInclusive: '20394804', maximumBytesInclusive: '20499660',
+			},
+			memoryLimit: {
+				displayed: '7.653GiB', minimumBytesInclusive: '8216809309', maximumBytesInclusive: '8217883049',
+			},
+			memoryPercent: {
+				displayed: '0.25%', minimumNumeratorInclusive: '49', maximumNumeratorExclusive: '51', denominator: '200',
+			},
+		},
+	]);
+	assert.equal(validateDockerResourceEvidence({
+		samples: [normalized, {...structuredClone(normalized), capturedAt: '2026-07-16T00:00:01.000Z'}],
+		expectedContainerIds: ids,
+		measuredStart: '2026-07-16T00:00:00.000Z',
+		measuredEnd: '2026-07-16T00:00:01.000Z',
+		samplingIntervalSeconds: 1,
+	}).sampleCount, 2);
+
+	for (const mutate of [
+		(rows) => { rows[0].MemPerc = '99%'; },
+		(rows) => { rows[0].MemUsage = '499.7MiB / 0B'; },
+		(rows) => { rows[0].MemUsage = '2GiB / 1GiB'; },
+		(rows) => { rows[0].MemUsage = '9007199254740992B / 9007199254740992B'; },
+		(rows) => { rows[0].MemUsage = '499.7ZiB / 7.653GiB'; },
+		(rows) => { rows[0].CPUPerc = 'NaN%'; },
+		(rows) => { rows[0].MemPerc = '101%'; },
+		(rows) => { rows[0].ID = 'd'.repeat(64); },
+	]) {
+		const malformed = structuredClone(rawStats);
+		mutate(malformed);
+		assert.throws(() => normalizeDockerStats({
+			capturedAt: '2026-07-16T00:00:00.000Z',
+			expectedContainerIds: ids,
+			rawStats: malformed,
+		}));
+	}
+});
+
 test('measurement integrity rejects activity, planner, maintenance, pgss, and counter drift', async () => {
 	const {validateMeasurementIntegrity} = await module('measurement-integrity.mjs');
 	const valid = integrityFixture();
