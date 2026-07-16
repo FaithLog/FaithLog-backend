@@ -6,6 +6,21 @@ set -euo pipefail
 : "${PERF_COMPOSE_PROJECT:?PERF_COMPOSE_PROJECT is required.}"
 : "${POSTGRES_USER:?POSTGRES_USER is required.}"
 : "${POSTGRES_DB:?POSTGRES_DB is required.}"
+: "${PERF_EXPECTED_POSTGRES_ROLE:?PERF_EXPECTED_POSTGRES_ROLE is required.}"
+: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required.}"
+: "${PERF_REDIS_AUTH_MODE:?PERF_REDIS_AUTH_MODE is required.}"
+: "${PERF_EXPECTED_POSTGRES_CONTAINER_ID:?PERF_EXPECTED_POSTGRES_CONTAINER_ID is required.}"
+: "${PERF_EXPECTED_REDIS_CONTAINER_ID:?PERF_EXPECTED_REDIS_CONTAINER_ID is required.}"
+: "${PERF_EXPECTED_POSTGRES_SERVICE:?PERF_EXPECTED_POSTGRES_SERVICE is required.}"
+: "${PERF_EXPECTED_REDIS_SERVICE:?PERF_EXPECTED_REDIS_SERVICE is required.}"
+: "${PERF_EXPECTED_POSTGRES_IMAGE_ID:?PERF_EXPECTED_POSTGRES_IMAGE_ID is required.}"
+: "${PERF_EXPECTED_REDIS_IMAGE_ID:?PERF_EXPECTED_REDIS_IMAGE_ID is required.}"
+: "${PERF_PRELOCK_POSTGRES_STARTED_AT:?PERF_PRELOCK_POSTGRES_STARTED_AT is required.}"
+: "${PERF_PRELOCK_REDIS_STARTED_AT:?PERF_PRELOCK_REDIS_STARTED_AT is required.}"
+: "${PERF_PRELOCK_POSTGRES_CONFIG_HASH:?PERF_PRELOCK_POSTGRES_CONFIG_HASH is required.}"
+: "${PERF_PRELOCK_REDIS_CONFIG_HASH:?PERF_PRELOCK_REDIS_CONFIG_HASH is required.}"
+: "${PERF_PRELOCK_POSTGRES_HOST_PORT:?PERF_PRELOCK_POSTGRES_HOST_PORT is required.}"
+: "${PERF_PRELOCK_REDIS_HOST_PORT:?PERF_PRELOCK_REDIS_HOST_PORT is required.}"
 
 OUTPUT_PATH="${1:?Output path is required.}"
 TEMP_PATH="${OUTPUT_PATH}.tmp.$$"
@@ -50,20 +65,39 @@ REDIS_COMPOSE_CONFIG_HASH="$(inspect_value '{{ index .Config.Labels "com.docker.
 REDIS_CONTAINER_HOST_PORT="$(inspect_value '{{ (index (index .NetworkSettings.Ports "6379/tcp") 0).HostPort }}' "${REDIS_CONTAINER}")"
 
 if [[ "${PG_COMPOSE_PROJECT}" != "${PERF_COMPOSE_PROJECT}" \
-	|| "${REDIS_COMPOSE_PROJECT}" != "${PERF_COMPOSE_PROJECT}" ]]; then
-	echo "Runtime identity Compose project changed after lock acquisition." >&2
+	|| "${REDIS_COMPOSE_PROJECT}" != "${PERF_COMPOSE_PROJECT}" \
+	|| "${PG_CONTAINER_ID}" != "${PERF_EXPECTED_POSTGRES_CONTAINER_ID}" \
+	|| "${REDIS_CONTAINER_ID}" != "${PERF_EXPECTED_REDIS_CONTAINER_ID}" \
+	|| "${PG_CONTAINER_IMAGE_ID}" != "${PERF_EXPECTED_POSTGRES_IMAGE_ID}" \
+	|| "${REDIS_CONTAINER_IMAGE_ID}" != "${PERF_EXPECTED_REDIS_IMAGE_ID}" \
+	|| "${PG_COMPOSE_SERVICE}" != "${PERF_EXPECTED_POSTGRES_SERVICE}" \
+	|| "${REDIS_COMPOSE_SERVICE}" != "${PERF_EXPECTED_REDIS_SERVICE}" \
+	|| "${PG_CONTAINER_STARTED_AT}" != "${PERF_PRELOCK_POSTGRES_STARTED_AT}" \
+	|| "${REDIS_CONTAINER_STARTED_AT}" != "${PERF_PRELOCK_REDIS_STARTED_AT}" \
+	|| "${PG_COMPOSE_CONFIG_HASH}" != "${PERF_PRELOCK_POSTGRES_CONFIG_HASH}" \
+	|| "${REDIS_COMPOSE_CONFIG_HASH}" != "${PERF_PRELOCK_REDIS_CONFIG_HASH}" \
+	|| "${PG_CONTAINER_HOST_PORT}" != "${PERF_PRELOCK_POSTGRES_HOST_PORT}" \
+	|| "${REDIS_CONTAINER_HOST_PORT}" != "${PERF_PRELOCK_REDIS_HOST_PORT}" ]]; then
+	echo "Immutable runtime identity changed before server credential queries." >&2
 	exit 2
 fi
 
-docker exec "${PG_CONTAINER_ID}" psql \
+PGPASSWORD="${POSTGRES_PASSWORD}" docker exec -e PGPASSWORD "${PG_CONTAINER_ID}" psql \
 	-h 127.0.0.1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -X -q -A -t \
 	-c "SELECT json_build_object(
 		'database', current_database(),
+		'currentUser', current_user,
 		'address', inet_server_addr()::text,
 		'port', inet_server_port(),
 		'postmasterStartTime', pg_postmaster_start_time()
 	);" > "${PG_SERVER_PATH}"
-docker exec "${REDIS_CONTAINER_ID}" redis-cli --raw INFO server > "${REDIS_SERVER_PATH}"
+if [[ "${PERF_REDIS_AUTH_MODE}" == "password" ]]; then
+	: "${REDIS_PASSWORD:?REDIS_PASSWORD is required when PERF_REDIS_AUTH_MODE=password.}"
+	REDISCLI_AUTH="${REDIS_PASSWORD}" docker exec -e REDISCLI_AUTH "${REDIS_CONTAINER_ID}" \
+		redis-cli --no-auth-warning --raw INFO server > "${REDIS_SERVER_PATH}"
+else
+	docker exec "${REDIS_CONTAINER_ID}" redis-cli --raw INFO server > "${REDIS_SERVER_PATH}"
+fi
 
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER}" REDIS_CONTAINER="${REDIS_CONTAINER}" \
 PG_SERVER_PATH="${PG_SERVER_PATH}" REDIS_SERVER_PATH="${REDIS_SERVER_PATH}" \
@@ -82,6 +116,13 @@ node -e '
 		return Number(value);
 	};
 	assert.equal(postgresServer.database, process.env.POSTGRES_DB);
+	assert.equal(postgresServer.currentUser, process.env.PERF_EXPECTED_POSTGRES_ROLE);
+	assert.equal(process.env.PG_CONTAINER_ID, process.env.PERF_EXPECTED_POSTGRES_CONTAINER_ID);
+	assert.equal(process.env.REDIS_CONTAINER_ID, process.env.PERF_EXPECTED_REDIS_CONTAINER_ID);
+	assert.equal(process.env.PG_CONTAINER_IMAGE_ID, process.env.PERF_EXPECTED_POSTGRES_IMAGE_ID);
+	assert.equal(process.env.REDIS_CONTAINER_IMAGE_ID, process.env.PERF_EXPECTED_REDIS_IMAGE_ID);
+	assert.equal(process.env.PG_COMPOSE_SERVICE, process.env.PERF_EXPECTED_POSTGRES_SERVICE);
+	assert.equal(process.env.REDIS_COMPOSE_SERVICE, process.env.PERF_EXPECTED_REDIS_SERVICE);
 	assert.match(postgresServer.address, /^\d{1,3}(\.\d{1,3}){3}$|^[0-9a-f:]+$/i);
 	assert.ok(Number.isInteger(postgresServer.port) && postgresServer.port > 0);
 	assert.match(process.env.PG_CONTAINER_HOST_PORT, /^[1-9][0-9]*$/);

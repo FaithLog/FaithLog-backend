@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 const runDir = process.env.RUN_DIR;
 assert.ok(runDir, 'RUN_DIR is required');
+const reportPath = process.env.RUNTIME_CONTINUITY_REPORT_PATH
+	?? join(runDir, 'runtime-continuity-report.json');
 const phases = (process.env.RUNTIME_IDENTITY_PHASES ?? 'locked,initial,before,after,final')
 	.split(',')
 	.map((phase) => phase.trim())
@@ -28,7 +30,7 @@ for (const [index, identity] of identities.entries()) {
 	exactKeys(identity.postgres.container, containerKeys, `${phases[index]}.postgres.container`);
 	exactKeys(identity.redis.container, containerKeys, `${phases[index]}.redis.container`);
 	exactKeys(identity.postgres.server,
-		['database', 'address', 'port', 'postmasterStartTime'], `${phases[index]}.postgres.server`);
+		['database', 'currentUser', 'address', 'port', 'postmasterStartTime'], `${phases[index]}.postgres.server`);
 	exactKeys(identity.redis.server, ['runId', 'uptimeSeconds', 'port'], `${phases[index]}.redis.server`);
 	assert.ok(Number.isSafeInteger(identity.postgres.container.hostPort)
 		&& identity.postgres.container.hostPort > 0, `${phases[index]} PostgreSQL host port must be positive`);
@@ -59,12 +61,13 @@ for (const [index, identity] of identities.slice(1).entries()) {
 		`Redis server endpoint changed at ${phase}`);
 }
 
-writeFileSync(join(runDir, 'runtime-continuity-report.json'), `${JSON.stringify({
+writeFileSync(reportPath, `${JSON.stringify({
 	status: 'verified',
 	phases,
 	postgresContainerId: initial.postgres.container.id,
+	postgresCurrentUser: initial.postgres.server.currentUser,
 	postgresPostmasterStartTime: initial.postgres.server.postmasterStartTime,
 	redisContainerId: initial.redis.container.id,
 	redisRunId: initial.redis.server.runId,
 	checkedAt: new Date().toISOString(),
-}, null, 2)}\n`);
+}, null, 2)}\n`, { flag: 'wx' });

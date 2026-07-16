@@ -19,7 +19,10 @@ POSTGRES_STATS="$(docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}},
 	"${POSTGRES_OBSERVED_ID}")"
 REDIS_STATS="$(docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}},{{.MemPerc}}' \
 	"${REDIS_OBSERVED_ID}")"
-printf '%s,%s,%s,%s\n' "${CAPTURED_AT}" "${POSTGRES_CONTAINER}" \
-	"${POSTGRES_OBSERVED_ID}" "${POSTGRES_STATS}" >> "${OUTPUT_PATH}"
-printf '%s,%s,%s,%s\n' "${CAPTURED_AT}" "${REDIS_CONTAINER}" \
-	"${REDIS_OBSERVED_ID}" "${REDIS_STATS}" >> "${OUTPUT_PATH}"
+RESOURCE_OUTPUT_PATH="${OUTPUT_PATH}" CAPTURED_AT="${CAPTURED_AT}" RESOURCE_COMPONENT=postgres \
+	RESOURCE_CONTAINER_NAME="${POSTGRES_CONTAINER}" RESOURCE_CONTAINER_ID="${POSTGRES_OBSERVED_ID}" \
+	RESOURCE_DOCKER_STATS="${POSTGRES_STATS}" node "$(dirname "${BASH_SOURCE[0]}")/append-docker-stats.mjs"
+RESOURCE_OUTPUT_PATH="${OUTPUT_PATH}" CAPTURED_AT="${CAPTURED_AT}" RESOURCE_COMPONENT=redis \
+	RESOURCE_CONTAINER_NAME="${REDIS_CONTAINER}" RESOURCE_CONTAINER_ID="${REDIS_OBSERVED_ID}" \
+	RESOURCE_DOCKER_STATS="${REDIS_STATS}" node "$(dirname "${BASH_SOURCE[0]}")/append-docker-stats.mjs"
+# append-docker-stats.mjs emits memoryUsedBytes, memoryLimitBytes, and memoryPercent evidence.

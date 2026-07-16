@@ -46,14 +46,28 @@ function validRunArtifacts(fixtureRunId, sampleKind = 'measured') {
 		noTokenCount: 100,
 		mixedTokenUserCount: 1,
 		insertedDummyTokenCount: 901,
+		fixturePolicy: 'dummy-token-and-generated-log-only',
+		credentialRecorded: false,
 	};
 	const result = {
-		...manifest,
+		datasetId: manifest.datasetId,
+		fixtureRunId: manifest.fixtureRunId,
+		sampleKind: manifest.sampleKind,
+		campusId: manifest.campusId,
 		requestId: `00000000-0000-0000-0000-${fixtureRunId.padEnd(12, '0').slice(0, 12)}`,
 		javaRuntimeVersion: 'synthetic-jvm',
 		externalFcmUsed: false,
+		springProfile: 'local',
+		fcmAdapter: 'deterministic-test-fake',
 		notificationType: 'PAYMENT_UNPAID',
+		productionContractBaseCommit: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
 		retryBackoffPolicy: 'production-thread-sleep-1s-5s-30s',
+		deliveryTokenSnapshotPolicy: 'request-wide-bulk',
+		dedupeKeyShape: 'notificationType + campusId + scopeId + targetUserId + businessDate',
+		targetIsolationBoundary: 'scheduler-supplied same-campus ACTIVE member IDs',
+		phaseOrder: ['creation', 'dedupe-replay', 'delivery'],
+		scenarioFailureCount: 0,
+		scenarioFailureRate: 0,
 		creation: {
 			durationMs: 100,
 			throughputPerSecond: 10000,
@@ -76,33 +90,37 @@ function validRunArtifacts(fixtureRunId, sampleKind = 'measured') {
 			heapUsedDeltaBytes: 2048,
 			statusCounts: { SENT: 700, FAILED: 100, SKIPPED: 200, PENDING: 0 },
 			logUpdateCount: 800,
-			tokenLookupCount: 800,
+			tokenLookupCount: 1,
 			tokenUpdateCount: 101,
 			fakeSendAttemptCount: 901,
 			fakePermanentFailureCount: 101,
 			fakeTransientRetryCount: 100,
 		},
-		endToEnd: { durationMs: 1100, throughputPerSecond: 909.09 },
+		endToEnd: { durationMs: 1100, throughputPerSecond: 1000 / 1.1 },
 		correctness: {
 			duplicateReplayCreatedCount: 0,
+			duplicateReplayDurationMs: 10,
+			duplicateReplayDbPreparedStatements: 1000,
 			unexpectedRequestLogCount: 0,
 			nonFixtureTokenMutationCount: 0,
 			partialFailureContinued: true,
 			mixedTokenLogSent: true,
 			mixedPermanentTokenDeactivated: 1,
 		},
+		capturedAt: '2026-07-14T00:02:01.000Z',
 	};
 	const environment = {
 		springProfile: 'local',
 		fcmAdapter: 'fake',
 		postgresContainer: 'pg-198',
-		postgresContainerId: 'pg-id-198',
+		postgresContainerId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 		redisContainer: 'redis-198',
-		redisContainerId: 'redis-id-198',
+		redisContainerId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 		dockerProject: 'faithlog-perf-198',
 		postgresHost: '127.0.0.1',
 		postgresHostPort: 15432,
 		postgresDatabase: 'faithlog',
+		expectedPostgresRole: 'postgres',
 		redisHost: '127.0.0.1',
 		redisHostPort: 16379,
 		postgresImageId: 'sha256:postgres-synthetic',
@@ -118,85 +136,88 @@ function validRunArtifacts(fixtureRunId, sampleKind = 'measured') {
 		externalFcm: false,
 	};
 	const databaseBefore = {
-		xact_commit: 10,
-		xact_rollback: 0,
-		blks_read: 1,
-		blks_hit: 2,
-		tup_returned: 3,
-		tup_fetched: 4,
-		tup_inserted: 5,
-		tup_updated: 6,
-		tup_deleted: 0,
+		xact_commit: '10',
+		xact_rollback: '0',
+		blks_read: '1',
+		blks_hit: '2',
+		tup_returned: '3',
+		tup_fetched: '4',
+		tup_inserted: '5',
+		tup_updated: '6',
+		tup_deleted: '0',
 	};
 	const table = (values = {}) => ({
-		seq_scan: 0,
-		seq_tup_read: 0,
-		idx_scan: 0,
-		idx_tup_fetch: 0,
-		n_tup_ins: 0,
-		n_tup_upd: 0,
-		n_tup_del: 0,
+		seq_scan: '0',
+		seq_tup_read: '0',
+		idx_scan: '0',
+		idx_tup_fetch: '0',
+		n_tup_ins: '0',
+		n_tup_upd: '0',
+		n_tup_del: '0',
 		...values,
 	});
 	const postgresBefore = {
 		capturedAt: '2026-07-14T00:01:00.000Z',
 		currentDatabase: 'faithlog',
+		currentUser: 'postgres',
 		statsReset: '2026-07-14T00:00:00.000Z',
 		database: databaseBefore,
 		tables: {
 			campus_members: table(),
-			user_fcm_tokens: table({ n_tup_upd: 2 }),
-			notification_logs: table({ n_tup_ins: 1, n_tup_upd: 2 }),
+			user_fcm_tokens: table({ n_tup_upd: '2' }),
+			notification_logs: table({ n_tup_ins: '1', n_tup_upd: '2' }),
 		},
 		cardinality: {
-			userFcmTokensTotal: 2000,
-			activeTokensTotal: 1000,
-			issue198DummyTokensTotal: 901,
-			issue198ActiveDummyTokens: 901,
-			notificationLogsTotal: 10,
-			issue198MarkerLogsTotal: 2,
+			userFcmTokensTotal: '2000',
+			activeTokensTotal: '1000',
+			issue198DummyTokensTotal: '901',
+			issue198ActiveDummyTokens: '901',
+			notificationLogsTotal: '10',
+			issue198MarkerLogsTotal: '2',
 		},
-		relationBytes: { userFcmTokens: 65536, notificationLogs: 32768 },
+		relationBytes: { userFcmTokens: '65536', notificationLogs: '32768' },
 	};
 	const postgresAfter = {
 		...postgresBefore,
 		capturedAt: '2026-07-14T00:02:00.000Z',
 		database: {
 			...databaseBefore,
-			xact_commit: 20,
-			blks_hit: 200,
-			tup_inserted: 1005,
-			tup_updated: 907,
+			xact_commit: '20',
+			blks_hit: '200',
+			tup_inserted: '1005',
+			tup_updated: '907',
 		},
 		tables: {
-			campus_members: table({ seq_scan: 1, seq_tup_read: 1000 }),
-			user_fcm_tokens: table({ n_tup_upd: 103 }),
-			notification_logs: table({ n_tup_ins: 1001, n_tup_upd: 802 }),
+			campus_members: table({ seq_scan: '1', seq_tup_read: '1000' }),
+			user_fcm_tokens: table({ n_tup_upd: '103' }),
+			notification_logs: table({ n_tup_ins: '1001', n_tup_upd: '802' }),
 		},
 		cardinality: {
-			userFcmTokensTotal: 2000,
-			activeTokensTotal: 899,
-			issue198DummyTokensTotal: 901,
-			issue198ActiveDummyTokens: 800,
-			notificationLogsTotal: 1010,
-			issue198MarkerLogsTotal: 1002,
+			userFcmTokensTotal: '2000',
+			activeTokensTotal: '899',
+			issue198DummyTokensTotal: '901',
+			issue198ActiveDummyTokens: '800',
+			notificationLogsTotal: '1010',
+			issue198MarkerLogsTotal: '1002',
 		},
-		relationBytes: { userFcmTokens: 69632, notificationLogs: 131072 },
+		relationBytes: { userFcmTokens: '69632', notificationLogs: '131072' },
 	};
+	const pgssBefore = { available: false, reason: 'extension-not-installed', rows: [] };
+	const pgssAfter = { available: false, reason: 'extension-not-installed', rows: [] };
 	const redisBefore = {
 		capturedAt: '2026-07-14T00:01:00.000Z',
 		runId: 'redis-run-id-198',
 		uptimeSeconds: 100,
 		tcpPort: 6379,
-		dbSize: 10,
-		commands: { set: 5 },
+		dbSize: '10',
+		commands: { set: '5' },
 	};
 	const redisAfter = {
 		...redisBefore,
 		capturedAt: '2026-07-14T00:02:00.000Z',
 		uptimeSeconds: 160,
-		dbSize: 1010,
-		commands: { set: 2006 },
+		dbSize: '1010',
+		commands: { set: '2006' },
 	};
 	const evidenceWindow = {
 		workloadStartedAt: '2026-07-14T00:01:10.000Z',
@@ -205,11 +226,11 @@ function validRunArtifacts(fixtureRunId, sampleKind = 'measured') {
 		dockerStatsMaxGapMilliseconds: 60000,
 	};
 	const dockerStats = [
-		'captured_at,container_name,container_id,cpu_percent,memory_usage,memory_percent',
-		'2026-07-14T00:01:00.000Z,pg-198,pg-id-198,1.5%,10MiB / 1GiB,2.5%',
-		'2026-07-14T00:01:00.000Z,redis-198,redis-id-198,0.5%,5MiB / 1GiB,1.0%',
-		'2026-07-14T00:02:00.000Z,pg-198,pg-id-198,2.0%,11MiB / 1GiB,2.7%',
-		'2026-07-14T00:02:00.000Z,redis-198,redis-id-198,0.7%,6MiB / 1GiB,1.2%',
+		'captured_at,component,container_name,container_id,cpu_percent,memory_used_bytes,memory_limit_bytes,memory_percent',
+		`2026-07-14T00:01:00.000Z,postgres,pg-198,${environment.postgresContainerId},1.5,10485760,1073741824,0.98`,
+		`2026-07-14T00:01:00.000Z,redis,redis-198,${environment.redisContainerId},0.5,5242880,1073741824,0.49`,
+		`2026-07-14T00:02:00.000Z,postgres,pg-198,${environment.postgresContainerId},2.0,11534336,1073741824,1.07`,
+		`2026-07-14T00:02:00.000Z,redis,redis-198,${environment.redisContainerId},0.7,6291456,1073741824,0.59`,
 	].join('\n') + '\n';
 	return {
 		manifest,
@@ -217,6 +238,8 @@ function validRunArtifacts(fixtureRunId, sampleKind = 'measured') {
 		environment,
 		postgresBefore,
 		postgresAfter,
+		pgssBefore,
+		pgssAfter,
 		redisBefore,
 		redisAfter,
 		evidenceWindow,
@@ -234,16 +257,20 @@ function writeRun(root, fixtureRunId, sampleKind = 'measured') {
 		'environment.json': artifacts.environment,
 		'postgres-before.json': artifacts.postgresBefore,
 		'postgres-after.json': artifacts.postgresAfter,
+		'pgss-before.json': artifacts.pgssBefore,
+		'pgss-after.json': artifacts.pgssAfter,
 		'redis-before.json': artifacts.redisBefore,
 		'redis-after.json': artifacts.redisAfter,
 		'evidence-window.json': artifacts.evidenceWindow,
-		'run-status.json': { status: 'verified' },
+		'run-status.json': { status: 'verified', accepted: false, automaticAdoption: false },
 	})) {
 		writeFileSync(join(runDir, name), `${JSON.stringify(value)}\n`);
 	}
 	writeFileSync(join(runDir, 'docker-stats.csv'), artifacts.dockerStats);
 	writeFileSync(join(runDir, 'verification-report.json'), `${JSON.stringify({
 		status: 'verified',
+		accepted: false,
+		automaticAdoption: false,
 		evidence: {
 			postgresBeforeCardinality: artifacts.postgresBefore.cardinality,
 			postgresBeforeRelationBytes: artifacts.postgresBefore.relationBytes,
@@ -261,6 +288,8 @@ function writeEvidenceArtifacts(runDir, artifacts) {
 	for (const [name, value] of Object.entries({
 		'postgres-before.json': artifacts.postgresBefore,
 		'postgres-after.json': artifacts.postgresAfter,
+		'pgss-before.json': artifacts.pgssBefore,
+		'pgss-after.json': artifacts.pgssAfter,
 		'redis-before.json': artifacts.redisBefore,
 		'redis-after.json': artifacts.redisAfter,
 		'evidence-window.json': artifacts.evidenceWindow,
@@ -425,14 +454,20 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 		mkdirSync(binDir);
 		mkdirSync(syntheticScenario, { recursive: true });
 		for (const name of [
-			'guard-runtime.sh', 'runner-lifecycle.sh', 'prepare-fixtures.sh', 'prepare-fixtures.sql', 'run-before.sh',
+			'guard-runtime.sh', 'runner-lifecycle.sh', 'rejection-contract.mjs',
+			'prepare-fixtures.sh', 'prepare-fixtures.sql', 'run-before.sh',
 		]) {
 			copyFileSync(scenarioPath(name), join(syntheticScenario, name));
 		}
+		writeFileSync(
+			join(syntheticScenario, 'verify-current-develop-contract.mjs'),
+			'process.stdout.write("synthetic current-develop contract verified\\n");\n',
+		);
 		const tracePath = join(root, 'docker.trace');
 		const gradleTracePath = join(root, 'gradle.trace');
+		writeFileSync(tracePath, '');
 		const dockerPath = join(binDir, 'docker');
-		writeFileSync(dockerPath, `#!/usr/bin/env bash\nset -eu\nprintf '%s\\n' "$*" >> "$TRACE_PATH"\ncase "$*" in\n  *com.docker.compose.project*) printf '%s\\n' "$FAKE_PROJECT" ;;\n  *5432/tcp*) printf '15432\\n' ;;\n  *6379/tcp*) printf '16379\\n' ;;\n  *'{{.Image}}'*) printf 'sha256:synthetic\\n' ;;\n  *) exit 91 ;;\nesac\n`);
+		writeFileSync(dockerPath, `#!/usr/bin/env bash\nset -eu\nprintf '%s\\n' "$*" >> "$TRACE_PATH"\ncase "$*" in\n  *com.docker.compose.project*) printf '%s\\n' "$FAKE_PROJECT" ;;\n  *com.docker.compose.service*pg-198*) printf 'postgres\\n' ;;\n  *com.docker.compose.service*redis-198*) printf 'redis\\n' ;;\n  *'{{.Id}}'*pg-198*) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n' ;;\n  *'{{.Id}}'*redis-198*) printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n' ;;\n  *5432/tcp*) printf '15432\\n' ;;\n  *6379/tcp*) printf '16379\\n' ;;\n  *'{{.Image}}'*pg-198*) printf 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\n' ;;\n  *'{{.Image}}'*redis-198*) printf 'sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\\n' ;;\n  *) exit 91 ;;\nesac\n`);
 		chmodSync(dockerPath, 0o755);
 		const gitPath = join(binDir, 'git');
 		writeFileSync(gitPath, `#!/usr/bin/env bash\ncase "$*" in\n  *status*) exit 0 ;;\n  *rev-parse*) printf 'synthetic-commit\\n' ;;\n  *) exit 92 ;;\nesac\n`);
@@ -458,8 +493,23 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 			PERF_SPRING_PROFILE: 'local',
 			PERF_FCM_ADAPTER: 'fake',
 			PERF_EXPECTED_COMPOSE_PROJECT: project,
+			PERF_EXPECTED_POSTGRES_ROLE: 'postgres',
 			POSTGRES_CONTAINER: 'pg-198',
 			REDIS_CONTAINER: 'redis-198',
+			PERF_EXPECTED_POSTGRES_CONTAINER_ID: 'a'.repeat(64),
+			PERF_EXPECTED_REDIS_CONTAINER_ID: 'b'.repeat(64),
+			PERF_EXPECTED_POSTGRES_SERVICE: 'postgres',
+			PERF_EXPECTED_REDIS_SERVICE: 'redis',
+			PERF_EXPECTED_POSTGRES_IMAGE_ID: `sha256:${'c'.repeat(64)}`,
+			PERF_EXPECTED_REDIS_IMAGE_ID: `sha256:${'d'.repeat(64)}`,
+			POSTGRES_USER: 'postgres',
+			POSTGRES_PASSWORD: 'runtime-only-synthetic',
+			POSTGRES_DB: 'faithlog',
+			PERF_REDIS_AUTH_MODE: 'none',
+			REDIS_PASSWORD: '',
+			FIREBASE_CONFIG_JSON: '',
+			FIREBASE_CONFIG_PATH: '',
+			PERF_MEMBER_COUNT: '1000',
 			PERF_DATASET_ID: 'PERFORMANCE_198_SYNTHETIC',
 			PERF_FIXTURE_RUN_ID: fixtureRunId,
 			PERF_SAMPLE_KIND: 'measured',
@@ -477,6 +527,7 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 			env: commonEnv, encoding: 'utf8',
 		});
 		assertFails(prepare, 'fixture preparation must fail on the canonical project lock');
+		assert.match(readFileSync(tracePath, 'utf8'), /com\.docker\.compose\.project/, prepare.stderr);
 		assert.doesNotMatch(readFileSync(tracePath, 'utf8'), /exec.*psql/);
 
 		writeFileSync(tracePath, '');
@@ -522,7 +573,7 @@ test('runtime continuity rejects same-name container replacement before verifica
 					hostPort: 15432,
 				},
 				server: {
-					database: 'faithlog', address: '127.0.0.1', port: 5432,
+					database: 'faithlog', currentUser: 'postgres', address: '127.0.0.1', port: 5432,
 					postmasterStartTime: '2026-07-14T00:00:00Z',
 				},
 			},
@@ -572,7 +623,7 @@ test('runtime continuity rejects same-name container replacement before verifica
 					});
 				}
 			}
-			for (const field of ['database', 'address', 'port', 'postmasterStartTime']) {
+			for (const field of ['database', 'currentUser', 'address', 'port', 'postmasterStartTime']) {
 				mutations.push({
 					name: `${phase} PostgreSQL server ${field}`,
 					phase,
@@ -650,6 +701,7 @@ test('post-lock runtime truth rejects a guard-to-lock replacement before SQL or 
 		mkdirSync(binDir);
 		const tracePath = join(root, 'docker.trace');
 		const projectCountPath = join(root, 'project.count');
+		writeFileSync(tracePath, '');
 		const dockerPath = join(binDir, 'docker');
 		writeFileSync(dockerPath, `#!/usr/bin/env bash
 set -eu
@@ -659,10 +711,13 @@ case "$*" in
     count=0; [[ -f "$PROJECT_COUNT_PATH" ]] && count="$(<"$PROJECT_COUNT_PATH")"
     count=$((count + 1)); printf '%s' "$count" > "$PROJECT_COUNT_PATH"
     if (( count <= 2 )); then printf '%s\\n' "$FAKE_PROJECT"; else printf 'replacement-project\\n'; fi ;;
-  *'{{.Id}}'*) printf 'container-id\\n' ;;
-  *'{{.Image}}'*) printf 'sha256:synthetic\\n' ;;
+  *'{{.Id}}'*pg-198*) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n' ;;
+  *'{{.Id}}'*redis-198*) printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n' ;;
+  *'{{.Image}}'*pg-198*) printf 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\n' ;;
+  *'{{.Image}}'*redis-198*) printf 'sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\\n' ;;
   *'{{.State.StartedAt}}'*) printf '2026-07-14T00:00:00Z\\n' ;;
-  *com.docker.compose.service*) printf 'synthetic-service\\n' ;;
+  *com.docker.compose.service*pg-198*) printf 'postgres\\n' ;;
+  *com.docker.compose.service*redis-198*) printf 'redis\\n' ;;
   *com.docker.compose.config-hash*) printf 'synthetic-config\\n' ;;
   *5432/tcp*) printf '15432\\n' ;;
   *6379/tcp*) printf '16379\\n' ;;
@@ -690,12 +745,25 @@ verify_notification_batch_runtime_after_lock "${join(root, 'runtime-identity-loc
 				PERF_EXPECTED_COMPOSE_PROJECT: project,
 				POSTGRES_CONTAINER: 'pg-198',
 				REDIS_CONTAINER: 'redis-198',
+				PERF_EXPECTED_POSTGRES_CONTAINER_ID: 'a'.repeat(64),
+				PERF_EXPECTED_REDIS_CONTAINER_ID: 'b'.repeat(64),
+				PERF_EXPECTED_POSTGRES_SERVICE: 'postgres',
+				PERF_EXPECTED_REDIS_SERVICE: 'redis',
+				PERF_EXPECTED_POSTGRES_IMAGE_ID: `sha256:${'c'.repeat(64)}`,
+				PERF_EXPECTED_REDIS_IMAGE_ID: `sha256:${'d'.repeat(64)}`,
 				POSTGRES_USER: 'faithlog',
+				POSTGRES_PASSWORD: 'runtime-only-synthetic',
 				POSTGRES_DB: 'faithlog',
+				PERF_EXPECTED_POSTGRES_ROLE: 'faithlog',
+				PERF_REDIS_AUTH_MODE: 'none',
+				REDIS_PASSWORD: '',
+				FIREBASE_CONFIG_JSON: '',
+				FIREBASE_CONFIG_PATH: '',
 			},
 			encoding: 'utf8',
 		});
 		assertFails(result, 'same-name replacement after preliminary discovery must fail post-lock validation');
+		assert.match(readFileSync(tracePath, 'utf8'), /com\.docker\.compose\.project/, result.stderr);
 		assert.doesNotMatch(readFileSync(tracePath, 'utf8'), /exec.*(psql|redis-cli)/);
 	} finally {
 		if (existsSync(projectLock)) rmdirSync(projectLock);
@@ -815,11 +883,14 @@ test('verifier requires exact PostgreSQL Redis and two-container lifecycle evide
 			MANIFEST_PATH: join(runDir, 'manifest.json'), RUN_DIR: runDir,
 		});
 		assert.equal(verify().status, 0, verify().stderr);
+		const verification = JSON.parse(readFileSync(join(runDir, 'verification-report.json'), 'utf8'));
+		assert.equal(verification.accepted, false);
+		assert.equal(verification.automaticAdoption, false);
 
 		const cases = [
 			['missing PostgreSQL counter', (value) => { delete value.postgresAfter.database.xact_rollback; }],
 			['null PostgreSQL counter', (value) => { value.postgresAfter.database.blks_read = null; }],
-			['string PostgreSQL counter', (value) => { value.postgresAfter.tables.campus_members.seq_scan = '1'; }],
+			['numeric PostgreSQL counter', (value) => { value.postgresAfter.tables.campus_members.seq_scan = 1; }],
 			['extra PostgreSQL schema key', (value) => { value.postgresAfter.unapproved = 1; }],
 			['wrong PostgreSQL current database', (value) => { value.postgresAfter.currentDatabase = 'other'; }],
 			['changed PostgreSQL stats_reset', (value) => {
@@ -832,23 +903,34 @@ test('verifier requires exact PostgreSQL Redis and two-container lifecycle evide
 			['extra PostgreSQL table', (value) => {
 				value.postgresAfter.tables.unapproved_table = structuredClone(value.postgresAfter.tables.campus_members);
 			}],
-			['decreasing PostgreSQL database counter', (value) => { value.postgresAfter.database.xact_commit = 9; }],
+			['decreasing PostgreSQL database counter', (value) => { value.postgresAfter.database.xact_commit = '9'; }],
 			['decreasing PostgreSQL table counter', (value) => {
-				value.postgresAfter.tables.user_fcm_tokens.n_tup_upd = 1;
+				value.postgresAfter.tables.user_fcm_tokens.n_tup_upd = '1';
+			}],
+			['pg_stat_statements availability drift', (value) => {
+				value.pgssAfter = {
+					available: true,
+					databaseId: '1',
+					statsReset: '2026-07-14T00:00:00.000Z',
+					rows: [],
+				};
 			}],
 			['missing Redis identity', (value) => { delete value.redisBefore.runId; }],
 			['null Redis evidence', (value) => { value.redisAfter.dbSize = null; }],
-			['string Redis counter', (value) => { value.redisAfter.commands.set = '2006'; }],
+			['numeric Redis counter', (value) => { value.redisAfter.commands.set = 2006; }],
 			['extra Redis schema key', (value) => { value.redisAfter.unapproved = true; }],
 			['changed Redis run_id', (value) => { value.redisAfter.runId = 'replacement-run'; }],
 			['reversed Redis capturedAt', (value) => {
 				value.redisAfter.capturedAt = '2026-07-14T00:00:59.000Z';
 			}],
 			['decreasing Redis uptime', (value) => { value.redisAfter.uptimeSeconds = 99; }],
-			['decreasing Redis DBSIZE', (value) => { value.redisAfter.dbSize = 9; }],
-			['decreasing Redis command counter', (value) => { value.redisAfter.commands.set = 4; }],
+			['decreasing Redis DBSIZE', (value) => { value.redisAfter.dbSize = '9'; }],
+			['decreasing Redis command counter', (value) => { value.redisAfter.commands.set = '4'; }],
 			['mixed Docker container', (value) => {
-				value.dockerStats = value.dockerStats.replace('redis-198,redis-id-198', 'other-redis,other-id');
+				value.dockerStats = value.dockerStats.replace(
+					`redis,redis-198,${value.environment.redisContainerId}`,
+					'redis,other-redis,other-id',
+				);
 			}],
 			['one Docker sample instant', (value) => {
 				value.dockerStats = value.dockerStats.split('\n').slice(0, 3).join('\n') + '\n';

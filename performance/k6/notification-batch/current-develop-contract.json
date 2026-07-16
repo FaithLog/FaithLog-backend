@@ -1,0 +1,47 @@
+{
+  "issue": 198,
+  "baseCommit": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
+  "flywayMigrations": {
+    "V1__initial_schema.sql": "a620cf038353e517f2f2050fe4db38b827f2edb9dbd9076b726ee21cbc309acf",
+    "V2__add_poll_user_option_fields.sql": "c8b37da4915372475c652c70c0f164bbd9130ce21b60e3aec879b1ee1de430e4",
+    "V3__split_active_coffee_payment_account_owner_scope.sql": "d9971f58b21941f3275585290b6357c84679ff0851c36ab668a5f6fba757b3b1",
+    "V4__add_payment_account_soft_delete.sql": "7377dadaee422bc7f3953db9f3c45127108d385d26cfd27e7b73cf3b3380e435",
+    "V5__fix_fcm_token_active_uniqueness.sql": "7917444e454e781340d25e764a0e49ffd97ebe93540fd7b9df5908b6bda1846e",
+    "V6__add_user_deleted_at.sql": "8551c5c91b01bfab118479a075943ae828841a1f2ac628755d467dfe6532b497",
+    "V7__enforce_positive_charge_amount.sql": "8dc97dde113a4c9a1a9a735a5f4d369326eed7046075aedda0e946b0ec72a09a",
+    "V8__add_meal_poll_settlement.sql": "f06cd2e05544ad2f52111231fc6cd96a66c9394086c5d415cf21c48e0082608d",
+    "V9__allow_multiple_active_coffee_duties.sql": "964ce61d3b21cb610c9afd99d08b2dae2a10823243de6ac878da1b439af5809a",
+    "V10__neutralize_coffee_template_accounts.sql": "313a5cb62b655365066c311d700641b280550bb8135cdcee7c76d79c1e6200b9",
+    "V11__secure_supabase_data_api.sql": "67fcbfd6e6ab4912d12eb40caaed898b27bec8c97595487b74d01c409757323b"
+  },
+  "productionSources": {
+    "src/main/java/com/faithlog/notification/service/NotificationRequestCommandService.java": "b929fb85589da80ee5e8010538e824f48642b2e88d1613b70268e91aa2539e0c",
+    "src/main/java/com/faithlog/notification/service/NotificationDeliveryWorker.java": "f272c4cba2026aec80ed82ed7cde865af49aef4c28943ac4f4a77dbc879f27b1",
+    "src/main/java/com/faithlog/notification/infrastructure/repository/UserFcmTokenRepository.java": "858e4ef0a391aa8a0151d979efcac99e1777bd3ac5084936a881ef5e9cd4b516",
+    "src/main/java/com/faithlog/notification/service/ChargeReminderService.java": "ba4921979c67b2f4f00d04b189d86c23272e52dbadc5117510e32145585bc8f5",
+    "src/main/java/com/faithlog/notification/service/NotificationDeduplicationService.java": "3cfcdd0b5c2ee1bb7110aec47478192c40e9351058f4688f14bfbdadb6b84eef",
+    "src/main/java/com/faithlog/campus/service/CampusDutyAssignmentService.java": "74e2a052d7583bb0868347a3dc94eb09556aec954c96eda1288bf489eff733fd",
+    "src/main/java/com/faithlog/notification/service/NotificationLockService.java": "fe210799afc789b52e2f0dcd6a02fd2b0276ea23d6a81f7dc1f01ab9c458032a",
+    "src/main/java/com/faithlog/notification/service/NotificationLockKey.java": "190c1a822a8e75de828656f8e74f60fb5842d94b73e87bd4ec7098cec635f12f",
+    "src/main/java/com/faithlog/notification/infrastructure/redis/RedisNotificationLockAdapter.java": "870f7c597e79f68f89b121a7f52abdb38e999a9a3a2155cce7d26b42287a70c0",
+    "src/main/java/com/faithlog/notification/infrastructure/redis/RedisNotificationDeduplicationAdapter.java": "087098fd7c2978ad6abcba95cc8e2fefa220b44b0b4628f787d5b6b82c18fc99",
+    "src/main/java/com/faithlog/notification/infrastructure/repository/NotificationLogRepository.java": "6361b331708228d0a9c37c45e6c735147b31bcd52ed144574332a818cd045494",
+    "src/main/java/com/faithlog/notification/service/ThreadSleepingNotificationRetryBackoff.java": "b6b059237b067930e12aabd4b26027529ad56721be7a198e2d8b3593c7892221",
+    "src/main/java/com/faithlog/notification/domain/entity/NotificationLog.java": "02dc7da19f111d51e6a5c1ec1da2e03ac81c7cfb646c8a1c612a4746aff0b936",
+    "src/main/java/com/faithlog/notification/domain/entity/UserFcmToken.java": "79fa56507cb3d626bb6e441cddb3b6257b2ad5e43c55274eef9a3e94f043cbee",
+    "src/main/java/com/faithlog/notification/service/command/AutomaticNotificationRequestCommand.java": "769e34a28497b1a8887ea9f80cef18e480e3a2ff985b0186cd9d4be2910ff7ce",
+    "src/main/java/com/faithlog/notification/service/NotificationDeduplicationKey.java": "56da93769ac5c6c7dd98703721dee626c073a37b60996ccff79c17b9d83f2eda"
+  },
+  "notificationFlow": {
+    "creationTokenLookup": "per-target-user",
+    "deliveryTokenSnapshot": "request-wide-bulk",
+    "permanentFailurePolicy": "deactivate-and-remove-from-later-request-logs",
+    "staleTokenCutoffDays": 90,
+    "requestLogOrdering": "id-asc"
+  },
+  "rlsJdbcBoundary": {
+    "dataApiRoles": "deny-all",
+    "applicationPath": "direct-owner-jdbc",
+    "forceRowLevelSecurity": false
+  }
+}

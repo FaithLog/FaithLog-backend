@@ -7,6 +7,17 @@ guard_notification_batch_runtime() {
 	: "${PERF_EXPECTED_COMPOSE_PROJECT:?Set the user-approved dedicated Compose project.}"
 	: "${POSTGRES_CONTAINER:?Set the dedicated PostgreSQL container name.}"
 	: "${REDIS_CONTAINER:?Set the dedicated Redis container name.}"
+	: "${PERF_EXPECTED_POSTGRES_CONTAINER_ID:?Set the approved full PostgreSQL container ID.}"
+	: "${PERF_EXPECTED_REDIS_CONTAINER_ID:?Set the approved full Redis container ID.}"
+	: "${PERF_EXPECTED_POSTGRES_SERVICE:?Set the approved PostgreSQL Compose service.}"
+	: "${PERF_EXPECTED_REDIS_SERVICE:?Set the approved Redis Compose service.}"
+	: "${PERF_EXPECTED_POSTGRES_IMAGE_ID:?Set the approved PostgreSQL image ID.}"
+	: "${PERF_EXPECTED_REDIS_IMAGE_ID:?Set the approved Redis image ID.}"
+	: "${POSTGRES_USER:?Set the runtime PostgreSQL user.}"
+	: "${POSTGRES_PASSWORD:?Set the runtime-only PostgreSQL password.}"
+	: "${POSTGRES_DB:?Set the runtime PostgreSQL database.}"
+	: "${PERF_EXPECTED_POSTGRES_ROLE:?Set the approved direct owner JDBC role.}"
+	: "${PERF_REDIS_AUTH_MODE:?Set PERF_REDIS_AUTH_MODE=none or password.}"
 
 	if [[ "${ALLOW_NOTIFICATION_BATCH_BASELINE}" != "true" ]]; then
 		echo "ALLOW_NOTIFICATION_BATCH_BASELINE must be exactly true." >&2
@@ -31,6 +42,21 @@ guard_notification_batch_runtime() {
 		echo "FIREBASE_CONFIG_JSON and FIREBASE_CONFIG_PATH must be empty." >&2
 		return 2
 	fi
+	case "${PERF_REDIS_AUTH_MODE}" in
+		none)
+			if [[ -n "${REDIS_PASSWORD:-}" ]]; then
+				echo "REDIS_PASSWORD must be absent when PERF_REDIS_AUTH_MODE=none." >&2
+				return 2
+			fi
+			;;
+		password)
+			: "${REDIS_PASSWORD:?Set the runtime-only Redis password.}"
+			;;
+		*)
+			echo "PERF_REDIS_AUTH_MODE must be none or password." >&2
+			return 2
+			;;
+	esac
 	if [[ ! "${PERF_EXPECTED_COMPOSE_PROJECT}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
 		echo "PERF_EXPECTED_COMPOSE_PROJECT must be an explicit safe project name." >&2
 		return 2
@@ -40,12 +66,39 @@ guard_notification_batch_runtime() {
 		echo "Container names must contain only safe Docker name characters." >&2
 		return 2
 	fi
-	export POSTGRES_CONTAINER REDIS_CONTAINER
+	if [[ "${POSTGRES_CONTAINER}" == "${REDIS_CONTAINER}" \
+		|| ! "${PERF_EXPECTED_POSTGRES_CONTAINER_ID}" =~ ^[a-f0-9]{64}$ \
+		|| ! "${PERF_EXPECTED_REDIS_CONTAINER_ID}" =~ ^[a-f0-9]{64}$ \
+		|| "${PERF_EXPECTED_POSTGRES_CONTAINER_ID}" == "${PERF_EXPECTED_REDIS_CONTAINER_ID}" \
+		|| ! "${PERF_EXPECTED_POSTGRES_IMAGE_ID}" =~ ^sha256:[a-f0-9]{64}$ \
+		|| ! "${PERF_EXPECTED_REDIS_IMAGE_ID}" =~ ^sha256:[a-f0-9]{64}$ \
+		|| ! "${PERF_EXPECTED_POSTGRES_SERVICE}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ \
+		|| ! "${PERF_EXPECTED_REDIS_SERVICE}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+		echo "Runtime targets require distinct full container IDs, immutable image IDs, and safe services." >&2
+		return 2
+	fi
+	export POSTGRES_CONTAINER REDIS_CONTAINER POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+	export PERF_EXPECTED_POSTGRES_ROLE PERF_REDIS_AUTH_MODE REDIS_PASSWORD
+	export PERF_EXPECTED_POSTGRES_CONTAINER_ID PERF_EXPECTED_REDIS_CONTAINER_ID
+	export PERF_EXPECTED_POSTGRES_SERVICE PERF_EXPECTED_REDIS_SERVICE
+	export PERF_EXPECTED_POSTGRES_IMAGE_ID PERF_EXPECTED_REDIS_IMAGE_ID
 
-	local postgres_project
-	local redis_project
+	local postgres_project redis_project postgres_id redis_id postgres_service redis_service postgres_image redis_image
+	local postgres_started redis_started postgres_config redis_config postgres_host_port redis_host_port
 	postgres_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "${POSTGRES_CONTAINER}")"
 	redis_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "${REDIS_CONTAINER}")"
+	postgres_id="$(docker inspect --format '{{.Id}}' "${POSTGRES_CONTAINER}")"
+	redis_id="$(docker inspect --format '{{.Id}}' "${REDIS_CONTAINER}")"
+	postgres_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "${POSTGRES_CONTAINER}")"
+	redis_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "${REDIS_CONTAINER}")"
+	postgres_image="$(docker inspect --format '{{.Image}}' "${POSTGRES_CONTAINER}")"
+	redis_image="$(docker inspect --format '{{.Image}}' "${REDIS_CONTAINER}")"
+	postgres_started="$(docker inspect --format '{{.State.StartedAt}}' "${POSTGRES_CONTAINER}")"
+	redis_started="$(docker inspect --format '{{.State.StartedAt}}' "${REDIS_CONTAINER}")"
+	postgres_config="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.config-hash" }}' "${POSTGRES_CONTAINER}")"
+	redis_config="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.config-hash" }}' "${REDIS_CONTAINER}")"
+	postgres_host_port="$(docker inspect --format '{{ (index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort }}' "${POSTGRES_CONTAINER}")"
+	redis_host_port="$(docker inspect --format '{{ (index (index .NetworkSettings.Ports "6379/tcp") 0).HostPort }}' "${REDIS_CONTAINER}")"
 	if [[ -z "${postgres_project}" || "${postgres_project}" == "<no value>" \
 		|| "${postgres_project}" == "null" || "${postgres_project}" != "${redis_project}" ]]; then
 		echo "PostgreSQL and Redis must expose one matching Compose project label." >&2
@@ -59,8 +112,30 @@ guard_notification_batch_runtime() {
 		echo "The shared faithlog-latest stack is forbidden for #198." >&2
 		return 2
 	fi
+	if [[ "${postgres_id}" != "${PERF_EXPECTED_POSTGRES_CONTAINER_ID}" \
+		|| "${redis_id}" != "${PERF_EXPECTED_REDIS_CONTAINER_ID}" \
+		|| "${postgres_service}" != "${PERF_EXPECTED_POSTGRES_SERVICE}" \
+		|| "${redis_service}" != "${PERF_EXPECTED_REDIS_SERVICE}" \
+		|| "${postgres_image}" != "${PERF_EXPECTED_POSTGRES_IMAGE_ID}" \
+		|| "${redis_image}" != "${PERF_EXPECTED_REDIS_IMAGE_ID}" ]]; then
+		echo "Runtime container full ID, service, or image does not match the approved target." >&2
+		return 2
+	fi
+	if [[ -z "${postgres_started}" || -z "${redis_started}" \
+		|| -z "${postgres_config}" || -z "${redis_config}" \
+		|| ! "${postgres_host_port}" =~ ^[1-9][0-9]*$ \
+		|| ! "${redis_host_port}" =~ ^[1-9][0-9]*$ ]]; then
+		echo "Pre-lock immutable runtime identity is incomplete." >&2
+		return 2
+	fi
 
 	export PERF_COMPOSE_PROJECT="${postgres_project}"
+	export PERF_PRELOCK_POSTGRES_STARTED_AT="${postgres_started}"
+	export PERF_PRELOCK_REDIS_STARTED_AT="${redis_started}"
+	export PERF_PRELOCK_POSTGRES_CONFIG_HASH="${postgres_config}"
+	export PERF_PRELOCK_REDIS_CONFIG_HASH="${redis_config}"
+	export PERF_PRELOCK_POSTGRES_HOST_PORT="${postgres_host_port}"
+	export PERF_PRELOCK_REDIS_HOST_PORT="${redis_host_port}"
 }
 
 acquire_notification_batch_locks() {

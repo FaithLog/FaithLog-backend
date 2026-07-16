@@ -19,6 +19,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ## 핵심 지표 후보
 
+### 2026-07-16 - Issue #198 current-develop scenario 보정
+
+- 상태는 `scenario-ready / not-measured`다. latest develop의 #200 request-wide delivery token snapshot, permanent-token same-request 제거, 90일 stale cutoff와 Flyway V1-V11/#202 direct owner JDBC 경계를 scenario identity로 고정했다.
+- 여러 performance issue의 test-code는 병렬 보정하지만 actual load는 PM exclusive window에서 순차 실행한다. 이 세션에서는 Docker/DB/HTTP/k6/fixture/seed/cleanup을 실행하지 않았고 baseline 수치나 개선 성과를 만들지 않았다.
+- warmup/measured exact count와 cumulative-state strategy는 사용자 결정 전 fail-closed pending이며 실제 측정값으로 이력서에 사용할 수 없다.
+
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
 | 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-16 #206, 555 tests / 0 failures / 0 errors / 3 skipped) | 100% |

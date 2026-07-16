@@ -44,6 +44,8 @@ const samples = runDirs.map((runDir) => ({
 for (const sample of samples) {
 	assert.equal(sample.verification.status, 'verified');
 	assert.equal(sample.runStatus.status, 'verified');
+	assert.equal(sample.verification.automaticAdoption, false);
+	assert.equal(sample.runStatus.automaticAdoption, false);
 	assert.equal(sample.manifest.fixtureRunId, sample.result.fixtureRunId);
 	assert.equal(sample.manifest.sampleKind, sample.result.sampleKind);
 	assert.ok(['warmup', 'measured'].includes(sample.manifest.sampleKind),
@@ -151,6 +153,8 @@ const addNumericObjects = (left, right) => {
 	for (const [key, value] of Object.entries(right ?? {})) {
 		if (typeof value === 'number') {
 			result[key] = (result[key] ?? 0) + value;
+		} else if (typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value)) {
+			result[key] = String(BigInt(result[key] ?? '0') + BigInt(value));
 		} else if (value && typeof value === 'object') {
 			result[key] = addNumericObjects(result[key] ?? {}, value);
 		}
@@ -165,6 +169,10 @@ const mergeDockerPeaks = (left, right) => {
 		const current = right?.[container] ?? {};
 		return [container, {
 			cpuPercent: Math.max(previous.cpuPercent ?? 0, current.cpuPercent ?? 0),
+			memoryUsedBytes: String(BigInt(previous.memoryUsedBytes ?? '0')
+				> BigInt(current.memoryUsedBytes ?? '0')
+				? BigInt(previous.memoryUsedBytes ?? '0')
+				: BigInt(current.memoryUsedBytes ?? '0')),
 			memoryPercent: Math.max(previous.memoryPercent ?? 0, current.memoryPercent ?? 0),
 			sampleCount: (previous.sampleCount ?? 0) + (current.sampleCount ?? 0),
 		}];
@@ -178,7 +186,8 @@ const evidenceTotals = measured.reduce((totals, sample) => ({
 		sample.verification.evidence.redisCommandCallDelta,
 	),
 	dockerSampleCount: totals.dockerSampleCount + sample.verification.evidence.dockerSampleCount,
-	redisDbSizeDelta: totals.redisDbSizeDelta + sample.verification.evidence.redisDbSizeDelta,
+	redisDbSizeDelta: String(BigInt(totals.redisDbSizeDelta)
+		+ BigInt(sample.verification.evidence.redisDbSizeDelta)),
 	dockerPeakByContainer: mergeDockerPeaks(
 		totals.dockerPeakByContainer,
 		sample.verification.evidence.dockerPeakByContainer,
@@ -186,7 +195,7 @@ const evidenceTotals = measured.reduce((totals, sample) => ({
 }), {
 	postgresDelta: {},
 	redisCommandCallDelta: {},
-	redisDbSizeDelta: 0,
+	redisDbSizeDelta: '0',
 	dockerSampleCount: 0,
 	dockerPeakByContainer: {},
 });
@@ -221,6 +230,9 @@ const totals = measured.reduce((accumulator, sample) => {
 
 const summary = {
 	status: 'before-baseline',
+	accepted: false,
+	automaticAdoption: false,
+	measurementStatus: 'disabled-pending-user-approved-cumulative-state-strategy',
 	datasetId: measured[0].result.datasetId,
 	warmupCount: warmups.length,
 	measuredCount: measured.length,

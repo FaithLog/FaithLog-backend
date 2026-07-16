@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
+import { canonicalDecimal } from './integrity-contract.mjs';
 
 const outputPath = process.env.REDIS_EVIDENCE_OUTPUT_PATH;
 const dbSizeRaw = process.env.REDIS_DBSIZE;
@@ -22,6 +23,7 @@ const integer = (raw, name, minimum = 0) => {
 	assert.ok(Number.isSafeInteger(parsed) && parsed >= minimum, `${name} is invalid`);
 	return parsed;
 };
+const decimal = (raw, name) => String(canonicalDecimal(raw, name));
 const setMatch = commandStats.match(/^cmdstat_set:calls=(\d+),/m);
 assert.ok(setMatch, 'Redis evidence missing cmdstat_set');
 
@@ -30,7 +32,7 @@ const snapshot = {
 	runId: value(serverInfo, 'run_id'),
 	uptimeSeconds: integer(value(serverInfo, 'uptime_in_seconds'), 'uptime', 1),
 	tcpPort: integer(value(serverInfo, 'tcp_port'), 'tcp_port', 1),
-	dbSize: integer(dbSizeRaw, 'DBSIZE'),
-	commands: { set: integer(setMatch[1], 'SET calls') },
+	dbSize: decimal(dbSizeRaw, 'DBSIZE'),
+	commands: { set: decimal(setMatch[1], 'SET calls') },
 };
 writeFileSync(outputPath, `${JSON.stringify(snapshot)}\n`, { flag: 'wx' });

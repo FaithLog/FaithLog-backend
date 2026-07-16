@@ -108,6 +108,9 @@ class NotificationBatchBeforeScenarioTest {
 		String postgresHostPort = requiredEnvironment("PERF_POSTGRES_HOST_PORT");
 		String redisHostPort = requiredEnvironment("PERF_REDIS_HOST_PORT");
 		String postgresDatabase = requiredEnvironment("POSTGRES_DB");
+		String postgresUser = requiredEnvironment("POSTGRES_USER");
+		String postgresPassword = requiredEnvironment("POSTGRES_PASSWORD");
+		String redisAuthMode = requiredEnvironment("PERF_REDIS_AUTH_MODE");
 		if (!postgresHostPort.matches("[1-9][0-9]*")
 			|| !redisHostPort.matches("[1-9][0-9]*")
 			|| !postgresDatabase.matches("[A-Za-z_][A-Za-z0-9_]*")) {
@@ -117,8 +120,15 @@ class NotificationBatchBeforeScenarioTest {
 			"spring.datasource.url",
 			() -> "jdbc:postgresql://127.0.0.1:" + postgresHostPort + "/" + postgresDatabase
 		);
+		registry.add("spring.datasource.username", () -> postgresUser);
+		registry.add("spring.datasource.password", () -> postgresPassword);
 		registry.add("spring.data.redis.host", () -> "127.0.0.1");
 		registry.add("spring.data.redis.port", () -> redisHostPort);
+		if (redisAuthMode.equals("password")) {
+			registry.add("spring.data.redis.password", () -> requiredEnvironment("REDIS_PASSWORD"));
+		} else if (!redisAuthMode.equals("none")) {
+			throw new IllegalStateException("PERF_REDIS_AUTH_MODE must be none or password");
+		}
 		registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
 		registry.add("spring.flyway.enabled", () -> "false");
 	}
@@ -281,7 +291,12 @@ class NotificationBatchBeforeScenarioTest {
 		report.put("springProfile", environment.getActiveProfiles()[0]);
 		report.put("fcmAdapter", "deterministic-test-fake");
 		report.put("notificationType", NotificationType.PAYMENT_UNPAID.name());
+		report.put("productionContractBaseCommit", "6796ed146244d8f3f5b5dd7048ebe16865084a97");
 		report.put("retryBackoffPolicy", "production-thread-sleep-1s-5s-30s");
+		report.put("deliveryTokenSnapshotPolicy", "request-wide-bulk");
+		report.put("phaseOrder", List.of("creation", "dedupe-replay", "delivery"));
+		report.put("scenarioFailureCount", 0);
+		report.put("scenarioFailureRate", 0.0);
 		report.put("javaRuntimeVersion", Runtime.version().toString());
 		report.put("dedupeKeyShape", "notificationType + campusId + scopeId + targetUserId + businessDate");
 		report.put("targetIsolationBoundary", "scheduler-supplied same-campus ACTIVE member IDs");
@@ -308,7 +323,7 @@ class NotificationBatchBeforeScenarioTest {
 			Map.of(
 				"statusCounts", stringStatusCounts(deliveredStatuses),
 				"logUpdateCount", pendingExpected,
-				"tokenLookupCount", pendingExpected,
+				"tokenLookupCount", pendingExpected > 0 ? 1 : 0,
 				"tokenUpdateCount", permanentDeactivated,
 				"fakeSendAttemptCount", fakeFcmSendPort.totalAttemptCount(),
 				"fakePermanentFailureCount", fakeFcmSendPort.permanentFailureCount(),

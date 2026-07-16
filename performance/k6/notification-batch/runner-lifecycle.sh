@@ -1,6 +1,29 @@
 #!/usr/bin/env bash
 
+notification_batch_require_runtime_inputs() {
+	local input_name
+	for input_name in "$@"; do
+		if ! declare -p "${input_name}" >/dev/null 2>&1; then
+			echo "${input_name} is required." >&2
+			return 2
+		fi
+		if [[ -z "${!input_name}" ]]; then
+			echo "${input_name} is required." >&2
+			return 2
+		fi
+	done
+}
+
 notification_batch_runner_cleanup() {
+	local status=$?
+	trap - EXIT
+	if (( status != 0 )) && [[ -n "${REJECTION_PATH:-}" ]]; then
+		REJECTION_PATH="${REJECTION_PATH}" \
+			REJECTION_STAGE="${REJECTION_STAGE:-preflight}" \
+			REJECTION_REASON="${REJECTION_REASON:-runner-command-failed}" \
+			REJECTION_EXIT_CODE="${status}" \
+			node "${SCRIPT_DIR}/rejection-contract.mjs" >/dev/null 2>&1 || true
+	fi
 	if [[ -n "${SAMPLER_MARKER:-}" ]]; then
 		rm -f "${SAMPLER_MARKER}"
 	fi
@@ -9,6 +32,7 @@ notification_batch_runner_cleanup() {
 		wait "${SAMPLER_PID}" 2>/dev/null || true
 	fi
 	release_notification_batch_locks
+	exit "${status}"
 }
 
 notification_batch_runner_signal_exit() {

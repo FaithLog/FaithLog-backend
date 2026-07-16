@@ -56,8 +56,14 @@ SELECT 1 / CASE WHEN NOT EXISTS (
 		ON starts_with(
 			token.client_instance_id,
 			'PERFORMANCE_198_DUMMY:' || config.fixture_run_id || ':'
-		)
+	)
 ) THEN 1 ELSE 0 END AS fresh_fixture_run_guard;
+SELECT 1 / CASE WHEN NOT EXISTS (
+	SELECT 1
+	FROM notification_logs log
+	CROSS JOIN perf_198_config config
+	WHERE log.title = 'PERFORMANCE #198 ' || config.fixture_run_id
+) THEN 1 ELSE 0 END AS fresh_notification_log_namespace_guard;
 
 UPDATE user_fcm_tokens token
 SET

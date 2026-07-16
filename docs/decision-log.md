@@ -10,6 +10,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-16 - Issue #198 Current-Develop Notification Scenario Rebase
+
+- Context: #198 scenario-only branch의 base 뒤에 #200 duty reminder/FCM delivery, #201 pagination/archive, #202 Supabase RLS, #206 stable charge ordering과 Flyway V8-V11이 develop에 반영되어 기존 V1-V7·per-log delivery lookup 설명이 current runtime과 달라졌다. 사용자는 성능 이슈 #192-#199 test code를 병렬 보정하되 actual load는 PM만 순차 실행하도록 결정했다.
+- Decision: latest `origin/develop` `6796ed146244d8f3f5b5dd7048ebe16865084a97`에서 별도 `fix/198-notification-batch-current-develop` branch를 사용한다. scenario contract는 V1-V11과 직접 관련 production source identity를 고정하고 fixture/runner가 Docker·SQL·Gradle workload 전에 drift를 거부한다. 실제 Compose project/container/database/JDBC owner role/dataset/campus/fixture/count/date/cadence는 runtime 필수이며 default를 두지 않는다.
+- Decision: before creation은 현재 per-target token lookup을 유지하고 #200 delivery의 request-wide bulk token snapshot, request ID log stable ordering, permanent token 비활성화와 같은-request 후속 log 제거, 90일 stale cutoff를 현재 동작으로 characterization한다. #200 duty reminder 권한·owned account/daily dedupe·stale duty lifecycle은 source identity로 고정하지만 자동 scheduler handoff scenario 범위 밖이라 API를 호출하지 않는다. #201 pagination/archive와 #206 charge pagination ordering도 이 workload 밖이다. #202는 Data API를 사용하지 않고 runtime snapshot `current_user`가 승인된 direct owner JDBC role과 일치해야 한다.
+- Decision: 이번 병렬 phase에서는 Node/Bash/fake/static과 필요한 최소 focused compile만 실행한다. Docker/DB/HTTP/k6/seed/cleanup/EXPLAIN 및 전체 Gradle test/build/asciidoctor는 금지하며 실제 baseline은 PM exclusive window에서만 순차 실행한다. 상태는 계속 `scenario-ready / not-measured`이고 cumulative-state strategy와 warmup/measured exact count는 사용자 승인 전 fail-closed pending이다.
+- Decision: runtime target의 full container/service/image identity와 PostgreSQL/Redis credential mode는 fallback 없는 runtime 필수값이다. locked/initial/before/after/final continuity, canonical decimal-string/BigInt cumulative counters, pg_stat_statements available/unavailable continuity, PostgreSQL+Redis exact resource set의 CPU/RAM bytes-percent/cadence-window를 검증한다. 모든 결과는 `accepted=false`, `automaticAdoption=false`이며 최초 machine-readable rejection은 이후 실패가 덮어쓰지 않는다.
+- Impact: test/k6/fixture/validator/docs만 변경하고 `src/main`, API, 권한, transaction, Entity, DB/Flyway, dependency, production response/error를 변경하지 않는다. push/PR/merge와 실제 성능 수치·개선 성과 기록도 수행하지 않는다.
+
 ### 2026-07-16 - Issue #206 Stable Charge Item Pagination Ordering
 
 - Context: Issue #193 current-develop before preflight에서 `sort=createdAt,desc`로 조회한 회원별 청구 상세의 동일 `created_at` 행이 일부는 ID 오름차순, 일부는 내림차순으로 반환됐다. primary 정렬만 있는 offset paging은 동률 행의 페이지 간 중복·누락 가능성이 있어 정확한 baseline 검증을 중단했다.

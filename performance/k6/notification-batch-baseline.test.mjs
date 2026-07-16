@@ -184,16 +184,30 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 			permanentCount: 100,
 			inactiveCount: 100,
 			noTokenCount: 100,
-			mixedTokenUserCount: 1,
-			insertedDummyTokenCount: 901,
-		};
-		const result = {
-			...manifest,
-			requestId: '00000000-0000-0000-0000-000000000198',
+				mixedTokenUserCount: 1,
+				insertedDummyTokenCount: 901,
+				fixturePolicy: 'dummy-token-and-generated-log-only',
+				credentialRecorded: false,
+			};
+			const result = {
+				datasetId: manifest.datasetId,
+				fixtureRunId: manifest.fixtureRunId,
+				sampleKind: manifest.sampleKind,
+				campusId: manifest.campusId,
+				requestId: '00000000-0000-0000-0000-000000000198',
+			phaseOrder: ['creation', 'dedupe-replay', 'delivery'],
+			scenarioFailureCount: 0,
+			scenarioFailureRate: 0,
 			javaRuntimeVersion: 'synthetic-jvm',
-			externalFcmUsed: false,
-			notificationType: 'PAYMENT_UNPAID',
-			retryBackoffPolicy: 'production-thread-sleep-1s-5s-30s',
+				externalFcmUsed: false,
+				springProfile: 'local',
+				fcmAdapter: 'deterministic-test-fake',
+				notificationType: 'PAYMENT_UNPAID',
+				productionContractBaseCommit: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
+				retryBackoffPolicy: 'production-thread-sleep-1s-5s-30s',
+				deliveryTokenSnapshotPolicy: 'request-wide-bulk',
+				dedupeKeyShape: 'notificationType + campusId + scopeId + targetUserId + businessDate',
+				targetIsolationBoundary: 'scheduler-supplied same-campus ACTIVE member IDs',
 			creation: {
 				durationMs: 100,
 				throughputPerSecond: 10000,
@@ -216,33 +230,37 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 				heapUsedDeltaBytes: 2048,
 				statusCounts: { SENT: 700, FAILED: 100, SKIPPED: 200, PENDING: 0 },
 				logUpdateCount: 800,
-				tokenLookupCount: 800,
+				tokenLookupCount: 1,
 				tokenUpdateCount: 101,
 				fakeSendAttemptCount: 901,
 				fakePermanentFailureCount: 101,
 				fakeTransientRetryCount: 100,
 			},
-			endToEnd: { durationMs: 1100, throughputPerSecond: 909.09 },
-			correctness: {
-				duplicateReplayCreatedCount: 0,
+				endToEnd: { durationMs: 1100, throughputPerSecond: 1000 / 1.1 },
+				correctness: {
+					duplicateReplayCreatedCount: 0,
+					duplicateReplayDurationMs: 10,
+					duplicateReplayDbPreparedStatements: 1000,
 				unexpectedRequestLogCount: 0,
 				nonFixtureTokenMutationCount: 0,
 				partialFailureContinued: true,
 				mixedTokenLogSent: true,
-				mixedPermanentTokenDeactivated: 1,
-			},
+					mixedPermanentTokenDeactivated: 1,
+				},
+				capturedAt: '2026-07-14T00:02:01.000Z',
 		};
 		const environment = {
 			springProfile: 'local',
 			fcmAdapter: 'fake',
 			postgresContainer: 'pg-198',
-			postgresContainerId: 'pg-id-198',
+				postgresContainerId: 'a'.repeat(64),
 			redisContainer: 'redis-198',
-			redisContainerId: 'redis-id-198',
+				redisContainerId: 'b'.repeat(64),
 			dockerProject: 'faithlog-perf-198',
 			postgresHost: '127.0.0.1',
 			postgresHostPort: 15432,
 			postgresDatabase: 'faithlog',
+			expectedPostgresRole: 'postgres',
 			redisHost: '127.0.0.1',
 			redisHostPort: 16379,
 			postgresImageId: 'sha256:postgres-synthetic',
@@ -258,62 +276,63 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 			externalFcm: false,
 		};
 		const tableStats = (values = {}) => ({
-			seq_scan: 0,
-			seq_tup_read: 0,
-			idx_scan: 0,
-			idx_tup_fetch: 0,
-			n_tup_ins: 0,
-			n_tup_upd: 0,
-			n_tup_del: 0,
+			seq_scan: '0',
+			seq_tup_read: '0',
+			idx_scan: '0',
+			idx_tup_fetch: '0',
+			n_tup_ins: '0',
+			n_tup_upd: '0',
+			n_tup_del: '0',
 			...values,
 		});
 		const postgresBefore = {
 			capturedAt: '2026-07-14T00:01:00.000Z',
 			currentDatabase: 'faithlog',
+			currentUser: 'postgres',
 			statsReset: '2026-07-14T00:00:00.000Z',
 			database: {
-				xact_commit: 10, xact_rollback: 0, blks_read: 1, blks_hit: 2,
-				tup_returned: 3, tup_fetched: 4, tup_inserted: 5, tup_updated: 6, tup_deleted: 0,
+				xact_commit: '10', xact_rollback: '0', blks_read: '1', blks_hit: '2',
+				tup_returned: '3', tup_fetched: '4', tup_inserted: '5', tup_updated: '6', tup_deleted: '0',
 			},
 			tables: {
 				campus_members: tableStats(),
-				notification_logs: tableStats({ n_tup_ins: 1, n_tup_upd: 2 }),
-				user_fcm_tokens: tableStats({ n_tup_upd: 2 }),
+				notification_logs: tableStats({ n_tup_ins: '1', n_tup_upd: '2' }),
+				user_fcm_tokens: tableStats({ n_tup_upd: '2' }),
 			},
 			cardinality: {
-				userFcmTokensTotal: 2000,
-				activeTokensTotal: 1000,
-				issue198DummyTokensTotal: 901,
-				issue198ActiveDummyTokens: 901,
-				notificationLogsTotal: 10,
-				issue198MarkerLogsTotal: 2,
+				userFcmTokensTotal: '2000',
+				activeTokensTotal: '1000',
+				issue198DummyTokensTotal: '901',
+				issue198ActiveDummyTokens: '901',
+				notificationLogsTotal: '10',
+				issue198MarkerLogsTotal: '2',
 			},
-			relationBytes: { userFcmTokens: 65536, notificationLogs: 32768 },
+			relationBytes: { userFcmTokens: '65536', notificationLogs: '32768' },
 		};
 		const postgresAfter = {
 			...postgresBefore,
 			capturedAt: '2026-07-14T00:02:00.000Z',
 			database: {
 				...postgresBefore.database,
-				xact_commit: 20,
-				blks_hit: 200,
-				tup_inserted: 1005,
-				tup_updated: 907,
+				xact_commit: '20',
+				blks_hit: '200',
+				tup_inserted: '1005',
+				tup_updated: '907',
 			},
 			tables: {
-				campus_members: tableStats({ seq_scan: 1, seq_tup_read: 1000 }),
-				notification_logs: tableStats({ n_tup_ins: 1001, n_tup_upd: 802 }),
-				user_fcm_tokens: tableStats({ n_tup_upd: 103 }),
+				campus_members: tableStats({ seq_scan: '1', seq_tup_read: '1000' }),
+				notification_logs: tableStats({ n_tup_ins: '1001', n_tup_upd: '802' }),
+				user_fcm_tokens: tableStats({ n_tup_upd: '103' }),
 			},
 			cardinality: {
-				userFcmTokensTotal: 2000,
-				activeTokensTotal: 899,
-				issue198DummyTokensTotal: 901,
-				issue198ActiveDummyTokens: 800,
-				notificationLogsTotal: 1010,
-				issue198MarkerLogsTotal: 1002,
+				userFcmTokensTotal: '2000',
+				activeTokensTotal: '899',
+				issue198DummyTokensTotal: '901',
+				issue198ActiveDummyTokens: '800',
+				notificationLogsTotal: '1010',
+				issue198MarkerLogsTotal: '1002',
 			},
-			relationBytes: { userFcmTokens: 69632, notificationLogs: 131072 },
+			relationBytes: { userFcmTokens: '69632', notificationLogs: '131072' },
 		};
 
 		for (const [name, value] of Object.entries({
@@ -322,16 +341,18 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 			'environment.json': environment,
 			'postgres-before.json': postgresBefore,
 			'postgres-after.json': postgresAfter,
+			'pgss-before.json': { available: false, reason: 'extension-not-installed', rows: [] },
+			'pgss-after.json': { available: false, reason: 'extension-not-installed', rows: [] },
 		})) {
 			writeFileSync(join(runDir, name), `${JSON.stringify(value)}\n`, { flag: name === 'manifest.json' ? 'wx' : 'w' });
 		}
 		writeFileSync(join(runDir, 'redis-before.json'), `${JSON.stringify({
 			capturedAt: '2026-07-14T00:01:00.000Z', runId: 'redis-run-id-198', uptimeSeconds: 100,
-			tcpPort: 6379, dbSize: 10, commands: { set: 5 },
+			tcpPort: 6379, dbSize: '10', commands: { set: '5' },
 		})}\n`);
 		writeFileSync(join(runDir, 'redis-after.json'), `${JSON.stringify({
 			capturedAt: '2026-07-14T00:02:00.000Z', runId: 'redis-run-id-198', uptimeSeconds: 160,
-			tcpPort: 6379, dbSize: 1010, commands: { set: 2006 },
+			tcpPort: 6379, dbSize: '1010', commands: { set: '2006' },
 		})}\n`);
 		writeFileSync(join(runDir, 'evidence-window.json'), `${JSON.stringify({
 			workloadStartedAt: '2026-07-14T00:01:10.000Z',
@@ -341,11 +362,11 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 		})}\n`);
 		writeFileSync(
 			join(runDir, 'docker-stats.csv'),
-			'captured_at,container_name,container_id,cpu_percent,memory_usage,memory_percent\n'
-				+ '2026-07-14T00:01:00.000Z,pg-198,pg-id-198,1.5%,10MiB / 1GiB,2.5%\n'
-				+ '2026-07-14T00:01:00.000Z,redis-198,redis-id-198,0.5%,5MiB / 1GiB,1.0%\n'
-				+ '2026-07-14T00:02:00.000Z,pg-198,pg-id-198,2.0%,11MiB / 1GiB,2.7%\n'
-				+ '2026-07-14T00:02:00.000Z,redis-198,redis-id-198,0.7%,6MiB / 1GiB,1.2%\n',
+			'captured_at,component,container_name,container_id,cpu_percent,memory_used_bytes,memory_limit_bytes,memory_percent\n'
+					+ `2026-07-14T00:01:00.000Z,postgres,pg-198,${environment.postgresContainerId},1.5,10485760,1073741824,0.98\n`
+					+ `2026-07-14T00:01:00.000Z,redis,redis-198,${environment.redisContainerId},0.5,5242880,1073741824,0.49\n`
+					+ `2026-07-14T00:02:00.000Z,postgres,pg-198,${environment.postgresContainerId},2.0,11534336,1073741824,1.07\n`
+					+ `2026-07-14T00:02:00.000Z,redis,redis-198,${environment.redisContainerId},0.7,6291456,1073741824,0.59\n`,
 		);
 
 		const verifier = spawnSync(
@@ -357,7 +378,11 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 			},
 		);
 		assert.equal(verifier.status, 0, verifier.stderr);
-		writeFileSync(join(runDir, 'run-status.json'), '{"status":"verified"}\n');
+		const verificationReport = JSON.parse(readFileSync(join(runDir, 'verification-report.json'), 'utf8'));
+		assert.equal(verificationReport.accepted, false);
+		assert.equal(verificationReport.automaticAdoption, false);
+			writeFileSync(join(runDir, 'run-status.json'),
+				'{"status":"verified","accepted":false,"automaticAdoption":false}\n');
 
 		const runDirsFile = join(temporaryRoot, 'run-dirs.txt');
 		const outputPath = join(temporaryRoot, 'summary', 'baseline-summary.json');
@@ -383,12 +408,12 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 			join(runDir, 'postgres-after.json'),
 			`${JSON.stringify({
 				...postgresAfter,
-				tables: {
-					...postgresAfter.tables,
-					notification_logs: {
-						...postgresAfter.tables.notification_logs,
-						n_tup_ins: 500,
-					},
+					tables: {
+						...postgresAfter.tables,
+						notification_logs: {
+							...postgresAfter.tables.notification_logs,
+							n_tup_ins: '500',
+						},
 				},
 			})}\n`,
 		);
@@ -418,22 +443,22 @@ test('verification accepts strict synthetic evidence and summary remains fail-cl
 			assert.notEqual(verifier.status, 0, message);
 		};
 		assertPostgresOverCountFails(
-			{ notification_logs: { ...postgresAfter.tables.notification_logs, n_tup_ins: 1002 } },
+			{ notification_logs: { ...postgresAfter.tables.notification_logs, n_tup_ins: '1002' } },
 			'unexpected extra PostgreSQL notification log insert must fail',
 		);
 		assertPostgresOverCountFails(
-			{ notification_logs: { ...postgresAfter.tables.notification_logs, n_tup_upd: 803 } },
+			{ notification_logs: { ...postgresAfter.tables.notification_logs, n_tup_upd: '803' } },
 			'unexpected extra PostgreSQL notification log update must fail',
 		);
 		assertPostgresOverCountFails(
-			{ user_fcm_tokens: { ...postgresAfter.tables.user_fcm_tokens, n_tup_upd: 104 } },
+			{ user_fcm_tokens: { ...postgresAfter.tables.user_fcm_tokens, n_tup_upd: '104' } },
 			'unexpected extra PostgreSQL token update must fail independently',
 		);
 
 		writeFileSync(join(runDir, 'postgres-after.json'), `${JSON.stringify(postgresAfter)}\n`);
 		writeFileSync(join(runDir, 'redis-after.json'), `${JSON.stringify({
 			capturedAt: '2026-07-14T00:02:00.000Z', runId: 'redis-run-id-198', uptimeSeconds: 160,
-			tcpPort: 6379, dbSize: 1011, commands: { set: 2007 },
+			tcpPort: 6379, dbSize: '1011', commands: { set: '2007' },
 		})}\n`);
 		const overCountVerifier = spawnSync(
 			process.execPath,

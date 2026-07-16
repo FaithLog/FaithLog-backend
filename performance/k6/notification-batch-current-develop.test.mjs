@@ -81,10 +81,15 @@ test('runner fails closed on source or migration drift before fixture or workloa
 	const runner = readScenarioFile('run-before.sh');
 	const fixturePreparation = readScenarioFile('prepare-fixtures.sh');
 	const contractVerifier = readScenarioFile('verify-current-develop-contract.mjs');
+	const identityCapture = readScenarioFile('capture-runtime-identity.sh');
+	const continuityVerifier = readScenarioFile('assert-runtime-continuity.mjs');
 
 	for (const script of [runner, fixturePreparation]) {
 		assert.match(script, /verify-current-develop-contract\.mjs/);
 		assert.match(script, /CURRENT_DEVELOP_CONTRACT_PATH/);
+		assert.doesNotMatch(script, /\$\{CURRENT_DEVELOP_CONTRACT_PATH:-/,
+			'measurement entrypoints must not accept an override contract path');
+		assert.match(script, /CURRENT_DEVELOP_CONTRACT_PATH="\$\{SCRIPT_DIR\}\/current-develop-contract\.json"/);
 	}
 	assert.match(runner, /PERF_EXPECTED_POSTGRES_ROLE/);
 	assert.match(contractVerifier, /baseCommit/);
@@ -92,6 +97,9 @@ test('runner fails closed on source or migration drift before fixture or workloa
 	assert.match(contractVerifier, /NotificationDeliveryWorker/);
 	assert.match(contractVerifier, /ChargeReminderService/);
 	assert.match(contractVerifier, /V11__secure_supabase_data_api/);
+	assert.match(identityCapture, /PERF_EXPECTED_POSTGRES_ROLE/);
+	assert.match(identityCapture, /currentUser/);
+	assert.match(continuityVerifier, /currentUser/);
 });
 
 test('scenario docs delimit #200, pagination/archive, RLS, and stable-ordering relevance', () => {
