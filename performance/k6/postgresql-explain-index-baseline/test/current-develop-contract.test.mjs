@@ -248,3 +248,112 @@ test('#200 coffee fixture preflight rejects stale creator duty, membership, or a
 		assert.match(runner, new RegExp(`'${evidenceField}'`));
 	}
 });
+
+test('common integrity audit marks only #194-relevant evidence applicable and forbids hidden runtime fallbacks', async () => {
+	const contract = JSON.parse(readScenario('report-contract.json'));
+	assert.deepEqual(contract.integrityAudit?.notApplicable, {
+		redisContinuity: 'No Redis command or Redis-backed evidence is used by the PostgreSQL EXPLAIN scenario.',
+		k6V2MetricMath: 'No k6 process, Counter, Rate, Trend, HTTP request, or throughput claim is produced by this scenario.',
+		dockerResourceSampling: 'Diagnostic EXPLAIN JSON is not promoted to an API/load baseline; CPU/RAM evidence remains outside this scenario.',
+	});
+	assert.deepEqual(contract.integrityAudit?.applicable, [
+		'current-develop-source-and-schema-identity',
+		'runtime-approved-compose-and-database-target',
+		'pre-lock-post-lock-final-compose-database-continuity',
+		'postgres-cumulative-counter-and-pgss-state-continuity',
+		'fixture-and-anchor-correctness',
+		'first-machine-readable-rejection',
+	]);
+	assert.equal(contract.automaticAdoption, false);
+
+	const { validateApprovedComposeTarget } = await import(moduleUrl('runtime-contract.mjs'));
+	const actual = {
+		composeProject: 'faithlog-approved', composeService: 'postgres',
+		postgresImageId: 'sha256:approved', postgresImageReference: 'postgres:17',
+	};
+	const approved = {
+		composeProject: 'faithlog-approved', composeService: 'postgres',
+		postgresImageId: 'sha256:approved', postgresImageReference: 'postgres:17',
+	};
+	assert.doesNotThrow(() => validateApprovedComposeTarget(actual, approved));
+	for (const field of Object.keys(approved)) {
+		assert.throws(() => validateApprovedComposeTarget(actual, { ...approved, [field]: '' }), /required|approved/i);
+		assert.throws(() => validateApprovedComposeTarget(actual, { ...approved, [field]: 'different' }), /mismatch|approved/i);
+	}
+	const runner = readScenario('run-baseline.mjs');
+	for (const input of [
+		'EXPECTED_COMPOSE_PROJECT', 'EXPECTED_POSTGRES_SERVICE',
+		'EXPECTED_POSTGRES_IMAGE_ID', 'EXPECTED_POSTGRES_IMAGE_REFERENCE',
+	]) {
+		assert.match(runner, new RegExp(`'${input}'`));
+	}
+});
+
+test('PostgreSQL cumulative counters stay decimal strings/BigInt and pg_stat_statements availability is continuous', async () => {
+	const {
+		parsePgCumulativeCounter, validatePgStatStatementsContinuity,
+	} = await import(moduleUrl('runtime-contract.mjs'));
+	assert.equal(parsePgCumulativeCounter('9007199254740993', 'counter'), 9007199254740993n);
+	assert.equal(parsePgCumulativeCounter('0', 'counter'), 0n);
+	for (const invalid of [9007199254740992, -1, '-1', '1.0', '', null]) {
+		assert.throws(() => parsePgCumulativeCounter(invalid, 'counter'), /decimal string|counter/i);
+	}
+	assert.equal(validatePgStatStatementsContinuity(
+		{ available: false, extensionVersion: null, viewAvailable: false },
+		{ available: false, extensionVersion: null, viewAvailable: false },
+	).stable, true);
+	assert.equal(validatePgStatStatementsContinuity(
+		{ available: false, extensionVersion: null, viewAvailable: false },
+		{ available: true, extensionVersion: '1.11', viewAvailable: true },
+	).stable, false);
+	const runner = readScenario('run-baseline.mjs');
+	for (const field of ['nModSinceAnalyze', 'vacuumCount', 'autovacuumCount', 'liveTuples', 'deadTuples', 'allVisiblePages']) {
+		assert.match(runner, new RegExp(`'${field}'[\\s\\S]*::text`));
+	}
+	assert.match(runner, /'pgStatStatements'/);
+});
+
+test('all seven current cross-issue artifacts remain pending without a separate approval-evidence schema', async () => {
+	const { classifyIssueArtifactAcceptance } = await import(moduleUrl('cross-issue-contract.mjs'));
+	const observed = new Map([
+		[192, { status: 'verified', passed: true, automaticAdoption: false, measurementStatus: 'conditional-boundary-only' }],
+		[193, { measurementStatus: 'conditional-shared-stack', automaticAdoption: false }],
+		[195, { status: 'conditional-not-adoptable', automaticAdoption: false }],
+		[196, { measurementStatus: 'conditional-not-adoptable', accepted: false, automaticAdoption: false }],
+		[197, { status: 'baseline-measured', automaticAdoption: false, currentDevelopProvenance: false }],
+		[198, { status: 'before-baseline', automaticAdoption: false, cumulativeStateStrategyImplemented: false }],
+		[199, { baselineAdoptionStatus: 'conditional-not-adoptable', adoptable: false }],
+	]);
+	for (const [issueNumber, artifact] of observed) {
+		const result = classifyIssueArtifactAcceptance(issueNumber, artifact);
+		assert.equal(result.accepted, false, `#${issueNumber}`);
+		assert.equal(result.pendingApprovalContract, true, `#${issueNumber}`);
+		assert.match(result.reason, new RegExp(`issue-${issueNumber}.*pending`, 'i'));
+	}
+	const example = JSON.parse(readScenario('cross-issue-report.example.json'));
+	for (const issueNumber of observed.keys()) {
+		assert.match(example.issueReports[String(issueNumber)], /pending/i);
+		assert.doesNotMatch(example.issueReports[String(issueNumber)], /accepted/i);
+	}
+});
+
+test('the first preflight failure preserves a 0600 machine-readable non-adoptable report', async () => {
+	const { writeRejectedReport } = await import(moduleUrl('rejected-report.mjs'));
+	const root = fs.mkdtempSync(path.join('/tmp', 'faithlog-194-current-reject-'));
+	try {
+		const file = path.join(root, 'baseline-report.json');
+		const report = writeRejectedReport(file, {
+			phase: 'start-integrity', reasons: ['runtime-input-missing'], queryRunCount: 0,
+			composeIdentity: null, databaseIdentity: null, capturedSnapshot: null,
+		});
+		assert.equal(report.automaticAdoption, false);
+		assert.equal(report.queryRunCount, 0);
+		assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+	const runner = readScenario('run-baseline.mjs');
+	const allocation = runner.indexOf('allocateReportDirectory');
+	const runtimeValidation = runner.indexOf('validateRuntimeInputs()', allocation);
+	assert.ok(allocation >= 0 && runtimeValidation > allocation, 'report directory must exist before runtime validation');
+});
