@@ -448,7 +448,7 @@ test('pre-boundary maintenance state requires two consecutive stable snapshots a
 	assert.doesNotMatch(
 		runner,
 		/psql_exec -q -t -A < "\$SCENARIO_DIR\/collect-measurement-state\.sql" \\\n\s*> "\$REPORT_DIR\/evidence\/measurement-state-before\.json"/,
-		'a fresh measured login must not be followed by one directly adopted maintenance snapshot',
+		'the initial-login cleanup must not be followed by one directly adopted maintenance snapshot',
 	);
 
 	const {

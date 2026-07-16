@@ -456,9 +456,8 @@ psql_exec -q -t -A \
 	< "$SCENARIO_DIR/collect-postgres-evidence.sql" \
 	> "$REPORT_DIR/evidence/postgres-before.jsonl"
 
-# PostgreSQL cumulative stats can flush a fresh measured login after its HTTP
-# response. Adopt only the second of two exact maintenance snapshots captured
-# one second apart, before any measured counter/window boundary is opened.
+# After the exact initial-login ACK and users maintenance, adopt only the second
+# of two exact snapshots captured one second apart before any measured boundary.
 PRE_BOUNDARY_STABLE=false
 for ((attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt++)); do
 	PRE_BOUNDARY_FIRST_STATE="$REPORT_DIR/evidence/measurement-state-pre-boundary-attempt-${attempt}-first.json"

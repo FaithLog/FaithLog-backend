@@ -808,6 +808,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Do not run Docker build/up/API QA in the #189 feature worktree. Complete focused/full Gradle tests, build, asciidoctor, REST Docs, `git diff --check`, repository docs, Obsidian, and PM review in the feature branch. After #188/#189/#190 all receive PM approval, merge them only into `integration/188-190-devotion-meal-billing` created from latest `origin/develop`, then run the single isolated PostgreSQL/Redis/backend Docker health and connected HTTP QA there.
 - Impact: Docker QA absence is an explicit user-approved deferral, not a hidden omission or feature failure. No Docker command was started in the #189 session. PM approval remains required before push, PR, or merge.
 
+### 2026-07-16 - Issue #193 Initial Login Token Reuse Measurement Boundary
+
+- Context: Actual-before N completed fixture maintenance, preflight, and warmup, but the second ADMIN login immediately before measured load never appeared in `users.n_tup_upd` during the bounded five-second ACK poll. This left an unstable pre-window write and prevented the measured boundary from opening.
+- Decision: The runner reuses the initial ADMIN access token for preflight, warmup, and measured load. It requires initial token coverage for warmup maximum duration plus measured duration plus safety, and retains the final measured-duration-plus-safety TTL gate. It captures `users.n_tup_upd` before the only two initial ADMIN and DUTY logins, then after fixture/preflight/warmup requires exact `before+2` before users VACUUM(ANALYZE), stable-pair, and strict measured boundaries. No second ADMIN authentication or HTTP write is allowed immediately before measured load.
+- Decision: Once an execution report exists, the first non-zero exit is preserved in an exclusive-create machine-readable rejection containing only an approved stage, exit status, `measurementStatus=rejected`, `evidenceIntegrity=incomplete`, and `automaticAdoption=false`. Credentials, tokens, raw commands, and host paths are excluded. Existing source/API/Flyway/runtime, k6 math, PostgreSQL/pgss, resource, fixture, correctness, final continuity, and non-adoption gates remain strict.
+- Impact: N is partial rejected evidence with measured k6 0 and no performance metric. Fresh O is the only next proposal. This changes only Issue #193 test/measurement tooling; `src/main`, Flyway, dependencies, schema, index, Docker lifecycle, and production behavior are unchanged.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope

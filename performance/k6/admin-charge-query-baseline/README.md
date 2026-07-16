@@ -2,7 +2,7 @@
 
 Status: **scenario and runner/evidence contract-ready, fake/static verified, not measured**.
 
-이 디렉터리는 Issue #193의 current-develop 호환 correctness와 before 측정 계약을 준비한다. B/C/D actual attempt는 각각 preflight에서 거부됐고 k6 warmup/measured는 모두 0건이므로 유효 baseline은 아직 없다.
+이 디렉터리는 Issue #193의 current-develop 호환 correctness와 before 측정 계약을 준비한다. B부터 N까지의 actual attempt와 M conditional evidence는 아래 사유로 모두 baseline 채택이 거부됐으므로 유효 baseline은 아직 없다.
 
 최신 #206 서버 기준 runner는 Node fake contract, JS/MJS·shell 구문, SQL 정적 mutation 차단까지만 다시 검증한다. PM의 독립 리뷰 전에는 fresh fixture, preflight HTTP 또는 k6를 실행하지 않는다.
 
@@ -70,9 +70,9 @@ fixture는 승인된 service ADMIN과 일반 duty user를 포함해 기존 ACTIV
 
 ## Measurement approval gate
 
-M은 exact login update ACK부터 final continuity까지 모든 technical validator를 통과했지만 같은 host의 다른 개발 세션들이 병렬 static/Node 작업을 시작해 PM이 exclusive CPU provenance를 입증할 수 없었다. 따라서 `conditional-shared-stack`, `automaticAdoption=false` supporting evidence로만 보존하고 valid before baseline으로 채택하지 않는다. 이 목표의 k6/fixture/validator/test/docs 변경은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행하지만, `src/main` production backend 또는 Flyway 변경 직전에는 사용자 승인을 받아야 한다. 실제 수집은 개발 세션에서 실행하지 않으며 한 서버 한 load와 host-exclusive 조건을 모두 충족한 PM 실행에서만 진행한다.
+N은 fixture, 3-table VACUUM, preflight와 warmup까지 완료했지만 measured 직전 두 번째 ADMIN login의 users update 통계가 5초 안에 flush되지 않아 exact `+1` ACK를 얻지 못하고 measured 전에 거부됐다. 따라서 M은 계속 conditional supporting evidence, N은 partial rejected evidence이며 둘 다 valid before baseline이 아니다. 이 목표의 k6/fixture/validator/test/docs 변경은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행하지만, `src/main` production backend 또는 Flyway 변경 직전에는 사용자 승인을 받아야 한다. 실제 수집은 개발 세션에서 실행하지 않으며 한 서버 한 load와 host-exclusive 조건을 모두 충족한 PM 실행에서만 진행한다.
 
-`I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M`은 conditional supporting evidence로 보존하며 B/C/D/E/F/G/H/I/J/K/L/M namespace와 report를 절대 재사용하지 않는다. PM 실행 제안용 fresh N 식별자는 `I193_BEFORE_20260716_N / I193_FIXTURE_20260716_N / EXEC193_BEFORE_20260716_N`이고 report 경로는 `build/reports/k6/issue-193/I193_BEFORE_20260716_N/I193_FIXTURE_20260716_N/EXEC193_BEFORE_20260716_N`이다.
+`I193_BEFORE_20260716_N / I193_FIXTURE_20260716_N / EXEC193_BEFORE_20260716_N`을 포함해 B~N namespace와 report를 절대 재사용하지 않는다. PM 실행 제안용 fresh O 식별자는 `I193_BEFORE_20260716_O / I193_FIXTURE_20260716_O / EXEC193_BEFORE_20260716_O`이고 report 경로는 `build/reports/k6/issue-193/I193_BEFORE_20260716_O/I193_FIXTURE_20260716_O/EXEC193_BEFORE_20260716_O`이다.
 
 PM 승인 요청용 추천값은 다음과 같다.
 
@@ -94,17 +94,19 @@ fixture write 전에 workload parsing, app/PostgreSQL/Redis immutable identity, 
 
 측정 구간의 write는 새 fixture campus의 membership/duty/account/charge 생성과 report 파일 생성뿐이다. read는 login/`users/me` 및 correctness HTTP, Docker inspect/stats, PostgreSQL identity/activity/planner/table-maintenance/counter/선택적 `pg_stat_statements`, synthetic `EXPLAIN (ANALYZE, BUFFERS)`로 제한한다. EXPLAIN은 production plan 또는 독립 최적화 기여 증거가 아니며 #194 전달용 supporting evidence다.
 
-k6는 16 cases를 frontend 순서로 한 iteration 안에서 실행한다. warmup은 승인된 shared iterations, measured는 승인된 constant VUS로 분리하고 warmup 뒤 measured ADMIN JWT를 새로 발급한다. summary는 direct/`values` shape 모두에서 case별 동일 count, failure rate/passes/fails 수학, Trend count, avg/median/p50/p95/p99/max 순서, throughput을 fail-closed 검증한다. DB counters는 decimal string을 `BigInt`로 계산하고, planner/maintenance/activity와 선택적 pgss availability/reset/dealloc continuity, app/PostgreSQL/Redis CPU/RAM sample coverage를 별도 검증한다.
+k6는 16 cases를 frontend 순서로 한 iteration 안에서 실행한다. warmup은 승인된 shared iterations, measured는 승인된 constant VUS로 분리한다. 최초 ADMIN token은 로그인 시 warmup max+measured duration+safety를 요구하고 preflight 뒤 동일 합계 TTL, measured 직전 measured duration+safety TTL을 다시 fail-closed 확인해 preflight/warmup/measured에 재사용한다. summary는 direct/`values` shape 모두에서 case별 동일 count, failure rate/passes/fails 수학, Trend count, avg/median/p50/p95/p99/max 순서, throughput을 fail-closed 검증한다. DB counters는 decimal string을 `BigInt`로 계산하고, planner/maintenance/activity와 선택적 pgss availability/reset/dealloc continuity, app/PostgreSQL/Redis CPU/RAM sample coverage를 별도 검증한다.
 
 Docker Desktop의 `MemUsage`는 `499.7MiB`, `7.653GiB`처럼 표시 정밀도에서 반올림된 관측치다. Resource evidence는 이를 exact byte 한 점으로 만들지 않는다. `memoryUsed`와 `memoryLimit`은 원본 `displayed`와 가능한 inclusive integer-byte `minimumBytesInclusive`/`maximumBytesInclusive` decimal-string 범위를 저장하고, `memoryPercent`는 원본 `displayed`와 반올림 구간의 exact numerator/denominator를 저장한다. Validator는 이 스키마를 원본 표시값에서 재계산하고, safe magnitude·positive limit·used≤limit과 가능한 used/limit ratio 구간이 MemPerc rational 구간과 겹치는지를 `BigInt`로 fail-closed 검증한다. 기존 scalar `memoryUsedBytes`, `memoryLimitBytes`, `memoryPercent` 수치 계약은 false precision을 피하기 위해 사용하지 않는다.
 
 Resource cadence는 nominal requested interval과 approved maximum gap을 분리한다. `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`과 `DOCKER_STATS_MAX_GAP_SECONDS=5`를 runtime에 각각 명시하고 run conditions와 validation output에 둘 다 기록한다. Blocking `docker stats --no-stream` 뒤에는 고정 sleep을 추가하지 않고 즉시 다음 capture를 시작하며, validator는 timestamp monotonicity와 measured-window coverage를 유지한 채 인접 gap을 별도 5초 gate로 검증한다. maximum gap 누락·비정상 값·nominal interval 미만·실제 gap 초과는 fail-closed다.
 
-Fresh measured login은 `users.last_login_at`을 갱신하므로 PostgreSQL cumulative table stats flush가 HTTP 응답보다 늦을 수 있다. Runner는 login 직전 `users.n_tup_upd`를 canonical decimal string으로 캡처하고, login 뒤 immutable PostgreSQL ID의 read-only polling에서 정확히 `before + 1`을 관측한 경우에만 ACK한다. `+0`은 issue-local `1초 간격`, `최대 5회` 안에서만 pending이며 감소, `>+1`, timeout, malformed, PostgreSQL bigint 범위 초과는 fail-closed한다. ACK 뒤 transaction 밖에서 exact `VACUUM (ANALYZE) users;`를 실행하고 ACK/users-maintenance completion evidence를 남긴다. 그 뒤 같은 1초/5회 상수를 재사용해 pre-boundary stable pair를 수집하며 exact 일치한 두 번째 snapshot만 `measurement-state-before.json`으로 이동한다. 다른 table, `VACUUM FULL`, `FREEZE`는 허용하지 않고 measured 이후 기존 exact before/after continuity gate도 완화하지 않는다.
+Runner는 최초 ADMIN·DUTY login 전에 `users.n_tup_upd`를 canonical decimal string으로 캡처한다. 두 login, fixture, preflight, warmup 뒤 immutable PostgreSQL ID의 read-only polling에서 정확히 `before + 2`를 관측한 경우에만 ACK한다. `+0/+1`은 issue-local `1초 간격`, `최대 5회` 안에서만 pending이며 감소, `>+2`, timeout, malformed, PostgreSQL bigint 범위 초과는 fail-closed한다. ACK 뒤 transaction 밖에서 exact `VACUUM (ANALYZE) users;`를 실행하고 ACK/users-maintenance completion evidence를 남긴다. 그 뒤 같은 1초/5회 상수를 재사용해 pre-boundary stable pair를 수집하며 exact 일치한 두 번째 snapshot만 `measurement-state-before.json`으로 이동한다. Measured 직전 두 번째 login과 HTTP write는 없고, 다른 table, `VACUUM FULL`, `FREEZE`는 허용하지 않으며 measured 이후 기존 exact before/after continuity gate도 완화하지 않는다.
 
-Fixture bulk insert의 maintenance는 transaction 내부에서 실행하지 않는다. `prepare-fixture.sql` COMMIT 성공 직후 별도 issue-local stdin SQL로 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`를 한 번 실행하고 exact table completion marker를 남긴 뒤에만 dataset binding, expectations, preflight, warmup으로 진행한다. 이 fixture-maintenance SQL에는 `users`나 다른 table을 추가하지 않고 `VACUUM FULL`, `FREEZE`도 허용하지 않는다. Users는 별도 measured-login 경계에서 update-counter ACK→users VACUUM(ANALYZE)→stable-pair 순서로만 처리한다. 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없으며 measured before/after의 vacuum/analyze/auto-maintenance continuity 검증은 그대로 유지한다.
+Fixture bulk insert의 maintenance는 transaction 내부에서 실행하지 않는다. `prepare-fixture.sql` COMMIT 성공 직후 별도 issue-local stdin SQL로 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`를 한 번 실행하고 exact table completion marker를 남긴 뒤에만 dataset binding, expectations, preflight, warmup으로 진행한다. 이 fixture-maintenance SQL에는 `users`나 다른 table을 추가하지 않고 `VACUUM FULL`, `FREEZE`도 허용하지 않는다. Users는 초기 두 login의 exact `+2` ACK→users VACUUM(ANALYZE)→stable-pair 순서로만 처리한다. 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없으며 measured before/after의 vacuum/analyze/auto-maintenance continuity 검증은 그대로 유지한다.
 
 공유 stack의 quiet snapshot은 경계 관찰일 뿐이다. 모든 DB/resource validator 뒤에는 app/PostgreSQL/Redis runtime, database, numeric loopback binding을 final snapshot으로 다시 비교하고, 이 final continuity를 통과한 뒤에만 classification을 기록한다. post-lock 이후 psql과 Docker stats는 mutable name이 아니라 승인된 full container ID를 사용한다. `measurementStatus`는 최대 `conditional-shared-stack`, `evidenceIntegrity`는 별도 검증 상태이며 `automaticAdoption=false`다. PM이 exclusive-use 전체 window와 evidence를 검토하기 전 baseline으로 채택할 수 없다.
+
+Report directory가 생성된 뒤 어느 stage에서든 non-zero 종료하면 runner는 credential, token, raw command, host path를 포함하지 않는 `measurement-rejection.json`을 exclusive-create로 한 번만 남긴다. 이 rejection은 `measurementStatus=rejected`, `evidenceIntegrity=incomplete`, `automaticAdoption=false`, 고정 stage와 exit status만 기록하며 기존 최초 rejection을 덮어쓰지 않는다. 정상 classification을 끝낸 경우에만 completed로 전환한다.
 
 PM이 확인한 현재 shared PostgreSQL에서는 `pg_stat_statements`가 unavailable이다. runner는 extension/config를 변경하지 않고 unavailable reason과 availability continuity를 보존하며, PostgreSQL decimal-string counter는 독립 query-count가 아닌 supporting evidence로만 기록한다.
 
@@ -202,4 +204,12 @@ Runner는 login 직전 users `n_tup_upd`를 캡처하고 login 뒤 최대 5회 r
 
 Measured HTTP는 2,720건, failure 0이며 16 cases 각각 170건이었다. 관찰값은 whole avg `673.748ms`, p50 `583.891ms`, p95 `1378.754ms`, p99 `2085.566ms`, max `4763.404ms`, throughput `14.678 req/s`다. 그러나 같은 host에서 #192/#194~#199 개발 세션의 병렬 static/Node 작업이 시작돼 PM이 CPU exclusive-use provenance를 입증할 수 없으므로 이 수치를 valid before baseline이나 개선 성과로 채택하지 않는다.
 
-측정 계정 15032/15033은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. M namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. 다음 actual 후보는 위 fresh N namespace뿐이며 PM은 다른 세션을 일시 정지한 뒤 단독 실행한다.
+측정 계정 15032/15033은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. M namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. 후속 N은 별도 fresh namespace로 단독 실행됐고 아래 ACK timeout 사유로 rejected됐다.
+
+## Rejected actual-before attempt N (2026-07-16)
+
+`I193_BEFORE_20260716_N / I193_FIXTURE_20260716_N / EXEC193_BEFORE_20260716_N` 실행은 partial rejected evidence로만 보존한다. Fixture, exact 3-table VACUUM(ANALYZE), preflight와 warmup까지 완료했다. Measured login 직전 users `n_tup_upd`는 113이었고 login 뒤 1초 간격 attempts 1~5가 모두 113이라 exact `+1` ACK 없이 중단됐다.
+
+Measured k6는 0건이며 `measurement-state-before`, counter/resource, summary, classification도 생성되지 않았다. 따라서 N에는 latency, throughput, baseline 또는 개선 성과로 채택할 수치가 없다. 측정 계정 15034/15035는 모두 USER로 복구됐다. N namespace, DB rows, report를 보존하며 절대 재사용하지 않는다.
+
+원인은 app login backend의 cumulative stats가 단순 5초 대기로 flush된다는 보장이 없는데도 warmup 뒤 두 번째 ADMIN login을 measured 직전에 추가한 경계 설계다. Runner는 이 두 번째 login을 제거하고 최초 ADMIN token을 재사용한다. 최초 ADMIN·DUTY login 전 counter를 캡처하고 warmup 뒤 exact `+2` ACK→users VACUUM→stable-pair를 통과한 뒤에만 measured boundary를 연다. Fresh actual 후보는 O namespace뿐이며 개발 세션은 Docker/DB/k6를 실행하지 않는다.

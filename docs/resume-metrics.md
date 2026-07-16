@@ -1490,4 +1490,14 @@ Metric candidates:
 - 관찰값: measured HTTP 2,720건, failure 0, 16 cases 각각 170건. Whole avg `673.748ms`, p50 `583.891ms`, p95 `1378.754ms`, p99 `2085.566ms`, max `4763.404ms`, throughput `14.678 req/s`.
 - PM 거부 원인: 같은 host에서 #192/#194~#199 개발 세션들이 병렬 static/Node 작업을 시작해 host CPU exclusive-use provenance를 입증할 수 없었다. 위 수치는 conditional supporting evidence일 뿐 valid before baseline 또는 개선 성과로 채택하지 않는다.
 - 복구/보존: 측정 계정 15032/15033은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. M namespace/DB rows/report를 보존하며 재사용하지 않는다.
-- Fresh N 제안: `I193_BEFORE_20260716_N / I193_FIXTURE_20260716_N / EXEC193_BEFORE_20260716_N`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_N/I193_FIXTURE_20260716_N/EXEC193_BEFORE_20260716_N`. PM은 다른 개발 세션을 일시 정지한 뒤 host-exclusive actual을 단독 실행한다.
+- 후속 N은 위 M과 다른 fresh namespace로 host-exclusive actual을 단독 실행했고 아래 ACK timeout 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt N rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_N / I193_FIXTURE_20260716_N / EXEC193_BEFORE_20260716_N`.
+- 실행 범위: fixture, exact 3-table VACUUM(ANALYZE), preflight, warmup 완료. Measured login 직전 users `n_tup_upd=113`, login 뒤 attempts 1~5 모두 113으로 exact `+1` ACK가 없었다.
+- 중단 범위: measured k6 0건. `measurement-state-before`, counter/resource, measured summary, classification은 생성되지 않았다.
+- 해석 경계: app login backend의 cumulative stats가 단순 5초 sleep으로 flush된다는 보장이 없어서 measured 직전 두 번째 login이 불안정한 pre-window write가 됐다. Product 6,000 GET이 users를 쓴 문제로 해석하지 않는다. N latency/throughput/baseline/성과 수치는 없다.
+- 복구/보존: 측정 계정 15034/15035는 모두 USER로 복구됐다. N namespace/DB rows/report를 보존하며 재사용하지 않는다.
+- 재발 방지: 두 번째 ADMIN authenticate를 제거하고 최초 ADMIN token을 preflight/warmup/measured까지 재사용한다. 최초 ADMIN·DUTY login 전에 users counter를 캡처하고 두 login, fixture, preflight, warmup 뒤 exact `before+2`를 ACK한 경우에만 users VACUUM(ANALYZE), stable-pair, strict measured boundary를 진행한다. `+0/+1` pending, 감소/`>+2`/malformed/timeout은 fail-closed한다. Report 생성 뒤 실패는 최초 `measurement-rejection.json`을 `automaticAdoption=false`로 exclusive-create한다.
+- Fresh O 제안: `I193_BEFORE_20260716_O / I193_FIXTURE_20260716_O / EXEC193_BEFORE_20260716_O`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_O/I193_FIXTURE_20260716_O/EXEC193_BEFORE_20260716_O`. 개발 세션 actual 실행은 금지한다.
