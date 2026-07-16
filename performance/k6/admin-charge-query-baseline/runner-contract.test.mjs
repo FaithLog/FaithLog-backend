@@ -67,6 +67,27 @@ test('all target, workload, credential, and identity gates precede fresh fixture
 	assert.doesNotMatch(runner, /\b(?:docker compose (?:up|down|build|restart)|docker (?:restart|rm|system prune|volume prune)|flyway|CREATE EXTENSION|ALTER SYSTEM|pg_stat_reset)\b/i);
 });
 
+test('fixture commit is followed by the exact approved three-table analyze before any warmup read', async () => {
+	const runner = await read('run-baseline.sh');
+	const prepare = await read('prepare-fixture.sql');
+	const analyze = await read('analyze-fixture-tables.sql');
+	assert.equal(analyze.trim(), 'ANALYZE campus_members, payment_accounts, charge_items;');
+	assert.doesNotMatch(analyze, /\b(?:users|VACUUM|pg_stat_reset|CREATE EXTENSION|ALTER SYSTEM)\b/i);
+	assert.doesNotMatch(prepare, /\bANALYZE\b/i, 'ANALYZE must stay outside the fixture transaction');
+
+	const fixtureCommit = runner.indexOf('prepare-fixture.sql');
+	const fixtureAnalyze = runner.indexOf('analyze-fixture-tables.sql');
+	const datasetBinding = runner.indexOf('select-dataset-binding.sql');
+	const expectations = runner.indexOf('fixture-expectations.sql');
+	const preflight = runner.indexOf('preflight.mjs');
+	const warmup = runner.indexOf('PHASE=warmup');
+	assert.ok(fixtureCommit < fixtureAnalyze);
+	assert.ok(fixtureAnalyze < datasetBinding && fixtureAnalyze < expectations);
+	assert.ok(fixtureAnalyze < preflight && fixtureAnalyze < warmup);
+	assert.match(runner, /psql_exec -q -t -A < "\$SCENARIO_DIR\/analyze-fixture-tables\.sql" \\\n\s*> "\$REPORT_DIR\/evidence\/fixture-analyze\.txt"/);
+	assert.match(runner, /fixture-analyze-complete\.txt/);
+});
+
 test('runtime identity binds app, PostgreSQL, and Redis to one approved Compose project', async () => {
 	const {validateRuntimeBootstrap, validateRuntimeStability} = await module('runtime-identity.mjs');
 	const identity = {
