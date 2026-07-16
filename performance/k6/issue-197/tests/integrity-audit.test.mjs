@@ -77,6 +77,23 @@ test('pre/post-lock and final identity includes full app, DB, and Redis identity
 	assert.throws(() => validator.validateRuntimeIdentity({ ...identity, app: { ...identity.app, containerId: 'short-id' } }), /full Docker container ID/);
 });
 
+test('PostgreSQL inet host CIDR normalizes only to the same explicit numeric loopback', async () => {
+	const contractPath = path.join(ISSUE_DIR, 'lib/validate-runtime-identity.mjs');
+	const { validatePostgresServerAddress } = await import(`${pathToFileURL(contractPath).href}?inet=${Date.now()}`);
+	assert.equal(validatePostgresServerAddress('127.0.0.1/32', '127.0.0.1'), '127.0.0.1/32');
+	assert.equal(validatePostgresServerAddress('::1/128', '::1'), '::1/128');
+	assert.equal(validatePostgresServerAddress('0:0:0:0:0:0:0:1/128', '::1'), '0:0:0:0:0:0:0:1/128');
+	for (const [actual, approved] of [
+		['127.0.0.1/24', '127.0.0.1'],
+		['127.0.0.2/32', '127.0.0.1'],
+		['192.168.0.10/32', '127.0.0.1'],
+		['::1/64', '::1'],
+		['::2/128', '::1'],
+		['127.0.0.1/32', '127.0.0.1/32'],
+		['127.0.0.1/32', 'localhost'],
+	]) assert.throws(() => validatePostgresServerAddress(actual, approved), /loopback|CIDR|server address/i);
+});
+
 test('resource evidence requires the exact full-ID app, database, and Redis set across cadence window', async () => {
 	const { validateResourceWindow } = await import(`${pathToFileURL(path.join(ISSUE_DIR, 'lib/validate-resource-window.mjs')).href}?audit=${Date.now()}`);
 	const config = {
