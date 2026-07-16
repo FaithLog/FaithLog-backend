@@ -196,6 +196,36 @@ test('runtime inputs have no credential/count fallback and provisioning never pa
 	}), { PATH: '/runtime/bin' });
 });
 
+test('provisioner rejects a missing or relative report root before identity, lock, API, or report mutation', async (t) => {
+	const { provisionDataset } = await loadProvisioner();
+	await withHarness(async (harness) => {
+		for (const [label, reportRoot] of [
+			['missing', undefined],
+			['relative', path.relative(process.cwd(), path.join(path.dirname(harness.reportDirectory), 'relative-root'))],
+		]) {
+			await t.test(label, async () => {
+				const env = { ...harness.env };
+				if (reportRoot === undefined) delete env.PERF_REPORT_ROOT;
+				else env.PERF_REPORT_ROOT = reportRoot;
+				let captureCalls = 0;
+				const options = harness.options();
+				options.env = env;
+				options.captureRuntimeIdentity = () => {
+					captureCalls += 1;
+					throw new Error('identity capture must not run');
+				};
+				await assert.rejects(provisionDataset(options), /PERF_REPORT_ROOT|absolute/i);
+				assert.equal(captureCalls, 0);
+				assert.equal(harness.lock.acquireCalls, 0);
+				assert.equal(harness.api.calls.length, 0);
+				if (reportRoot !== undefined) {
+					assert.equal(fs.existsSync(path.resolve(reportRoot)), false);
+				}
+			});
+		}
+	});
+});
+
 async function loadProvisioner() {
 	assert.ok(fs.existsSync(provisionerPath), 'issue-local provision-dataset.mjs is required');
 	return import(`${pathToFileURL(provisionerPath).href}?test=${Date.now()}-${Math.random()}`);

@@ -238,6 +238,78 @@ printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_re
 	}
 }
 
+function runRunnerReportRootPreflight(mode) {
+	const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-runner-report-root-'));
+	try {
+		const bin = path.join(tempDirectory, 'bin');
+		const cwd = path.join(tempDirectory, 'cwd');
+		const runnerPath = path.join(tempDirectory, 'run-baseline.sh');
+		const tracePath = path.join(tempDirectory, 'trace');
+		fs.mkdirSync(bin);
+		fs.mkdirSync(cwd);
+		fs.copyFileSync(files.runner, runnerPath);
+		fs.chmodSync(runnerPath, 0o755);
+		fs.copyFileSync(files.contract, path.join(tempDirectory, 'scenario-contract.json'));
+		for (const command of ['node', 'docker']) {
+			const executable = path.join(bin, command);
+			fs.writeFileSync(executable, `#!/usr/bin/env bash
+printf '${command}\\n' >> ${JSON.stringify(tracePath)}
+exit 91
+`);
+			fs.chmodSync(executable, 0o755);
+		}
+		const environment = {
+			PATH: `${bin}:${process.env.PATH}`,
+			BASE_URL: 'http://127.0.0.1:28080',
+			PERF_DATASET_ID: 'PERF_REPORT_ROOT_CONTRACT',
+			PERF_FIXTURE_RUN_ID: 'ISSUE195_REPORT_ROOT_CONTRACT',
+			PERF_EXECUTION_RUN_ID: 'EXEC195_REPORT_ROOT_CONTRACT',
+			PERF_SOURCE_COMMIT: JSON.parse(read(files.contract)).sourceIdentity.originDevelopCommit,
+			PERF_ADMIN_EMAIL: 'runtime-admin@example.test',
+			PERF_ADMIN_PASSWORD: 'runtime-password',
+			CAMPUS_ID: '1',
+			ISOLATION_CAMPUS_ID: '2',
+			ISOLATION_USER_ID: '3',
+			APP_CONTAINER_ID: 'app',
+			EXPECTED_APP_COMPOSE_SERVICE: 'app',
+			EXPECTED_APP_IMAGE_ID: `sha256:${'1'.repeat(64)}`,
+			POSTGRES_CONTAINER_ID: 'postgres',
+			EXPECTED_POSTGRES_COMPOSE_SERVICE: 'postgres',
+			EXPECTED_POSTGRES_IMAGE_ID: `sha256:${'2'.repeat(64)}`,
+			REDIS_CONTAINER_ID: 'redis',
+			EXPECTED_REDIS_COMPOSE_SERVICE: 'redis',
+			EXPECTED_REDIS_IMAGE_ID: `sha256:${'3'.repeat(64)}`,
+			POSTGRES_USER: 'runtime-db-user',
+			POSTGRES_DB: 'runtime-db',
+			POSTGRES_PASSWORD: 'runtime-db-password',
+			WARMUP_VUS: '1',
+			WARMUP_DURATION: '30s',
+			MEASURED_VUS: '10',
+			MEASURED_DURATION: '2m',
+			MAX_FAILURE_RATE: '0',
+			TOKEN_SAFETY_MARGIN_SECONDS: '120',
+			EXPECTED_ACTIVE_MEMBERS: '1000',
+			EXPECTED_DUTY_ASSIGNMENTS: '101',
+			RESOURCE_BOUNDARY_MAX_GAP_SECONDS: '10',
+			K6_BIN: '/usr/bin/false',
+		};
+		const forbiddenReportRoot = mode === 'relative'
+			? path.join(cwd, 'relative-reports')
+			: path.join(tempDirectory, 'reports');
+		if (mode === 'relative') environment.PERF_REPORT_ROOT = 'relative-reports';
+		const result = spawnSync('bash', [runnerPath], { cwd, encoding: 'utf8', env: environment });
+		return {
+			...result,
+			trace: fs.existsSync(tracePath)
+				? fs.readFileSync(tracePath, 'utf8').trim().split('\n').filter(Boolean)
+				: [],
+			reportMutated: fs.existsSync(forbiddenReportRoot),
+		};
+	} finally {
+		fs.rmSync(tempDirectory, { recursive: true, force: true });
+	}
+}
+
 function runQueryDelta(beforeRows, afterRows) {
 	const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-query-delta-'));
 	const beforePath = path.join(tempDirectory, 'before.ndjson');
@@ -1631,6 +1703,16 @@ test('measurement requires a unique executionRunId and atomically refuses an exi
 	assert.notEqual(result.repeated.status, 0);
 	assert.match(result.repeated.stderr, /fresh PERF_EXECUTION_RUN_ID/);
 	assert.equal(result.trace.filter((line) => line.startsWith('login|')).length, 11);
+});
+
+test('measurement runner requires an absolute report root before Docker, lock, or report mutation', () => {
+	for (const mode of ['missing', 'relative']) {
+		const result = runRunnerReportRootPreflight(mode);
+		assert.notEqual(result.status, 0, mode);
+		assert.match(result.stderr, /PERF_REPORT_ROOT|absolute/i);
+		assert.equal(result.trace.length, 0, `${mode} must not start node or Docker`);
+		assert.equal(result.reportMutated, false, `${mode} must not mutate reports`);
+	}
 });
 
 test('table counter validator enforces required expectations and exact before/after invariance', () => {
