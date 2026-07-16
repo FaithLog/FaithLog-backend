@@ -59,6 +59,17 @@ try {
 		assert.ok(typeof manifest.runtimeTarget?.[component]?.imageRef === 'string' && manifest.runtimeTarget[component].imageRef.length > 0,
 			`runtimeTarget.${component}.imageRef is required.`);
 	}
+	const sourceProvenance = manifest.runtimeTarget?.app?.sourceProvenance;
+	assert.ok(sourceProvenance && typeof sourceProvenance === 'object' && !Array.isArray(sourceProvenance),
+		'runtimeTarget.app.sourceProvenance is required.');
+	assert.deepEqual(Object.keys(sourceProvenance).sort(), ['apiContractSha256', 'revision', 'sourceWorktree'],
+		'runtimeTarget.app.sourceProvenance must have exact fields.');
+	assert.ok(path.isAbsolute(sourceProvenance.sourceWorktree),
+		'runtimeTarget.app.sourceProvenance.sourceWorktree must be an approved absolute path.');
+	assert.equal(sourceProvenance.revision, CURRENT_DEVELOP_BASE,
+		'runtimeTarget.app.sourceProvenance.revision must match current develop.');
+	assert.match(sourceProvenance.apiContractSha256 || '', /^[a-f0-9]{64}$/,
+		'runtimeTarget.app.sourceProvenance.apiContractSha256 must be an approved SHA-256 digest.');
 	assert.ok(
 		Number.isInteger(manifest.runtimeTarget?.app?.containerPort)
 			&& manifest.runtimeTarget.app.containerPort > 0

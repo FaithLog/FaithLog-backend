@@ -15,6 +15,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - current `origin/develop`의 dashboard API/source와 Flyway V1~V11 SHA-256을 고정하고, #200 duty-only ownership 비권한, #201 pagination/archive 비적용, #202 direct owner JDBC RLS 무영향, #206 category/poll stable ordering을 scenario-only 계약으로 검증한다.
 - runtime target·service·full image·credential·workload에는 fallback이 없고, immutable fixture namespace validity가 승인 warmup+measured window를 덮지 못하면 Docker inspect 전에 실패한다.
 - pre/post-lock과 mode final까지 app/PostgreSQL/Redis container/server identity, PostgreSQL Flyway/RLS/pgss, Redis run_id를 strict 비교하며 k6/DB/resource rejection은 machine-readable로 보존하고 `automaticAdoption=false`를 기록한다.
+- OCI revision label이 없는 current runtime은 승인 manifest의 clean detached source, newest HEAD reflog checkout 시각, 이후 image creation, exact app image ID와 #199 admin+Flyway tree digest로 pre/post-lock·measured 전후·final에 결속한다. image-alone revision proof 부재는 limitation으로 유지한다.
 - 성능 이슈의 issue-local test code는 병렬 보정할 수 있지만 실제 shared-stack load는 PM measurement slot에서만 순차 수행한다.
 
 ## 2026-07-16 - Issue #206 청구 페이징 동률 정렬 안정화

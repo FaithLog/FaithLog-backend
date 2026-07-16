@@ -34,6 +34,8 @@ REDIS_SERVICE=""
 COMPOSE_PROJECT=""
 ENDPOINT_IDENTITY=""
 INITIAL_RUNTIME_IDENTITY_JSON=""
+INITIAL_SOURCE_IMAGE_PROVENANCE_JSON=""
+PROVENANCE_TMP_DIR=""
 PRE_POST_LOCK_GATE_JSON=""
 HAS_CONDITIONAL_DB_WINDOW=0
 HAS_CONDITIONAL_RESOURCE=0
@@ -57,8 +59,13 @@ cleanup() {
 	RUNTIME_ACCESS_TOKEN=""
 	unset RUNTIME_ACCESS_TOKEN PERF_ACCESS_TOKEN PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD
 	if [[ -n "$LOCK_DIR" ]]; then
-		rm -f "$LOCK_DIR/pre-lock-target.json" "$LOCK_DIR/post-lock-target.json" "$LOCK_DIR/pre-post-lock-gate.json"
+		rm -f "$LOCK_DIR/pre-lock-target.json" "$LOCK_DIR/post-lock-target.json" "$LOCK_DIR/pre-post-lock-gate.json" \
+			"$LOCK_DIR/post-lock-source-image-provenance.json"
 		rmdir "$LOCK_DIR"
+	fi
+	if [[ -n "$PROVENANCE_TMP_DIR" ]]; then
+		rm -f "$PROVENANCE_TMP_DIR/pre-lock-source-image-provenance.json"
+		rmdir "$PROVENANCE_TMP_DIR"
 	fi
 }
 
@@ -111,6 +118,28 @@ capture_container_identity_json() {
 	'
 }
 
+capture_source_image_provenance() {
+	local output_file="$1"
+	local compose_working_dir image_created_at
+	compose_working_dir="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$APP_CONTAINER")"
+	image_created_at="$(docker image inspect --format '{{.Created}}' "$EXPECTED_APP_IMAGE_ID")"
+	node "$ISSUE_ROOT/validate-source-image-provenance.mjs" capture \
+		"$INPUT_MANIFEST" "$compose_working_dir" "$EXPECTED_APP_IMAGE_ID" "$image_created_at" "$output_file"
+}
+
+capture_and_validate_source_image_provenance() {
+	local output_file="$1"
+	capture_source_image_provenance "$output_file"
+	CURRENT_SOURCE_IMAGE_PROVENANCE_JSON="$(<"$output_file")" \
+	INITIAL_SOURCE_IMAGE_PROVENANCE_JSON="$INITIAL_SOURCE_IMAGE_PROVENANCE_JSON" \
+	node -e '
+		const assert = require("node:assert/strict");
+		assert.deepEqual(JSON.parse(process.env.CURRENT_SOURCE_IMAGE_PROVENANCE_JSON),
+			JSON.parse(process.env.INITIAL_SOURCE_IMAGE_PROVENANCE_JSON),
+			"source/image provenance changed after initial validation");
+	'
+}
+
 PRE_LOCK_CONTAINER_IDENTITY_JSON="$(capture_container_identity_json)"
 
 APP_PROJECT="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$APP_CONTAINER")"
@@ -144,11 +173,6 @@ if [[ "$APP_SERVICE" != "$EXPECTED_APP_SERVICE" \
 	exit 1
 fi
 
-APP_CONNECTION_IDENTITY="$(node "$ISSUE_ROOT/validate-app-runtime-connections.mjs" "$APP_RUNTIME_ENV" \
-	"$EXPECTED_POSTGRES_SERVICE" "$EXPECTED_POSTGRES_CONTAINER_PORT" "$PERF_DB_NAME" "$PERF_DB_USER" \
-	"$EXPECTED_REDIS_SERVICE" "$EXPECTED_REDIS_CONTAINER_PORT")"
-APP_RUNTIME_ENV=""
-
 PRE_LOCK_CONTAINER_IDENTITY_JSON="$PRE_LOCK_CONTAINER_IDENTITY_JSON" \
 EXPECTED_APP_IMAGE_ID="$EXPECTED_APP_IMAGE_ID" EXPECTED_APP_IMAGE_REF="$EXPECTED_APP_IMAGE_REF" \
 EXPECTED_POSTGRES_IMAGE_ID="$EXPECTED_POSTGRES_IMAGE_ID" EXPECTED_POSTGRES_IMAGE_REF="$EXPECTED_POSTGRES_IMAGE_REF" \
@@ -163,6 +187,15 @@ node -e '
 		}
 	}
 '
+
+PROVENANCE_TMP_DIR="$(mktemp -d /tmp/faithlog-199-source-provenance.XXXXXX)"
+capture_source_image_provenance "$PROVENANCE_TMP_DIR/pre-lock-source-image-provenance.json"
+INITIAL_SOURCE_IMAGE_PROVENANCE_JSON="$(<"$PROVENANCE_TMP_DIR/pre-lock-source-image-provenance.json")"
+
+APP_CONNECTION_IDENTITY="$(node "$ISSUE_ROOT/validate-app-runtime-connections.mjs" "$APP_RUNTIME_ENV" \
+	"$EXPECTED_POSTGRES_SERVICE" "$EXPECTED_POSTGRES_CONTAINER_PORT" "$PERF_DB_NAME" "$PERF_DB_USER" \
+	"$EXPECTED_REDIS_SERVICE" "$EXPECTED_REDIS_CONTAINER_PORT")"
+APP_RUNTIME_ENV=""
 
 ENDPOINT_IDENTITY="$(
 	node "$ISSUE_ROOT/validate-runtime-target.mjs" \
@@ -226,6 +259,7 @@ record_environment() {
 	ENDPOINT_IDENTITY="$ENDPOINT_IDENTITY" \
 	APP_CONNECTION_IDENTITY="$APP_CONNECTION_IDENTITY" \
 	PRE_POST_LOCK_GATE_JSON="$PRE_POST_LOCK_GATE_JSON" \
+	SOURCE_IMAGE_PROVENANCE_JSON="$INITIAL_SOURCE_IMAGE_PROVENANCE_JSON" \
 	RUNNER_LOCK="$LOCK_DIR" \
 	EXTERNAL_ACTIVITY="$EXTERNAL_ACTIVITY" \
 	node -e '
@@ -243,6 +277,7 @@ record_environment() {
 			endpointIdentity: JSON.parse(process.env.ENDPOINT_IDENTITY),
 			appRuntimeConnections: JSON.parse(process.env.APP_CONNECTION_IDENTITY),
 			prePostLockTargetGate: JSON.parse(process.env.PRE_POST_LOCK_GATE_JSON),
+			sourceImageProvenance: JSON.parse(process.env.SOURCE_IMAGE_PROVENANCE_JSON),
 			runnerLock: process.env.RUNNER_LOCK,
 			externalActivity: process.env.EXTERNAL_ACTIVITY,
 			externalActivityCoverage: "boundary-snapshot-only",
@@ -517,6 +552,7 @@ run_k6_phase() {
 INITIAL_RUNTIME_IDENTITY_JSON="$(capture_runtime_identity_json)"
 ENDPOINT_IDENTITY="$(validate_runtime_identity_target_json "$INITIAL_RUNTIME_IDENTITY_JSON")"
 printf '%s\n' "$INITIAL_RUNTIME_IDENTITY_JSON" > "$LOCK_DIR/post-lock-target.json"
+capture_and_validate_source_image_provenance "$LOCK_DIR/post-lock-source-image-provenance.json"
 node "$ISSUE_ROOT/validate-pre-post-lock-target.mjs" \
 	"$LOCK_DIR/pre-lock-target.json" "$LOCK_DIR/post-lock-target.json" "$LOCK_DIR/pre-post-lock-gate.json"
 PRE_POST_LOCK_GATE_JSON="$(<"$LOCK_DIR/pre-post-lock-gate.json")"
@@ -545,6 +581,7 @@ for raw_mode in "${modes[@]}"; do
 		exit 1
 	fi
 	mkdir "$mode_report_dir/warmup" "$mode_report_dir/measured"
+	printf '%s\n' "$INITIAL_SOURCE_IMAGE_PROVENANCE_JSON" > "$mode_report_dir/source-image-provenance-initial.json"
 
 	record_environment "$mode_report_dir" "$dataset_id" "$fixture_run_id" "$mode"
 	prepare_runtime_token "$mode" warmup
@@ -570,6 +607,7 @@ for raw_mode in "${modes[@]}"; do
 		node "$ISSUE_ROOT/validate-token-lifetime.mjs" \
 		"$MEASURED_DURATION" "$TOKEN_EXPIRY_SAFETY_SECONDS" "$(date +%s)" measured >/dev/null
 	printf '%s\n' "$INITIAL_RUNTIME_IDENTITY_JSON" > "$mode_report_dir/runtime-identity-initial.json"
+	capture_and_validate_source_image_provenance "$mode_report_dir/measured/source-image-provenance-before.json"
 	capture_runtime_identity_json > "$mode_report_dir/measured/runtime-identity-before.json"
 	validate_runtime_continuity \
 		"$mode_report_dir/runtime-identity-initial.json" \
@@ -589,6 +627,7 @@ for raw_mode in "${modes[@]}"; do
 		> "$mode_report_dir/measured/adoption-gate.json"
 	collect_db_counters "$campus_id" "$week_start_date" "$mode_report_dir/measured/db-counters-after.json"
 	collect_docker_resources "$mode" after "$mode_report_dir/measured/docker-stats-after.jsonl"
+	capture_and_validate_source_image_provenance "$mode_report_dir/measured/source-image-provenance-after.json"
 	capture_runtime_identity_json > "$mode_report_dir/measured/runtime-identity-after.json"
 	validate_docker_resources_or_defer_adoption \
 		"$mode_report_dir/measured/docker-stats-after.jsonl" \
@@ -598,6 +637,7 @@ for raw_mode in "${modes[@]}"; do
 	collect_db_correctness "$campus_id" "$week_start_date" after "$mode_report_dir/db-correctness-after.json"
 	validate_db_correctness "$mode" after "$mode_report_dir/db-correctness-after.json"
 	verify_api_correctness "$mode" after "$mode_report_dir/api-correctness-after.json"
+	capture_and_validate_source_image_provenance "$mode_report_dir/source-image-provenance-final.json"
 	capture_runtime_identity_json > "$mode_report_dir/runtime-identity-final.json"
 	clear_runtime_token
 	validate_runtime_continuity \

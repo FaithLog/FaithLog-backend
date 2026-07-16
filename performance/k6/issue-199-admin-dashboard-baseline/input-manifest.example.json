@@ -11,7 +11,17 @@
     "immutable": true
   },
   "runtimeTarget": {
-    "app": {"service": "app", "containerPort": 8080, "imageId": "RUNTIME_REQUIRED", "imageRef": "RUNTIME_REQUIRED"},
+    "app": {
+      "service": "app",
+      "containerPort": 8080,
+      "imageId": "RUNTIME_REQUIRED",
+      "imageRef": "RUNTIME_REQUIRED",
+      "sourceProvenance": {
+        "sourceWorktree": "RUNTIME_REQUIRED_ABSOLUTE_PATH",
+        "revision": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
+        "apiContractSha256": "RUNTIME_REQUIRED_SHA256"
+      }
+    },
     "postgres": {"service": "postgres", "containerPort": 5432, "imageId": "RUNTIME_REQUIRED", "imageRef": "RUNTIME_REQUIRED"},
     "redis": {"service": "redis", "containerPort": 6379, "imageId": "RUNTIME_REQUIRED", "imageRef": "RUNTIME_REQUIRED"}
   },

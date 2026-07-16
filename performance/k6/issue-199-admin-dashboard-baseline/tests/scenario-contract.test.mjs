@@ -1033,7 +1033,9 @@ test('run input rejects examples, expired or reused fixture namespaces, and miss
 				immutable: true,
 			},
 			runtimeTarget: {
-				app: {service: 'app', containerPort: 8080, imageId: `sha256:${'d'.repeat(64)}`, imageRef: 'faithlog/app:approved'},
+				app: {service: 'app', containerPort: 8080, imageId: `sha256:${'d'.repeat(64)}`, imageRef: 'faithlog/app:approved',
+					sourceProvenance: {sourceWorktree: '/private/tmp/FaithLog-perf-206-deploy',
+						revision: '6796ed146244d8f3f5b5dd7048ebe16865084a97', apiContractSha256: '2'.repeat(64)}},
 				postgres: {service: 'postgres', containerPort: 5432, imageId: `sha256:${'e'.repeat(64)}`, imageRef: 'postgres:17'},
 				redis: {service: 'redis', containerPort: 6379, imageId: `sha256:${'f'.repeat(64)}`, imageRef: 'redis:7-alpine'},
 			},
@@ -1066,6 +1068,11 @@ test('run input rejects examples, expired or reused fixture namespaces, and miss
 		const missingImage = structuredClone(manifest);
 		delete missingImage.runtimeTarget.redis.imageId;
 		fs.writeFileSync(manifestPath, JSON.stringify(missingImage));
+		assert.notEqual(runNode(files.runInputValidator, manifestPath, 'empty', '1783990800', '1', '1s', '1', '1s', '60').status, 0);
+
+		const missingProvenance = structuredClone(manifest);
+		delete missingProvenance.runtimeTarget.app.sourceProvenance;
+		fs.writeFileSync(manifestPath, JSON.stringify(missingProvenance));
 		assert.notEqual(runNode(files.runInputValidator, manifestPath, 'empty', '1783990800', '1', '1s', '1', '1s', '60').status, 0);
 
 		fs.writeFileSync(manifestPath, JSON.stringify(manifest));
@@ -1624,7 +1631,9 @@ function createFakeRunnerHarness() {
 		datasetId: 'CONTRACT_DATASET',
 		fixtureNamespace: {namespaceId: fixtureNamespace, preparedAt: '2020-01-01T00:00:00.000Z', expiresAt: '2030-01-01T00:00:00.000Z', immutable: true},
 		runtimeTarget: {
-			app: {service: 'app', containerPort: 8080, imageId: `sha256:${'d'.repeat(64)}`, imageRef: 'faithlog/app:contract'},
+			app: {service: 'app', containerPort: 8080, imageId: `sha256:${'d'.repeat(64)}`, imageRef: 'faithlog/app:contract',
+				sourceProvenance: {sourceWorktree: '/private/tmp/FaithLog-perf-206-deploy',
+					revision: '6796ed146244d8f3f5b5dd7048ebe16865084a97', apiContractSha256: '2'.repeat(64)}},
 			postgres: {service: 'postgres', containerPort: 5432, imageId: `sha256:${'e'.repeat(64)}`, imageRef: 'faithlog/postgres:contract'},
 			redis: {service: 'redis', containerPort: 6379, imageId: `sha256:${'f'.repeat(64)}`, imageRef: 'faithlog/redis:contract'},
 		},
@@ -1652,12 +1661,22 @@ case "$1" in
     exit 0
     ;;
   *verify-summary.mjs) printf '{"status":"api-correctness-verified"}\\n'; exit 0 ;;
+  *validate-source-image-provenance.mjs)
+    printf '%s\\n' '{"schemaVersion":1,"proofMode":"clean-detached-checkout-image-created-after-checkout","sourceWorktree":"/private/tmp/FaithLog-perf-206-deploy","composeWorkingDir":"/private/tmp/FaithLog-perf-206-deploy","revision":"6796ed146244d8f3f5b5dd7048ebe16865084a97","detached":true,"clean":true,"checkoutAt":"2026-07-16T13:20:28+09:00","imageId":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","imageCreatedAt":"2026-07-16T04:22:48.810414883Z","apiContractSha256":"2222222222222222222222222222222222222222222222222222222222222222","limitation":"image-alone-revision-label-unavailable"}' > "$7"
+    exit 0
+    ;;
 esac
 exec ${shellQuote(process.execPath)} "$@"
 `);
 	const fakeDocker = path.join(fakeBin, 'docker');
 	fs.writeFileSync(fakeDocker, `#!/usr/bin/env bash
 case "$1" in
+	  image)
+	    if [[ "$2" == inspect && "$*" == *'.Created'* ]]; then
+	      printf '%s\\n' '2026-07-16T04:22:48.810414883Z'
+	      exit 0
+	    fi
+	    ;;
 	  inspect)
 	    printf 'docker:inspect:%s\\n' "\${!#}" >> "$FAKE_LOG"
 	    container="\${!#}"
@@ -1693,7 +1712,9 @@ case "$1" in
 	      printf '%s\n' '["SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/runtime-only-db-name","SPRING_DATASOURCE_USERNAME=runtime-only-db-user","SPRING_DATASOURCE_PASSWORD=runtime-only-db-secret","SPRING_DATA_REDIS_HOST=redis","SPRING_DATA_REDIS_PORT=6379"]'
 	    elif [[ "$*" == *NetworkSettings.Ports* ]]; then
       printf '%s\\n' "$FAKE_APP_PORTS_JSON"
-    elif [[ "$*" == *com.docker.compose.project* ]]; then
+	    elif [[ "$*" == *com.docker.compose.project.working_dir* ]]; then
+	      printf '%s\\n' '/private/tmp/FaithLog-perf-206-deploy'
+	    elif [[ "$*" == *com.docker.compose.project* ]]; then
       if [[ "\${FAKE_LABEL_MODE:-}" == mismatch && "$container" == *redis* ]]; then
         printf '%s-other\\n' "$FAKE_COMPOSE_PROJECT"
       else
