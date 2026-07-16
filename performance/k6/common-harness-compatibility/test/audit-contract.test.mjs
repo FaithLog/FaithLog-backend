@@ -42,6 +42,10 @@ test('matrix contract covers issues 192 through 199 and all ten compatibility ch
 			if (cell.mode === 'probe') {
 				assert.ok(cell.probes.length > 0);
 				assert.equal(typeof cell.recommendation, 'string');
+				for (const probe of cell.probes) {
+					assert.notEqual(probe.require, '.', `${target.issueNumber}/${cell.checkId} cannot pass on README existence`);
+					assert.ok(probe.command || probe.require || probe.forbid);
+				}
 			} else {
 				assert.equal(typeof cell.reason, 'string');
 				assert.match(cell.evidence.file, /^performance\/k6\//);
@@ -65,18 +69,18 @@ test('EXPLAIN-only #194 and local Gradle #198 do not inherit irrelevant k6 HTTP 
 test('Counter, Rate, and Trend direct and values shapes normalize without losing exact math', () => {
 	assert.deepEqual(normalizeMetric({ count: 4, rate: 4 }, 'counter'), { count: 4 });
 	assert.deepEqual(normalizeMetric({ values: { count: 4, rate: 4 } }, 'counter'), { count: 4 });
-	assert.deepEqual(normalizeMetric({ value: 0, passes: 0, fails: 4, count: 4 }, 'rate'), {
-		value: 0, passes: 0, fails: 4, count: 4,
+	assert.deepEqual(normalizeMetric({ value: 0, passes: 0, fails: 4 }, 'rate', 4), {
+		value: 0, passes: 0, fails: 4, expectedTotal: 4,
 	});
-	assert.deepEqual(normalizeMetric({ values: { rate: 0, passes: 0, fails: 4, count: 4 } }, 'rate'), {
-		value: 0, passes: 0, fails: 4, count: 4,
+	assert.deepEqual(normalizeMetric({ values: { rate: 0, passes: 0, fails: 4 } }, 'rate', 4), {
+		value: 0, passes: 0, fails: 4, expectedTotal: 4,
 	});
 	assert.deepEqual(
 		normalizeMetric({ values: { count: 4, avg: 5, med: 5, 'p(50)': 5, 'p(95)': 8, 'p(99)': 9, max: 10 } }, 'trend'),
 		{ count: 4, avg: 5, med: 5, p50: 5, p95: 8, p99: 9, max: 10 },
 	);
 	assert.throws(
-		() => normalizeMetric({ values: { rate: 0, passes: 1, fails: 0, count: 2 } }, 'rate'),
+		() => normalizeMetric({ values: { rate: 0, passes: 1, fails: 0 } }, 'rate', 2),
 		/passes.*fails.*count|exact/i,
 	);
 });
@@ -94,13 +98,25 @@ test('Docker byte parser covers decimal and binary units deterministically', () 
 		'1TB': 1000000000000n,
 		'1TiB': 1099511627776n,
 		'1.5MiB': 1572864n,
+		'586.832MiB': 615337951n,
 	};
 	for (const [input, expected] of Object.entries(cases)) {
 		assert.equal(parseDockerByteSize(input), expected, input);
 	}
-	for (const invalid of ['1', '-1MiB', 'NaNMiB', '1PiB', '1.0001B']) {
+	for (const invalid of ['1', '-1MiB', 'NaNMiB', '1PiB', '9007199254740992B']) {
 		assert.throws(() => parseDockerByteSize(invalid), /Docker byte size|unit|exact/i, invalid);
 	}
+});
+
+test('N/A evidence is a contained regular file with an existing nonblank scope marker line', () => {
+	const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-208-na-'));
+	try {
+		fs.writeFileSync(path.join(temporary, 'scope.md'), 'EXPLAIN-only diagnostic\n');
+		const valid = auditTarget({ issueNumber: 194, worktree: temporary, cells: [{ checkId: 'k6', mode: 'not-applicable', reason: 'not used', evidence: { file: 'scope.md', line: 1, scopeMarker: 'EXPLAIN-only' } }] });
+		assert.equal(valid.cells[0].status, 'N/A');
+		assert.throws(() => auditTarget({ issueNumber: 194, worktree: temporary, cells: [{ checkId: 'k6', mode: 'not-applicable', reason: 'not used', evidence: { file: 'scope.md', line: 2, scopeMarker: 'EXPLAIN-only' } }] }), /evidence|line/i);
+		assert.throws(() => auditTarget({ issueNumber: 194, worktree: temporary, cells: [{ checkId: 'k6', mode: 'not-applicable', reason: 'not used', evidence: { file: '../outside', line: 1, scopeMarker: 'x' } }] }), /traversal|evidence/i);
+	} finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 });
 
 test('generic probes return machine-readable PASS, FAIL with line/counterexample, and N/A', () => {
