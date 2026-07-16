@@ -34,8 +34,11 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.Instant;
 import java.time.LocalDate;
+import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -70,6 +73,12 @@ class BillingQueryServiceTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Autowired
+	private EntityManager entityManager;
+
+	@Autowired
+	private EntityManagerFactory entityManagerFactory;
 
 	@Test
 	void listMyCharges_returns_summary_items_account_and_source_with_filters_and_paging() {
@@ -253,6 +262,41 @@ class BillingQueryServiceTest {
 		assertThat(secondPage.totalElements()).isEqualTo(2);
 		assertThat(secondPage.totalPages()).isEqualTo(2);
 		assertThat(secondPage.members()).hasSize(1);
+	}
+
+	@Test
+	void listAdminCampusCharges_does_not_materialize_member_users_or_charge_entities() {
+		User manager = saveUser("query-admin-load-manager@example.com", UserRole.MANAGER, "관리자");
+		User firstMember = saveUser("query-admin-load-first@example.com", UserRole.USER, "첫째");
+		User secondMember = saveUser("query-admin-load-second@example.com", UserRole.USER, "둘째");
+		CampusCreateResult campus = createCampus(manager, "193엔티티로드캠");
+		campusService.joinCampus(new JoinCampusCommand(firstMember.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(secondMember.id(), campus.inviteCode()));
+		PaymentAccountResult account = createAccount(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "193-ENTITY-LOAD"
+		);
+		saveCharge(campus.campusId(), firstMember.id(), account, PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 19301L, "첫째 벌금", 1000, ChargeStatus.UNPAID, null);
+		saveCharge(campus.campusId(), secondMember.id(), account, PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 19302L, "둘째 벌금", 2000, ChargeStatus.PAID, null);
+
+		entityManager.flush();
+		entityManager.clear();
+		var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+		statistics.setStatisticsEnabled(true);
+		statistics.clear();
+
+		AdminCampusChargesResult result = billingQueryService.listAdminCampusCharges(
+			new AdminCampusChargeListQuery(
+				campus.campusId(), manager.id(), null, null, null, null,
+				PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))
+			)
+		);
+
+		assertThat(result.summary().totalAmount()).isEqualTo(3000);
+		assertThat(result.members()).hasSize(2);
+		assertThat(statistics.getEntityStatistics(ChargeItem.class.getName()).getLoadCount()).isZero();
+		assertThat(statistics.getEntityStatistics(User.class.getName()).getLoadCount()).isEqualTo(1L);
 	}
 
 	@Test
