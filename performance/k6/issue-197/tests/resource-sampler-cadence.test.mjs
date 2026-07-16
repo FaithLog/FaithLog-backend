@@ -120,12 +120,52 @@ test('three-role snapshot and stream keep exact identity, shared timestamps, mar
 	}
 });
 
+test('F-shaped Docker stats stream accepts only exact CSI screen framing around an ID-based snapshot', () => {
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-197-resource-ansi-'));
+	const snapshotTime = '2026-07-17T19:00:00.000Z';
+	const ansiRows = [
+		`\u001b[H${APP_ID}|1.50%|1MiB / 1GiB\u001b[K`,
+		`${DATABASE_ID}|2.50%|2MiB / 1GiB\u001b[K`,
+		`${REDIS_ID}|0.50%|512KiB / 1GiB\u001b[K`,
+	];
+	try {
+		const validPath = path.join(directory, 'valid.jsonl');
+		const valid = appendSnapshot(validPath, ansiRows, snapshotTime);
+		assert.equal(valid.status, 0, valid.stderr);
+		assert.deepEqual(readJsonLines(validPath).map(({ containerId }) => containerId), [APP_ID, DATABASE_ID, REDIS_ID]);
+
+		for (const [name, rows] of [
+			['unknown-csi', [`\u001b[2J${ansiRows[0].slice(3)}`, ...ansiRows.slice(1)]],
+			['mid-field-control', [ansiRows[0].replace('1.50%', `1.50%\u001b[H`), ...ansiRows.slice(1)]],
+			['missing-clear', [ansiRows[0], ansiRows[1], ansiRows[2].slice(0, -3)]],
+			['clear-without-home', [ansiRows[0].slice(3), ...ansiRows.slice(1)]],
+			['text-before-home', [`noise${ansiRows[0]}`, ...ansiRows.slice(1)]],
+		]) {
+			const rejected = appendSnapshot(path.join(directory, `${name}.jsonl`), rows, snapshotTime);
+			assert.notEqual(rejected.status, 0, `${name} must be rejected`);
+			assert.match(rejected.stderr, /ANSI|control|framing/i);
+		}
+
+		const runner = fs.readFileSync(RUNNER, 'utf8');
+		assert.match(runner, /\{\{\.ID\}\}\|\{\{\.CPUPerc\}\}\|\{\{\.MemUsage\}\}/);
+		assert.doesNotMatch(runner, /\{\{\.Container\}\}/);
+	} finally {
+		fs.rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 function sample(observedAt, role, containerId) {
 	return { observedAt, role, containerId, cpuPercent: 1, memoryBytes: 1024 };
 }
 
 function readJsonLines(filePath) {
 	return fs.readFileSync(filePath, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+}
+
+function appendSnapshot(outputPath, rows, observedAt) {
+	return spawnSync(process.execPath, [
+		VALIDATOR, 'append-snapshot', outputPath, observedAt, APP_ID, DATABASE_ID, REDIS_ID,
+	], { encoding: 'utf8', input: `${rows.join('\n')}\n` });
 }
 
 async function waitFor(predicate) {
