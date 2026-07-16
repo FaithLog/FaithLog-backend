@@ -25,6 +25,7 @@ const REQUIRED_FILES = [
 	'prepare-runtime.sh',
 	'runtime-evidence.override.yml',
 	'runtime-prep-contract.mjs',
+	'tooling-provenance.mjs',
 	'filter-sql-log.mjs',
 	'README.md',
 ];
@@ -607,6 +608,72 @@ test('runtime instrumentation prep is app-only, statement-only, and binds the fr
 		'SPRING_JPA_SHOW_SQL=false',
 		'filter-sql-log.mjs',
 	]) assert.ok(runner.includes(marker), `runner missing statement-only log gate ${marker}`);
+});
+
+test('runtime prep attests clean tracked tooling and preserves an immutable partial-failure receipt', async () => {
+	assert.equal(existsSync(join(ROOT, 'tooling-provenance.mjs')), true, 'missing tooling-provenance.mjs');
+	const prep = read('prepare-runtime.sh');
+	for (const name of [
+		'PERF_SCENARIO_WORKTREE', 'EXPECTED_SCENARIO_HEAD', 'PERF_RUNTIME_PREP_ATTEMPT_ID', 'PERF_RUNTIME_PREP_REPORT_ROOT',
+	]) assert.match(prep, new RegExp(`${name}=.*:\?`), `${name} must be runtime-required`);
+	assert.ok((prep.match(/capture_tooling_provenance/g) || []).length >= 3,
+		'tooling provenance must be captured before lock, after recreation, and immediately before final manifest');
+	for (const marker of [
+		'runtime-prep-attempt.json', 'runtime-prep-rejected.json', 'reusable', 'automaticCleanup',
+		'previousApp', 'currentApp', 'preservedDatabase', 'preservedRedis', 'restoreHandoff',
+	]) assert.ok(prep.includes(marker) || read('runtime-prep-contract.mjs').includes(marker), `missing partial receipt marker ${marker}`);
+	assert.doesNotMatch(prep, /docker\s+compose[^\n]*(?:down|restart)|automatic.?rollback/i);
+
+	const provenanceModule = await import(`${pathToFileURL(join(ROOT, 'tooling-provenance.mjs')).href}?test=${Date.now()}`);
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-tooling-provenance-'));
+	try {
+		writeFileSync(join(temporary, 'a.txt'), 'alpha\n');
+		writeFileSync(join(temporary, 'b.txt'), 'beta\n');
+		execFileSync('git', ['init', '-q'], { cwd: temporary });
+		execFileSync('git', ['add', 'a.txt', 'b.txt'], { cwd: temporary });
+		execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'fixture'], { cwd: temporary });
+		const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: temporary, encoding: 'utf8' }).trim();
+		const captured = provenanceModule.captureToolingProvenance(temporary, head, ['a.txt', 'b.txt']);
+		assert.equal(captured.head, head);
+		assert.equal(captured.clean, true);
+		assert.deepEqual(captured.files.map(({ path }) => path), ['a.txt', 'b.txt']);
+		assert.match(captured.aggregateSha256, /^[a-f0-9]{64}$/);
+		writeFileSync(join(temporary, 'untracked.txt'), 'untracked\n');
+		assert.throws(() => provenanceModule.captureToolingProvenance(temporary, head, ['a.txt', 'b.txt']), /clean/i);
+		rmSync(join(temporary, 'untracked.txt'));
+		writeFileSync(join(temporary, 'a.txt'), 'dirty\n');
+		assert.throws(() => provenanceModule.captureToolingProvenance(temporary, head, ['a.txt', 'b.txt']), /clean/i);
+		writeFileSync(join(temporary, 'a.txt'), 'alpha\n');
+		const symlink = join(temporary, 'linked.txt');
+		execFileSync('ln', ['-s', 'a.txt', symlink]);
+		execFileSync('git', ['add', 'linked.txt'], { cwd: temporary });
+		execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'symlink'], { cwd: temporary });
+		const symlinkHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: temporary, encoding: 'utf8' }).trim();
+		assert.throws(() => provenanceModule.captureToolingProvenance(temporary, symlinkHead, ['linked.txt']), /symlink/i);
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
+
+	const contract = await import(`${pathToFileURL(join(ROOT, 'runtime-prep-contract.mjs')).href}?receipt=${Date.now()}`);
+	const rejection = {
+		contractVersion: 1, issue: 196, attemptId: 'i196prep20260716a', status: 'rejected',
+		failedAt: '2026-07-16T00:02:00.000Z', stage: 'health-check', lifecycleStarted: true,
+		reusable: false, automaticCleanup: false,
+		previousApp: runtimeContainer('app', { containerId: 'previous-app-id' }),
+		currentApp: runtimeContainer('app'),
+		preservedDatabase: runtimeContainer('postgres'), preservedRedis: runtimeContainer('redis'),
+		tooling: { worktree: '/tmp/scenario', head: 'a'.repeat(40), clean: true, files: [{ path: 'prepare-runtime.sh', sha256: 'b'.repeat(64) }], aggregateSha256: 'c'.repeat(64) },
+		restoreHandoff: 'recreate-app-from-approved-base-compose-without-runtime-evidence-override',
+		primaryRejectionReason: 'instrumented-app-health-check-failed',
+	};
+	assert.doesNotThrow(() => contract.validateRuntimePrepRejection(rejection));
+	assert.throws(() => contract.validateRuntimePrepRejection({ ...rejection, reusable: true }), /reusable/i);
+	assert.throws(() => contract.validateRuntimePrepRejection({ ...rejection, automaticCleanup: true }), /automatic cleanup/i);
+
+	for (const entrypoint of ['seed-fixture.mjs', 'shape-fixture.sh', 'run-baseline.sh']) {
+		assert.match(read(entrypoint), /tooling-provenance|assertCurrentTooling|assert-fixture/i,
+			`${entrypoint} must re-attest the manifest tooling provenance`);
+	}
 });
 
 test('shared DB and Redis identity validators reject source/runtime drift without side effects', async () => {
