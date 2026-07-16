@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -24,6 +25,7 @@ const REQUIRED_FILES = [
 	'summarize-run.mjs',
 	'prepare-runtime.sh',
 	'runtime-evidence.override.yml',
+	'runtime-env-attestation.mjs',
 	'runtime-prep-contract.mjs',
 	'tooling-provenance.mjs',
 	'filter-sql-log.mjs',
@@ -49,6 +51,28 @@ const COUNTER_FIELDS = new Set([
 const SOURCE_REVISION = '6796ed146244d8f3f5b5dd7048ebe16865084a97';
 const FAKE_REDIS_RUN_ID = 'a'.repeat(40);
 
+function fakeToolingEnv(worktree) {
+	return { PERF_SCENARIO_WORKTREE: worktree, EXPECTED_SCENARIO_HEAD: 'a'.repeat(40) };
+}
+
+function createToolingFixture(parent) {
+	const requestedWorktree = join(parent, 'scenario-worktree');
+	mkdirSync(requestedWorktree);
+	const worktree = realpathSync(requestedWorktree);
+	writeFileSync(join(worktree, 'tool.txt'), 'approved tooling\n');
+	execFileSync('git', ['init', '-q'], { cwd: worktree });
+	execFileSync('git', ['add', 'tool.txt'], { cwd: worktree });
+	execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'tooling'], { cwd: worktree });
+	const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: worktree, encoding: 'utf8' }).trim();
+	const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+	const fileSha256 = sha256(readFileSync(join(worktree, 'tool.txt')));
+	const manifest = {
+		worktree, head,
+		provenance: { worktree, head, clean: true, files: [{ path: 'tool.txt', sha256: fileSha256 }], aggregateSha256: sha256(`tool.txt\0${fileSha256}\n`) },
+	};
+	return manifest;
+}
+
 function approvedTargetEnv() {
 	return {
 		BASE_URL: 'http://127.0.0.1:18080', APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db',
@@ -66,6 +90,9 @@ function manifestRuntime(project = 'approved', overrides = {}) {
 		appConfigHash: 'app-hash', dbConfigHash: 'db-hash', redisConfigHash: 'redis-hash',
 		appImage: 'approved-image', appImageId: 'sha256:app', dbImage: 'postgres:17', dbImageId: 'sha256:db',
 		redisImage: 'redis:7-alpine', redisImageId: 'sha256:redis', targetPort: '18080',
+		appContainerId: 'app-container-id', appContainerStartedAt: '2026-07-14T00:00:00.000Z',
+		dbContainerId: 'db-container-id', dbContainerStartedAt: '2026-07-14T00:00:00.000Z',
+		redisContainerId: 'redis-container-id', redisContainerStartedAt: '2026-07-14T00:00:00.000Z',
 		...overrides,
 	};
 }
@@ -131,15 +158,27 @@ function runtimeContainer(service, overrides = {}) {
 }
 
 function runtimePrepManifest(overrides = {}) {
-	return {
+	const previousApp = runtimeContainer('app', { containerId: 'previous-app-id', startedAt: '2026-07-15T00:00:00.000Z', configHash: 'previous-app-hash' });
+	const preservedDatabase = runtimeContainer('postgres');
+	const preservedRedis = runtimeContainer('redis');
+	const tooling = { worktree: '/tmp/scenario', head: 'a'.repeat(40), clean: true, files: [{ path: 'prepare-runtime.sh', sha256: 'b'.repeat(64) }], aggregateSha256: 'c'.repeat(64) };
+	const manifest = {
 		contractVersion: 1,
 		issue: 196,
+		attemptId: 'i196prep20260716a',
 		createdAt: '2026-07-16T00:01:00.000Z',
+		attemptReceipt: {
+			contractVersion: 1, issue: 196, attemptId: 'i196prep20260716a', status: 'reserved',
+			reservedAt: '2026-07-16T00:00:00.000Z', reportDirectory: '/tmp/issue-196-prep/i196prep20260716a', reusable: false,
+			previousApp, preservedDatabase, preservedRedis, toolingAggregateSha256: tooling.aggregateSha256,
+		},
+		tooling,
 		source: {
 			revision: SOURCE_REVISION,
 			deployDirectory: '/private/tmp/FaithLog-perf-206-deploy',
 			clean: true,
 			detached: true,
+			committedAt: '2026-07-15T23:59:00.000Z',
 			imageCreatedAt: '2026-07-16T00:00:30.000Z',
 			operationalProvenance: 'clean-detached-checkout-image-created-after-source',
 			imageAloneCryptographicProof: false,
@@ -150,16 +189,34 @@ function runtimePrepManifest(overrides = {}) {
 			configFiles: ['/private/tmp/FaithLog-perf-206-deploy/docker-compose.yml', '/private/tmp/runtime.override.yml', join(ROOT, 'runtime-evidence.override.yml')],
 			targetPort: '18080',
 		},
-		previousApp: runtimeContainer('app', { containerId: 'previous-app-id', startedAt: '2026-07-15T00:00:00.000Z', configHash: 'previous-app-hash' }),
+		previousApp,
 		instrumentedApp: runtimeContainer('app'),
-		preservedDatabase: runtimeContainer('postgres'),
-		preservedRedis: runtimeContainer('redis'),
+		preservedDatabase,
+		preservedRedis,
+		environmentAttestation: {
+			previousSanitizedSha256: 'd'.repeat(64), newSanitizedSha256: 'd'.repeat(64),
+			allowedDelta: [
+				'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF',
+				'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF',
+				'LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG',
+				'SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false',
+				'SPRING_JPA_SHOW_SQL=false',
+			],
+		},
 		evidenceLogging: {
 			sqlLogger: 'DEBUG', formatSql: false, showSql: false,
 			bindLogger: 'OFF', extractLogger: 'OFF', statementOnlyArtifact: true,
 		},
-		...overrides,
 	};
+	const result = { ...manifest, ...overrides };
+	if (!Object.hasOwn(overrides, 'attemptReceipt')) {
+		result.attemptReceipt = {
+			...manifest.attemptReceipt, previousApp: result.previousApp,
+			preservedDatabase: result.preservedDatabase, preservedRedis: result.preservedRedis,
+			toolingAggregateSha256: result.tooling.aggregateSha256,
+		};
+	}
+	return result;
 }
 
 function tableRow(relname, overrides = {}) {
@@ -255,7 +312,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
-			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false SPRING_JPA_SHOW_SQL=false LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF FAITHLOG_SCHEDULER_ENABLED=false ;;',
 			`*"stats --no-stream"*) if [[ "${'${FAKE_FAILURE:-}'}" == sampler ]]; then exit 43; fi; printf "faithlog-backend\\t10.0%%%%\\t100MiB / 1GiB\\t9.8%%%%\\nfaithlog-postgres\\t20.0%%%%\\t200MiB / 1GiB\\t19.5%%%%\\nfaithlog-redis\\t5.0%%%%\\t50MiB / 1GiB\\t4.9%%%%\\n" ;;`,
 			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
 			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`,
@@ -263,6 +320,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 		].join('\n'));
 		writeFileSync(join(bin, 'node'), [
 			'#!/usr/bin/env bash',
+			'if [[ "$1" == *tooling-provenance.mjs ]]; then exit 0; fi',
 			`if [[ "$*" == *"await fetch"* ]]; then echo "login:${'${LOGIN_EMAIL}'}" >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
 			`if [[ "$1" == *summarize-run.mjs ]]; then endpoint="$2"; report="${'${10}'}"; echo "summarize:$endpoint" >> "${calls}"; case "${'${FAKE_SUMMARY_BEHAVIOR}'}" in conditional) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"conditional-not-adoptable"}' > "$report" ;; rejected) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"rejected"}' > "$report" ;; malformed) printf '{' > "$report" ;; missing) : ;; esac; exit 2; fi`,
 			'if [[ "$1" == *validate-runtime-identity.mjs ]]; then printf "%s" "$DB_RUNTIME_IDENTITY_JSON"; exit 0; fi',
@@ -288,6 +346,12 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'      composeRuntime.appImageId) printf sha256:contract ;;',
 			'      composeRuntime.dbImageId) printf sha256:db ;;',
 			'      composeRuntime.redisImageId) printf sha256:redis ;;',
+			'      composeRuntime.appContainerId) printf app-container-id ;;',
+			'      composeRuntime.appContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
+			'      composeRuntime.dbContainerId) printf db-container-id ;;',
+			'      composeRuntime.dbContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
+			'      composeRuntime.redisContainerId) printf redis-container-id ;;',
+			'      composeRuntime.redisContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
 			'      composeRuntime.sourceRevision) printf "%s" "$EXPECTED_SOURCE_REVISION" ;;',
 			'      composeRuntime.targetPort) printf 18080 ;;',
 			'      *) exit 91 ;;',
@@ -321,6 +385,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 		const result = spawnSync('bash', [join(ROOT, 'run-baseline.sh'), 'prayer'], {
 			env: {
 				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`,
+				...fakeToolingEnv(temporary),
 				FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId, FIXTURE_MANIFEST: manifest,
 				PERF_REPORT_ROOT: reportRoot,
 				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
@@ -782,7 +847,7 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 	}
 	assert.ok((runner.match(/assert_runtime_continuity/g) || []).length >= 5,
 		'runtime identity must be checked before warmup, around measured, and before adoption');
-	assert.match(runner, /set \+e[\s\S]*docker logs[\s\S]*log_capture_status=\$\?[\s\S]*snapshot_db_tables "\$\{after_file\}"[\s\S]*after_snapshot_status=\$\?[\s\S]*set -e/);
+	assert.match(runner, /set \+e[\s\S]*docker logs[\s\S]*log_pipeline_status=.*PIPESTATUS[\s\S]*log_capture_status[\s\S]*snapshot_db_tables "\$\{after_file\}"[\s\S]*after_snapshot_status=\$\?[\s\S]*set -e/);
 	assert.match(runner, /summarize-run\.mjs[\s\S]*summarize_status=\$\?[\s\S]*if \(\( summarize_status != 0 \)\)/);
 	assert.match(runner, /env -u PERF_ADMIN_EMAIL/);
 	for (const name of ['WARMUP_VUS', 'WARMUP_DURATION', 'MEASURED_VUS', 'MEASURED_DURATION', 'EXECUTION_RUN_ID']) {
@@ -864,6 +929,7 @@ test('runner rejects every missing target identity before inspect or login', () 
 		for (const command of ['docker', 'k6', 'lsof']) chmodSync(join(bin, command), 0o755);
 		const required = {
 			...approvedTargetEnv(),
+			...fakeToolingEnv(temporary),
 			FIXTURE_RUN_ID: 'i196target', EXECUTION_RUN_ID: 'exectarget',
 			WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
 			PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
@@ -906,6 +972,7 @@ test('seed, shape, and direct scenario require every approved target identity be
 				rmSync(calls, { force: true });
 				const env = {
 					...process.env, ...required, PATH: `${bin}:${process.env.PATH}`,
+					...fakeToolingEnv(temporary),
 					FIXTURE_RUN_ID: 'i196entry', FIXTURE_MANIFEST: manifest,
 					PERF_WEEK_START_DATE: '2026-07-13',
 					PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
@@ -963,6 +1030,7 @@ test('seed and shape reject a same-name post-lock runtime replacement before API
 	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-post-lock-'));
 	const project = `faithlog-post-lock-${process.pid}`;
 	try {
+		const tooling = createToolingFixture(temporary);
 		const bin = join(temporary, 'bin');
 		mkdirSync(bin);
 		const calls = join(temporary, 'calls.log');
@@ -998,9 +1066,21 @@ test('seed and shape reject a same-name post-lock runtime replacement before API
 		].join('\n');
 		const preload = join(temporary, 'preload.cjs');
 		writeFileSync(preload, `const fs=require('node:fs'); global.fetch=async()=>{fs.appendFileSync(${JSON.stringify(calls)},'seed-api\\n'); return {status:500,text:async()=>'{"success":false}'};};\n`);
+		const appA = runtimeContainer('app', { containerName: 'approved-app', configuredImage: 'approved-image', imageId: 'sha256:app', containerId: 'app-A', startedAt: '2026-07-14T00:00:00.000Z', configHash: 'app-hash' });
+		const dbA = runtimeContainer('postgres', { containerName: 'approved-db', configuredImage: 'postgres:17', imageId: 'sha256:db', containerId: 'db-A', startedAt: '2026-07-14T00:00:00.000Z', configHash: 'db-hash' });
+		const redisA = runtimeContainer('redis', { containerName: 'approved-redis', configuredImage: 'redis:7-alpine', imageId: 'sha256:redis', containerId: 'redis-A', startedAt: '2026-07-14T00:00:00.000Z', configHash: 'redis-hash' });
+		const prepDocument = runtimePrepManifest({
+			tooling: tooling.provenance,
+			compose: { ...runtimePrepManifest().compose, project, targetPort: '18080' },
+			previousApp: { ...appA, containerId: 'app-before-prep', startedAt: '2026-07-13T00:00:00.000Z', configHash: 'app-before-prep-hash' },
+			instrumentedApp: appA, preservedDatabase: dbA, preservedRedis: redisA,
+		});
+		const runtimePrepPath = join(temporary, 'runtime-prep-manifest.json');
+		writeFileSync(runtimePrepPath, JSON.stringify(prepDocument));
 		const commonEnv = {
 			...process.env, ...approvedTargetEnv(), PATH: `${bin}:${process.env.PATH}`, PERF_WEEK_START_DATE: '2026-07-13',
 			PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
+			PERF_SCENARIO_WORKTREE: tooling.worktree, EXPECTED_SCENARIO_HEAD: tooling.head, RUNTIME_PREP_MANIFEST: runtimePrepPath,
 		};
 
 		const seedMarker = join(temporary, 'seed-port-seen');
@@ -1023,7 +1103,10 @@ test('seed and shape reject a same-name post-lock runtime replacement before API
 		const manifest = join(temporary, 'shape-manifest.json');
 		writeFileSync(manifest, JSON.stringify({
 			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: null,
-			composeRuntime: manifestRuntime(project),
+			runtimePreparation: prepDocument,
+			composeRuntime: manifestRuntime(project, {
+				appContainerId: 'app-A', dbContainerId: 'db-A', redisContainerId: 'redis-A',
+			}),
 			primaryCampus: { campusId: 1 }, polls: { byKey: {
 				open: { id: 1 }, closed_member_visible: { id: 2 }, closed_admin_only: { id: 3 }, closed_expired: { id: 4 }, scheduled_future: { id: 5 },
 			}, duty: { coffee: { id: 6 }, mealOpen: { id: 7 }, mealArchived: { id: 8 } } },
@@ -1171,7 +1254,8 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 	const project = `faithlog-warmup-${process.pid}`;
 	const fixtureRunId = `i196warm${process.pid}`.slice(0, 32);
 	const executionRunId = `execwarm${process.pid}`.slice(0, 32);
-	const reportBase = join(ROOT, '../../..', 'build/reports/k6/issue-196', fixtureRunId);
+	const reportRoot = join(temporary, 'reports');
+	const reportBase = join(reportRoot, fixtureRunId);
 	try {
 		const bin = join(temporary, 'bin');
 		mkdirSync(bin);
@@ -1213,13 +1297,14 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
-			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false SPRING_JPA_SHOW_SQL=false LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF FAITHLOG_SCHEDULER_ENABLED=false ;;',
 			`*"redis-cli --raw INFO server"*) printf '%b' ${JSON.stringify(fakeRedisInfo())} ;;`,
 			`*"psql -X"*) printf '%s\\n' '${JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity)}' ;;`,
 			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
 		].join('\n'));
 		writeFileSync(join(bin, 'node'), [
 			'#!/usr/bin/env bash',
+			'if [[ "$1" == *tooling-provenance.mjs ]]; then exit 0; fi',
 			'if [[ -n "${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}" ]]; then echo node-credential-leak >> "' + calls + '"; fi',
 			`if [[ "$*" == *"await fetch"* ]]; then echo login >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
 			`exec "${process.execPath}" "$@"`, '',
@@ -1234,6 +1319,7 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		const result = spawnSync('bash', [runner, 'prayer'], {
 			env: {
 				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
+				...fakeToolingEnv(temporary), PERF_REPORT_ROOT: reportRoot,
 				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://127.0.0.1:18080',
 				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
 				SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
@@ -1260,7 +1346,8 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 	const project = `faithlog-scope-${process.pid}`;
 	const fixtureRunId = `i196scope${process.pid}`.slice(0, 32);
 	const executionRunId = `execscope${process.pid}`.slice(0, 32);
-	const reportBase = join(ROOT, '../../..', 'build/reports/k6/issue-196', fixtureRunId);
+	const reportRoot = join(temporary, 'reports');
+	const reportBase = join(reportRoot, fixtureRunId);
 	try {
 		const bin = join(temporary, 'bin');
 		mkdirSync(bin);
@@ -1319,13 +1406,14 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			`*"port faithlog-backend 8080/tcp"*) [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 ]] && touch "${postLockMarker}"; echo 0.0.0.0:18080 ;;`,
-			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false SPRING_JPA_SHOW_SQL=false LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF FAITHLOG_SCHEDULER_ENABLED=false ;;',
 			'*"stats --no-stream"*) printf "faithlog-backend\\t10.0%%\\t100MiB / 1GiB\\t9.8%%\\nfaithlog-postgres\\t20.0%%\\t200MiB / 1GiB\\t19.5%%\\nfaithlog-redis\\t5.0%%\\t50MiB / 1GiB\\t4.9%%\\n" ;;',
 			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
 			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
 		].join('\n'));
 		writeFileSync(join(bin, 'node'), [
 			'#!/usr/bin/env bash',
+			'if [[ "$1" == *tooling-provenance.mjs ]]; then exit 0; fi',
 			`if [[ -n "${'${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}'}" ]]; then echo node-scope-bad >> "${calls}"; fi`,
 			`if [[ "$*" == *"await fetch"* ]]; then echo login >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
 			`if [[ "$*" == *"const metadata"* ]]; then [[ -n "${'${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]] && echo metadata-scope-bad >> "${calls}"; echo metadata-child >> "${calls}"; fi`,
@@ -1348,6 +1436,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const result = spawnSync('bash', [runner, 'prayer'], {
 			env: {
 				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
+				...fakeToolingEnv(temporary), PERF_REPORT_ROOT: reportRoot,
 				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://127.0.0.1:18080',
 				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
 				SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
@@ -1378,6 +1467,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const replacementResult = spawnSync('bash', [runner, 'prayer'], {
 			env: {
 				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId,
+				...fakeToolingEnv(temporary), PERF_REPORT_ROOT: reportRoot,
 				EXECUTION_RUN_ID: replacementExecutionRunId, FIXTURE_MANIFEST: manifest,
 				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
 				MEASURED_VUS: '1', MEASURED_DURATION: '1s',
@@ -1401,6 +1491,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const postLockResult = spawnSync('bash', [runner, 'prayer'], {
 			env: {
 				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId,
+				...fakeToolingEnv(temporary), PERF_REPORT_ROOT: reportRoot,
 				EXECUTION_RUN_ID: postLockExecutionRunId, FIXTURE_MANIFEST: manifest,
 				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
 				MEASURED_VUS: '1', MEASURED_DURATION: '1s', SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',

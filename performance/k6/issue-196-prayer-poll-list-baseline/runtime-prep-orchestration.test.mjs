@@ -85,7 +85,7 @@ function runFakeRuntimePrep({ unrelatedEnvDrift = false } = {}) {
 	writeFileSync(state, 'old\n');
 
 	const evidenceOverride = join(ROOT, 'runtime-evidence.override.yml');
-	writeFileSync(join(bin, 'docker'), fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, evidenceOverride, unrelatedEnvDrift }));
+	writeFileSync(join(bin, 'docker'), fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, composeEnv, evidenceOverride, unrelatedEnvDrift }));
 	writeFileSync(join(bin, 'node'), `#!/usr/bin/env bash\nif [[ "$1" == -e && "$2" == *"await fetch"* ]]; then exit 0; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
 	chmodSync(join(bin, 'docker'), 0o755);
 	chmodSync(join(bin, 'node'), 0o755);
@@ -133,7 +133,7 @@ function commitRepository(directory, message, detach = false) {
 	return head;
 }
 
-function fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, evidenceOverride, unrelatedEnvDrift }) {
+function fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, composeEnv, evidenceOverride, unrelatedEnvDrift }) {
 	const oldEnv = JSON.stringify([
 		'SPRING_PROFILES_ACTIVE=local', 'SPRING_DATASOURCE_PASSWORD=db-super-secret', 'JWT_SECRET=jwt-super-secret',
 		'FIREBASE_CONFIG_BASE64=firebase-super-secret', 'FAITHLOG_SCHEDULER_ENABLED=false',
@@ -149,7 +149,7 @@ set -euo pipefail
 runtime_state="$(tr -d '\\n' < ${JSON.stringify(state)})"
 if [[ "$1" == compose ]]; then
 	if [[ -n "\${PERF_ADMIN_PASSWORD+x}\${PERF_ACCESS_TOKEN+x}\${SPRING_DATASOURCE_PASSWORD+x}\${JWT_SECRET+x}\${FIREBASE_CONFIG_BASE64+x}" ]]; then exit 77; fi
-	[[ "$*" == *"--env-file ${join(dirname(baseCompose), '..', 'approved-compose.env')}"* || "$*" == *"--env-file"* ]] || exit 78
+	[[ "$*" == *"--env-file ${composeEnv}"* ]] || exit 78
 	echo compose-child-sanitized > ${JSON.stringify(calls)}
 	echo new > ${JSON.stringify(state)}
 	exit 0

@@ -10,6 +10,10 @@ VALIDATE_TARGET="${ROOT_DIR}/validate-published-target.mjs"
 DB_RUNTIME_IDENTITY_SQL="${ROOT_DIR}/db-runtime-identity.sql"
 VALIDATE_RUNTIME_IDENTITY="${ROOT_DIR}/validate-runtime-identity.mjs"
 PARSE_REDIS_IDENTITY="${ROOT_DIR}/redis-runtime-identity.mjs"
+FILTER_SQL_LOG="${ROOT_DIR}/filter-sql-log.mjs"
+TOOLING_PROVENANCE="${ROOT_DIR}/tooling-provenance.mjs"
+PERF_SCENARIO_WORKTREE="${PERF_SCENARIO_WORKTREE:?PERF_SCENARIO_WORKTREE is required at runtime}"
+EXPECTED_SCENARIO_HEAD="${EXPECTED_SCENARIO_HEAD:?EXPECTED_SCENARIO_HEAD is required at runtime}"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
 EXECUTION_RUN_ID="${EXECUTION_RUN_ID:?EXECUTION_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
@@ -71,6 +75,7 @@ SAMPLING_INTERVAL_VALUE="${SAMPLING_INTERVAL_SECONDS}" SAMPLING_MAX_GAP_VALUE="$
 	if (!Number.isFinite(interval) || interval <= 0 || !Number.isFinite(maxGap) || maxGap < interval) process.exit(1);
 ' || { echo "Sampling values must be positive and max gap must be at least the interval." >&2; exit 1; }
 [[ -f "${FIXTURE_MANIFEST}" ]] || { echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2; exit 1; }
+node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 [[ "${BASE_URL}" =~ ^http://(127\.0\.0\.1|\[::1\])(:[0-9]+)?$ ]] \
 	|| { echo "Issue #196 baseline is local-Docker-only." >&2; exit 1; }
 
@@ -169,6 +174,12 @@ seed_redis_hash="$(manifest_value composeRuntime.redisConfigHash)"
 seed_app_image_id="$(manifest_value composeRuntime.appImageId)"
 seed_db_image_id="$(manifest_value composeRuntime.dbImageId)"
 seed_redis_image_id="$(manifest_value composeRuntime.redisImageId)"
+seed_app_container_id="$(manifest_value composeRuntime.appContainerId)"
+seed_app_started_at="$(manifest_value composeRuntime.appContainerStartedAt)"
+seed_db_container_id="$(manifest_value composeRuntime.dbContainerId)"
+seed_db_started_at="$(manifest_value composeRuntime.dbContainerStartedAt)"
+seed_redis_container_id="$(manifest_value composeRuntime.redisContainerId)"
+seed_redis_started_at="$(manifest_value composeRuntime.redisContainerStartedAt)"
 seed_source_revision="$(manifest_value composeRuntime.sourceRevision)"
 seed_target_port="$(manifest_value composeRuntime.targetPort)"
 published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
@@ -195,6 +206,10 @@ base_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${pub
 [[ "${app_image_id}" == "${seed_app_image_id}" && "${db_image_id}" == "${seed_db_image_id}" \
 	&& "${redis_image_id}" == "${seed_redis_image_id}" && "${EXPECTED_SOURCE_REVISION}" == "${seed_source_revision}" ]] \
 	|| { echo "Current immutable runtime/source identity differs from the seed manifest." >&2; exit 1; }
+[[ "${app_container_id}" == "${seed_app_container_id}" && "${app_container_started_at}" == "${seed_app_started_at}" \
+	&& "${db_container_id}" == "${seed_db_container_id}" && "${db_container_started_at}" == "${seed_db_started_at}" \
+	&& "${redis_container_id}" == "${seed_redis_container_id}" && "${redis_container_started_at}" == "${seed_redis_started_at}" ]] \
+	|| { echo "Current full container identity differs from the seed manifest." >&2; exit 1; }
 [[ "${base_target_port}" == "${seed_target_port}" ]] \
 	|| { echo "BASE_URL port ${base_target_port} differs from the seed target port ${seed_target_port}." >&2; exit 1; }
 [[ "${app_client_addrs}" =~ ^[0-9a-fA-F:.]+(,[0-9a-fA-F:.]+)*$ ]] \
@@ -269,6 +284,7 @@ if ! assert_runtime_continuity; then
 	echo "Runtime identity changed after project lock." >&2
 	exit 1
 fi
+node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 
 if pgrep -f '[k]6 run' >/dev/null 2>&1; then
 	echo "Another k6 process is running outside the canonical project lock." >&2
@@ -287,6 +303,12 @@ grep -q '^LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG$' <<<"${app_environment}" \
 	|| { echo "Start the existing app container externally with LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG." >&2; exit 1; }
 grep -q '^SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false$' <<<"${app_environment}" \
 	|| { echo "Start the existing app container externally with SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false." >&2; exit 1; }
+grep -q '^SPRING_JPA_SHOW_SQL=false$' <<<"${app_environment}" \
+	|| { echo "Start the existing app container externally with SPRING_JPA_SHOW_SQL=false." >&2; exit 1; }
+grep -q '^LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF$' <<<"${app_environment}" \
+	|| { echo "Hibernate bind parameter logging must be OFF." >&2; exit 1; }
+grep -q '^LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF$' <<<"${app_environment}" \
+	|| { echo "Hibernate extract value logging must be OFF." >&2; exit 1; }
 grep -q '^FAITHLOG_SCHEDULER_ENABLED=false$' <<<"${app_environment}" \
 	|| { echo "Start the existing app container externally with FAITHLOG_SCHEDULER_ENABLED=false for isolated query evidence." >&2; exit 1; }
 
@@ -388,6 +410,7 @@ endpoints_for_mode() {
 run_endpoint() {
 	local mode="$1"
 	local endpoint="$2"
+	node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 	local endpoint_dir="${REPORT_ROOT}/${mode}/${endpoint}"
 	local warmup_summary_file="${endpoint_dir}/warmup-k6-summary.json"
 	local summary_file="${endpoint_dir}/k6-summary.json"
@@ -414,6 +437,7 @@ run_endpoint() {
 	local integrity_status
 	local fixture_window_status
 	local log_capture_status
+	local -a log_pipeline_status
 	local after_snapshot_status
 	local runtime_continuity_status
 	local final_continuity_status
@@ -524,8 +548,14 @@ run_endpoint() {
 	runtime_continuity_status=$?
 	assert_fixture_windows
 	fixture_window_status=$?
-	docker logs --since "${log_since}" --until "${log_until}" "${APP_CONTAINER}" > "${sql_log_file}" 2>&1
-	log_capture_status=$?
+	docker logs --since "${log_since}" --until "${log_until}" "${APP_CONTAINER}" 2>&1 \
+		| node "${FILTER_SQL_LOG}" > "${sql_log_file}"
+	log_pipeline_status=("${PIPESTATUS[@]}")
+	if (( log_pipeline_status[0] != 0 )); then
+		log_capture_status="${log_pipeline_status[0]}"
+	else
+		log_capture_status="${log_pipeline_status[1]}"
+	fi
 	snapshot_db_tables "${after_file}"
 	after_snapshot_status=$?
 	assert_runtime_continuity
@@ -690,6 +720,7 @@ run_endpoint() {
 		return "${after_snapshot_status}"
 	fi
 	overall_non_adoptable=1
+	node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 	echo "Conditional evidence preserved for ${mode}/${endpoint}; continuing the approved sequential scope." >&2
 }
 
@@ -707,6 +738,8 @@ for mode in "${modes[@]}"; do
 		ENDPOINT="${endpoint}" run_endpoint "${mode}" "${endpoint}"
 	done
 done
+
+node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 
 if (( overall_non_adoptable != 1 )); then
 	echo "Issue #196 produced no conditional evidence; refusing a successful completion." >&2

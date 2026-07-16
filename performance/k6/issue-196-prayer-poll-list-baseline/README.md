@@ -99,22 +99,73 @@ Each endpoint report includes:
 
 Query logs and PostgreSQL counters are container-wide. The attested project-scoped canonical lock, runtime activity evidence, disabled scheduler, endpoint-per-process execution, and prohibition on other traffic are part of the evidence contract. The summarizer preserves the first machine-readable rejection as `primaryRejectionReason` and never overwrites an existing report. Even clean evidence remains `automaticAdoption=false` and conditional/non-adoptable. If any condition is not satisfied, do not treat the report as an Issue #196 baseline.
 
-## Runtime preparation (do not run in this development session)
+## Runtime preparation (PM exclusive slot only)
 
-The PM-approved measurement session must start the separately approved stack externally. Seed, shaping, and runner use Docker inspection to verify the runtime identity; none changes its lifecycle. The application container must already have:
+`prepare-runtime.sh` is the only Issue #196 lifecycle entrypoint. It requires the exact current app/DB/Redis identities, the clean detached deploy checkout at the approved source revision, and a clean scenario worktree at the exact approved scenario HEAD. It records the tracked prep/override/filter/seed/shape/runner file list and aggregate SHA-256 before lock acquisition, immediately after app recreation, and immediately before the final manifest. Missing, untracked, dirty, symlinked, or drifted tooling fails closed.
+
+The script acquires the canonical project lock and recreates **only** `app` with the base Compose files plus `runtime-evidence.override.yml`; it never performs `down`, restarts PostgreSQL/Redis, prunes, or rolls back automatically. The new app must have a different container ID, `StartedAt`, and config hash, while the exact DB/Redis identities and port binding remain unchanged. It requires:
 
 ```text
 LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG
 SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false
+SPRING_JPA_SHOW_SQL=false
+LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF
+LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF
 FAITHLOG_SCHEDULER_ENABLED=false
 ```
 
-Supply all credentials directly in the runtime shell or an approved secret manager. Do not create/source a repository `.env` file.
+The runner pipes the measured Docker log window through `filter-sql-log.mjs` and persists only `org.hibernate.SQL` statement lines. Any bind/extract logger marker rejects the artifact without echoing the offending value. Credentials, tokens, and bind values are not written to the prep manifest, receipt, or SQL artifact.
+
+Before lifecycle work, a fresh `${PERF_RUNTIME_PREP_REPORT_ROOT}/${PERF_RUNTIME_PREP_ATTEMPT_ID}` directory and 0600 `runtime-prep-attempt.json` are exclusively created. After recreation starts, any health, continuity, environment, tooling, or manifest failure also writes a non-overwritable `runtime-prep-rejected.json` with previous/current app identity, observed DB/Redis identity, failed stage, `reusable=false`, `automaticCleanup=false`, and the manual restore handoff. The failed attempt ID is never reused. Success writes only `runtime-prep-manifest.json` in that attempt namespace; seed, shape, and runner re-attest its tooling digest and full runtime identity.
+
+PM supplies every placeholder below from the approved target handoff. No value is inferred by the script:
+
+```bash
+PERF_SCENARIO_WORKTREE='<absolute-clean-scenario-worktree>' \
+EXPECTED_SCENARIO_HEAD='<approved-full-scenario-head>' \
+PERF_RUNTIME_PREP_ATTEMPT_ID='<fresh-prep-attempt-id>' \
+PERF_RUNTIME_PREP_REPORT_ROOT='<absolute-ignored-prep-report-root>' \
+PERF_RUNTIME_PREP_MANIFEST='<report-root>/<attempt-id>/runtime-prep-manifest.json' \
+PERF_DEPLOY_DIR='<absolute-clean-detached-approved-source-checkout>' \
+PERF_BASE_COMPOSE_FILE='<deploy-dir>/docker-compose.yml' \
+PERF_BASE_OVERRIDE_FILE='<absolute-approved-current-runtime-override>' \
+PERF_COMPOSE_ENV_FILE='<absolute-0600-approved-compose-interpolation-env>' \
+PERF_APP_READY_TIMEOUT_SECONDS='<approved-timeout-seconds>' \
+BASE_URL='<approved-numeric-loopback-url-on-port-28080>' \
+APP_CONTAINER='<approved-current-app-container>' \
+DB_CONTAINER='<approved-current-db-container>' \
+REDIS_CONTAINER='<approved-current-redis-container>' \
+EXPECTED_COMPOSE_PROJECT='<approved-compose-project>' \
+EXPECTED_APP_SERVICE='<approved-app-service>' \
+EXPECTED_DB_SERVICE='<approved-db-service>' \
+EXPECTED_REDIS_SERVICE='<approved-redis-service>' \
+EXPECTED_SOURCE_REVISION='<approved-current-develop-revision>' \
+EXPECTED_CURRENT_APP_CONTAINER_ID='<pre-prep-full-app-container-id>' \
+EXPECTED_CURRENT_APP_IMAGE_ID='<pre-prep-full-app-image-id>' \
+EXPECTED_CURRENT_APP_STARTED_AT='<pre-prep-app-started-at>' \
+EXPECTED_CURRENT_APP_CONFIG_HASH='<pre-prep-app-config-hash>' \
+EXPECTED_DB_CONTAINER_ID='<full-db-container-id>' \
+EXPECTED_DB_IMAGE_ID='<full-db-image-id>' \
+EXPECTED_DB_STARTED_AT='<db-started-at>' \
+EXPECTED_DB_CONFIG_HASH='<db-config-hash>' \
+EXPECTED_REDIS_CONTAINER_ID='<full-redis-container-id>' \
+EXPECTED_REDIS_IMAGE_ID='<full-redis-image-id>' \
+EXPECTED_REDIS_STARTED_AT='<redis-started-at>' \
+EXPECTED_REDIS_CONFIG_HASH='<redis-config-hash>' \
+bash performance/k6/issue-196-prayer-poll-list-baseline/prepare-runtime.sh
+```
+
+Operational source provenance remains the PM-approved clean detached deploy checkout at `6796ed146244d8f3f5b5dd7048ebe16865084a97` with an image creation time after that commit. The image has no OCI revision label or `git.properties`, so image-alone cryptographic source proof remains unavailable and is recorded as a limitation rather than silently claimed.
+
+The Compose interpolation file is a PM-provided, absolute, non-symlink regular file with no group/other permissions. The compose child starts from an empty environment and receives only `PATH`, `HOME`, Docker config/temp locations plus `--env-file`; caller credentials, tokens, and `SPRING_*`/JWT/Firebase secret values are not inherited. Before/after `Config.Env` is canonicalized in memory, the five approved instrumentation variables are the only permitted delta, and the manifest stores only equal sanitized SHA-256 digests plus that non-secret allowlist. Supply credentials through the approved runtime-only Compose env file or secret manager; do not create or commit a repository `.env` file.
 
 ### 1. Create an immutable fixture
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
+PERF_SCENARIO_WORKTREE='<same-absolute-scenario-worktree>' \
+EXPECTED_SCENARIO_HEAD='<same-approved-scenario-head>' \
+RUNTIME_PREP_MANIFEST='<successful-runtime-prep-manifest>' \
 PERF_WEEK_START_DATE='<approved-monday-yyyy-mm-dd>' \
 BASE_URL='<approved-loopback-base-url>' \
 APP_CONTAINER='<approved-app-container>' \
@@ -147,6 +198,8 @@ The seed is create-only and intentionally has no cleanup path. `fixtureRunId` is
 
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
+PERF_SCENARIO_WORKTREE='<same-absolute-scenario-worktree>' \
+EXPECTED_SCENARIO_HEAD='<same-approved-scenario-head>' \
 BASE_URL='<approved-loopback-base-url>' \
 APP_CONTAINER='<approved-app-container>' \
 DB_CONTAINER='<approved-db-container>' \
@@ -178,6 +231,8 @@ Warmup/measured VUS/duration, sampling interval/max-gap, and target identity hav
 ```bash
 FIXTURE_RUN_ID=i196-20260714-a \
 EXECUTION_RUN_ID=i196-exec-20260714-a \
+PERF_SCENARIO_WORKTREE='<same-absolute-scenario-worktree>' \
+EXPECTED_SCENARIO_HEAD='<same-approved-scenario-head>' \
 PERF_REPORT_ROOT='<optional-local-artifact-base>' \
 BASE_URL='<approved-loopback-base-url>' \
 APP_CONTAINER='<approved-app-container>' \
@@ -212,6 +267,12 @@ bash performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh all
 
 The mode argument is required. Pass `all` explicitly for the complete sequential scope, or `prayer`, `poll-member`, `poll-admin`, or `poll-duty` only when the PM explicitly wants that partial scope. Partial reports must not be presented as a complete baseline.
 
+### PM execution and stop/restore handoff
+
+One exclusive slot runs, in order: read-only target re-attestation → app-only runtime prep → fresh namespace seed → one-shot shape → explicit `all` mode (Prayer, Poll member, Poll admin, Poll duty; 27 endpoints sequentially). Expected elapsed time is about 2–3.5 hours, driven by the separately approved warmup/measured values. Runtime prep writes the app lifecycle plus its receipts; seed creates only fresh fixture rows; shape updates only the eight rows owned by that fresh fixture; endpoint phases are read-only apart from application/runtime statistics. Stop immediately on the first prep rejection, seed/shape nonzero, runtime/tooling continuity drift, credential/bind logger evidence, rejected/malformed report, or operational child failure. Preserve every receipt/report and do not reuse IDs.
+
+No automatic cleanup or rollback is authorized. After a partial prep failure, follow the rejection receipt's restore handoff: recreate only the app from the same approved base Compose files without `runtime-evidence.override.yml`, then re-attest the restored app and unchanged PostgreSQL/Redis. After a successful baseline, PM may either retain the instrumented app for the final integration measurement or perform the same app-only restore; `down`, DB/Redis recreation, and prune remain forbidden.
+
 ## Static verification
 
 These commands do not seed, run k6, access Docker, or access a database:
@@ -227,8 +288,14 @@ node --check performance/k6/issue-196-prayer-poll-list-baseline/redis-runtime-id
 node --check performance/k6/issue-196-prayer-poll-list-baseline/validate-published-target.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/validate-runtime-identity.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/runtime-prep-contract.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/runtime-env-attestation.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/tooling-provenance.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/filter-sql-log.mjs
+bash -n performance/k6/issue-196-prayer-poll-list-baseline/prepare-runtime.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh
+node --test performance/k6/issue-196-prayer-poll-list-baseline/runtime-prep-orchestration.test.mjs
 ```
 
 This session syntax-checks `scenario.js` without executing k6; the contract test separately fixes its endpoint, metric, sequencing, correctness, current-develop source/Flyway/RLS identity, app/DB/Redis continuity, pgss state, BigInt counter, and resource evidence markers. Test-code auditing across performance issues may run in parallel, but actual shared-stack seed/load measurement remains PM-controlled and strictly sequential.

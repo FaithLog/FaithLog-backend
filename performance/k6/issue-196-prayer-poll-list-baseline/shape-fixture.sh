@@ -7,6 +7,9 @@ VALIDATE_TARGET="${ROOT_DIR}/validate-published-target.mjs"
 DB_RUNTIME_IDENTITY_SQL="${ROOT_DIR}/db-runtime-identity.sql"
 VALIDATE_RUNTIME_IDENTITY="${ROOT_DIR}/validate-runtime-identity.mjs"
 PARSE_REDIS_IDENTITY="${ROOT_DIR}/redis-runtime-identity.mjs"
+TOOLING_PROVENANCE="${ROOT_DIR}/tooling-provenance.mjs"
+PERF_SCENARIO_WORKTREE="${PERF_SCENARIO_WORKTREE:?PERF_SCENARIO_WORKTREE is required at runtime}"
+EXPECTED_SCENARIO_HEAD="${EXPECTED_SCENARIO_HEAD:?EXPECTED_SCENARIO_HEAD is required at runtime}"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
 BASE_URL="${BASE_URL:?BASE_URL is required at runtime}"
@@ -42,6 +45,7 @@ if [[ ! -f "${FIXTURE_MANIFEST}" ]]; then
 	echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2
 	exit 1
 fi
+node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 
 json_value() {
 	node -e '
@@ -72,6 +76,12 @@ seed_redis_hash="$(json_value composeRuntime.redisConfigHash)"
 seed_app_image_id="$(json_value composeRuntime.appImageId)"
 seed_db_image_id="$(json_value composeRuntime.dbImageId)"
 seed_redis_image_id="$(json_value composeRuntime.redisImageId)"
+seed_app_container_id="$(json_value composeRuntime.appContainerId)"
+seed_app_started_at="$(json_value composeRuntime.appContainerStartedAt)"
+seed_db_container_id="$(json_value composeRuntime.dbContainerId)"
+seed_db_started_at="$(json_value composeRuntime.dbContainerStartedAt)"
+seed_redis_container_id="$(json_value composeRuntime.redisContainerId)"
+seed_redis_started_at="$(json_value composeRuntime.redisContainerStartedAt)"
 seed_source_revision="$(json_value composeRuntime.sourceRevision)"
 seed_target_port="$(json_value composeRuntime.targetPort)"
 open_id="$(json_value polls.byKey.open.id)"
@@ -146,6 +156,9 @@ if [[ "${compose_project}" != "${seed_project}" || "${app_hash}" != "${seed_app_
 	|| "${db_hash}" != "${seed_db_hash}" || "${redis_hash}" != "${seed_redis_hash}" \
 	|| "${app_image_id}" != "${seed_app_image_id}" || "${db_image_id}" != "${seed_db_image_id}" \
 	|| "${redis_image_id}" != "${seed_redis_image_id}" || "${EXPECTED_SOURCE_REVISION}" != "${seed_source_revision}" \
+	|| "${app_container_id}" != "${seed_app_container_id}" || "${app_container_started_at}" != "${seed_app_started_at}" \
+	|| "${db_container_id}" != "${seed_db_container_id}" || "${db_container_started_at}" != "${seed_db_started_at}" \
+	|| "${redis_container_id}" != "${seed_redis_container_id}" || "${redis_container_started_at}" != "${seed_redis_started_at}" \
 	|| "${base_target_port}" != "${seed_target_port}" ]]; then
 	echo "Refusing to shape: current Compose identity differs from the seed manifest." >&2
 	exit 1
@@ -199,6 +212,7 @@ if ! assert_post_lock_runtime_identity; then
 	echo "Runtime identity changed after project lock." >&2
 	exit 1
 fi
+node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 
 shape_attempt="${FIXTURE_MANIFEST}.shape-attempted"
 SHAPE_ATTEMPT="${shape_attempt}" node -e '

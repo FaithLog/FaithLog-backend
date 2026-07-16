@@ -5,6 +5,8 @@ import { FIXTURE_CONTRACT, validateFixtureRunId } from './fixture-contract.mjs';
 import { validatePublishedTarget } from './validate-published-target.mjs';
 import { validateRuntimeIdentity } from './validate-runtime-identity.mjs';
 import { parseRedisRuntimeIdentity } from './redis-runtime-identity.mjs';
+import { assertRuntimePreparationMatches, validateRuntimePrepManifest } from './runtime-prep-contract.mjs';
+import { assertCurrentTooling } from './tooling-provenance.mjs';
 
 const BASE_URL = required('BASE_URL').replace(/\/$/, '');
 const DATASET_ID = process.env.DATASET_ID || FIXTURE_CONTRACT.datasetId;
@@ -30,6 +32,9 @@ const EXPECTED_REDIS_IMAGE_ID = required('EXPECTED_REDIS_IMAGE_ID');
 const EXPECTED_REDIS_PORT = required('EXPECTED_REDIS_PORT');
 const EXPECTED_FLYWAY_VERSION = required('EXPECTED_FLYWAY_VERSION');
 const EXPECTED_SOURCE_REVISION = required('EXPECTED_SOURCE_REVISION');
+const RUNTIME_PREP_MANIFEST = resolve(required('RUNTIME_PREP_MANIFEST'));
+const SCENARIO_WORKTREE = resolve(required('PERF_SCENARIO_WORKTREE'));
+const EXPECTED_SCENARIO_HEAD = required('EXPECTED_SCENARIO_HEAD');
 const DB_USER = required('PERF_DB_USER');
 const DB_NAME = required('PERF_DB_NAME');
 const DB_PASSWORD = required('PERF_DB_PASSWORD');
@@ -52,7 +57,12 @@ if (EXPECTED_SOURCE_REVISION !== FIXTURE_CONTRACT.currentDevelop.sourceRevision
 	|| EXPECTED_FLYWAY_VERSION !== FIXTURE_CONTRACT.currentDevelop.flywayVersion) {
 	throw new Error('Approved source/Flyway identity does not match the current-develop scenario contract.');
 }
+const runtimePreparation = validateRuntimePrepManifest(JSON.parse(readFileSync(RUNTIME_PREP_MANIFEST, 'utf8')), {
+	sourceRevision: EXPECTED_SOURCE_REVISION,
+});
+assertCurrentTooling(runtimePreparation.tooling, SCENARIO_WORKTREE, EXPECTED_SCENARIO_HEAD);
 const composeRuntime = verifyComposeRuntime();
+assertRuntimePreparationMatches(runtimePreparation, composeRuntime);
 const projectLock = `/tmp/faithlog-performance-${composeRuntime.composeProject}.lock`;
 acquireProjectLock(projectLock);
 
@@ -61,6 +71,8 @@ try {
 	if (!semanticEqual(composeRuntime, postLockRuntime)) {
 		throw new Error('Runtime identity changed after project lock.');
 	}
+	assertRuntimePreparationMatches(runtimePreparation, postLockRuntime);
+	assertCurrentTooling(runtimePreparation.tooling, SCENARIO_WORKTREE, EXPECTED_SCENARIO_HEAD);
 	if (existsSync(MANIFEST_PATH)) {
 		throw new Error(`Manifest already exists for FIXTURE_RUN_ID=${FIXTURE_RUN_ID}. Use a new fixtureRunId; existing rows are never reused or cleaned up.`);
 	}
@@ -139,6 +151,7 @@ try {
 		fixtureRunId: FIXTURE_RUN_ID,
 		fixtureRunIdImmutable: true,
 		createdAt: new Date().toISOString(),
+		runtimePreparation,
 		composeRuntime,
 		shapedAt: null,
 		weekStartDate: WEEK_START_DATE,
@@ -575,6 +588,9 @@ function verifyComposeRuntime() {
 	return {
 		composeProject: appProject,
 		sourceRevision: EXPECTED_SOURCE_REVISION,
+		appContainer: APP_CONTAINER,
+		dbContainer: DB_CONTAINER,
+		redisContainer: REDIS_CONTAINER,
 		appService,
 		dbService,
 		redisService,
