@@ -1517,7 +1517,7 @@ Metric candidates:
 - Production commit `93bbe64`는 승인된 두 관리자 캠퍼스 집계 endpoint만 DB projection으로 전환했다. Summary/member page/distinct count는 동일 read-only `REPEATABLE_READ` transaction의 3개 고정 query로 실행된다.
 - 제거한 병목: ACTIVE membership을 순회하는 멤버별 User lookup과 조건에 맞는 전체 `ChargeItem` entity load/JVM group-sum-sort-page. 실행형 Hibernate 통계 테스트에서 두 endpoint의 `ChargeItem` entity load 0과 requester 외 member User load 0을 고정했다.
 - 정합성: 2-transaction/latch 테스트로 `READ_COMMITTED` statement snapshot 불일치를 RED 재현하고 endpoint-local `REPEATABLE_READ`로 GREEN 처리했다. Result/filter/account/archive/9개 승인 sort/page metadata/권한 service 회귀도 통과했다.
-- 검증: focused 23/23, 전체 `./gradlew test`, `./gradlew build`, `./gradlew asciidoctor`, issue-local Node contract 36/36, 모든 JS/MJS `node --check`, `bash -n`, k6 static inspect와 `git diff --check`가 통과했다.
+- 검증: focused 23/23, 현재 전체 test XML tests 561/failures 0/errors 0/skipped 3. PM 독립 `./gradlew build`는 `BUILD SUCCESSFUL in 3m16s`, asciidoctor는 `BUILD SUCCESSFUL in 17s`였고, issue-local Node contract 36/36, 모든 JS/MJS `node --check`, `bash -n`, k6 static inspect와 `git diff --check`가 통과했다.
 - 변경 제외: API/DTO/ErrorCode/REST Docs path와 schema, Flyway, dependency, index, DB write, `listAdminMemberCharges`, MEAL 경로는 변경하지 않았다.
 - 성과 해석: 실제 after는 아직 수집하지 않았다. O before 대비 latency/throughput/CPU/RAM 개선률은 PM integration branch의 동일 조건 after가 채택되기 전까지 이력서 수치로 사용하지 않는다.
 - #194 handoff: `charge_items`의 campus/account/category/status/user filter-group 축과 `campus_members(campus_id,status,user_id)` 후보를 실제 PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)`로 검증한다. 이번 브랜치에는 index/Flyway가 없다.

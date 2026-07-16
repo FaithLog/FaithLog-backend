@@ -236,4 +236,6 @@ Commit `93bbe64`는 `listAdminCampusCharges`와 `listAdminCampusChargesForMyAcco
 
 API path/query/response/page metadata, 권한, #200 owned-account scope, 1개월 archive cutoff와 #206 charge-item ordering 계약은 변경하지 않았다. `listAdminMemberCharges`, MEAL 경로, Flyway, dependency, schema와 index도 변경하지 않았다. After 측정은 아직 실행하지 않았고 PM integration branch의 동일 조건 순차 측정 전까지 개선 성과 수치로 보고하지 않는다.
 
+PM 독립 검증에서 전체 build는 `BUILD SUCCESSFUL in 3m16s`, asciidoctor는 `BUILD SUCCESSFUL in 17s`였고, 현재 test XML 집계는 tests 561, failures 0, errors 0, skipped 3이다. Scenario/runner Node contract는 36/36이며 issue-local node check와 diff check도 통과했다.
+
 #194에는 실제 PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)`로만 채택할 후보로 `charge_items`의 campus/account/category/status/user filter-group 축과 `campus_members(campus_id, status, user_id)`를 전달한다. 이번 브랜치에는 index/Flyway를 추가하지 않는다.

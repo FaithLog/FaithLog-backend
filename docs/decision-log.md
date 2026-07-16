@@ -874,3 +874,4 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 금액 projection은 long으로 보존한 뒤 기존 API int 경계에서 exact 변환하고 overflow는 fail-fast한다. Nullable latest-created projection과 기존 primary 방향 + userId asc tie 계약을 유지한다.
 - Issue #193에서는 index/Flyway/dependency/schema/API 변경을 금지한다. index 후보와 PostgreSQL EXPLAIN 실행계획은 #194 통합 단계에만 전달한다.
 - After 성능 측정은 개별 branch에서 실행하지 않고 PM integration branch에서 before와 동일 조건으로 수행한다. 그 전에는 production 구현 완료를 성능 개선 수치로 해석하지 않는다.
+- PM 독립 검증은 전체 build `BUILD SUCCESSFUL in 3m16s`, asciidoctor `BUILD SUCCESSFUL in 17s`, Node scenario/runner 36/36, issue-local node/diff check 통과를 확인했다. 현재 test XML은 tests 561, failures 0, errors 0, skipped 3이다.
