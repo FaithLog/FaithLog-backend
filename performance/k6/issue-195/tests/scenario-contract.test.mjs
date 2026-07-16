@@ -626,7 +626,8 @@ test('current develop page, archive, permission, RLS, and ordering drift is expl
 	assert.match(dutyService, /findActiveWithActiveMemberByCampusIdOrderByIdAsc/);
 	assert.match(dutyService, /campusAccessPolicy\.getUsers\(/);
 	assert.match(memberService, /findByCampusIdAndStatusOrderByIdAsc[\s\S]*CampusMemberStatus\.ACTIVE/);
-	assert.match(memberService, /getUserOrThrow\(member\.userId\(\)\)/);
+	assert.match(memberService, /campusAccessPolicy\.getUsers\(/);
+	assert.doesNotMatch(memberService, /getUserOrThrow\(member\.userId\(\)\)/);
 	assert.match(memberRepository, /findByCampusIdAndStatusOrderByIdAsc/);
 	assert.match(dutyRepository, /findActiveWithActiveMemberByCampusIdOrderByIdAsc/);
 	assert.match(dutyRepository, /order by assignment\.id asc/);
@@ -641,7 +642,7 @@ test('current develop page, archive, permission, RLS, and ordering drift is expl
 		includeArchivedSupported: false,
 		dutyDefaultStaleOnly: false,
 		dutyUserLookup: 'bulk-current-develop',
-		campusMemberUserLookup: 'per-member-current-develop',
+		campusMemberUserLookup: 'bulk-post-g-optimization',
 		rlsJdbcBoundary: 'owner-jdbc-no-force-rls-runtime-verification-required',
 		stableOrdering: 'explicit-id-asc; issue-206-billing-tie-break-not-applicable',
 	});

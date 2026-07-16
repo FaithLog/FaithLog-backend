@@ -22,7 +22,7 @@
     "includeArchivedSupported": false,
     "dutyDefaultStaleOnly": false,
     "dutyUserLookup": "bulk-current-develop",
-    "campusMemberUserLookup": "per-member-current-develop",
+    "campusMemberUserLookup": "bulk-post-g-optimization",
     "rlsJdbcBoundary": "owner-jdbc-no-force-rls-runtime-verification-required",
     "stableOrdering": "explicit-id-asc; issue-206-billing-tie-break-not-applicable"
   },
