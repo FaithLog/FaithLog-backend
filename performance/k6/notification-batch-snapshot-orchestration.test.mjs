@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -72,6 +72,7 @@ test('snapshot and restore receipts prove one capture and eleven equivalent star
 			snapshotDatabase: 15,
 			keyCount: '12',
 			stateSha1: 'c'.repeat(40),
+			ttlIntentSha1: 'e'.repeat(40),
 		},
 		credentialRecorded: false,
 		automaticAdoption: false,
@@ -131,6 +132,22 @@ test('snapshot and restore receipts prove one capture and eleven equivalent star
 		plan,
 		restores: restores.slice(0, 5),
 	}), /restore|count|sequence/i);
+	const tamperedTtl = structuredClone(restores);
+	tamperedTtl[3].redis.ttlIntentSha1 = 'f'.repeat(40);
+	assert.throws(() => contract.validateSnapshotSequence({
+		snapshot,
+		snapshotReceiptSha256,
+		plan,
+		restores: tamperedTtl,
+	}), /Redis|TTL|snapshot|state/i);
+	const missingTtl = structuredClone(restores);
+	delete missingTtl[3].redis.ttlIntentSha1;
+	assert.throws(() => contract.validateSnapshotSequence({
+		snapshot,
+		snapshotReceiptSha256,
+		plan,
+		restores: missingTtl,
+	}), /Redis|TTL|snapshot|state/i);
 });
 
 test('k6 v2 metrics, PostgreSQL Redis evidence, and Docker resources stay strict', async () => {
@@ -218,6 +235,7 @@ test('fake full run prepares once, captures once, restores before every sample, 
 			prepareCanonicalFixture: async ({ manifestPath, childEnvironment }) => {
 				actions.push('fixture:canonical');
 				childEnvironments.push(childEnvironment);
+				mkdirSync(join(manifestPath, '..'), { recursive: true });
 				writeFileSync(manifestPath, `${JSON.stringify({
 					datasetId: 'PERFORMANCE_198_FAKE', fixtureRunId: 'issue198-fake-full-a-fixture',
 					sampleKind: 'canonical', composeProject: 'faithlog-perf-198-before',
@@ -233,10 +251,10 @@ test('fake full run prepares once, captures once, restores before every sample, 
 				childEnvironments.push(childEnvironment);
 				writeFileSync(outputPath, `${JSON.stringify({
 					schemaVersion: 1,
-					snapshotId: 'snapshot-a',
+					snapshotId: childEnvironment.PERF_SNAPSHOT_ID,
 					composeProject: 'faithlog-perf-198-before',
 					postgres: { database: 'faithlog', dumpSha256: 'a'.repeat(64), dumpBytes: '1', cardinality: { userFcmTokens: '1000', notificationLogs: '0' }, stateSha256: 'b'.repeat(64) },
-					redis: { database: 0, snapshotDatabase: 15, keyCount: '10', stateSha1: 'c'.repeat(40) },
+					redis: { database: 0, snapshotDatabase: 15, keyCount: '10', stateSha1: 'c'.repeat(40), ttlIntentSha1: 'e'.repeat(40) },
 					credentialRecorded: false,
 					automaticAdoption: false,
 				})}\n`, { flag: 'wx' });
@@ -297,7 +315,9 @@ test('fake full run prepares once, captures once, restores before every sample, 
 			actualComposeProject: 'faithlog-perf-198-before',
 			baseChildEnvironment: { PATH: process.env.PATH, POSTGRES_PASSWORD: 'secret' },
 		}, {
-			prepareCanonicalFixture: async ({ manifestPath }) => writeFileSync(manifestPath, `${JSON.stringify({
+			prepareCanonicalFixture: async ({ manifestPath }) => {
+				mkdirSync(join(manifestPath, '..'), { recursive: true });
+				writeFileSync(manifestPath, `${JSON.stringify({
 				datasetId: 'PERFORMANCE_198_FAKE', fixtureRunId: 'issue198-fake-drift-a-fixture',
 				sampleKind: 'canonical', composeProject: 'faithlog-perf-198-before',
 				postgresDatabase: 'faithlog', campusId: 198, memberCount: 1000,
@@ -305,8 +325,15 @@ test('fake full run prepares once, captures once, restores before every sample, 
 				inactiveCount: 100, noTokenCount: 100, mixedTokenUserCount: 1,
 				insertedDummyTokenCount: 901,
 				fixturePolicy: 'dummy-token-and-generated-log-only', credentialRecorded: false,
-			})}\n`, { flag: 'wx' }),
-			captureSnapshot: async ({ outputPath }) => writeFileSync(outputPath, readFileSync(join(temporaryRoot, 'issue198-fake-full-a', 'snapshot-receipt.json')), { flag: 'wx' }),
+			})}\n`, { flag: 'wx' });
+			},
+			captureSnapshot: async ({ outputPath, childEnvironment }) => {
+				const preserved = JSON.parse(readFileSync(join(temporaryRoot, 'orchestrations', 'issue198-fake-full-a', 'snapshot-receipt.json'), 'utf8'));
+				writeFileSync(outputPath, `${JSON.stringify({
+					...preserved,
+					snapshotId: childEnvironment.PERF_SNAPSHOT_ID,
+				})}\n`, { flag: 'wx' });
+			},
 			restoreSnapshot: async ({ outputPath, sample, restoreOrdinal, snapshot, snapshotReceiptSha256 }) => writeFileSync(outputPath, `${JSON.stringify({
 				schemaVersion: 1, snapshotId: snapshot.snapshotId, snapshotReceiptSha256,
 				composeProject: snapshot.composeProject, restoreOrdinal, sampleKind: sample.sampleKind,
@@ -318,7 +345,7 @@ test('fake full run prepares once, captures once, restores before every sample, 
 		}), /snapshot|state|drift/i);
 		assert.equal(runCount, 1, 'the first restore drift must prevent its sample and every later sample');
 		const rejection = JSON.parse(readFileSync(join(
-			temporaryRoot, 'issue198-fake-drift-a', 'first-rejection.json',
+			temporaryRoot, 'orchestrations', 'issue198-fake-drift-a', 'first-rejection.json',
 		), 'utf8'));
 		assert.equal(rejection.automaticAdoption, false);
 		assert.equal(rejection.stage, 'snapshot-restore');
