@@ -111,6 +111,7 @@ function manifestRuntime(project = 'approved', overrides = {}) {
 function faithlogTargetEnv() {
 	return {
 		...approvedTargetEnv(), APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', REDIS_CONTAINER: 'faithlog-redis',
+		PERF_MAINTENANCE_QUIET_SECONDS: '30',
 		PERF_QUIESCENCE_TIMEOUT_SECONDS: '180',
 		EXPECTED_APP_IMAGE: 'faithlog-latest', EXPECTED_APP_IMAGE_ID: 'sha256:contract',
 		EXPECTED_DB_IMAGE: 'postgres:17', EXPECTED_DB_IMAGE_ID: 'sha256:db',
@@ -937,6 +938,7 @@ test('runner rejects every missing target identity before inspect or login', () 
 			PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
 			PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'secret',
 			SAMPLING_INTERVAL_SECONDS: '1', SAMPLING_MAX_GAP_SECONDS: '2',
+			PERF_MAINTENANCE_QUIET_SECONDS: '30',
 			PERF_QUIESCENCE_TIMEOUT_SECONDS: '180',
 		};
 		for (const missing of Object.keys(approvedTargetEnv())) {
@@ -1316,7 +1318,12 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		writeFileSync(join(bin, 'k6'), [
 			'#!/usr/bin/env bash',
 			'if [[ -n "${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}" ]]; then echo k6-credential-leak >> "' + calls + '"; fi',
-			'if [[ -z "${PERF_ADMIN_ACCESS_TOKEN:-}" || -z "${PERF_MEMBER_ACCESS_TOKEN:-}" || -z "${PERF_COFFEE_CREATOR_ACCESS_TOKEN:-}" || -z "${PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN:-}" || -z "${PERF_MEAL_DUTY_ACCESS_TOKEN:-}" ]]; then echo k6-token-missing >> "' + calls + '"; fi',
+			'if [[ -n "${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}${PERF_COFFEE_CREATOR_ACCESS_TOKEN+x}${PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN+x}${PERF_MEAL_DUTY_ACCESS_TOKEN+x}" ]]; then echo k6-token-env-leak >> "' + calls + '"; fi',
+			'if [[ "$*" == *"x.eyJleHAiOjQxMDI0NDQ4MDB9.x"* ]]; then echo k6-token-argv-leak >> "' + calls + '"; fi',
+			'credentials_file=""; for arg in "$@"; do case "$arg" in CREDENTIALS_FILE=*) credentials_file="${arg#CREDENTIALS_FILE=}" ;; esac; done',
+			'if [[ -z "$credentials_file" || ! -f "$credentials_file" || "$(stat -f %Lp "$credentials_file")" != 600 || "$(stat -f %Lp "$(dirname "$credentials_file")")" != 700 ]]; then echo k6-credentials-file-bad >> "' + calls + '"; fi',
+			'for key in admin member coffeeCreator otherCoffeeDuty mealDuty; do grep -q "\\\"$key\\\":" "$credentials_file" || echo k6-credentials-schema-bad >> "' + calls + '"; done',
+			'echo "credentials-file:$credentials_file" >> "' + calls + '"',
 			`echo warmup-k6 >> "${calls}"`, 'exit 42', '',
 		].join('\n'));
 		for (const command of ['docker', 'k6', 'node']) chmodSync(join(bin, command), 0o755);
@@ -1336,7 +1343,15 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		const observed = readFileSync(calls, 'utf8').trim().split(/\r?\n/);
 		assert.equal(observed.filter((line) => line === 'warmup-k6').length, 1, 'measured k6 must not start');
 		assert.equal(observed.filter((line) => line === 'login').length, 5, 'only warmup actor tokens are issued');
-		assert.equal(observed.some((line) => line.includes('credential-leak') || line.includes('token-missing') || line.startsWith('docker-unexpected')), false);
+		assert.equal(observed.some((line) => line.includes('credential-leak') || line.includes('token-')
+			|| line.includes('credentials-file-bad') || line.includes('credentials-schema-bad')
+			|| line.startsWith('docker-unexpected')), false);
+		const credentialsPaths = observed.filter((line) => line.startsWith('credentials-file:')).map((line) => line.slice('credentials-file:'.length));
+		assert.equal(credentialsPaths.length, 1);
+		for (const path of credentialsPaths) {
+			assert.equal(existsSync(path), false, 'warmup credentials file must be deleted on child failure');
+			assert.equal(existsSync(dirname(path)), false, '0700 runtime directory must be deleted by EXIT cleanup');
+		}
 		assert.equal(existsSync(join(reportBase, executionRunId, 'prayer', 'prayer_current_season', 'db-before.json')), false);
 	} finally {
 		rmSync(reportBase, { recursive: true, force: true });
@@ -1433,9 +1448,13 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		writeFileSync(join(bin, 'k6'), [
 			'#!/usr/bin/env bash',
 			`if [[ -n "${'${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}'}" ]]; then echo k6-scope-bad >> "${calls}"; fi`,
-			`if [[ -z "${'${PERF_ADMIN_ACCESS_TOKEN:-}'}" || -z "${'${PERF_MEMBER_ACCESS_TOKEN:-}'}" || -z "${'${PERF_COFFEE_CREATOR_ACCESS_TOKEN:-}'}" || -z "${'${PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN:-}'}" || -z "${'${PERF_MEAL_DUTY_ACCESS_TOKEN:-}'}" ]]; then echo k6-token-missing >> "${calls}"; fi`,
+			`if [[ -n "${'${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}${PERF_COFFEE_CREATOR_ACCESS_TOKEN+x}${PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN+x}${PERF_MEAL_DUTY_ACCESS_TOKEN+x}'}" ]]; then echo k6-scope-bad >> "${calls}"; fi`,
+			`if [[ "$*" == *"x.eyJleHAiOjQxMDI0NDQ4MDB9.x"* ]]; then echo k6-scope-bad >> "${calls}"; fi`,
 			`count=$(cat "${k6Count}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${k6Count}"`,
-			'summary=""; while (( $# > 0 )); do if [[ "$1" == --summary-export ]]; then summary="$2"; shift 2; else shift; fi; done',
+			'credentials_file=""; summary=""; while (( $# > 0 )); do if [[ "$1" == --summary-export ]]; then summary="$2"; shift 2; elif [[ "$1" == -e && "$2" == CREDENTIALS_FILE=* ]]; then credentials_file="${2#CREDENTIALS_FILE=}"; shift 2; else shift; fi; done',
+			`if [[ -z "$credentials_file" || ! -f "$credentials_file" || "$(stat -f %Lp "$credentials_file")" != 600 || "$(stat -f %Lp "$(dirname "$credentials_file")")" != 700 ]]; then echo k6-scope-bad >> "${calls}"; fi`,
+			`for key in admin member coffeeCreator otherCoffeeDuty mealDuty; do grep -q "\\\"$key\\\":" "$credentials_file" || echo k6-scope-bad >> "${calls}"; done`,
+			`echo "credentials-file:$credentials_file" >> "${calls}"`,
 			'mkdir -p "$(dirname "${summary}")"',
 			`if (( count == 3 )); then echo second-warmup-stop >> "${calls}"; exit 42; fi`,
 			`if (( count == 1 )); then printf '%s\\n' '{}' > "${'${summary}'}"; echo warmup-k6 >> "${calls}"; exit 0; fi`,
@@ -1462,7 +1481,13 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		for (const marker of ['warmup-k6', 'measured-k6', 'db-collector', 'metadata-child', 'summarizer-child']) {
 			assert.ok(observed.includes(marker), `missing fake orchestration marker ${marker}; stdout=${result.stdout}; stderr=${result.stderr}; observed=${observed.join(',')}`);
 		}
-		assert.equal(observed.some((line) => line.endsWith('scope-bad') || line === 'k6-token-missing' || line.startsWith('docker-unexpected')), false);
+		assert.equal(observed.some((line) => line.endsWith('scope-bad') || line.startsWith('docker-unexpected')), false);
+		const credentialsPaths = observed.filter((line) => line.startsWith('credentials-file:')).map((line) => line.slice('credentials-file:'.length));
+		assert.ok(credentialsPaths.length >= 2, 'warmup and measured phases must each receive a credentials file');
+		for (const path of credentialsPaths) {
+			assert.equal(existsSync(path), false, 'phase credentials file must be deleted after k6 exits');
+			assert.equal(existsSync(dirname(path)), false, 'runtime credentials directory must be removed on runner exit');
+		}
 		const reportPath = join(reportBase, executionRunId, 'prayer', 'prayer_current_season', 'report.json');
 		assert.equal(existsSync(reportPath), true, `missing report: stdout=${result.stdout}; stderr=${result.stderr}; calls=${observed.join(',')}`);
 		const report = JSON.parse(readFileSync(reportPath, 'utf8'));

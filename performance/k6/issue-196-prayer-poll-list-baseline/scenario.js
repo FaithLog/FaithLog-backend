@@ -3,19 +3,14 @@ import { check, fail } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 
 const BASE_URL = requiredEnv('BASE_URL').replace(/\/$/, '');
+const PHASE = requiredEnv('PHASE');
 const MODE = __ENV.MODE;
 const ENDPOINT = __ENV.ENDPOINT;
 const VUS = Number(__ENV.VUS);
 const DURATION = __ENV.DURATION;
-const PERF_ADMIN_EMAIL = __ENV.PERF_ADMIN_EMAIL;
-const PERF_ADMIN_PASSWORD = __ENV.PERF_ADMIN_PASSWORD;
-const PERF_MEMBER_PASSWORD = __ENV.PERF_MEMBER_PASSWORD;
-const PERF_ADMIN_ACCESS_TOKEN = __ENV.PERF_ADMIN_ACCESS_TOKEN;
-const PERF_MEMBER_ACCESS_TOKEN = __ENV.PERF_MEMBER_ACCESS_TOKEN;
-const PERF_COFFEE_CREATOR_ACCESS_TOKEN = __ENV.PERF_COFFEE_CREATOR_ACCESS_TOKEN;
-const PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN = __ENV.PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN;
-const PERF_MEAL_DUTY_ACCESS_TOKEN = __ENV.PERF_MEAL_DUTY_ACCESS_TOKEN;
-const FIXTURE_MANIFEST = __ENV.FIXTURE_MANIFEST;
+const FIXTURE_MANIFEST = requiredEnv('FIXTURE_MANIFEST');
+requiredEnv('CREDENTIALS_FILE');
+const RUNTIME_CREDENTIALS = JSON.parse(open(__ENV.CREDENTIALS_FILE));
 const EXPECTED_SOURCE_REVISION = requiredEnv('EXPECTED_SOURCE_REVISION');
 const EXPECTED_APP_SERVICE = requiredEnv('EXPECTED_APP_SERVICE');
 const EXPECTED_DB_SERVICE = requiredEnv('EXPECTED_DB_SERVICE');
@@ -43,6 +38,10 @@ if (!manifest.shapedAt) {
 if (!Number.isInteger(VUS) || VUS < 1 || !DURATION) {
 	fail('VUS and DURATION must be explicitly supplied by the approved measurement run.');
 }
+if (!['warmup', 'measured'].includes(PHASE)) {
+	fail('PHASE must be warmup or measured.');
+}
+validateRuntimeCredentials();
 
 const metricName = ENDPOINT ? ENDPOINT.replace(/-/g, '_') : 'invalid_endpoint';
 const endpointDuration = new Trend(`endpoint_${metricName}_duration`, true);
@@ -66,23 +65,11 @@ export const options = {
 export function setup() {
 	guardTarget();
 	guardRuntimeManifest();
-	if (!PERF_ADMIN_ACCESS_TOKEN && (!PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD)) {
-		fail('Provide PERF_ADMIN_ACCESS_TOKEN or runtime-only PERF_ADMIN_EMAIL and PERF_ADMIN_PASSWORD.');
-	}
-	if (!PERF_MEMBER_ACCESS_TOKEN && !PERF_MEMBER_PASSWORD) {
-		fail('Provide PERF_MEMBER_ACCESS_TOKEN or runtime-only PERF_MEMBER_PASSWORD.');
-	}
 	const config = endpointConfig();
 	if (config.mode !== MODE) {
 		fail(`ENDPOINT=${ENDPOINT} belongs to ${config.mode}, not MODE=${MODE}.`);
 	}
-	return {
-		adminToken: PERF_ADMIN_ACCESS_TOKEN || login(PERF_ADMIN_EMAIL, PERF_ADMIN_PASSWORD),
-		memberToken: PERF_MEMBER_ACCESS_TOKEN || login(manifest.primaryCampus.memberActor.email, PERF_MEMBER_PASSWORD),
-		coffeeCreatorToken: PERF_COFFEE_CREATOR_ACCESS_TOKEN || login(manifest.primaryCampus.coffeeCreator.email, PERF_MEMBER_PASSWORD),
-		otherCoffeeDutyToken: PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN || login(manifest.primaryCampus.otherCoffeeDuty.email, PERF_MEMBER_PASSWORD),
-		mealDutyToken: PERF_MEAL_DUTY_ACCESS_TOKEN || login(manifest.primaryCampus.mealDuty.email, PERF_MEMBER_PASSWORD),
-	};
+	return { fixtureRunId: manifest.fixtureRunId, phase: PHASE, mode: MODE, endpoint: ENDPOINT };
 }
 
 function guardRuntimeManifest() {
@@ -97,9 +84,9 @@ function guardRuntimeManifest() {
 	}
 }
 
-export default function (tokens) {
+export default function () {
 	const config = endpointConfig();
-	const token = tokens[`${config.actor}Token`];
+	const token = RUNTIME_CREDENTIALS.tokens[config.actor];
 	if (!token) fail(`Missing token for actor=${config.actor}.`);
 	const response = http.get(`${BASE_URL}${config.path}`, {
 		headers: { Authorization: `Bearer ${token}` },
@@ -118,6 +105,22 @@ export default function (tokens) {
 	check(response, {
 		[`${ENDPOINT} status and correctness contract`]: () => valid,
 	});
+}
+
+function validateRuntimeCredentials() {
+	const rootKeys = ['fixtureRunId', 'phase', 'schemaVersion', 'tokens'];
+	const tokenKeys = ['admin', 'coffeeCreator', 'mealDuty', 'member', 'otherCoffeeDuty'];
+	if (!RUNTIME_CREDENTIALS || typeof RUNTIME_CREDENTIALS !== 'object' || Array.isArray(RUNTIME_CREDENTIALS)
+		|| Object.keys(RUNTIME_CREDENTIALS).sort().join(',') !== rootKeys.join(',')
+		|| RUNTIME_CREDENTIALS.schemaVersion !== 1
+		|| RUNTIME_CREDENTIALS.fixtureRunId !== manifest.fixtureRunId
+		|| RUNTIME_CREDENTIALS.phase !== PHASE
+		|| !RUNTIME_CREDENTIALS.tokens || typeof RUNTIME_CREDENTIALS.tokens !== 'object' || Array.isArray(RUNTIME_CREDENTIALS.tokens)
+		|| Object.keys(RUNTIME_CREDENTIALS.tokens).sort().join(',') !== tokenKeys.join(',')
+		|| !tokenKeys.every((key) => typeof RUNTIME_CREDENTIALS.tokens[key] === 'string'
+			&& RUNTIME_CREDENTIALS.tokens[key].length > 0)) {
+		fail('CREDENTIALS_FILE must contain the exact five-token runtime schema for this fixture and phase.');
+	}
 }
 
 function endpointConfig() {
@@ -556,18 +559,6 @@ function sameInstant(actual, expected) {
 	return Number.isFinite(Date.parse(actual))
 		&& Number.isFinite(Date.parse(expected))
 		&& Date.parse(actual) === Date.parse(expected);
-}
-
-function login(email, password) {
-	const response = http.post(`${BASE_URL}/api/v1/auth/login`, JSON.stringify({ email, password }), {
-		headers: { 'Content-Type': 'application/json' },
-		tags: { name: 'setup_auth_login', mode: MODE },
-	});
-	const payload = parseJson(response);
-	if (response.status !== 200 || !payload.data?.accessToken) {
-		fail(`Login failed for scenario actor: status=${response.status}`);
-	}
-	return payload.data.accessToken;
 }
 
 function parseJson(response) {

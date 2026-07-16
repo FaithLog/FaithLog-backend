@@ -29,6 +29,7 @@ MEASURED_VUS="${MEASURED_VUS:?MEASURED_VUS must be explicitly approved and suppl
 MEASURED_DURATION="${MEASURED_DURATION:?MEASURED_DURATION must be explicitly approved and supplied}"
 SAMPLING_INTERVAL_SECONDS="${SAMPLING_INTERVAL_SECONDS:?SAMPLING_INTERVAL_SECONDS requires explicit user approval}"
 SAMPLING_MAX_GAP_SECONDS="${SAMPLING_MAX_GAP_SECONDS:?SAMPLING_MAX_GAP_SECONDS requires explicit user approval}"
+PERF_MAINTENANCE_QUIET_SECONDS="${PERF_MAINTENANCE_QUIET_SECONDS:?PERF_MAINTENANCE_QUIET_SECONDS is required at runtime}"
 PERF_QUIESCENCE_TIMEOUT_SECONDS="${PERF_QUIESCENCE_TIMEOUT_SECONDS:?PERF_QUIESCENCE_TIMEOUT_SECONDS is required at runtime}"
 PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL:?PERF_ADMIN_EMAIL is required at runtime}"
 PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?PERF_ADMIN_PASSWORD is required at runtime}"
@@ -74,13 +75,15 @@ for command in node k6 docker lsof; do
 	command -v "${command}" >/dev/null || { echo "Missing command: ${command}" >&2; exit 1; }
 done
 SAMPLING_INTERVAL_VALUE="${SAMPLING_INTERVAL_SECONDS}" SAMPLING_MAX_GAP_VALUE="${SAMPLING_MAX_GAP_SECONDS}" \
+	MAINTENANCE_QUIET_VALUE="${PERF_MAINTENANCE_QUIET_SECONDS}" \
 	QUIESCENCE_TIMEOUT_VALUE="${PERF_QUIESCENCE_TIMEOUT_SECONDS}" node -e '
 	const interval = Number(process.env.SAMPLING_INTERVAL_VALUE);
 	const maxGap = Number(process.env.SAMPLING_MAX_GAP_VALUE);
+	const quiet = Number(process.env.MAINTENANCE_QUIET_VALUE);
 	const timeout = Number(process.env.QUIESCENCE_TIMEOUT_VALUE);
 	if (!Number.isFinite(interval) || interval <= 0 || !Number.isFinite(maxGap) || maxGap < interval
-		|| !Number.isFinite(timeout) || timeout < maxGap) process.exit(1);
-' || { echo "Sampling values must be positive and max gap must be at least the interval." >&2; exit 1; }
+		|| quiet !== 30 || timeout !== 180) process.exit(1);
+' || { echo "Sampling values or the approved 30/180 maintenance quiet contract are invalid." >&2; exit 1; }
 [[ -f "${FIXTURE_MANIFEST}" ]] || { echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2; exit 1; }
 node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 [[ "${BASE_URL}" =~ ^http://(127\.0\.0\.1|\[::1\])(:[0-9]+)?$ ]] \
@@ -227,7 +230,18 @@ if ! mkdir "${PERF_PROJECT_LOCK}" 2>/dev/null; then
 	echo "Another seed or load run owns ${PERF_PROJECT_LOCK}. Parallel execution is forbidden." >&2
 	exit 1
 fi
-trap 'rmdir "${PERF_PROJECT_LOCK}" 2>/dev/null || true' EXIT
+credential_runtime_dir=''
+
+cleanup_runtime_credentials() {
+	if [[ -n "${credential_runtime_dir}" ]]; then
+		rm -f -- "${credential_runtime_dir}"/*.json
+		rmdir "${credential_runtime_dir}" 2>/dev/null || true
+	fi
+	rmdir "${PERF_PROJECT_LOCK}" 2>/dev/null || true
+}
+
+trap cleanup_runtime_credentials EXIT
+trap 'exit 130' INT TERM
 
 assert_runtime_continuity() {
 	local current_database_identity
@@ -304,6 +318,8 @@ if [[ -e "${REPORT_ROOT}" ]]; then
 	exit 1
 fi
 mkdir "${REPORT_ROOT}"
+credential_runtime_dir="$(mktemp -d /tmp/faithlog-196-credentials.XXXXXX)"
+chmod 700 "${credential_runtime_dir}"
 
 app_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${APP_CONTAINER}")"
 spring_application_assignment="$(grep '^SPRING_APPLICATION_JSON=' <<<"${app_environment}")"
@@ -337,6 +353,36 @@ login_token() {
 	'
 }
 
+write_credentials_file() {
+	local output="$1"
+	local phase="$2"
+	TOKEN_ADMIN="$3" TOKEN_MEMBER="$4" TOKEN_COFFEE_CREATOR="$5" \
+		TOKEN_OTHER_COFFEE_DUTY="$6" TOKEN_MEAL_DUTY="$7" \
+		CREDENTIALS_OUTPUT="${output}" CREDENTIALS_PHASE="${phase}" CREDENTIALS_FIXTURE_RUN_ID="${FIXTURE_RUN_ID}" \
+		node -e '
+			const fs = require("node:fs");
+			const tokens = {
+				admin: process.env.TOKEN_ADMIN,
+				member: process.env.TOKEN_MEMBER,
+				coffeeCreator: process.env.TOKEN_COFFEE_CREATOR,
+				otherCoffeeDuty: process.env.TOKEN_OTHER_COFFEE_DUTY,
+				mealDuty: process.env.TOKEN_MEAL_DUTY,
+			};
+			if (!Object.values(tokens).every((value) => typeof value === "string" && value.length > 0)) process.exit(1);
+			fs.writeFileSync(process.env.CREDENTIALS_OUTPUT, `${JSON.stringify({
+				schemaVersion: 1,
+				fixtureRunId: process.env.CREDENTIALS_FIXTURE_RUN_ID,
+				phase: process.env.CREDENTIALS_PHASE,
+				tokens,
+			})}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+		'
+	chmod 600 "${output}"
+}
+
+remove_credentials_file() {
+	rm -f -- "$1"
+}
+
 snapshot_db_tables() {
 	local output="$1"
 	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -i -e PGPASSWORD "${DB_CONTAINER}" \
@@ -360,7 +406,7 @@ wait_for_database_quiescence() {
 		capture_database_quiescence "${output}"
 		set +e
 		node "${VALIDATE_DB_QUIESCENCE}" "${output}" \
-			"${SAMPLING_INTERVAL_SECONDS}" "${SAMPLING_MAX_GAP_SECONDS}" "${PERF_QUIESCENCE_TIMEOUT_SECONDS}" \
+			"${SAMPLING_INTERVAL_SECONDS}" "${PERF_MAINTENANCE_QUIET_SECONDS}" "${PERF_QUIESCENCE_TIMEOUT_SECONDS}" \
 			> "${status_file}"
 		status=$?
 		set -e
@@ -500,6 +546,8 @@ run_endpoint() {
 	local integrity_file="${endpoint_dir}/runtime-integrity.jsonl"
 	local metadata_file="${endpoint_dir}/runtime-metadata.json"
 	local report_file="${endpoint_dir}/report.json"
+	local warmup_credentials_file="${credential_runtime_dir}/${mode}-${endpoint}-warmup.json"
+	local measured_credentials_file="${credential_runtime_dir}/${mode}-${endpoint}-measured.json"
 	local admin_token
 	local member_token
 	local coffee_creator_token
@@ -542,6 +590,13 @@ run_endpoint() {
 	validate_token_lifetime "${coffee_creator_token}" "${WARMUP_DURATION}"
 	validate_token_lifetime "${other_coffee_duty_token}" "${WARMUP_DURATION}"
 	validate_token_lifetime "${meal_duty_token}" "${WARMUP_DURATION}"
+	write_credentials_file "${warmup_credentials_file}" warmup \
+		"${admin_token}" "${member_token}" "${coffee_creator_token}" "${other_coffee_duty_token}" "${meal_duty_token}"
+	admin_token=''
+	member_token=''
+	coffee_creator_token=''
+	other_coffee_duty_token=''
+	meal_duty_token=''
 	set +e
 	env -u PERF_ADMIN_EMAIL -u PERF_ADMIN_PASSWORD -u PERF_MEMBER_PASSWORD \
 	-u PERF_DB_USER -u PERF_DB_NAME -u PERF_DB_PASSWORD \
@@ -552,17 +607,19 @@ run_endpoint() {
 	EXPECTED_APP_IMAGE="${EXPECTED_APP_IMAGE}" EXPECTED_APP_IMAGE_ID="${EXPECTED_APP_IMAGE_ID}" \
 	EXPECTED_DB_IMAGE="${EXPECTED_DB_IMAGE}" EXPECTED_DB_IMAGE_ID="${EXPECTED_DB_IMAGE_ID}" \
 	EXPECTED_REDIS_IMAGE="${EXPECTED_REDIS_IMAGE}" EXPECTED_REDIS_IMAGE_ID="${EXPECTED_REDIS_IMAGE_ID}" \
-	PERF_ADMIN_ACCESS_TOKEN="${admin_token}" PERF_MEMBER_ACCESS_TOKEN="${member_token}" \
-	PERF_COFFEE_CREATOR_ACCESS_TOKEN="${coffee_creator_token}" \
-	PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN="${other_coffee_duty_token}" PERF_MEAL_DUTY_ACCESS_TOKEN="${meal_duty_token}" \
-		k6 run --summary-export "${warmup_summary_file}" "${SCENARIO_FILE}"
+		k6 run \
+			-e "BASE_URL=${BASE_URL}" \
+			-e "FIXTURE_MANIFEST=${FIXTURE_MANIFEST}" \
+			-e "CREDENTIALS_FILE=${warmup_credentials_file}" \
+			-e "PHASE=warmup" \
+			-e "MODE=${mode}" \
+			-e "ENDPOINT=${endpoint}" \
+			-e "VUS=${WARMUP_VUS}" \
+			-e "DURATION=${WARMUP_DURATION}" \
+			--summary-export "${warmup_summary_file}" "${SCENARIO_FILE}"
 	warmup_status=$?
 	set -e
-	admin_token=''
-	member_token=''
-	coffee_creator_token=''
-	other_coffee_duty_token=''
-	meal_duty_token=''
+	remove_credentials_file "${warmup_credentials_file}"
 	if (( warmup_status != 0 )); then
 		echo "Warmup failed for ${mode}/${endpoint}; measured phase was not started." >&2
 		return "${warmup_status}"
@@ -583,6 +640,13 @@ run_endpoint() {
 	validate_token_lifetime "${meal_duty_token}" "${MEASURED_DURATION}"
 	capture_logger_probe "${logger_probe_since}" "${logger_probe_file}"
 	wait_for_database_quiescence "${quiescence_file}" "${quiescence_status_file}"
+	write_credentials_file "${measured_credentials_file}" measured \
+		"${admin_token}" "${member_token}" "${coffee_creator_token}" "${other_coffee_duty_token}" "${meal_duty_token}"
+	admin_token=''
+	member_token=''
+	coffee_creator_token=''
+	other_coffee_duty_token=''
+	meal_duty_token=''
 	snapshot_db_tables "${before_file}"
 	: > "${resource_file}"
 	: > "${integrity_file}"
@@ -606,12 +670,16 @@ run_endpoint() {
 	EXPECTED_APP_IMAGE="${EXPECTED_APP_IMAGE}" EXPECTED_APP_IMAGE_ID="${EXPECTED_APP_IMAGE_ID}" \
 	EXPECTED_DB_IMAGE="${EXPECTED_DB_IMAGE}" EXPECTED_DB_IMAGE_ID="${EXPECTED_DB_IMAGE_ID}" \
 	EXPECTED_REDIS_IMAGE="${EXPECTED_REDIS_IMAGE}" EXPECTED_REDIS_IMAGE_ID="${EXPECTED_REDIS_IMAGE_ID}" \
-	PERF_ADMIN_ACCESS_TOKEN="${admin_token}" \
-	PERF_MEMBER_ACCESS_TOKEN="${member_token}" \
-	PERF_COFFEE_CREATOR_ACCESS_TOKEN="${coffee_creator_token}" \
-	PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN="${other_coffee_duty_token}" \
-	PERF_MEAL_DUTY_ACCESS_TOKEN="${meal_duty_token}" \
-		k6 run --summary-export "${summary_file}" "${SCENARIO_FILE}" &
+		k6 run \
+			-e "BASE_URL=${BASE_URL}" \
+			-e "FIXTURE_MANIFEST=${FIXTURE_MANIFEST}" \
+			-e "CREDENTIALS_FILE=${measured_credentials_file}" \
+			-e "PHASE=measured" \
+			-e "MODE=${mode}" \
+			-e "ENDPOINT=${endpoint}" \
+			-e "VUS=${MEASURED_VUS}" \
+			-e "DURATION=${MEASURED_DURATION}" \
+			--summary-export "${summary_file}" "${SCENARIO_FILE}" &
 	k6_pid=$!
 	sample_runtime_integrity "${k6_pid}" "${integrity_file}" &
 	integrity_pid=$!
@@ -619,6 +687,7 @@ run_endpoint() {
 	wait "${k6_pid}"
 	k6_status=$?
 	set -e
+	remove_credentials_file "${measured_credentials_file}"
 	log_until="$(rfc3339_now)"
 	if ! kill -0 "${sampler_pid}" 2>/dev/null; then
 		set +e

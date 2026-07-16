@@ -82,7 +82,8 @@ function validateObservation(observation) {
 function validateContract(contract) {
 	assertExactKeys(contract, ['pollIntervalSeconds', 'quietSeconds', 'timeoutSeconds']);
 	for (const value of Object.values(contract)) if (!Number.isFinite(value) || value <= 0) throw new Error('maintenance quiet contract mismatch');
-	if (contract.quietSeconds < contract.pollIntervalSeconds || contract.timeoutSeconds < contract.quietSeconds) throw new Error('maintenance quiet contract mismatch');
+	if (contract.quietSeconds !== 30 || contract.timeoutSeconds !== 180
+		|| contract.quietSeconds < contract.pollIntervalSeconds) throw new Error('maintenance quiet contract mismatch');
 	return contract;
 }
 
