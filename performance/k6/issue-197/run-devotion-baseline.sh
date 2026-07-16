@@ -320,7 +320,7 @@ stats_file="$report_root/measured-docker-stats.jsonl"
 STATS_STOP_FILE="$report_root/resource-sampler.stop"
 sample_stats_snapshot() {
 	local raw observed_at
-	raw="$(docker stats --no-stream --no-trunc --format '{{.Container}}|{{.CPUPerc}}|{{.MemUsage}}' \
+	raw="$(docker stats --no-stream --no-trunc --format '{{.ID}}|{{.CPUPerc}}|{{.MemUsage}}' \
 		"$app_container_id" "$db_container_id" "$redis_container_id")"
 	observed_at="$(node -e 'process.stdout.write(new Date().toISOString())')"
 	printf '%s\n' "$raw" | node "$SCRIPT_DIR/lib/validate-resource-window.mjs" append-snapshot \
@@ -329,7 +329,7 @@ sample_stats_snapshot() {
 
 sample_stats() {
 	set +o pipefail
-	docker stats --no-trunc --format '{{.Container}}|{{.CPUPerc}}|{{.MemUsage}}' \
+	docker stats --no-trunc --format '{{.ID}}|{{.CPUPerc}}|{{.MemUsage}}' \
 		"$app_container_id" "$db_container_id" "$redis_container_id" | \
 		node "$SCRIPT_DIR/lib/validate-resource-window.mjs" stream-samples \
 			"$stats_file" "$STATS_STOP_FILE" "$RESOURCE_SAMPLE_MAX_GAP_SECONDS" \

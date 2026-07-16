@@ -133,8 +133,9 @@ function parseDockerSnapshot(lines, observedAt, appContainerId, databaseContaine
 	for (const { role, containerId } of bindings) fullContainerId(containerId, `${role}ContainerId`);
 	assert.equal(new Set(bindings.map(({ containerId }) => containerId)).size, ROLES.length, 'Docker snapshot container IDs must be distinct');
 	assert.equal(lines.length, ROLES.length, 'Docker stats snapshot must contain exactly three rows');
+	const normalizedLines = normalizeDockerStatsFraming(lines);
 	const parsedById = new Map();
-	for (const [index, line] of lines.entries()) {
+	for (const [index, line] of normalizedLines.entries()) {
 		assert.equal(typeof line, 'string', `Docker stats row ${index} must be a string`);
 		const fields = line.split('|');
 		assert.equal(fields.length, 3, `Docker stats row ${index} must have container, CPU, and memory fields`);
@@ -146,6 +147,31 @@ function parseDockerSnapshot(lines, observedAt, appContainerId, databaseContaine
 	assert.deepEqual([...parsedById.keys()].sort(), bindings.map(({ containerId }) => containerId).sort(),
 		'Docker stats snapshot must match the exact approved three-container set');
 	return bindings.map(({ role, containerId }) => ({ observedAt, role, containerId, ...parsedById.get(containerId) }));
+}
+
+function normalizeDockerStatsFraming(lines) {
+	const cursorHome = '\u001b[H';
+	const eraseToEndOfLine = '\u001b[K';
+	const framed = lines[0].startsWith(cursorHome);
+	if (!framed) {
+		for (const [index, line] of lines.entries()) assertNoControlBytes(line, `Docker stats row ${index}`);
+		return lines;
+	}
+	assert.ok(lines.slice(1).every((line) => !line.startsWith(cursorHome)),
+		'Docker stats ANSI framing may place CSI cursor-home only at the first snapshot row');
+	assert.ok(lines.every((line) => line.endsWith(eraseToEndOfLine)),
+		'Docker stats ANSI framing must erase to end-of-line on every snapshot row');
+	const normalized = lines.map((line, index) => {
+		const withoutHome = index === 0 ? line.slice(cursorHome.length) : line;
+		return withoutHome.slice(0, -eraseToEndOfLine.length);
+	});
+	for (const [index, line] of normalized.entries()) assertNoControlBytes(line, `Docker stats row ${index}`);
+	return normalized;
+}
+
+function assertNoControlBytes(value, label) {
+	assert.doesNotMatch(value, /[\u0000-\u001f\u007f-\u009f]/,
+		`${label} contains unsupported ANSI framing or control bytes`);
 }
 
 function appendDockerSnapshot(samplesPath, observedAt, lines, ...containerIds) {
