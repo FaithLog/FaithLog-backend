@@ -157,6 +157,47 @@ evidence class는 다음 세 가지다.
 
 현재 inventory는 reconstructed 2개와 synthetic 22개뿐이고 모든 `productionBeforeEligible=false`다. 특히 #193 DB filter/page, #197 두 cleanup DELETE를 합친 read-only count surrogate, #199 dashboard CTE는 합성 candidate로 분리된다. report contract의 production-before activation도 `false`이므로 runner와 `evidence-contract.mjs`는 임의 fingerprint나 reconstructed/synthetic 승격을 실행 전에 거부한다. 실제 Hibernate SQL capture artifact와 실행 SQL shape를 1:1 검증하는 별도 사용자 승인 계약 없이는 activation을 켤 수 없다.
 
+### #193 finding-zero production branch handoff
+
+`perf/193-admin-charge-query-optimization-v2`의 finding-zero revision `01faf929c24746e3a300e40d11171fc7d473954d`에는 `AdminChargeAggregationQueryRepository`가 추가됐다. 이 repository는 한 API 호출의 read-only `REPEATABLE_READ` transaction에서 동일한 동적 criteria로 다음 세 SQL을 순서대로 실행한다.
+
+1. 전체 상태별 금액 `summary`
+2. 회원별 집계·정렬·`limit/offset`의 `member-page`
+3. `count(distinct charge.user_id)`의 `count-distinct`
+
+[`i193-production-candidate-handoff.json`](i193-production-candidate-handoff.json)은 source revision과 4개 production source SHA-256을 고정하고, [`i193-production-candidate-sql.mjs`](i193-production-candidate-sql.mjs)는 repository의 `BASE_FROM`, 동적 predicate 순서, 상태별 합계, 정렬 mapping, empty account scope의 `1 = 0`을 source-derived 형태로 보존한다. 다만 이 코드는 현재 `origin/develop`에 아직 통합되지 않았고 runtime SQL capture도 없으므로 분류는 `exact-production-branch-candidate-not-measured`다. 기존 24개 실행 inventory에 자동 추가되지 않으며 `automaticAdoption=false`, `productionBeforeEligible=false`를 유지한다. 통합 뒤 실제 runtime SQL과 source/hash가 다시 일치한다는 증거 없이 production-before 수치로 사용할 수 없다.
+
+16-case 비교 matrix는 각 API case마다 세 statement를 따로 비교한다. 모든 case는 `size=10`, `sort=createdAt,desc`, `includeArchived=false`이고 page 1만 offset 10이다.
+
+| case | account predicate | 추가 predicate | 비교 SQL |
+| --- | --- | --- | --- |
+| `my_initial_penalty_unpaid` | manager-owned active PENALTY set | category + status | summary/page/count |
+| `my_payment_category` | requester-owned active COFFEE set | category + status | summary/page/count |
+| `my_status` | requester-owned active COFFEE set | category + status | summary/page/count |
+| `my_user_id` | requester-owned active COFFEE set | category + user | summary/page/count |
+| `my_keyword` | requester-owned active COFFEE set | category + leading-wildcard keyword | summary/page/count |
+| `my_payment_account_unknown_param_ignored` | requester-owned active COFFEE set | controller가 account param을 bind하지 않음 | summary/page/count |
+| `my_pagination_page_0` | requester-owned active COFFEE set | page 0 | summary/page/count |
+| `my_pagination_page_1` | requester-owned active COFFEE set | page 1 / offset 10 | summary/page/count |
+| `admin_initial_penalty_unpaid` | predicate 없음 | category + status | summary/page/count |
+| `admin_payment_category` | predicate 없음 | category + status | summary/page/count |
+| `admin_status` | predicate 없음 | category + status | summary/page/count |
+| `admin_user_id` | predicate 없음 | category + user | summary/page/count |
+| `admin_keyword` | predicate 없음 | category + leading-wildcard keyword | summary/page/count |
+| `admin_payment_account` | same-campus singleton | category + account | summary/page/count |
+| `admin_pagination_page_0` | same-campus singleton | page 0 | summary/page/count |
+| `admin_pagination_page_1` | same-campus singleton | page 1 / offset 10 | summary/page/count |
+
+후보는 DDL이 아니라 실제 before plan을 얻은 뒤 사용자에게 제안할 비교축이다.
+
+| 후보 | 기존 index와 중복 | summary / page / count 적용성 | 쓰기·partial 판단 |
+| --- | --- | --- | --- |
+| `charge_items(campus_id, payment_category, status, user_id)` | `uk_charge_items_source(campus_id,user_id,payment_category,source_type,source_id)`와 `campus_id` prefix 및 column 일부 중복 | account 없는 campus/category/status 입력을 좁힐 가능성은 있으나 aggregate, group/order, distinct 비용은 각각 plan으로 확인 | status 변경마다 index rewrite; non-MEAL/status partial은 16 case coverage 증명 전 미승인 |
+| `charge_items(campus_id, payment_account_id, payment_category, status, user_id)` | 기존 unique와 `campus_id` prefix·column 일부 중복, 두 번째 column만 account로 다름 | my-accounts/singleton account에는 후보, account 없는 admin은 campus prefix만 사용 가능; 세 statement를 분리 확인 | 가장 넓은 후보이고 insert/status update 비용이 큼; runtime account ID partial은 불가, non-MEAL partial도 미승인 |
+| `campus_members(campus_id, status, user_id)` | V1 `uk_campus_members_campus_user(campus_id,user_id)`와 강하게 중복 | 기존 unique가 campus+user join probe 뒤 ACTIVE를 filter할 수 있으므로 세 statement 모두 추가 이득을 가정하지 않음 | `conditional-plan-proof-required`; actual plan에서 status 추가 이득과 membership write 비용을 함께 증명할 때만 유지 |
+
+`lower(name/email) LIKE '%keyword%'`는 leading wildcard다. extension 또는 별도 expression/index 설계에 대한 사용자 승인이 없으므로 이번 후보에 포함하지 않는다.
+
 candidate는 검토 기대치일 뿐 DDL 승인이나 성능 개선 결론이 아니다. 특히 아래 Issue #194 후보는 실제 before evidence 후 PM에 제안할 수 있을 뿐, 이 시나리오에서는 생성하지 않는다.
 
 - `polls(status, ends_at, id)`와 `COFFEE + OPEN` partial 방향
@@ -193,7 +234,8 @@ node --test \
   performance/k6/postgresql-explain-index-baseline/test/scenario-contract.test.mjs \
   performance/k6/postgresql-explain-index-baseline/test/pm-second-review-contract.test.mjs \
   performance/k6/postgresql-explain-index-baseline/test/pm-third-review-contract.test.mjs \
-  performance/k6/postgresql-explain-index-baseline/test/current-develop-contract.test.mjs
+  performance/k6/postgresql-explain-index-baseline/test/current-develop-contract.test.mjs \
+  performance/k6/postgresql-explain-index-baseline/test/i193-production-candidate-handoff.test.mjs
 node --check performance/k6/postgresql-explain-index-baseline/run-baseline.mjs
 node --check performance/k6/postgresql-explain-index-baseline/normalize-plan.mjs
 node --check performance/k6/postgresql-explain-index-baseline/runtime-contract.mjs
@@ -206,5 +248,6 @@ node --check performance/k6/postgresql-explain-index-baseline/runner-safety-cont
 node --check performance/k6/postgresql-explain-index-baseline/activity-monitor-worker.mjs
 node --check performance/k6/postgresql-explain-index-baseline/activity-monitor-contract.mjs
 node --check performance/k6/postgresql-explain-index-baseline/rejected-report.mjs
+node --check performance/k6/postgresql-explain-index-baseline/i193-production-candidate-sql.mjs
 bash -n performance/k6/postgresql-explain-index-baseline/run-baseline.sh
 ```

@@ -28,6 +28,14 @@
       "requireEffectiveJdbcSelect": true
     }
   },
+  "productionCandidateHandoffs": [
+    {
+      "issueNumber": 193,
+      "manifestFile": "i193-production-candidate-handoff.json",
+      "status": "exact-production-branch-candidate-not-measured",
+      "productionBeforeEligible": false
+    }
+  ],
   "datasetContract": {
     "memberCount": 1000,
     "datasetIdField": "datasetId",
