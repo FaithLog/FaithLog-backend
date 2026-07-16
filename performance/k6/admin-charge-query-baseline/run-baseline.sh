@@ -378,6 +378,16 @@ DUTY_EMAIL=''
 DUTY_PASSWORD=''
 DUTY_ACCESS_TOKEN=''
 
+# The fresh measured login updates users.last_login_at. Clear that one known
+# pre-window write from cumulative maintenance state before any before evidence,
+# counter, resource sampler, or measured window is opened.
+psql_exec -q -t -A < "$SCENARIO_DIR/vacuum-measured-login-user.sql" \
+	> "$REPORT_DIR/evidence/measured-login-user-vacuum-analyze.txt"
+printf '%s\n' \
+	'status=completed' \
+	'tables=users' \
+	> "$REPORT_DIR/evidence/measured-login-user-vacuum-analyze-complete.txt"
+
 psql_exec -q -t -A \
 	-v stage=before \
 	-v run_explain=false \
