@@ -36,7 +36,8 @@ export function validatePgStatStatements(before, after) {
 	for (const value of [before, after]) {
 		assert.deepEqual(Object.keys(value).sort(), ['available', 'databaseId', 'rows', 'statsReset']);
 		canonicalDecimal(value.databaseId, 'pgss databaseId');
-		assert.ok(Number.isFinite(Date.parse(value.statsReset)), 'pgss statsReset must be an ISO timestamp');
+		assert.ok(value.statsReset === null || Number.isFinite(Date.parse(value.statsReset)),
+			'pgss statsReset must be null or an ISO timestamp');
 	}
 	assert.equal(after.databaseId, before.databaseId, 'pgss database drift');
 	assert.equal(after.statsReset, before.statsReset, 'pgss stats reset drift');

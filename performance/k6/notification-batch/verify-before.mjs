@@ -180,6 +180,10 @@ const assertIsoTimestamp = (value, path) => {
 	assert.ok(Number.isFinite(Date.parse(value)), `${path} must be a valid ISO timestamp`);
 	return Date.parse(value);
 };
+const assertNullableStatsReset = (value, path) => {
+	if (value === null) return null;
+	return assertIsoTimestamp(value, path);
+};
 const assertExactDecimalRecord = (value, expectedKeys, path) => {
 	exactKeys(value, expectedKeys, path);
 	for (const key of expectedKeys) canonicalDecimal(value[key], `${path}.${key}`);
@@ -215,7 +219,7 @@ for (const [phase, snapshot] of [['before', postgresBefore], ['after', postgresA
 	assert.equal(snapshot.currentUser, environment.expectedPostgresRole,
 		`postgres.${phase}.currentUser must remain the approved direct owner JDBC role`);
 	assertIsoTimestamp(snapshot.capturedAt, `postgres.${phase}.capturedAt`);
-	assertIsoTimestamp(snapshot.statsReset, `postgres.${phase}.statsReset`);
+	assertNullableStatsReset(snapshot.statsReset, `postgres.${phase}.statsReset`);
 	assertExactDecimalRecord(snapshot.database, POSTGRES_DATABASE_KEYS, `postgres.${phase}.database`);
 	exactKeys(snapshot.tables, POSTGRES_TABLES, `postgres.${phase}.tables`);
 	for (const tableName of POSTGRES_TABLES) {
