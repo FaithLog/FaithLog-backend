@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -67,6 +68,7 @@ test('fresh preparation replaces impossible pre-run DB-wide attribution with sup
 
 test('prepare wrapper is fail-closed, read-only before reservation, and never performs load or cleanup', () => {
 	const runner = fs.readFileSync(requiredPath('run-devotion-prepare.sh'), 'utf8');
+	const readme = fs.readFileSync(requiredPath('README.md'), 'utf8');
 	const namespaceSql = fs.readFileSync(requiredPath('preflight-devotion-namespace.sql'), 'utf8');
 
 	for (const name of [
@@ -76,18 +78,59 @@ test('prepare wrapper is fail-closed, read-only before reservation, and never pe
 		'EXPECTED_APP_REVISION', 'EXPECTED_APP_IMAGE_ID', 'EXPECTED_APP_JAR_SHA256', 'EXPECTED_API_CONTRACT_SHA256',
 		'EXPECTED_DB_IMAGE_ID', 'EXPECTED_REDIS_IMAGE_ID', 'EXPECTED_FLYWAY_VERSION', 'EXPECTED_FLYWAY_SCRIPT',
 		'EXPECTED_FLYWAY_CHECKSUM', 'DB_HOST', 'REDIS_HOST', 'EXPECTED_DB_PORT', 'EXPECTED_REDIS_PORT',
-		'DB_NAME', 'DB_USER', 'BASE_URL', 'REJECTION_EVIDENCE_FILE',
+		'DB_NAME', 'DB_USER', 'BASE_URL', 'PREPARE_MAX_DURATION_SECONDS', 'REJECTION_EVIDENCE_FILE',
 	]) assert.match(runner, new RegExp(name));
+	assert.ok(runner.indexOf('PREPARE_MAX_DURATION_SECONDS') < runner.indexOf("CURRENT_STAGE='runtime-tools'"));
+	assert.ok(runner.indexOf('validate-window') < runner.indexOf("CURRENT_STAGE='prelock-identity'"));
+	assert.match(runner, /PREPARE_MAX_DURATION_SECONDS="\$PREPARE_MAX_DURATION_SECONDS"[\s\\]+TOKEN_TTL_SAFETY_SECONDS="\$TOKEN_TTL_SAFETY_SECONDS"[\s\\]+RUNTIME_SECRET_DIRECTORY="\$secret_directory" node "\$SCRIPT_DIR\/lib\/devotion-prepare\.mjs" prepare/);
+	assert.match(readme, /PREPARE_MAX_DURATION_SECONDS="\$\{APPROVED_PREPARE_MAX_DURATION_SECONDS:\?\}"/);
 	assert.doesNotMatch(runner, /\$\{(?:BASE_URL|DATASET_ID|FIXTURE_RUN_ID|APP_CONTAINER|DB_CONTAINER|REDIS_CONTAINER):-/);
 	assert.match(runner, /faithlog-performance-\$\{[^}]*compose[^}]*\}\.lock/i);
-	assert.match(runner, /SPRING_TASK_SCHEDULING_ENABLED=false/);
+	assert.match(runner, /FAITHLOG_SCHEDULER_ENABLED=false/);
 	assert.match(runner, /runtime-identity\.sql/);
 	assert.match(runner, /preflight-devotion-namespace\.sql/);
 	assert.match(runner, /-X\s+-qAt\s+-v\s+ON_ERROR_STOP=1/);
+	assert.match(runner, /validate-resource-window\.mjs" validate-settings/);
+	assert.match(runner, /CREDENTIALS_FILE="\$credentials_file"[\s\\]+PHASE=warmup[\s\S]+k6 inspect/);
 	assert.ok(runner.indexOf('preflight-devotion-namespace.sql') < runner.indexOf('reserve'));
 	assert.doesNotMatch(runner, /docker\s+compose\s+(up|down|build)|docker\s+(run|rm)|prune|k6\s+run/);
-	assert.doesNotMatch(runner, /\b(rm|rmdir)\b/);
+	assert.doesNotMatch(runner, /rm\s+-rf\s+[^\n]*(?:PREPARE_REPORT_ROOT|RUNTIME_SECRET_ROOT|report_directory|secret_directory)/);
 	assert.doesNotMatch(namespaceSql, /\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|CREATE)\b/i);
+});
+
+test('missing prepare duration rejects before Docker, namespace inspection, or reservation', () => {
+	const runnerPath = requiredPath('run-devotion-prepare.sh');
+	const runner = fs.readFileSync(runnerPath, 'utf8');
+	const requiredBlock = runner.match(/for name in \\\n([\s\S]+?); do/);
+	assert.ok(requiredBlock, 'runtime required input loop must remain explicit');
+	const requiredNames = requiredBlock[1].replaceAll('\\', '').trim().split(/\s+/);
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-197-prepare-missing-duration-'));
+	const fakeBin = path.join(temporaryDirectory, 'bin');
+	const dockerLog = path.join(temporaryDirectory, 'docker-called');
+	const reportRoot = path.join(temporaryDirectory, 'reports');
+	const secretRoot = path.join(temporaryDirectory, 'secrets');
+	fs.mkdirSync(fakeBin, { mode: 0o700 });
+	fs.writeFileSync(path.join(fakeBin, 'docker'), `#!/usr/bin/env bash\nprintf called >"${dockerLog}"\nexit 99\n`, { mode: 0o700 });
+	const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` };
+	for (const name of requiredNames) environment[name] = 'approved';
+	Object.assign(environment, {
+		PREPARE_REPORT_ROOT: reportRoot,
+		RUNTIME_SECRET_ROOT: secretRoot,
+		PREPARE_INPUT_FILE: path.join(temporaryDirectory, 'prepare-input.json'),
+		REJECTION_EVIDENCE_FILE: path.join(temporaryDirectory, 'first-rejection.json'),
+		EXTERNAL_ACTIVITY: 'none',
+	});
+	delete environment.PREPARE_MAX_DURATION_SECONDS;
+	try {
+		const result = spawnSync('bash', [runnerPath], { cwd: ISSUE_DIR, env: environment, encoding: 'utf8' });
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /Required environment variable is missing: PREPARE_MAX_DURATION_SECONDS/);
+		assert.equal(fs.existsSync(dockerLog), false);
+		assert.equal(fs.existsSync(reportRoot), false);
+		assert.equal(fs.existsSync(secretRoot), false);
+	} finally {
+		fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+	}
 });
 
 test('namespace evidence must be empty before exclusive report and secret reservation', async () => {
@@ -113,6 +156,20 @@ test('namespace evidence must be empty before exclusive report and secret reserv
 			reportRoot, secretRoot, fixtureRunId: 'ISSUE197_20990101_DEVOTION_BEFORE_B',
 			namespaceEvidence: { existingCampusCount: 0, existingUserCount: 0 },
 		}), /exists|reserved/i);
+	} finally {
+		fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+	}
+});
+
+test('prepare input accepts only owner-readable runtime storage', async () => {
+	const { readPreparationInput } = await preparationModule();
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-197-prepare-input-'));
+	const inputPath = path.join(temporaryDirectory, 'prepare-input.json');
+	try {
+		fs.writeFileSync(inputPath, `${JSON.stringify(runtimeInput())}\n`, { mode: 0o600 });
+		assert.equal(readPreparationInput(inputPath).penaltyRules.length, 4);
+		fs.chmodSync(inputPath, 0o644);
+		assert.throws(() => readPreparationInput(inputPath), /mode 600|owner-only/);
 	} finally {
 		fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 	}
@@ -156,7 +213,9 @@ test('fake full prepare uses one create-only path and writes exact manifest/cred
 	const calls = [];
 	let nextUserId = 100;
 	const userIdByEmail = new Map();
-	const tokenExpiry = Math.floor(Date.now() / 1000) + 7200;
+	const nowEpochSeconds = Math.floor(Date.now() / 1000);
+	const tokenExpiry = nowEpochSeconds + 7200;
+	const adminAccessToken = jwt(1, tokenExpiry);
 	const request = async (call) => {
 		calls.push(structuredClone(call));
 		if (call.path === '/api/v1/auth/login') {
@@ -164,14 +223,14 @@ test('fake full prepare uses one create-only path and writes exact manifest/cred
 			const userId = isAdmin ? 1 : userIdByEmail.get(call.body.email);
 			return { status: 200, body: { success: true, data: {
 				user: { id: userId, role: isAdmin ? 'ADMIN' : 'USER', isActive: true },
-				accessToken: isAdmin ? 'admin-access-token-secret' : jwt(userId, tokenExpiry),
+				accessToken: isAdmin ? adminAccessToken : jwt(userId, tokenExpiry),
 				refreshToken: 'refresh-token-secret', tokenType: 'Bearer',
 			} } };
 		}
 		if (call.path === '/api/v1/auth/signup') {
 			const id = nextUserId++;
 			userIdByEmail.set(call.body.email, id);
-			return { status: 201, body: { success: true, data: { id, role: 'USER', isActive: true } } };
+			return { status: 201, body: { success: true, data: { id, name: call.body.name, email: call.body.email, role: 'USER', isActive: true } } };
 		}
 		if (call.path === '/api/v1/campuses') {
 			const campusId = call.body.name.includes('ROLLBACK') ? 902 : 901;
@@ -180,7 +239,10 @@ test('fake full prepare uses one create-only path and writes exact manifest/cred
 		return { status: 201, body: { success: true, data: { id: calls.length } } };
 	};
 	try {
-		const result = await prepareDevotionFixture({ blueprint, input, request, ...reservation });
+		const result = await prepareDevotionFixture({
+			blueprint, input, request, ...reservation, nowEpochSeconds,
+			prepareMaxDurationSeconds: 900, tokenTtlSafetySeconds: 60,
+		});
 		assert.equal(calls.length, 3014);
 		assert.equal(calls.filter(({ path: requestPath }) => requestPath === '/api/v1/auth/signup').length, 1002);
 		assert.equal(calls.filter(({ path: requestPath }) => /\/api\/v1\/admin\/campuses\/\d+\/members/.test(requestPath)).length, 1002);
@@ -196,7 +258,7 @@ test('fake full prepare uses one create-only path and writes exact manifest/cred
 		assert.equal(fs.statSync(result.credentialsPath).mode & 0o077, 0);
 		const reportText = fs.readdirSync(reservation.reportDirectory)
 			.map((name) => fs.readFileSync(path.join(reservation.reportDirectory, name), 'utf8')).join('\n');
-		for (const secret of [input.adminPassword, input.fixtureUserPassword, 'admin-access-token-secret', 'refresh-token-secret']) {
+		for (const secret of [input.adminPassword, input.fixtureUserPassword, adminAccessToken, 'refresh-token-secret']) {
 			assert.doesNotMatch(reportText, new RegExp(secret));
 		}
 		assert.doesNotMatch(reportText, /accessToken|refreshToken|Authorization/i);
@@ -219,13 +281,15 @@ test('partial preparation preserves first failure receipt and never cleans or pe
 		reportRoot: path.join(temporaryDirectory, 'reports'), secretRoot: path.join(temporaryDirectory, 'secrets'), fixtureRunId,
 		namespaceEvidence: { existingCampusCount: 0, existingUserCount: 0 },
 	});
+	const nowEpochSeconds = Math.floor(Date.now() / 1000);
 	let calls = 0;
 	try {
 		await assert.rejects(() => prepareDevotionFixture({
-			blueprint, input, ...reservation,
+			blueprint, input, ...reservation, nowEpochSeconds,
+			prepareMaxDurationSeconds: 900, tokenTtlSafetySeconds: 60,
 			request: async () => {
 				calls += 1;
-				if (calls === 1) return { status: 200, body: { success: true, data: { user: { id: 1, role: 'ADMIN', isActive: true }, accessToken: 'admin-token', refreshToken: 'refresh' } } };
+				if (calls === 1) return { status: 200, body: { success: true, data: { user: { id: 1, role: 'ADMIN', isActive: true }, accessToken: jwt(1, nowEpochSeconds + 1800), refreshToken: 'refresh' } } };
 				if (calls === 2) return { status: 201, body: { success: true, data: { campusId: 901 } } };
 				return { status: 409, body: { success: false, code: 'CAMPUS_ALREADY_EXISTS' } };
 			},
@@ -261,10 +325,11 @@ test('preparation inspector binds manifest, 1002 JWTs, preflight, workload, and 
 			.map((userId) => ({ userId, accessToken: jwt(userId, now + 7200) })),
 	};
 	const preflight = {
-		expectedFixtureUsers: 1002, activeFixtureUsers: 1002, activeSuccessCampus: 1, activeRollbackCampus: 1,
-		successMemberships: 1001, rollbackMemberships: 1, successUsersInRollbackCampus: 0, rollbackUsersInSuccessCampus: 0,
+		distinctFixtureUsers: 1002, activeFixtureUsers: 1002, activeCampuses: 2,
+		successActiveMembers: 1001, rollbackActiveMembers: 1, successUsersInRollbackCampus: 0, rollbackUsersInSuccessCampus: 0,
 		successActivePenaltyAccounts: 1, rollbackActivePenaltyAccounts: 0, activePenaltyRuleCount: 4,
-		calculatedPenaltyAmount: 2250, existingWeeklyCount: 0, existingDailyCount: 0, existingDevotionCharges: 0,
+		invalidActivePenaltyRulePairs: 0, calculatedPenaltyAmount: 2250,
+		existingWeeklyCount: 0, existingDailyCount: 0, existingDevotionCharges: 0,
 	};
 	const evidence = inspectPreparation({
 		manifest, credentials, preflight,

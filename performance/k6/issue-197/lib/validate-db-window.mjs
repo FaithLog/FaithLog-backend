@@ -90,15 +90,17 @@ export function validateDbWindow(before, after, externalActivity) {
 	for (const [field, delta] of Object.entries(databaseDelta)) {
 		if (BigInt(delta) < 0n) failures.push({ name: `database.${field} delta`, expected: 'non-negative', actual: delta });
 	}
-	if (BigInt(databaseDelta.tup_inserted) !== 9000n) failures.push({ name: 'database.tup_inserted delta', expected: '9000', actual: databaseDelta.tup_inserted });
+	if (BigInt(databaseDelta.tup_inserted) < 9000n) failures.push({ name: 'database.tup_inserted delta', expected: 'at least 9000', actual: databaseDelta.tup_inserted });
 	if (BigInt(databaseDelta.tup_deleted) !== 0n) failures.push({ name: 'database.tup_deleted delta', expected: '0', actual: databaseDelta.tup_deleted });
 	if (BigInt(databaseDelta.xact_commit) < 1000n) failures.push({ name: 'database.xact_commit delta', expected: 'at least 1000', actual: databaseDelta.xact_commit });
 	if (BigInt(databaseDelta.xact_rollback) !== 0n) failures.push({ name: 'database.xact_rollback delta', expected: '0', actual: databaseDelta.xact_rollback });
 	const databaseInstanceDelta = validateDatabaseInstance(before.snapshot, after.snapshot, failures);
 	const statementDelta = pgStatementDelta(before.pgStatStatements, after.pgStatStatements, failures);
 	return {
-		status: failures.length === 0 ? 'adoptable' : 'contaminated',
-		adoptable: failures.length === 0,
+		status: failures.length === 0 ? 'supporting-clean' : 'contaminated',
+		supporting: failures.length === 0,
+		adoptable: false,
+		automaticAdoption: false,
 		externalActivity,
 		observerOverhead: OBSERVER_POLICY,
 		databaseDelta,
@@ -287,7 +289,7 @@ async function main() {
 	const evidence = validateDbWindow(readEvidence(beforePath), readEvidence(afterPath), externalActivity);
 	fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 	fs.writeFileSync(outputPath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
-	if (!evidence.adoptable) throw new Error(`measured DB window is contaminated: ${JSON.stringify(evidence.failures)}`);
+	if (!evidence.supporting) throw new Error(`measured DB supporting window is contaminated: ${JSON.stringify(evidence.failures)}`);
 	process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }
 

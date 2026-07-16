@@ -55,7 +55,7 @@ node "$SCRIPT_DIR/lib/rejection-contract.mjs" prepare "$REJECTION_EVIDENCE_FILE"
 
 CURRENT_STAGE='runtime-input'
 for name in \
-	FIXTURE_MANIFEST CREDENTIALS_FILE ATTRIBUTION_SIGNATURE_FILE APP_CONTAINER DB_CONTAINER REDIS_CONTAINER APP_SOURCE_WORKTREE \
+	FIXTURE_MANIFEST CREDENTIALS_FILE APP_CONTAINER DB_CONTAINER REDIS_CONTAINER APP_SOURCE_WORKTREE \
 	EXPECTED_COMPOSE_PROJECT EXPECTED_APP_COMPOSE_SERVICE EXPECTED_DB_COMPOSE_SERVICE EXPECTED_REDIS_COMPOSE_SERVICE DB_NAME DB_USER BASE_URL \
 	EXPECTED_APP_REVISION EXPECTED_APP_IMAGE_ID EXPECTED_APP_JAR_SHA256 EXPECTED_API_CONTRACT_SHA256 \
 	EXPECTED_DB_IMAGE_ID EXPECTED_REDIS_IMAGE_ID EXPECTED_FLYWAY_VERSION EXPECTED_FLYWAY_SCRIPT EXPECTED_FLYWAY_CHECKSUM \
@@ -90,9 +90,6 @@ node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-host "$REDIS_HOST" REDIS_HO
 
 node "$SCRIPT_DIR/lib/fixture-contract.mjs" validate-devotion "$FIXTURE_MANIFEST" "$credentials_file" >/dev/null
 node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-run "$FIXTURE_MANIFEST" "$credentials_file" >/dev/null
-node "$SCRIPT_DIR/lib/validate-activity-attribution.mjs" validate-signature \
-	"$ATTRIBUTION_SIGNATURE_FILE" "$FIXTURE_MANIFEST" "$DB_NAME" >/dev/null
-
 CURRENT_STAGE='prelock-identity'
 app_compose_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$APP_CONTAINER")"
 app_compose_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$APP_CONTAINER")"
@@ -198,14 +195,6 @@ if ! mkdir -m 700 "$fixture_report_root" 2>/dev/null; then
 fi
 report_root="$fixture_report_root/devotion"
 mkdir -m 700 "$report_root"
-frozen_signature_file="$report_root/approved-activity-signature.json"
-frozen_signature_sha256="$(node "$SCRIPT_DIR/lib/validate-activity-attribution.mjs" freeze-signature \
-	"$ATTRIBUTION_SIGNATURE_FILE" "$FIXTURE_MANIFEST" "$DB_NAME" "$frozen_signature_file")"
-if [[ ! "$frozen_signature_sha256" =~ ^[a-f0-9]{64}$ ]]; then
-	printf 'Frozen activity signature digest is invalid.\n' >&2
-	exit 1
-fi
-
 capture_runtime_identity() {
 	local output_file="$1"
 	local checkpoint="$2"
@@ -290,7 +279,7 @@ EXPECTED_PROJECT="$EXPECTED_COMPOSE_PROJECT" EXPECTED_APP_SERVICE="$EXPECTED_APP
 EXPECTED_REDIS_SERVICE="$EXPECTED_REDIS_COMPOSE_SERVICE" \
 APP_PUBLISHED_PORT="$app_published_port" BASE_URL="$BASE_URL" RUNNER_LOCK="$LOCK_DIR" \
 DATASET_ID="$dataset_id" FIXTURE_RUN_ID="$fixture_run_id" EXTERNAL_ACTIVITY="$EXTERNAL_ACTIVITY" \
-ACTIVITY_SIGNATURE_SHA256="$frozen_signature_sha256" RUNTIME_IDENTITY_FILE="$report_root/runtime-identity-initial.json" \
+RUNTIME_IDENTITY_FILE="$report_root/runtime-identity-initial.json" \
 node -e '
 	const fs = require("node:fs");
 	const evidence = {
@@ -308,7 +297,8 @@ node -e '
 		},
 		baseUrlTarget: { baseUrl: process.env.BASE_URL, publishedPort: Number(process.env.APP_PUBLISHED_PORT) },
 		runnerLock: process.env.RUNNER_LOCK, externalActivity: process.env.EXTERNAL_ACTIVITY,
-		activitySignatureSha256: process.env.ACTIVITY_SIGNATURE_SHA256,
+		dbEvidenceClassification: "runtime-observed-supporting-only",
+		automaticAdoption: false,
 		runtimeIdentity: JSON.parse(fs.readFileSync(process.env.RUNTIME_IDENTITY_FILE, "utf8")),
 	};
 	process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
@@ -363,7 +353,6 @@ collect_db_counters() {
 CURRENT_STAGE='warmup'
 capture_runtime_identity "$report_root/runtime-identity-warmup-before.json" warmupBefore
 validate_runtime_checkpoint warmupBefore "$report_root/runtime-identity-warmup-before.json"
-collect_db_counters "$report_root/db-counters-warmup-before.jsonl"
 PHASE=warmup run_phase warmup "$WARMUP_VUS" "$WARMUP_MAX_DURATION" "$report_root/warmup-summary.json"
 node "$SCRIPT_DIR/lib/validate-k6-summary.mjs" "$report_root/warmup-summary.json" warmup "$warmup_user_count" \
 	>"$report_root/warmup-adoption-gate.json"
@@ -406,13 +395,6 @@ node "$SCRIPT_DIR/lib/validate-k6-summary.mjs" "$report_root/measured-summary.js
 node "$SCRIPT_DIR/lib/validate-db-window.mjs" \
 	"$report_root/db-counters-before.jsonl" "$report_root/db-counters-after.jsonl" "$EXTERNAL_ACTIVITY" \
 	"$report_root/db-window-evidence.json" >/dev/null
-node "$SCRIPT_DIR/lib/validate-activity-attribution.mjs" \
-	"$report_root/db-counters-warmup-before.jsonl" "$report_root/db-counters-before.jsonl" \
-	"$report_root/db-counters-before.jsonl" "$report_root/db-counters-after.jsonl" \
-	"$warmup_user_count" "$expected_user_count" "$frozen_signature_file" "$frozen_signature_sha256" \
-	"$FIXTURE_MANIFEST" "$DB_NAME" \
-	"$report_root/activity-attribution-evidence.json" >/dev/null
-
 CURRENT_STAGE='rollback'
 PHASE=rollback run_phase rollback "$ROLLBACK_VUS" "$ROLLBACK_MAX_DURATION" "$report_root/rollback-summary.json"
 node "$SCRIPT_DIR/lib/validate-k6-summary.mjs" "$report_root/rollback-summary.json" rollback "$rollback_user_count" \
@@ -448,7 +430,6 @@ node "$SCRIPT_DIR/lib/scenario-contract.mjs" \
 	"$report_root/db-counters.json" \
 	"$report_root/resource-window-evidence.json" \
 	"$report_root/db-window-evidence.json" \
-	"$report_root/activity-attribution-evidence.json" \
 	"$report_root/runtime-identity-evidence.json" \
 	"$report_root/scenario-evidence.json" \
 	"$app_compose_project"

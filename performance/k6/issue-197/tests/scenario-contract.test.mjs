@@ -47,7 +47,6 @@ test('devotion write scenario measures only the weekly submit and locks response
 
 test('runtime credentials and fixture metadata are separate contracts', () => {
 	const schema = JSON.parse(readRequired('fixture-manifest.schema.json'));
-	const activitySchema = JSON.parse(readRequired('activity-signature.schema.json'));
 	const helper = readRequired('lib/fixture-contract.mjs');
 
 	assert.equal(schema.properties.datasetId.pattern, '^PERFORMANCE_');
@@ -57,8 +56,6 @@ test('runtime credentials and fixture metadata are separate contracts', () => {
 	assert.match(helper, /CREDENTIALS_FILE/);
 	assert.match(helper, /accessToken/);
 	assert.doesNotMatch(JSON.stringify(schema), /password|accessToken|refreshToken/i);
-	assert.equal(activitySchema.properties.measuredUsers.const, 1000);
-	assert.doesNotMatch(JSON.stringify(activitySchema), /password|accessToken|refreshToken/i);
 });
 
 test('devotion runner takes a common lock, records real Compose labels, samples resources, and verifies rows', () => {
@@ -68,11 +65,8 @@ test('devotion runner takes a common lock, records real Compose labels, samples 
 	assert.match(runner, /com\.docker\.compose\.project/);
 	assert.match(runner, /com\.docker\.compose\.service/);
 	assert.match(runner, /EXPECTED_COMPOSE_PROJECT/);
-	assert.match(runner, /ATTRIBUTION_SIGNATURE_FILE/);
-	assert.match(runner, /freeze-signature/);
-	assert.match(runner, /approved-activity-signature\.json/);
-	assert.match(runner, /frozen_signature_sha256/);
-	assert.match(runner, /ACTIVITY_SIGNATURE_SHA256/);
+	assert.doesNotMatch(runner, /ATTRIBUTION_SIGNATURE_FILE|freeze-signature|approved-activity-signature|ACTIVITY_SIGNATURE_SHA256/);
+	assert.match(runner, /runtime-observed-supporting-only/);
 	assert.match(runner, /SPRING_PROFILES_ACTIVE=docker/);
 	assert.match(runner, /SPRING_DATASOURCE_URL=jdbc:postgresql:\/\/\$EXPECTED_DB_COMPOSE_SERVICE:\$EXPECTED_DB_PORT\/\$DB_NAME/);
 	assert.match(runner, /SPRING_DATASOURCE_USERNAME=\$DB_USER/);
@@ -174,7 +168,8 @@ test('devotion evidence requires every measured and rollback transaction attempt
 
 	assert.match(contract, /measured transaction attempts/);
 	assert.match(contract, /rollback transaction attempts/);
-	assert.match(contract, /activityAttributionEvidence/);
+	assert.match(contract, /conditional-not-adoptable/);
+	assert.match(contract, /automaticAdoption:\s*false/);
 });
 
 test('measured window records pure database, table, planner, activity, and optional query counters', () => {
@@ -184,9 +179,9 @@ test('measured window records pure database, table, planner, activity, and optio
 
 	assert.match(runner, /db-counters-before/);
 	assert.match(runner, /db-counters-after/);
-	assert.match(runner, /db-counters-warmup-before/);
+	assert.doesNotMatch(runner, /db-counters-warmup-before/);
 	assert.match(runner, /validate-db-window\.mjs/);
-	assert.match(runner, /validate-activity-attribution\.mjs/);
+	assert.doesNotMatch(runner, /validate-activity-attribution\.mjs/);
 	assert.match(sql, /pg_stat_database/);
 	assert.match(sql, /pg_stat_user_tables/);
 	assert.match(sql, /pg_stat_activity/);
@@ -202,7 +197,7 @@ test('measured window records pure database, table, planner, activity, and optio
 	assert.match(validator, /externalActiveSessions/);
 	assert.match(validator, /databaseInstanceDelta/);
 	assert.match(validator, /autoanalyze_count/);
-	assert.match(validator, /adoptable/);
+	assert.match(validator, /supporting-clean/);
 	assert.doesNotMatch(sql, /\b(DELETE|UPDATE|INSERT|TRUNCATE|ALTER|DROP|RESET|CREATE)\b/i);
 });
 

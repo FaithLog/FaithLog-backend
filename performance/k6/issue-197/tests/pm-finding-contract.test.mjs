@@ -63,24 +63,7 @@ test('workload values have no defaults and missing values fail before any runner
 	assert.match(result.stderr, /WARMUP_VUS/);
 	fs.rmSync(missingWorkloadRejection, { force: true });
 
-	const missingSignatureRejection = path.join(os.tmpdir(), `faithlog-197-missing-signature-${process.pid}.json`);
-	const missingSignature = spawnSync('bash', [path.join(ISSUE_DIR, 'run-devotion-baseline.sh')], {
-		encoding: 'utf8',
-		env: {
-			...process.env,
-			FIXTURE_MANIFEST: '/tmp/not-used.json', CREDENTIALS_FILE: '/tmp/not-used-credentials.json',
-			APP_CONTAINER: 'not-used-app', DB_CONTAINER: 'not-used-db',
-			EXPECTED_COMPOSE_PROJECT: 'not-used-project', EXPECTED_APP_COMPOSE_SERVICE: 'not-used-app-service', EXPECTED_DB_COMPOSE_SERVICE: 'not-used-db-service',
-			DB_NAME: 'not-used-db-name', DB_USER: 'not-used-db-user',
-			BASE_URL: 'http://127.0.0.1:28080', WARMUP_VUS: '1', MEASURED_VUS: '1', ROLLBACK_VUS: '1',
-			WARMUP_MAX_DURATION: '1s', MEASURED_MAX_DURATION: '1s', ROLLBACK_MAX_DURATION: '1s',
-			TOKEN_TTL_SAFETY_SECONDS: '1', EXTERNAL_ACTIVITY: 'none',
-			REJECTION_EVIDENCE_FILE: missingSignatureRejection,
-		},
-	});
-	assert.notEqual(missingSignature.status, 0);
-	assert.match(missingSignature.stderr, /ATTRIBUTION_SIGNATURE_FILE/);
-	fs.rmSync(missingSignatureRejection, { force: true });
+	assert.doesNotMatch(runner, /ATTRIBUTION_SIGNATURE_FILE|validate-activity-attribution|freeze-signature/);
 });
 
 test('runtime workload and JWT claims reject invalid VUS, expiry, and subject without logging tokens', async () => {
@@ -484,6 +467,27 @@ test('database window rejects activity in another database in the same container
 	assert.match(JSON.stringify(evidence.failures), /postgres/);
 });
 
+test('database supporting window records current-source target upserts but rejects writes outside the three business tables', async () => {
+	const { validateDbWindow } = await import(
+		`${pathToFileURL(requiredPath('lib/validate-db-window.mjs')).href}?supporting-writes=${Date.now()}`
+	);
+	const before = dbSnapshot();
+	const targetUpdates = dbSnapshot({ measured: true });
+	targetUpdates.snapshot.database.tup_updated = '5000';
+	targetUpdates.snapshot.allDatabases[0].tup_updated = '5000';
+	targetUpdates.snapshot.tables.find(({ relname }) => relname === 'weekly_devotion_records').n_tup_upd = '1000';
+	targetUpdates.snapshot.tables.find(({ relname }) => relname === 'devotion_daily_checks').n_tup_upd = '4000';
+	assert.equal(validateDbWindow(before, targetUpdates, 'none').supporting, true);
+
+	const unexpectedWrite = structuredClone(targetUpdates);
+	unexpectedWrite.snapshot.database.tup_updated = '5001';
+	unexpectedWrite.snapshot.allDatabases[0].tup_updated = '5001';
+	unexpectedWrite.snapshot.tables.find(({ relname }) => relname === 'users').n_tup_upd = '1';
+	const rejected = validateDbWindow(before, unexpectedWrite, 'none');
+	assert.equal(rejected.supporting, false);
+	assert.match(JSON.stringify(rejected.failures), /users\.n_tup_upd/);
+});
+
 test('database window preserves cumulative counter deltas beyond MAX_SAFE_INTEGER', async () => {
 	const { validateDbWindow } = await import(
 		`${pathToFileURL(requiredPath('lib/validate-db-window.mjs')).href}?bigint-window=${Date.now()}`
@@ -491,7 +495,9 @@ test('database window preserves cumulative counter deltas beyond MAX_SAFE_INTEGE
 	const before = losslessCumulativeSnapshot(0, 0, 0);
 	const after = losslessCumulativeSnapshot(1000, 1, 1);
 	const evidence = validateDbWindow(before, after, 'none');
-	assert.equal(evidence.adoptable, true, JSON.stringify(evidence.failures));
+	assert.equal(evidence.supporting, true, JSON.stringify(evidence.failures));
+	assert.equal(evidence.adoptable, false);
+	assert.equal(evidence.status, 'supporting-clean');
 	assert.equal(evidence.databaseDelta.xact_commit, '1001');
 	assert.equal(evidence.tableDeltas.devotion_daily_checks.n_tup_ins, '7000');
 	assert.equal(evidence.pgStatStatements.statements[0].calls, '1000');

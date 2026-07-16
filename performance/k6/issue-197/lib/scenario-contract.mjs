@@ -5,7 +5,7 @@ import { validateSummary } from './validate-k6-summary.mjs';
 
 const [
 	manifestPath, warmupSummaryPath, measuredSummaryPath, rollbackSummaryPath, dbEvidencePath,
-	resourceEvidencePath, dbWindowPath, activityAttributionPath, runtimeIdentityPath, outputPath, composeProject,
+	resourceEvidencePath, dbWindowPath, runtimeIdentityPath, outputPath, composeProject,
 ] = process.argv.slice(2);
 const manifest = validateDevotionManifest(readJson(manifestPath, 'devotion manifest'));
 const warmupSummary = readJson(warmupSummaryPath, 'warmup k6 summary');
@@ -13,7 +13,6 @@ const measuredSummary = readJson(measuredSummaryPath, 'measured k6 summary');
 const rollbackSummary = readJson(rollbackSummaryPath, 'rollback k6 summary');
 const dbCounters = readJson(dbEvidencePath, 'devotion DB evidence');
 const dbWindowEvidence = readJson(dbWindowPath, 'measured DB window evidence');
-const activityAttributionEvidence = readJson(activityAttributionPath, 'measured activity attribution evidence');
 const resources = readJson(resourceEvidencePath, 'measured resource window evidence');
 const runtimeIdentityEvidence = readJson(runtimeIdentityPath, 'runtime identity evidence');
 const phaseMetrics = {
@@ -23,11 +22,8 @@ const phaseMetrics = {
 };
 
 const correctnessFailures = [];
-if (dbWindowEvidence.adoptable !== true || dbWindowEvidence.status !== 'adoptable') {
-	correctnessFailures.push({ label: 'measured DB window', expected: 'adoptable', actual: dbWindowEvidence });
-}
-if (activityAttributionEvidence.adoptable !== true || activityAttributionEvidence.status !== 'attributable') {
-	correctnessFailures.push({ label: 'measured activity attribution', expected: 'attributable', actual: activityAttributionEvidence });
+if (dbWindowEvidence.supporting !== true || dbWindowEvidence.status !== 'supporting-clean' || dbWindowEvidence.automaticAdoption !== false) {
+	correctnessFailures.push({ label: 'measured DB supporting window', expected: 'supporting-clean/non-adoptable', actual: dbWindowEvidence });
 }
 if (resources.adoptable !== true || resources.status !== 'adoptable') {
 	correctnessFailures.push({ label: 'measured resource window', expected: 'adoptable', actual: resources });
@@ -50,7 +46,7 @@ expectEqual(Number(dbCounters.measured?.duplicateChargeSourceGroups), 0, 'duplic
 expectEqual(Number(dbCounters.rollback?.weeklyCount), 0, 'rollback weekly rows', correctnessFailures);
 expectEqual(Number(dbCounters.rollback?.dailyCount), 0, 'rollback daily rows', correctnessFailures);
 expectEqual(Number(dbCounters.rollback?.chargeCount), 0, 'rollback charge rows', correctnessFailures);
-expectEqual(Object.keys(resources.byRole || {}).sort().join(','), 'app,database', 'Docker CPU/RAM roles', correctnessFailures);
+expectEqual(Object.keys(resources.byRole || {}).sort().join(','), 'app,database,redis', 'Docker CPU/RAM roles', correctnessFailures);
 for (const metric of ['p50', 'p95', 'p99', 'max', 'throughput', 'failureRate', 'transactions']) {
 	if (phaseMetrics.measured[metric] === null) {
 		correctnessFailures.push({ label: `measured ${metric}`, expected: 'numeric metric', actual: null });
@@ -63,7 +59,9 @@ expectEqual(phaseMetrics.rollback.failureRate, 0, 'rollback contract failure rat
 
 const evidence = {
 	scenario: 'devotion-write',
-	status: correctnessFailures.length === 0 ? 'baseline-measured' : 'correctness-failed',
+	status: correctnessFailures.length === 0 ? 'conditional-not-adoptable' : 'correctness-failed',
+	automaticAdoption: false,
+	classificationReason: 'shared-stack DB-wide counters are runtime-observed supporting evidence, not exact request attribution',
 	datasetId: manifest.datasetId,
 	fixtureRunId: manifest.fixtureRunId,
 	composeProject,
@@ -81,7 +79,6 @@ const evidence = {
 	resources,
 	dbCounters,
 	dbWindowEvidence,
-	activityAttributionEvidence,
 	runtimeIdentityEvidence,
 	correctnessFailures,
 	transactionEvidence: {

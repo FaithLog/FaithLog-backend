@@ -2,7 +2,7 @@
 
 현재 상태는 `scenario-ready / not-measured`다. 이 디렉터리는 baseline 실행 전 계약만 고정하며, 작성 세션에서는 seed, k6, scheduler, Docker, DB를 실행하지 않는다. production Java/API/권한/트랜잭션/Entity/DB/Flyway/의존성도 변경하지 않는다.
 
-경건 write와 retention은 fixture, runner, report를 공유하지 않는다. 두 runner는 inspect한 실제 Compose project를 key로 한 `/tmp/faithlog-performance-<actualComposeProject>.lock`을 사용해 같은 stack의 다른 FaithLog 부하와 병렬 실행되지 않게 한다.
+경건 write와 retention은 fixture, runner, report를 공유하지 않는다. devotion prepare와 두 runner는 inspect한 실제 Compose project를 key로 한 `/tmp/faithlog-performance-<actualComposeProject>.lock`을 사용해 같은 stack의 다른 FaithLog 부하와 병렬 실행되지 않게 한다.
 
 이 시나리오는 `origin/develop` exact HEAD `6796ed146244d8f3f5b5dd7048ebe16865084a97`(#200, #201, #202, #206 포함)를 기준으로 보정했다. 이 값은 작성 기준일 뿐 실행할 서버 identity를 추측하는 default가 아니다. 실제 baseline은 preparation과 measurement를 분리하는 **two-session / one-load** 정책을 따른다. preparation session은 scenario/test/validator/docs만 다루고, measurement session 하나만 공통 lock을 소유해 fixture·DB·HTTP·k6를 순차 실행한다. 다른 이슈 또는 같은 이슈의 load와 동시에 실행하지 않는다.
 
@@ -18,10 +18,11 @@ current-develop correctness drift는 다음처럼 분리 고정한다.
 ## 파일과 책임
 
 - `devotion-write.js`: 주간 제출 API의 warmup, measured, rollback phase를 각각 독립 k6 실행으로 제공한다.
-- `run-devotion-baseline.sh`: runtime workload/JWT/사용자 승인 DB activity signature, 실제 Compose project/service, app published port, scheduler disabled 상태를 확인하고 project-keyed runner lock, lock 전후 app/DB/Redis service·port를 포함한 immutable runtime continuity, exact fixture preflight, measured-only CPU/RAM/DB window, 세 phase, read-only DB correctness 확인을 조립한다.
+- `run-devotion-prepare.sh`, `lib/devotion-prepare.mjs`: read-only namespace 확인 뒤 fresh report/secret namespace를 배타 예약하고, public API의 create-only 한 경로로 warmup 1명·measured 1,000명·rollback 1명을 준비한다. 마지막에 1,002개 access token을 mode 600 runtime-only 파일로 만들고 exact preflight와 installed k6 inspect까지 수행한다.
+- `preflight-devotion-namespace.sql`: campus name 두 개와 deterministic fixture email prefix가 DB에 0행인지 local namespace 예약과 어떤 HTTP write보다 먼저 확인한다.
+- `run-devotion-baseline.sh`: runtime workload/JWT, 실제 Compose project/service, app published port, scheduler disabled 상태를 확인하고 project-keyed runner lock, lock 전후 app/DB/Redis service·port를 포함한 immutable runtime continuity, exact fixture preflight, measured-only CPU/RAM/DB supporting window, 세 phase, read-only DB correctness 확인을 조립한다.
 - `preflight-devotion.sql`: 어떤 write보다 먼저 전체 cohort의 활성 user/membership/campus, 전용 week의 fresh weekly/daily/charge 0행, 계좌와 활성 penalty rule 계산 금액을 읽기 전용으로 확인한다.
 - `collect-db-counters.sql`, `lib/validate-db-window.mjs`: warmup 뒤 measured 직전/직후의 DB 인스턴스 전체 database counter, 대상 DB table/query counter와 외부 session, analyze/autoanalyze/vacuum/autovacuum/planner 상태를 strict schema로 비교하고 오염된 run의 baseline 채택을 거부한다.
-- `activity-signature.schema.json`, `lib/validate-activity-attribution.mjs`: warmup 결과를 신뢰 signature로 학습하지 않는다. 사용자가 runtime에 별도로 승인한 exact warmup/measured table/query/transaction signature와 두 window를 각각 비교하고, 같은 PostgreSQL 컨테이너의 다른 database activity도 거부한다.
 - `lib/runtime-contract.mjs`: 승인 workload와 JWT exp/sub/user coverage, inspected app published port와 `BASE_URL` 동일성을 어떤 write보다 먼저 확인한다.
 - `lib/source-image-provenance.mjs`: OCI revision label이 없는 app의 clean detached source/Compose working directory/exact HEAD/newest reflog selector/image creation/API tree digest를 fail-closed로 결속한다.
 - `lib/rejection-contract.mjs`: runtime 필수 fresh rejection path에 최초 실패 stage를 mode 600 JSON으로 한 번만 기록하고 `automaticAdoption=false`를 고정한다.
@@ -36,7 +37,7 @@ current-develop correctness drift는 다음처럼 분리 고정한다.
 
 ## 공통 안전 계약
 
-두 runner 모두 다음을 강제한다.
+prepare와 두 runner 모두 다음을 강제한다.
 
 1. `datasetId`는 `PERFORMANCE_`로 시작하고 `fixtureRunId`는 별도의 `ISSUE197_` 값이다.
 2. runtime credential은 저장소 파일과 분리한다. `CREDENTIALS_FILE`은 `build/reports/k6/issue-197/...` 또는 OS 임시 디렉터리에 owner-only mode `600`으로만 둘 수 있으며 커밋하지 않는다. runner는 입력 직후 부모 environment에서 이를 unset하고 fixture/JWT validator와 각 k6 child에만 명시적으로 전달한다.
@@ -46,9 +47,21 @@ current-develop correctness drift는 다음처럼 분리 고정한다.
 6. Compose inspect 뒤 실제 project-keyed lock을 원자 획득한다. 실패 시 같은 stack의 다른 부하가 진행 중인 것으로 보고 즉시 종료하며, runner가 직접 획득한 빈 lock만 종료 시 `rmdir`한다. stale/non-empty lock은 자동 삭제하지 않는다.
 7. lock 전 검증한 source/image provenance, app image/JAR/API-contract digest와 app/DB/Redis full container ID, image ID, StartedAt을 initial capture와 다시 비교한다. 이후 warmup 직전, measured 직전, measured 직후, final snapshot의 source, Compose, PostgreSQL/Flyway, Redis run identity가 한 field라도 바뀌거나 source가 dirty/attached가 되면 non-zero로 종료한다.
 8. `REJECTION_EVIDENCE_FILE`은 fixture run별 fresh ignored report/temp 경로여야 한다. 실패하면 최초 stage/exit code만 mode 600 JSON으로 보존하고 이후 실패가 이를 덮어쓰지 않으며 `automaticAdoption=false`다.
-9. 기본 `build/reports/k6/issue-197/<fixtureRunId>` 또는 optional `PERF_REPORT_ROOT/<fixtureRunId>`는 mode 700으로 원자 생성한다. 이미 존재하면 이전 evidence와 결합하거나 덮어쓰지 않고 즉시 거부하므로 devotion과 retention은 서로 다른 fresh `fixtureRunId`를 사용한다. fake/static suite는 invocation별 임시 `PERF_REPORT_ROOT`를 사용하지만 runtime target/workload 입력에는 어떤 fallback도 추가하지 않는다.
+9. baseline의 기본 `build/reports/k6/issue-197/<fixtureRunId>` 또는 optional `PERF_REPORT_ROOT/<fixtureRunId>`와 prepare의 필수 `PREPARE_REPORT_ROOT/<fixtureRunId>`, `RUNTIME_SECRET_ROOT/<fixtureRunId>`는 mode 700으로 배타 생성한다. 이미 존재하면 이전 evidence와 결합하거나 덮어쓰지 않고 즉시 거부한다. prepare의 partial namespace는 자동 정리·재사용하지 않고 새 `fixtureRunId`로 다시 시작한다.
 
 ## 경건 write fixture 계약
+
+### 단일 prepare 경로
+
+준비 순서는 **fresh namespace read-only 확인 → report/secret namespace 배타 예약 → create-only API seed → 1,002명 최종 login/token manifest → exact DB preflight → installed k6 inspect** 하나뿐이다. calibration dataset, duplicate workload, warmup 비례 추정, cleanup/reuse 경로는 없다.
+
+`PREPARE_INPUT_FILE`과 `RUNTIME_SECRET_ROOT`는 OS temp directory 아래 absolute path와 owner-only mode가 필수다. `PREPARE_INPUT_FILE` exact key는 `adminEmail`, `adminPassword`, `fixtureUserPassword`, `penaltyAccount`, `penaltyRules`이며 service `ADMIN` 계정, 공통 fixture password, success campus의 PENALTY 계좌 한 개와 네 rule을 담는다. password/account/token 원문은 report, stdout/stderr, argv에 기록하지 않는다. 네 rule은 `QUIET_TIME`/`PRAYER`/`BIBLE_READING`의 `MISSING_COUNT(requiredCount=7)`와 `SATURDAY_LATE`의 `LATE_MINUTE` exact set이며, `expectedPenaltyAmount`는 fixed request(각 항목 4회, 지각 5분)로 계산한다.
+
+prepare API 호출은 관리자 login 1, campus create 2, PENALTY account create 1, rule create 4, signup 1,002, service-admin membership add 1,002, fixture user 최종 login 1,002로 정확히 3,014건이다. create-only business resource의 최소 직접 행은 campus 2, campus creator membership 2, payment account 1, rule 4, user 1,002, cohort membership 1,002로 합계 2,013행이며 login은 user `lastLoginAt`과 기존 token/session 저장 동작을 수행한다. 이 preparation write는 measured window 밖이며 baseline transaction으로 귀속하지 않는다.
+
+`PREPARE_MAX_DURATION_SECONDS`도 default 없는 승인 필수 입력이다. runtime input loop에서 Docker inspect, namespace query, local reservation보다 먼저 누락을 거부하고, 실행 시작 시점부터 승인 시간 뒤까지 Asia/Seoul 날짜가 바뀌면 `referenceDate` 일관성을 위해 write 전에 거부한다. service ADMIN access token은 이 시간과 `TOKEN_TTL_SAFETY_SECONDS` 합보다 긴 잔여 TTL이 있어야 한다. 추천 후보는 `900`초이며 실제 승인값은 PM이 실행 직전에 결정한다.
+
+각 단계 실패 시 `preparation-receipt.json`에는 최초 안전한 stage/status/code와 완료 count만 남긴다. response body, Authorization, access/refresh token, password는 남기지 않는다. partial fixture와 namespace는 `cleanupAllowed=false`, `reuseAllowed=false`, `automaticAdoption=false`이며 자동 삭제하지 않는다.
 
 `FIXTURE_MANIFEST`는 `fixture-manifest.schema.json` 의미를 따른다.
 
@@ -74,9 +87,7 @@ current-develop correctness drift는 다음처럼 분리 고정한다.
 
 warmup, measured, rollback은 별도 k6 process와 별도 summary를 사용한다. `BASE_URL`, 세 phase의 `VUS`와 `MAX_DURATION`, `RESOURCE_SAMPLE_INTERVAL_SECONDS`, `RESOURCE_SAMPLE_MAX_GAP_SECONDS`에는 default가 없으며 모두 runtime 필수다. max gap은 sampling interval 이상이어야 한다. 로그인은 측정 요청에 포함하지 않는다. measured 결과는 정확히 1,000개의 주간 제출 transaction을 대상으로 한다.
 
-`ATTRIBUTION_SIGNATURE_FILE`도 runtime 필수이며 `activity-signature.schema.json` 의미를 따른다. runtime validator는 schema와 같은 exact key, JSON type, prefix, measured 1,000명 계약을 dependency 없이 검사한다. `datasetId`, `fixtureRunId`, `databaseName`, 두 cohort 수와 warmup/measured 각각의 application commit/rollback, 8개 대상 table counter delta, `pg_stat_statements` availability 및 normalized query calls/rows를 exact 값으로 고정한다. fresh write table의 production-shaped update delta는 승인 exact 값으로 허용하지만 non-write table update와 모든 delete는 0이어야 한다. runner는 fixture와 DB name 일치를 어떤 write보다 먼저 검증하고, 승인본을 ignored report 경로의 mode `0600` 고정본으로 만든다. 이때 얻은 SHA-256을 shell 변수와 environment evidence에 보존하고, 이후 고정본을 읽은 즉시 사전 digest 및 identity와 exact 재검증한 뒤 같은 digest를 scenario evidence에 기록한다. 따라서 실행 중 원본이나 고정본 교체를 채택하지 않는다. signature에는 default나 warmup 학습값이 없으며, 실제 실행 전에 사용자가 승인하지 않은 signature로 baseline을 채택할 수 없다.
-
-모든 PostgreSQL 누적 counter와 승인 signature delta는 JSON decimal string이며 validator는 `BigInt`로만 monotonic/delta/exact 비교한다.
+모든 PostgreSQL 누적 counter는 JSON decimal string이며 validator는 `BigInt`로만 monotonic/delta를 비교한다.
 
 ### 경건 correctness
 
@@ -91,13 +102,15 @@ k6 응답과 read-only SQL evidence를 함께 통과해야 한다.
 
 ### 경건 측정 evidence
 
-measured custom Trend에서 p50, p95, p99, max를 읽는다. iterations rate를 throughput으로, custom failure Rate를 failure rate로 기록한다. direct metric과 `metric.values` export를 모두 허용한다. 세 phase 모두 별도 transaction Counter가 runtime expected total과 exact 일치하는 양의 safe integer여야 하고, Rate의 `passes`/`fails`도 non-negative safe integer로서 합이 해당 Counter와 같아야 한다. installed k6 v2가 내보내는 `rate` 또는 `value`를 허용하되 둘 다 있으면 exact 일치를 강제한다. 이 failure Rate는 실패 여부를 표본으로 추가하므로 zero failure일 때 `rate|value=0`, `passes=0`, `fails=expected total`이어야 한다. throughput은 양의 finite, latency는 finite non-negative이며 `p50 <= p95 <= p99 <= max`여야 한다. 모든 1,000개 measured transaction은 성공해야 한다. transaction count, weekly/daily/charge DB counters, rollback persisted row count, measured phase의 app/PostgreSQL CPU/RAM도 `scenario-evidence.json`에 합친다.
+measured custom Trend에서 p50, p95, p99, max를 읽는다. iterations rate를 throughput으로, custom failure Rate를 failure rate로 기록한다. direct metric과 `metric.values` export를 모두 허용한다. 세 phase 모두 별도 transaction Counter가 runtime expected total과 exact 일치하는 양의 safe integer여야 하고, Rate의 `passes`/`fails`도 non-negative safe integer로서 합이 해당 Counter와 같아야 한다. installed k6 v2가 내보내는 `rate` 또는 `value`를 허용하되 둘 다 있으면 exact 일치를 강제한다. 이 failure Rate는 실패 여부를 표본으로 추가하므로 zero failure일 때 `rate|value=0`, `passes=0`, `fails=expected total`이어야 한다. throughput은 양의 finite, latency는 finite non-negative이며 `p50 <= p95 <= p99 <= max`여야 한다. 모든 1,000개 measured transaction은 성공해야 한다. transaction count, weekly/daily/charge DB counters, rollback persisted row count, measured phase의 app/PostgreSQL/Redis CPU/RAM도 `scenario-evidence.json`에 합친다.
 
 resource sampler는 initial immutable full container ID를 대상으로만 실행한다. app/DB/Redis exact 세 role 각각 첫 sample은 measured 시작 이하, 마지막 sample은 measured 종료 이상이어야 하고 timestamp는 전역·role별로 strictly increasing/unique해야 한다. strict CPU percent/RAM bytes schema, runtime 승인 max gap, container ID binding을 위반하면 `resource-window-evidence.json`이 non-adoptable이며 runner는 non-zero로 종료한다. 한 순간 snapshot, role 누락, short ID, 다른 container sample로는 baseline을 만들 수 없다.
 
-warmup 직전, warmup 뒤 measured 직전, measured 직후 snapshot을 순서대로 기록한다. 각 window의 table scan/fetch/write, application commit/rollback, optional normalized query calls/rows delta는 warmup 관측값에서 유추하지 않고 사용자 승인 signature의 해당 phase exact 값과 독립 비교한다. 따라서 warmup과 measured 양쪽에 같은 비율로 섞인 활동도 승인 signature를 벗어나면 `activity-attribution-evidence.json`을 `contaminated`로 만들고 baseline 채택을 거부한다.
+warmup 뒤 measured 직전과 measured 직후 snapshot만 DB supporting window로 사용한다. business row delta는 weekly 1,000, daily 7,000, charge 1,000, rollback persisted 0을 exact 검증한다. `pg_stat_database`/`pg_stat_user_tables` 누적치는 BigInt monotonic, 대상 세 table insert exact, 해당 세 table의 current-source upsert update는 observed non-negative evidence, 나머지 다섯 table update 0, 모든 8 table delete 0, DB-wide insert 최소 9,000, commit 최소 1,000, rollback 0을 supporting evidence로 검증한다. 다른 backend publication이나 auth/session commit을 request에 빼거나 exact 귀속하지 않는다.
 
-`pg_stat_database`의 인스턴스 전체 database set/counter, 대상 DB의 `pg_stat_user_tables`, 전체 database의 `pg_stat_activity`, planner settings, `stats_reset`, analyze/autoanalyze/vacuum/autovacuum timestamp와 count, `n_mod_since_analyze` delta는 필수다. 8개 table 모두 maintenance field exact schema와 measured 전후 stability를 강제한다. `pg_stat_statements`는 extension/preload가 이미 사용 가능한 경우에만 target `dbid`로 한정하고 동일 normalized query를 role별 row에서 합산해 calls/rows/time/block delta를 남기며 unavailable 이유를 명시한다. reset, extension/config 변경은 하지 않는다. 다른 database의 counter 변화, 외부 active DB session, 선언된 외부 활동, planner/analyze/vacuum 상태 변화, counter reset, 예상 밖 non-write table update/delete 또는 measured insert delta 불일치는 evidence를 `contaminated`로 만든다. database-wide counter에는 각 read-only snapshot transaction 자체가 포함되므로 validator는 대상 DB의 window당 observer commit 1건만 분리하며, 나머지는 승인 signature와 exact 비교한다.
+`pg_stat_database`의 인스턴스 전체 database set/counter, 대상 DB의 `pg_stat_user_tables`, 전체 database의 `pg_stat_activity`, planner settings, `stats_reset`, analyze/autoanalyze/vacuum/autovacuum timestamp와 count, `n_mod_since_analyze` delta는 필수다. 8개 table 모두 maintenance field exact schema와 measured 전후 stability를 강제한다. `pg_stat_statements`는 extension/preload가 이미 사용 가능한 경우 target `dbid`의 normalized query calls/rows/time/block delta를 runtime-observed supporting evidence로 남기고 unavailable 이유를 명시한다. reset, extension/config 변경은 하지 않는다. 다른 database counter 변화, 외부 active DB session, planner/analyze/vacuum drift, counter reset, 예상 밖 table write는 `contaminated`로 종료한다.
+
+shared-stack before는 correctness와 HTTP/custom Counter를 모두 통과해도 최종 `status=conditional-not-adoptable`, `automaticAdoption=false`다. DB-wide transaction/query exact signature를 사전 추측하거나 warmup에서 학습하지 않는다.
 
 SQL은 bigint 누적 counter를 decimal string으로 직렬화해 JavaScript `Number` 정밀도 경계를 피한다. external session count는 strict non-negative safe integer만 허용하고 `null`, 누락, 문자열, 배열, 객체는 clean 0으로 변환하지 않는다. `pg_stat_statements.totalExecTime`만 finite decimal number로 유지한다.
 
@@ -105,12 +118,43 @@ SQL은 bigint 누적 counter를 decimal string으로 직렬화해 JavaScript `Nu
 
 runtime identity query는 순수 DB counter window 밖에 둔다. measured-before identity를 확인한 다음 DB before snapshot을 찍고, measured 완료 뒤 DB after snapshot을 먼저 찍은 다음 measured-after identity를 확인한다. app/DB container 교체, image/StartedAt 변경, Compose label/port 변경, PostgreSQL database/address/port/postmaster restart가 있으면 서로 다른 runtime의 evidence를 합치지 않는다.
 
-실행은 PM이 fixture를 준비하고 shared Docker에 다른 부하가 없음을 확인한 뒤에만 한다.
+실행은 PM이 candidate namespace가 비어 있고 shared Docker의 actual load가 0임을 확인한 뒤 prepare와 baseline을 같은 승인 runtime 입력으로 순차 실행한다.
 
 ```bash
-FIXTURE_MANIFEST=build/reports/k6/issue-197/ISSUE197_YYYYMMDD_A/runtime/devotion-fixture.json \
-CREDENTIALS_FILE=build/reports/k6/issue-197/ISSUE197_YYYYMMDD_A/runtime/devotion-credentials.json \
-ATTRIBUTION_SIGNATURE_FILE=build/reports/k6/issue-197/ISSUE197_YYYYMMDD_A/runtime/activity-signature.json \
+DATASET_ID="${APPROVED_DATASET_ID:?}" \
+FIXTURE_RUN_ID="${APPROVED_FIXTURE_RUN_ID:?}" \
+PREPARE_REPORT_ROOT="${APPROVED_PREPARE_REPORT_ROOT:?}" \
+RUNTIME_SECRET_ROOT="${APPROVED_RUNTIME_SECRET_ROOT:?}" \
+PREPARE_INPUT_FILE="${APPROVED_PREPARE_INPUT_FILE:?}" \
+APP_CONTAINER="${APPROVED_APP_CONTAINER:?}" DB_CONTAINER="${APPROVED_DB_CONTAINER:?}" REDIS_CONTAINER="${APPROVED_REDIS_CONTAINER:?}" \
+APP_SOURCE_WORKTREE="${APPROVED_APP_SOURCE_WORKTREE:?}" \
+EXPECTED_COMPOSE_PROJECT="${APPROVED_COMPOSE_PROJECT:?}" \
+EXPECTED_APP_COMPOSE_SERVICE="${APPROVED_APP_COMPOSE_SERVICE:?}" \
+EXPECTED_DB_COMPOSE_SERVICE="${APPROVED_DB_COMPOSE_SERVICE:?}" \
+EXPECTED_REDIS_COMPOSE_SERVICE="${APPROVED_REDIS_COMPOSE_SERVICE:?}" \
+EXPECTED_APP_REVISION="${APPROVED_APP_REVISION:?}" EXPECTED_APP_IMAGE_ID="${APPROVED_APP_IMAGE_ID:?}" \
+EXPECTED_APP_JAR_SHA256="${APPROVED_APP_JAR_SHA256:?}" EXPECTED_API_CONTRACT_SHA256="${APPROVED_API_CONTRACT_SHA256:?}" \
+EXPECTED_DB_IMAGE_ID="${APPROVED_DB_IMAGE_ID:?}" EXPECTED_REDIS_IMAGE_ID="${APPROVED_REDIS_IMAGE_ID:?}" \
+EXPECTED_FLYWAY_VERSION="${APPROVED_FLYWAY_VERSION:?}" EXPECTED_FLYWAY_SCRIPT="${APPROVED_FLYWAY_SCRIPT:?}" \
+EXPECTED_FLYWAY_CHECKSUM="${APPROVED_FLYWAY_CHECKSUM:?}" \
+DB_HOST="${APPROVED_DB_HOST:?}" REDIS_HOST="${APPROVED_REDIS_HOST:?}" \
+EXPECTED_DB_PORT="${APPROVED_DB_PORT:?}" EXPECTED_REDIS_PORT="${APPROVED_REDIS_PORT:?}" \
+DB_NAME="${APPROVED_DB_NAME:?}" DB_USER="${APPROVED_DB_USER:?}" BASE_URL="${APPROVED_APP_BASE_URL:?}" \
+WARMUP_VUS="${APPROVED_WARMUP_VUS:?}" MEASURED_VUS="${APPROVED_MEASURED_VUS:?}" ROLLBACK_VUS="${APPROVED_ROLLBACK_VUS:?}" \
+WARMUP_MAX_DURATION="${APPROVED_WARMUP_MAX_DURATION:?}" MEASURED_MAX_DURATION="${APPROVED_MEASURED_MAX_DURATION:?}" \
+ROLLBACK_MAX_DURATION="${APPROVED_ROLLBACK_MAX_DURATION:?}" \
+PREPARE_MAX_DURATION_SECONDS="${APPROVED_PREPARE_MAX_DURATION_SECONDS:?}" TOKEN_TTL_SAFETY_SECONDS="${APPROVED_TOKEN_TTL_SAFETY_SECONDS:?}" \
+RESOURCE_SAMPLE_INTERVAL_SECONDS="${APPROVED_RESOURCE_SAMPLE_INTERVAL_SECONDS:?}" \
+RESOURCE_SAMPLE_MAX_GAP_SECONDS="${APPROVED_RESOURCE_SAMPLE_MAX_GAP_SECONDS:?}" EXTERNAL_ACTIVITY=none \
+REJECTION_EVIDENCE_FILE="${APPROVED_PREPARE_REPORT_ROOT:?}/${APPROVED_FIXTURE_RUN_ID:?}/first-rejection.json" \
+performance/k6/issue-197/run-devotion-prepare.sh
+```
+
+prepare 성공 뒤 `FIXTURE_MANIFEST=<prepare report>/<fixtureRunId>/devotion-fixture.json`, `CREDENTIALS_FILE=<runtime secret>/<fixtureRunId>/devotion-credentials.json`을 아래 baseline에 전달한다. `PERF_REPORT_ROOT`는 prepare root와 다른 fresh base를 사용한다.
+
+```bash
+FIXTURE_MANIFEST="${APPROVED_PREPARE_REPORT_ROOT:?}/${APPROVED_FIXTURE_RUN_ID:?}/devotion-fixture.json" \
+CREDENTIALS_FILE="${APPROVED_RUNTIME_SECRET_ROOT:?}/${APPROVED_FIXTURE_RUN_ID:?}/devotion-credentials.json" \
     APP_CONTAINER=faithlog-backend \
     DB_CONTAINER=faithlog-postgres \
     REDIS_CONTAINER=faithlog-redis \
@@ -208,14 +252,14 @@ retention report 경로는 `build/reports/k6/issue-197/<fixtureRunId>/retention/
 
 read-only audit에서 확인한 실행 stack은 Compose project `faithlog-frontend-latest`, services `app`/`postgres`/`redis`, app published port `28080`이다. 승인 source는 `/private/tmp/FaithLog-perf-206-deploy`의 clean detached `6796ed146244d8f3f5b5dd7048ebe16865084a97`, newest HEAD reflog selector `2026-07-16T13:20:28+09:00`이고 app image `sha256:8e0f8d85d697a7d34aabf3703ddb27b4f1af326dec4f7c35556986303b0b816c`는 `2026-07-16T04:22:48.810414883Z`에 생성됐다. source API tree digest는 `2ccb072bd3d5be1c65acd43b99d3a36c27a810c93e86dbe64b19fd89841562bd`다. image-alone revision label 부재는 명시 limitation이며 이 결합 근거를 대체하지 않는다.
 
-fresh namespace 추천값은 아직 실행 승인값이 아니다.
+fresh namespace 추천값은 아직 예약값이 아니다. 기존 `A`가 DB와 filesystem에서 비어 있다는 read-only 근거 없이 `A`를 예약하지 않는다.
 
-- devotion: `datasetId=PERFORMANCE_1000_20260716_DEVOTION_197_A`, `fixtureRunId=ISSUE197_20260716_DEVOTION_BEFORE_A`, rollback/warmup/measured week는 각각 `2026-07-13`/`2026-07-20`/`2026-07-27`.
+- devotion fresh candidate: `datasetId=PERFORMANCE_1000_20260717_DEVOTION_197_B`, `fixtureRunId=ISSUE197_20260717_DEVOTION_BEFORE_B`. prepare가 실행일 `referenceDate`를 Asia/Seoul로 생성하며 2026-07-17 실행이면 rollback/warmup/measured week는 `2026-07-13`/`2026-07-20`/`2026-07-27`이다. 이 문서 작성 세션에서는 예약하지 않았다.
 - retention: `datasetId=PERFORMANCE_1000_20260716_RETENTION_197_A`, `fixtureRunId=ISSUE197_20260716_RETENTION_DRY_A`, 두 값을 모두 포함한 별도 `datasetPrefix`, reference instant `2027-01-31T15:00:00Z`.
 
-사용자 승인이 필요한 값은 fixture와 runtime credential, exact activity signature, `BASE_URL`, 세 phase VUS/MAX_DURATION, token TTL safety, resource interval/max gap, app JAR SHA-256, DB/Redis image와 Flyway identity, numeric-loopback DB/Redis target이다. observed Compose/source/image/API digest는 승인 후보일 뿐 runner default가 아니다. warmup/rollback VUS 1, measured VUS 30, resource interval 1초/max gap 2초는 추천값이며 승인 전 실행하지 않는다.
+runtime 필수 입력은 fresh dataset/fixture ID, prepare report/secret/input 경로, service ADMIN credential과 fixture 공통 password를 담은 mode 600 input, `BASE_URL`, prepare 최대시간, 세 phase VUS/MAX_DURATION, token TTL safety, resource interval/max gap, app JAR SHA-256, DB/Redis image와 Flyway identity, numeric-loopback DB/Redis target이다. observed Compose/source/image/API digest는 승인 후보일 뿐 runner default가 아니다. prepare 최대시간 900초, warmup/rollback VUS 1, measured VUS 30, resource interval 1초/max gap 2초는 추천값이며 runner에 default가 없다.
 
-devotion 실행 순서는 no-default/JWT/source/runtime preflight → project lock → fresh namespace → initial identity와 read-only cohort preflight → warmup → measured 전 DB snapshot → measured 1,000 제출과 resource sampling → measured 후 DB snapshot/오염 gate → rollback → read-only correctness/final identity/evidence다. 정적 예상은 HTTP 1,002건, 성공 cohort의 committed weekly/daily/charge 9,009행, rollback weekly/daily 8행 시도 후 persisted 0행, repository read call-site 약 15,028회다. 실제 SQL/시간은 측정하지 않았으며 최대 소요시간은 승인된 세 `MAX_DURATION` 합과 pre/post evidence overhead 이하다.
+devotion 순서는 prepare no-default/source/runtime check → common lock → DB namespace 0 확인 → local namespace 예약 → create-only API 3,014건 → token/manifest → exact preflight/k6 inspect → baseline no-default/JWT/source/runtime preflight → common lock → warmup → measured 전 DB snapshot → measured 1,000 제출/resource sampling → measured 후 supporting DB gate → rollback → correctness/final identity/conditional evidence다. baseline HTTP는 1,002건, 성공 cohort의 committed weekly/daily/charge는 warmup 9행 + measured 9,000행이며 rollback은 persisted 0행이다. 실제 소요시간은 미측정이며 prepare는 3,014개 순차 API 왕복과 bcrypt 2,005회, baseline은 승인된 세 `MAX_DURATION` 합과 evidence overhead 이하로만 계획한다.
 
 retention은 current shared project에서 project-name guard로 즉시 거부된다. 별도 `faithlog-perf-197-*` isolated Compose와 fresh retention fixture가 준비돼도 현재 순서는 source/runtime preflight → common lock → fresh namespace → initial identity → explicit read-only candidate SQL → post identity → `not-measured` evidence뿐이다. 예상 write/cleanup/FCM/HTTP는 모두 0이며 manual trigger와 batch 성과는 범위 밖이다.
 
@@ -223,25 +267,26 @@ retention은 current shared project에서 project-name guard로 즉시 거부된
 
 ## SQL/query counter 해석 한계
 
-이번 계약은 DB row/transaction counter와 이미 활성화된 경우의 `pg_stat_statements` query delta를 수집한다. shared Docker 재시작, stats reset, extension/config 변경, datasource proxy 추가는 하지 않는다. 따라서 `pg_stat_statements` unavailable이면 그 상태를 승인 signature와 evidence에 명시하고 table/database delta는 반드시 보존한다. 대상 DB counter는 observer transaction을 포함하고, 다른 database의 counter 변화는 동일 컨테이너 CPU/RAM 오염으로 간주해 채택을 거부한다. 실제 baseline 실행 전에는 현재 production 쿼리/트랜잭션 흐름에서 도출한 exact activity signature에 대한 사용자 승인이 별도로 필요하다.
+이번 계약은 exact business row/HTTP/custom Counter와 DB supporting counter를 분리한다. shared Docker 재시작, stats reset, extension/config 변경, datasource proxy 추가는 하지 않는다. `pg_stat_statements` unavailable이면 strict reason과 빈 inventory를 남기고 table/database delta는 반드시 보존한다. 대상 DB counter는 observer와 다른 backend commit을 포함할 수 있으므로 exact request attribution이나 subtraction을 하지 않는다. 다른 database counter 변화는 동일 컨테이너 CPU/RAM 오염으로 거부한다. clean run도 shared-stack에서는 `conditional-not-adoptable`이다.
 
 ## 작성 세션 정적 검증
 
 ```bash
 node --test performance/k6/issue-197/tests/*.test.mjs
 node --check performance/k6/issue-197/lib/fixture-contract.mjs
-    node --check performance/k6/issue-197/lib/runtime-contract.mjs
-    node --check performance/k6/issue-197/lib/current-develop-contract.mjs
+node --check performance/k6/issue-197/lib/runtime-contract.mjs
+node --check performance/k6/issue-197/lib/current-develop-contract.mjs
+node --check performance/k6/issue-197/lib/devotion-prepare.mjs
 node --check performance/k6/issue-197/lib/rejection-contract.mjs
 node --check performance/k6/issue-197/lib/source-image-provenance.mjs
 node --check performance/k6/issue-197/lib/validate-devotion-preflight.mjs
 node --check performance/k6/issue-197/lib/validate-k6-summary.mjs
 node --check performance/k6/issue-197/lib/validate-db-window.mjs
-node --check performance/k6/issue-197/lib/validate-activity-attribution.mjs
 node --check performance/k6/issue-197/lib/validate-resource-window.mjs
 node --check performance/k6/issue-197/lib/validate-runtime-identity.mjs
 node --check performance/k6/issue-197/lib/scenario-contract.mjs
 node --check performance/k6/issue-197/retention-dry-verify.mjs
 bash -n performance/k6/issue-197/run-devotion-baseline.sh
+bash -n performance/k6/issue-197/run-devotion-prepare.sh
 bash -n performance/k6/issue-197/run-retention-dry-verify.sh
 ```
