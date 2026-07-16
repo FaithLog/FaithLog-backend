@@ -43,7 +43,7 @@ test('runtime target source, Flyway, services, images, resources, and workload f
 	const runner = readFileSync(new URL('run-baseline.sh', import.meta.url), 'utf8');
 	const targetGate = runner.indexOf('validateTargetContract');
 	const firstRuntime = runner.indexOf('INITIAL_TEMP=');
-	const seed = runner.indexOf('seed-fixtures.mjs');
+	const seed = runner.lastIndexOf('seed-fixtures.mjs');
 	assert.ok(targetGate > 0 && targetGate < firstRuntime && firstRuntime < seed, 'full target gate must precede runtime and fixture work');
 });
 

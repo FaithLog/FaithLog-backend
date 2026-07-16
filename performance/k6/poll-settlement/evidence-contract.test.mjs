@@ -66,8 +66,11 @@ function k6V2Metric() {
 		coffee_settlement_failure_rate: ['rate', 'default'], checks: ['rate', 'default'], http_req_failed: ['rate', 'default'],
 		coffee_settlement_duration: ['trend', 'time'], coffee_settlement_started_at: ['trend', 'default'], coffee_settlement_finished_at: ['trend', 'default'],
 	};
-	for (const [name, [type, contains]] of Object.entries(definitions)) Object.assign(value.metrics[name], { type, contains });
-	Object.assign(value.metrics.coffee_settlement_failure_rate, { values: { rate: 0, passes: 0, fails: 10 } });
+	for (const [name, [type, contains]] of Object.entries(definitions)) {
+		const raw = value.metrics[name]; const values = raw.values ?? raw;
+		value.metrics[name] = { type, contains, values };
+	}
+	Object.assign(value.metrics.coffee_settlement_failure_rate.values, { passes: 0, fails: 10 });
 	Object.assign(value.metrics.http_req_failed.values, { passes: 0, fails: 10 });
 	Object.assign(value.metrics.checks.values, { passes: 20, fails: 0 });
 	return value;
@@ -172,7 +175,9 @@ test('k6 v2 wrapped Counter and Rate values enforce finite counters and exact pa
 	validateMetricEvidence(valid, 'coffee-sequential', CASE);
 	for (const mutate of [
 		(value) => { value.metrics.coffee_settlement_requests.values.rate = Number.NaN; },
+		(value) => { delete value.metrics.coffee_settlement_requests.values.rate; },
 		(value) => { value.metrics.coffee_settlement_failure_rate.values.passes = 1; },
+		(value) => { delete value.metrics.coffee_settlement_failure_rate.values.passes; delete value.metrics.coffee_settlement_failure_rate.values.fails; },
 		(value) => { value.metrics.checks.values.fails = 1; },
 		(value) => { value.metrics.http_req_failed.values.passes = 1; },
 	]) {

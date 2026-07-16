@@ -1371,8 +1371,9 @@ Metric candidates:
 ### 2026-07-16 Issue #192 Latest-develop Scenario Verification
 
 - Base: `origin/develop` `6796ed146244d8f3f5b5dd7048ebe16865084a97` (#206 stable charge paging ordering).
-- TDD: latest-develop drift RED `10/13`, focused GREEN `15/15`, full issue-local static/fake `82/82`.
+- TDD: latest-develop drift RED `10/13` and focused GREEN `15/15`; common integrity audit RED `18/21`, focused GREEN `21/21`, full issue-local static/fake `85/85`.
 - Static verification: 31 issue-local JavaScript files passed `node --check`; runner passed `bash -n`; target JSON parsing and `git diff --check` passed.
 - Correctness compatibility: verifier mirrors #206 `created_at DESC, id DESC`; #200 ownership/duty and #201 archive/page-size contracts remain covered; #202 direct JDBC observation remains target-bound without Supabase Data API credentials.
 - Measurement status: scenario-ready / not measured on latest develop. Existing valid before numbers and production optimization were not changed, and no new performance improvement is claimed.
 - Execution scope: Docker/DB/HTTP/fixture/k6/EXPLAIN and production/Flyway/dependency changes were zero. Test-code correction is parallel-safe; actual loads remain PM-only and sequential.
+- Audit result: Added a pre-mutable full target/source/Flyway/runtime/workload gate and strict k6 v2 wrapper Counter/Rate/Trend metadata plus Counter-rate/Rate passes-fails math. The four authoritative before O measured/warmup evidence files all pass the strengthened validator read-only; no metric was remeasured.

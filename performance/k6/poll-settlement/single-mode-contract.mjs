@@ -1,8 +1,21 @@
 import { validateMaintenanceReadinessContract } from './maintenance-quiet-contract.mjs';
+import { validateRuntimeTarget } from './evidence-contract.mjs';
 
 export const SETTLEMENT_MODES = Object.freeze(['coffee-sequential', 'meal-sequential', 'coffee-concurrent', 'meal-concurrent']);
 export const SINGLE_MODE_PROTOCOL_VERSION = 'faithlog-192-single-mode-v1';
 const OUTCOME_KEYS = Object.freeze(['activeMembers', 'polls', 'pollResponses', 'pollResponseOptions', 'selectedPolls', 'coffeeClosed', 'coffeeOpen', 'mealClosed', 'mealOpen', 'coffeeCharges', 'mealCharges', 'mealSettlements', 'mealGroups', 'nonselectedChargeCount', 'nonselectedPollStateDrift', 'missingExpectedIdentity', 'unexpectedIdentity', 'terminalStatusCharges', 'notificationSideEffects', 'sourceUniqueDuplicates', 'groupTotalViolations']);
+const TARGET_KEYS = Object.freeze(['contractType', 'sourceCommit', 'baseUrl', 'flywayVersion', 'containers', 'database', 'redis', 'resourceSampling', 'maintenanceReadiness']);
+
+export function validateTargetContract(target) {
+	assertExactKeys(target, TARGET_KEYS, 'target contract');
+	if (!['before', 'after'].includes(target.contractType)) throw new Error('target contract type');
+	if (typeof target.sourceCommit !== 'string' || !/^[a-f0-9]{40}$/.test(target.sourceCommit)) throw new Error('target source commit');
+	if (target.baseUrl !== 'http://127.0.0.1:28080') throw new Error('target base URL');
+	if (typeof target.flywayVersion !== 'string' || !/^[1-9]\d*$/.test(target.flywayVersion)) throw new Error('target Flyway version');
+	validateRuntimeTarget(target);
+	validateMaintenanceReadinessContract(target.maintenanceReadiness);
+	return target;
+}
 
 export function requireExactMode(value) {
 	if (!SETTLEMENT_MODES.includes(value)) throw new Error('MODE must be one exact approved settlement mode.');

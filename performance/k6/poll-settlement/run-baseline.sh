@@ -9,6 +9,7 @@ for name in MODE BASE_URL TARGET_CONTRACT REPORT_ROOT PERF_DATASET_ID PERF_FIXTU
 done
 TARGET_CONTRACT="$(node -e 'console.log(require("path").resolve(process.argv[1]))' "${TARGET_CONTRACT}")"
 MODE="$(MODE="${MODE}" node --input-type=module -e 'import { requireExactMode } from "./performance/k6/poll-settlement/single-mode-contract.mjs"; process.stdout.write(requireExactMode(process.env.MODE));')"
+TARGET_CONTRACT="${TARGET_CONTRACT}" node --input-type=module -e 'import { readFileSync } from "node:fs"; import { validateTargetContract } from "./performance/k6/poll-settlement/single-mode-contract.mjs"; validateTargetContract(JSON.parse(readFileSync(process.env.TARGET_CONTRACT, "utf8")));'
 for command in node docker curl k6; do
 	command -v "${command}" >/dev/null || { echo "Missing command: ${command}" >&2; exit 2; }
 done
