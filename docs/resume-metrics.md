@@ -1379,3 +1379,12 @@ Metric candidates:
 - 측정 결과: k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
 - 복구/보존: 외부 cleanup trap이 임시 ADMIN을 USER로 복구했고 memory-only credential은 폐기됐다. C namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 재발 방지: RFC3339 timestamp를 최대 9자리 fraction 및 `Z`/offset까지 strict parse한 lossless epoch nanoseconds로 비교하고 exact instant tie에서만 ID 내림차순을 적용한다. malformed/date-only/invalid calendar/`24:00`은 fail-closed며 설치된 k6의 정적 `inspect`로 module 호환성을 검증한다.
+
+### 2026-07-16 Issue #193 actual-before attempt D rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_D / I193_FIXTURE_20260716_D / EXEC193_BEFORE_20260716_D`.
+- fixture 결과: campus ID 21, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- 거부 원인: 요청은 `sort=createdAt,desc`였고 DB의 일부 charge item은 `created_at`이 exact tie였다. current develop API 응답은 해당 status pair들에서 ID 오름차순과 내림차순이 혼재했다. Spring `Pageable`에는 primary `createdAt` sort만 있어 tie를 안정화하는 secondary sort가 없다. PM 독립 대조 결과 이는 scenario 오판이 아니라 실제 API pagination/order 경계다.
+- 측정 결과: correctness preflight에서 중단되어 k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
+- 보존: D namespace/DB rows/report는 partial rejected evidence로만 보존하며 재사용하지 않는다. fresh E는 실행하지 않는다.
+- 사용자 결정 대기: 추천안은 모든 charge-item pageable endpoint에서 사용자가 지정한 primary sort와 같은 방향의 `id` secondary sort를 자동 추가하는 것이다(`createdAt,desc → id,desc`, `createdAt,asc → id,asc`). 아직 승인되거나 구현된 정책이 아니며, scenario 완화나 fixture timestamp 인위적 분산도 적용하지 않는다. 사용자 결정 후 test-only RED부터 시작한다.
