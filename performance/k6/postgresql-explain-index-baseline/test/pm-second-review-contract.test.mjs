@@ -21,6 +21,7 @@ const anchors = {
 	prayer_season_id: 50,
 	prayer_week_id: 60,
 	week_start_date: '2026-07-13',
+	archive_cutoff: '2026-06-14T00:00:00Z',
 	stale_before: '2026-07-14T00:00:00Z',
 	range_start: '2025-01-01T00:00:00+09:00',
 	range_end: '2026-01-01T00:00:00+09:00',
@@ -68,7 +69,7 @@ test('cross-issue artifacts are real, unique, in-tree JSON and pending issue con
 			crossIssueReportPath: path.join(root, 'cross.json'),
 			issueReports,
 			datasetId: 'PERF_1000', fixtureRunId: 'fixture-1', memberCount: 1000,
-		}), /issue[- ]193.*pending/i);
+		}), /issue[- ]192.*pending/i);
 		const issue192Path = path.join(root, issueReports[192]);
 		const issue192 = JSON.parse(fs.readFileSync(issue192Path, 'utf8'));
 		fs.writeFileSync(issue192Path, JSON.stringify({ ...issue192, fixtureRunId: 'other-fixture' }));
@@ -122,6 +123,10 @@ test('anchors require exact accepted-artifact identity and read-only relationshi
 		paymentAccountIsActive: true, paymentAccountOwnerUserId: 30,
 		paymentAccountNickname: 'PERF account fixture-1', prayerSeasonStatus: 'ACTIVE',
 		prayerSeasonName: 'PERF season fixture-1', prayerWeekStatus: 'OPEN',
+		pollCreatorActiveMember: true, pollCreatorActiveCoffeeDuty: true,
+		pollPaymentAccountOwnedActiveCoffee: true, pollConfigurationConsistent: true,
+		coffeeTemplateAccountNeutralityViolationCount: 0,
+		coffeeTemplateInconsistentActiveCount: 0,
 	};
 	assert.equal(validateAnchorPreflight(valid, anchors.expected_state).adoptable, true);
 	const mismatch = validateAnchorPreflight({ ...valid, memberInCampus: false, pollCount: 0 }, anchors.expected_state);
@@ -181,7 +186,10 @@ test('source identity binds SQL bytes, inventory, report contract, production re
 	const realIdentity = buildSourceIdentity({
 		repositoryRoot, scenarioRoot, gitCommit: 'static-contract-check', gitDirty: false,
 		sqlFiles: inventory.queries.map((query) => query.sqlFile),
-		productionSourceRefs: inventory.queries.flatMap((query) => query.productionSourceRefs),
+		productionSourceRefs: [
+			...inventory.queries.flatMap((query) => query.productionSourceRefs),
+			...(inventory.currentDevelopContract?.repositorySourceRefs || []),
+		],
 		inventoryPath: 'inventory.json', reportContractPath: 'report-contract.json',
 		expected: { productionSourceRefs: manifest.productionSourceRefs },
 	});
@@ -411,23 +419,25 @@ test('planner integrity rejects autovacuum, vacuum and visibility evidence chang
 	const { REQUIRED_PLANNER_SETTINGS, validateMeasurementIntegrity } = await import(moduleUrl('runtime-contract.mjs'));
 	const settings = Object.fromEntries(REQUIRED_PLANNER_SETTINGS.map((name) => [name, 'same']));
 	const table = {
-		table: 'polls', lastAnalyze: null, lastAutoanalyze: null, nModSinceAnalyze: 0,
-		lastVacuum: null, lastAutovacuum: null, vacuumCount: 0, autovacuumCount: 0,
-		allVisiblePages: 1,
+		table: 'polls', lastAnalyze: null, lastAutoanalyze: null, nModSinceAnalyze: '0',
+		lastVacuum: null, lastAutovacuum: null, vacuumCount: '0', autovacuumCount: '0',
+		liveTuples: '1000', deadTuples: '0', allVisiblePages: '1',
 	};
 	const snapshot = (row) => ({
 		capturedAt: '2026-07-14T00:00:00Z', serverVersion: '17',
 		postmasterStartedAt: '2026-07-13T00:00:00Z', settings,
-		tableStatistics: [row], externalActivity: { activeSessionCount: 0, sessions: [] },
+		tableStatistics: [row],
+		pgStatStatements: { available: false, extensionVersion: null, viewAvailable: false },
+		externalActivity: { activeSessionCount: 0, sessions: [] },
 	});
 	assert.equal(validateMeasurementIntegrity(snapshot(table), snapshot(table), { expectedTables: ['polls'] }).adoptable, true);
 	const result = validateMeasurementIntegrity(snapshot(table), snapshot({
-		...table, lastAutovacuum: '2026-07-14T00:00:01Z', autovacuumCount: 1, allVisiblePages: 2,
+		...table, lastAutovacuum: '2026-07-14T00:00:01Z', autovacuumCount: '1', allVisiblePages: '2',
 	}), { expectedTables: ['polls'] });
 	assert.equal(result.adoptable, false);
 	assert.match(result.reasons.join(','), /autovacuum|visible/i);
 	const manualVacuum = validateMeasurementIntegrity(snapshot(table), snapshot({
-		...table, lastVacuum: '2026-07-14T00:00:01Z', vacuumCount: 1,
+		...table, lastVacuum: '2026-07-14T00:00:01Z', vacuumCount: '1',
 	}), { expectedTables: ['polls'] });
 	assert.equal(manualVacuum.adoptable, false);
 	assert.match(manualVacuum.reasons.join(','), /vacuum/i);

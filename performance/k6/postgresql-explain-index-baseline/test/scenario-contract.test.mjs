@@ -246,6 +246,7 @@ test('database identity preflight fails closed when psql target is not the inspe
 		composeProject: 'faithlog-latest',
 		composeService: 'postgres',
 		configuredDatabase: 'faithlog',
+		configuredUser: 'faithlog',
 		containerStartedAt: '2026-07-14T00:00:00.000Z',
 		postgresInternalPort: 5432,
 		containerNetworkAddresses: ['172.30.0.4'],
@@ -254,27 +255,29 @@ test('database identity preflight fails closed when psql target is not the inspe
 		serverAddress: '172.30.0.4',
 		serverPort: 5432,
 		database: 'faithlog',
+		currentUser: 'faithlog',
+		sessionUser: 'faithlog',
 		postmasterStartedAt: '2026-07-14T00:00:01.000Z',
 	};
-	assert.doesNotThrow(() => validateDatabaseIdentity(inspected, matching, 'faithlog'));
+	assert.doesNotThrow(() => validateDatabaseIdentity(inspected, matching, 'faithlog', 'faithlog'));
 	assert.throws(
-		() => validateDatabaseIdentity(inspected, { ...matching, serverAddress: '172.30.0.99' }, 'faithlog'),
+		() => validateDatabaseIdentity(inspected, { ...matching, serverAddress: '172.30.0.99' }, 'faithlog', 'faithlog'),
 		/not the inspected PostgreSQL container/i
 	);
 	assert.throws(
-		() => validateDatabaseIdentity(inspected, { ...matching, database: 'other' }, 'faithlog'),
+		() => validateDatabaseIdentity(inspected, { ...matching, database: 'other' }, 'faithlog', 'faithlog'),
 		/database/i
 	);
 	assert.throws(
-		() => validateDatabaseIdentity(inspected, { ...matching, database: 'other' }, 'other'),
+		() => validateDatabaseIdentity(inspected, { ...matching, database: 'other' }, 'other', 'faithlog'),
 		/POSTGRES_DB/i
 	);
 	assert.throws(
-		() => validateDatabaseIdentity(inspected, { ...matching, serverPort: 5433 }, 'faithlog'),
+		() => validateDatabaseIdentity(inspected, { ...matching, serverPort: 5433 }, 'faithlog', 'faithlog'),
 		/not the inspected PostgreSQL container/i
 	);
 	assert.throws(
-		() => validateDatabaseIdentity(inspected, { ...matching, postmasterStartedAt: '2026-07-13T23:59:59.000Z' }, 'faithlog'),
+		() => validateDatabaseIdentity(inspected, { ...matching, postmasterStartedAt: '2026-07-13T23:59:59.000Z' }, 'faithlog', 'faithlog'),
 		/container lifetime/i
 	);
 	assert.equal(validateDatabaseContinuity(matching, structuredClone(matching)).stable, true);
@@ -302,11 +305,14 @@ test('planner integrity validator blocks adoption for setting, analyze, n-mod, o
 			lastAutoanalyze: null,
 			lastVacuum: null,
 			lastAutovacuum: null,
-			vacuumCount: 0,
-			autovacuumCount: 0,
-			allVisiblePages: 0,
-			nModSinceAnalyze: 0,
+			vacuumCount: '0',
+			autovacuumCount: '0',
+			allVisiblePages: '0',
+			nModSinceAnalyze: '0',
+			liveTuples: '1000',
+			deadTuples: '0',
 		}],
+		pgStatStatements: { available: false, extensionVersion: null, viewAvailable: false },
 		externalActivity: { activeSessionCount: 0, sessions: [] },
 	};
 	const integrityOptions = {
@@ -321,7 +327,7 @@ test('planner integrity validator blocks adoption for setting, analyze, n-mod, o
 		{ ...structuredClone(clean), settings: { enable_seqscan: 'off', work_mem: '4096' } },
 		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], lastAnalyze: '2026-07-14T00:01:00Z' }] },
 		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], lastAutoanalyze: '2026-07-14T00:01:00Z' }] },
-		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], nModSinceAnalyze: 1 }] },
+		{ ...structuredClone(clean), tableStatistics: [{ ...clean.tableStatistics[0], nModSinceAnalyze: '1' }] },
 		{ ...structuredClone(clean), externalActivity: { activeSessionCount: 1, sessions: [{ pid: 42 }] } },
 	]) {
 		assert.equal(validateMeasurementIntegrity(clean, contaminated, integrityOptions).adoptable, false);
@@ -335,7 +341,7 @@ test('planner integrity validator blocks adoption for setting, analyze, n-mod, o
 	assert.equal(validateMeasurementStart({ externalActivity: { activeSessionCount: 0, sessions: [] } }, integrityOptions).adoptable, false);
 	const contaminatedIntegrity = validateMeasurementIntegrity(clean, {
 		...structuredClone(clean),
-		tableStatistics: [{ ...clean.tableStatistics[0], nModSinceAnalyze: 1 }],
+		tableStatistics: [{ ...clean.tableStatistics[0], nModSinceAnalyze: '1' }],
 	}, integrityOptions);
 	assert.deepEqual(decideMeasurementOutcome(contaminatedIntegrity, [], false), {
 		status: 'invalid-pending-planner-integrity',

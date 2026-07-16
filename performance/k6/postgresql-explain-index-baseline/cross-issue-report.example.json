@@ -4,13 +4,13 @@
   "fixtureRunId": "fixture-example-run-001",
   "memberCount": 1000,
   "issueReports": {
-    "192": "artifacts/issue-192-accepted.json",
-    "193": "artifacts/issue-193-accepted.json",
-    "195": "artifacts/issue-195-accepted.json",
-    "196": "artifacts/issue-196-accepted.json",
-    "197": "artifacts/issue-197-accepted.json",
-    "198": "artifacts/issue-198-accepted.json",
-    "199": "artifacts/issue-199-accepted.json"
+    "192": "artifacts/issue-192-pending.json",
+    "193": "artifacts/issue-193-pending.json",
+    "195": "artifacts/issue-195-pending.json",
+    "196": "artifacts/issue-196-pending.json",
+    "197": "artifacts/issue-197-pending.json",
+    "198": "artifacts/issue-198-pending.json",
+    "199": "artifacts/issue-199-pending.json"
   },
   "anchors": {
     "campus_id": 1,
@@ -21,6 +21,7 @@
     "prayer_season_id": 1,
     "prayer_week_id": 1,
     "week_start_date": "2026-07-13",
+    "archive_cutoff": "2026-06-14T00:00:00Z",
     "stale_before": "2026-07-14T00:00:00Z",
     "range_start": "2025-01-01T00:00:00Z",
     "range_end": "2026-01-01T00:00:00Z",

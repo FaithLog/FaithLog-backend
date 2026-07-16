@@ -44,6 +44,35 @@ export function parsePageSize(value) {
 	return parsed;
 }
 
+export function parsePgCumulativeCounter(value, fieldName = 'PostgreSQL cumulative counter') {
+	if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+		throw new Error(`${fieldName} must be a non-negative decimal string before BigInt conversion.`);
+	}
+	return BigInt(value);
+}
+
+export function validatePgStatStatementsContinuity(before, after) {
+	const valid = (state) => state && typeof state.available === 'boolean'
+		&& typeof state.viewAvailable === 'boolean'
+		&& (state.extensionVersion === null || typeof state.extensionVersion === 'string');
+	const reasons = [];
+	if (!valid(before) || !valid(after)) reasons.push('pgss-state-incomplete');
+	else if (stableStringify(before) !== stableStringify(after)) reasons.push('pgss-state-changed');
+	return { stable: reasons.length === 0, reasons };
+}
+
+export function validateApprovedComposeTarget(actual, approved) {
+	const fields = ['composeProject', 'composeService', 'postgresImageId', 'postgresImageReference'];
+	for (const field of fields) {
+		if (typeof approved?.[field] !== 'string' || approved[field].length === 0) {
+			throw new Error(`Approved PostgreSQL target ${field} is required at runtime; no fallback is allowed.`);
+		}
+		if (actual?.[field] !== approved[field]) {
+			throw new Error(`Actual PostgreSQL target ${field} mismatch from the approved runtime identity.`);
+		}
+	}
+}
+
 export function canonicalProjectLockPath(composeProject, lockRoot = '/tmp') {
 	if (typeof composeProject !== 'string' || !/^[A-Za-z0-9._-]+$/.test(composeProject)) {
 		throw new Error('Actual Docker Compose project must contain only letters, digits, dot, underscore, and hyphen.');
@@ -96,12 +125,18 @@ export function assertProjectLockOwned(lock) {
 	}
 }
 
-export function validateDatabaseIdentity(inspected, databaseIdentity, expectedDatabase) {
+export function validateDatabaseIdentity(inspected, databaseIdentity, expectedDatabase, expectedUser) {
 	if (inspected.configuredDatabase !== expectedDatabase) {
 		throw new Error(`PGDATABASE ${expectedDatabase} does not match inspected container POSTGRES_DB ${inspected.configuredDatabase}.`);
 	}
 	if (databaseIdentity.database !== expectedDatabase) {
 		throw new Error(`Connected database ${databaseIdentity.database} does not match PGDATABASE ${expectedDatabase}.`);
+	}
+	if (inspected.configuredUser !== expectedUser) {
+		throw new Error(`PGUSER ${expectedUser} does not match inspected container POSTGRES_USER ${inspected.configuredUser}.`);
+	}
+	if (databaseIdentity.currentUser !== expectedUser || databaseIdentity.sessionUser !== expectedUser) {
+		throw new Error('Connected database role does not match PGUSER and inspected POSTGRES_USER.');
 	}
 	if (!Array.isArray(inspected.containerNetworkAddresses)
 		|| !inspected.containerNetworkAddresses.includes(databaseIdentity.serverAddress)
@@ -118,7 +153,7 @@ export function validateDatabaseIdentity(inspected, databaseIdentity, expectedDa
 }
 
 export function validateDatabaseContinuity(before, after) {
-	const fields = ['serverAddress', 'serverPort', 'database', 'postmasterStartedAt'];
+	const fields = ['serverAddress', 'serverPort', 'database', 'currentUser', 'sessionUser', 'postmasterStartedAt'];
 	const changed = fields.filter((field) => before?.[field] !== after?.[field]);
 	return {
 		stable: changed.length === 0,
@@ -131,6 +166,7 @@ export function validateComposeIdentityContinuity(before, after) {
 		'postgresContainerId', 'postgresContainerName', 'postgresImageId', 'postgresImageReference',
 		'containerStartedAt', 'composeProject', 'composeService', 'composeConfigFiles',
 		'composeWorkingDir', 'configuredDatabase', 'postgresInternalPort',
+		'configuredUser',
 		'containerNetworkAddresses', 'networkIdentity',
 	];
 	const changedFields = fields.filter((field) => canonicalValue(before?.[field]) !== canonicalValue(after?.[field]));
@@ -148,7 +184,7 @@ export function validateComposeIdentityContinuity(before, after) {
 function isCompleteComposeIdentity(identity) {
 	const stringFields = [
 		'postgresContainerId', 'postgresContainerName', 'postgresImageId', 'postgresImageReference',
-		'containerStartedAt', 'composeProject', 'composeService', 'configuredDatabase',
+		'containerStartedAt', 'composeProject', 'composeService', 'configuredDatabase', 'configuredUser',
 	];
 	return identity && stringFields.every((field) => typeof identity[field] === 'string' && identity[field].length > 0)
 		&& Number.isFinite(Date.parse(identity.containerStartedAt))
@@ -178,6 +214,8 @@ export function validateMeasurementIntegrity(before, after, {
 	if (before.postmasterStartedAt !== after.postmasterStartedAt) {
 		reasons.push('postmaster-start-changed');
 	}
+	const pgssContinuity = validatePgStatStatementsContinuity(before.pgStatStatements, after.pgStatStatements);
+	reasons.push(...pgssContinuity.reasons);
 	const beforeByTable = new Map((before.tableStatistics || []).map((row) => [row.table, row]));
 	const afterByTable = new Map((after.tableStatistics || []).map((row) => [row.table, row]));
 	if (beforeByTable.size !== afterByTable.size
@@ -195,17 +233,21 @@ export function validateMeasurementIntegrity(before, after, {
 		if (previous.lastAutoanalyze !== current.lastAutoanalyze) {
 			reasons.push(`last-autoanalyze-changed:${table}`);
 		}
-		if (previous.nModSinceAnalyze !== current.nModSinceAnalyze) {
-			reasons.push(`n-mod-since-analyze-changed:${table}`);
-		}
 		for (const [field, reason] of [
 			['lastVacuum', 'last-vacuum-changed'],
 			['lastAutovacuum', 'last-autovacuum-changed'],
-			['vacuumCount', 'vacuum-count-changed'],
-			['autovacuumCount', 'autovacuum-count-changed'],
-			['allVisiblePages', 'all-visible-pages-changed'],
 		]) {
 			if (previous[field] !== current[field]) reasons.push(`${reason}:${table}`);
+		}
+		for (const [field, reason] of [
+			['nModSinceAnalyze', 'n-mod-since-analyze-changed'],
+			['vacuumCount', 'vacuum-count-changed'],
+			['autovacuumCount', 'autovacuum-count-changed'],
+			['liveTuples', 'live-tuples-changed'],
+			['deadTuples', 'dead-tuples-changed'],
+			['allVisiblePages', 'all-visible-pages-changed'],
+		]) {
+			if (pgCounterChanged(previous[field], current[field], field)) reasons.push(`${reason}:${table}`);
 		}
 	}
 	if (activeSessionCount(before) > 0) {
@@ -216,7 +258,8 @@ export function validateMeasurementIntegrity(before, after, {
 		reasons.push('external-activity-present-after');
 	}
 	if (hasOtherDatabaseActivity(after)) reasons.push('other-database-activity-present-after');
-	return { adoptable: reasons.length === 0, reasons };
+	const uniqueReasons = [...new Set(reasons)];
+	return { adoptable: uniqueReasons.length === 0, reasons: uniqueReasons };
 }
 
 export function validateMeasurementStart(snapshot, {
@@ -284,18 +327,39 @@ function validateSnapshotEvidence(snapshot, phase, expectedTables, expectedSetti
 			|| !Object.hasOwn(row, 'lastAutoanalyze')
 			|| !Object.hasOwn(row, 'lastVacuum')
 			|| !Object.hasOwn(row, 'lastAutovacuum')
-			|| typeof row.nModSinceAnalyze !== 'number'
-			|| !Number.isFinite(row.nModSinceAnalyze)
-			|| !Number.isFinite(row.vacuumCount)
-			|| !Number.isFinite(row.autovacuumCount)
-			|| !Number.isFinite(row.allVisiblePages)) {
+			|| !hasValidPgCounters(row)) {
 			reasons.push(`${phase}-table-statistics-fields-incomplete:${table}`);
 		}
+	}
+	if (!validatePgStatStatementsContinuity(snapshot.pgStatStatements, snapshot.pgStatStatements).stable) {
+		reasons.push(`${phase}-pgss-state-incomplete`);
 	}
 	if (typeof snapshot.externalActivity?.activeSessionCount !== 'number'
 		|| !Number.isFinite(snapshot.externalActivity.activeSessionCount)
 		|| !Array.isArray(snapshot.externalActivity.sessions)) {
 		reasons.push(`${phase}-external-activity-incomplete`);
+	}
+}
+
+function hasValidPgCounters(row) {
+	try {
+		for (const field of [
+			'nModSinceAnalyze', 'vacuumCount', 'autovacuumCount',
+			'liveTuples', 'deadTuples', 'allVisiblePages',
+		]) {
+			parsePgCumulativeCounter(row[field], field);
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function pgCounterChanged(before, after, fieldName) {
+	try {
+		return parsePgCumulativeCounter(before, fieldName) !== parsePgCumulativeCounter(after, fieldName);
+	} catch {
+		return false;
 	}
 }
 

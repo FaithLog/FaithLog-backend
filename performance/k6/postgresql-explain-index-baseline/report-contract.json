@@ -1,6 +1,22 @@
 {
   "schemaVersion": 2,
   "status": "scenario-ready-not-measured",
+  "automaticAdoption": false,
+  "integrityAudit": {
+    "applicable": [
+      "current-develop-source-and-schema-identity",
+      "runtime-approved-compose-and-database-target",
+      "pre-lock-post-lock-final-compose-database-continuity",
+      "postgres-cumulative-counter-and-pgss-state-continuity",
+      "fixture-and-anchor-correctness",
+      "first-machine-readable-rejection"
+    ],
+    "notApplicable": {
+      "redisContinuity": "No Redis command or Redis-backed evidence is used by the PostgreSQL EXPLAIN scenario.",
+      "k6V2MetricMath": "No k6 process, Counter, Rate, Trend, HTTP request, or throughput claim is produced by this scenario.",
+      "dockerResourceSampling": "Diagnostic EXPLAIN JSON is not promoted to an API/load baseline; CPU/RAM evidence remains outside this scenario."
+    }
+  },
   "runtimeStatuses": {
     "measured-before-index-baseline": "Allowed only when planner integrity passes and at least one exact-current-production query has a captured Hibernate SQL fingerprint.",
     "measured-diagnostic-not-production-baseline": "Clean reconstructed/synthetic diagnostic evidence that must not be used as a production before metric.",
@@ -42,9 +58,14 @@
       "autovacuumCount",
       "allVisiblePages",
       "nModSinceAnalyze",
+      "liveTuples",
+      "deadTuples",
+      "pgStatStatements",
       "externalActivity"
     ],
-    "autoanalyzeComparison": "Compare per-table analyze, autoanalyze, vacuum, autovacuum, nModSinceAnalyze, and visibility evidence between before and after snapshots.",
+    "cumulativeCounterEncoding": "PostgreSQL bigint cumulative counters are captured as non-negative decimal strings and compared through BigInt without Number precision loss.",
+    "pgStatStatementsRule": "Extension availability, extension version, and view availability must be complete and unchanged whether pg_stat_statements is available or unavailable.",
+    "autoanalyzeComparison": "Compare per-table analyze, autoanalyze, vacuum, autovacuum, nModSinceAnalyze, live/dead tuple, and visibility evidence between before and after snapshots.",
     "adoptionRule": "Settings, schema/index fingerprint, and table statistics must be unchanged, with zero boundary or transient query-window external activity; otherwise adoption is blocked and the runner exits non-zero."
   },
   "activityMonitor": {
@@ -100,12 +121,16 @@
     "gitCommit",
     "gitDirty",
     "schemaIndexFingerprint",
+    "schemaSecurityFingerprint",
     "activitySampleIntervalMs",
     "composeProject",
     "composeService",
     "postgresContainerId",
     "postgresImageId",
     "containerStartedAt",
-    "containerNetworkIdentity"
+    "containerNetworkIdentity",
+    "configuredPostgresUser",
+    "currentUser",
+    "sessionUser"
   ]
 }

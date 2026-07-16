@@ -26,7 +26,7 @@ export function validateAnchors(anchors) {
 	variables.page_size = String(parsePageSize(anchors.page_size));
 	validateMonday(anchors.week_start_date);
 	variables.week_start_date = anchors.week_start_date;
-	for (const field of ['stale_before', 'range_start', 'range_end']) {
+	for (const field of ['archive_cutoff', 'stale_before', 'range_start', 'range_end']) {
 		if (typeof anchors[field] !== 'string' || !isStrictRfc3339(anchors[field])) {
 			throw new Error(`anchors.${field} must be an explicit Z/offset RFC3339 instant.`);
 		}
@@ -68,10 +68,14 @@ export function validateAnchorPreflight(result, expectedState) {
 	const requiredTrue = [
 		'campusExists', 'memberInCampus', 'pollInCampus', 'mealPollInCampus',
 		'paymentAccountInCampus', 'prayerSeasonInCampus', 'prayerWeekInSeason',
+		'pollCreatorActiveMember', 'pollCreatorActiveCoffeeDuty',
+		'pollPaymentAccountOwnedActiveCoffee', 'pollConfigurationConsistent',
 	];
 	const exactCounts = {
 		memberCount: 1000, pollCount: 1, mealPollCount: 1, paymentAccountCount: 1,
 		prayerSeasonCount: 1, prayerWeekCount: 1,
+		coffeeTemplateAccountNeutralityViolationCount: 0,
+		coffeeTemplateInconsistentActiveCount: 0,
 	};
 	const reasons = [];
 	for (const field of requiredTrue) {

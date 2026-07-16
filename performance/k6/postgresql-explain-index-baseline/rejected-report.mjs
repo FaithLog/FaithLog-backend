@@ -9,6 +9,7 @@ export function writeRejectedReport(filePath, {
 	const report = {
 		schemaVersion,
 		status: `invalid-pending-${safePhase}`,
+		automaticAdoption: false,
 		datasetId,
 		fixtureRunId,
 		activitySampleIntervalMs,

@@ -13,7 +13,7 @@ export function validateCrossIssueArtifacts({
 	const root = path.dirname(path.resolve(crossIssueReportPath));
 	const rootReal = fs.realpathSync(root);
 	const seen = new Set();
-	return REQUIRED_ISSUES.map((issueNumber) => {
+	const artifacts = REQUIRED_ISSUES.map((issueNumber) => {
 		const relativePath = issueReports[String(issueNumber)];
 		if (typeof relativePath !== 'string' || relativePath.length === 0 || path.isAbsolute(relativePath)) {
 			throw new Error(`issueReports.${issueNumber} must be a non-empty relative path.`);
@@ -67,6 +67,13 @@ export function validateCrossIssueArtifacts({
 			artifact,
 		};
 	});
+	for (const entry of artifacts) {
+		const acceptance = classifyIssueArtifactAcceptance(entry.issueNumber, entry.artifact);
+		if (acceptance.pendingApprovalContract || !acceptance.accepted) {
+			throw new Error(acceptance.reason);
+		}
+	}
+	return artifacts;
 }
 
 function rejectSymlinkComponents(root, segments, issueNumber) {
@@ -89,10 +96,6 @@ function validateArtifactSchema(artifact, expected) {
 	if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) {
 		throw new Error(`Issue ${expected.issueNumber} artifact must be a JSON object.`);
 	}
-	const acceptance = classifyIssueArtifactAcceptance(expected.issueNumber, artifact);
-	if (acceptance.pendingApprovalContract) {
-		throw new Error(acceptance.reason);
-	}
 	for (const field of ['issueNumber', 'datasetId', 'fixtureRunId', 'memberCount', 'status', 'expectedAnchors']) {
 		if (!Object.hasOwn(artifact, field)) {
 			throw new Error(`Issue ${expected.issueNumber} artifact schema is missing ${field}.`);
@@ -106,36 +109,17 @@ function validateArtifactSchema(artifact, expected) {
 	if (!artifact.expectedAnchors || typeof artifact.expectedAnchors !== 'object' || Array.isArray(artifact.expectedAnchors)) {
 		throw new Error(`Issue ${expected.issueNumber} artifact expectedAnchors must be an object.`);
 	}
-	if (!acceptance.accepted) {
-		throw new Error(acceptance.reason);
-	}
 }
 
 export function classifyIssueArtifactAcceptance(issueNumber, artifact) {
-	switch (issueNumber) {
-		case 192: return acceptance(artifact.status === 'verified' && artifact.passed === true, issueNumber);
-		case 193:
-		case 196:
-		case 199:
-			return {
-				accepted: false,
-				pendingApprovalContract: true,
-				reason: `issue-${issueNumber}-adoption-contract-pending: current conditional artifacts and invented success statuses are not accepted.`,
-			};
-		case 195: return acceptance(artifact.status === 'adoptable' && artifact.adoptable === true, issueNumber);
-		case 197: return acceptance(artifact.status === 'baseline-measured', issueNumber);
-		case 198: return acceptance(artifact.status === 'before-baseline', issueNumber);
-		default: return acceptance(false, issueNumber);
-	}
-}
-
-function acceptance(accepted, issueNumber) {
+	void artifact;
+	const knownIssue = REQUIRED_ISSUES.includes(issueNumber);
 	return {
-		accepted,
-		pendingApprovalContract: false,
-		reason: accepted
-			? null
-			: `Issue ${issueNumber} artifact is not measured/adoptable under that issue's existing contract.`,
+		accepted: false,
+		pendingApprovalContract: knownIssue,
+		reason: knownIssue
+			? `issue-${issueNumber}-approval-contract-pending: current artifacts have automaticAdoption=false and no separate user/PM approval evidence schema.`
+			: `Issue ${issueNumber} is outside the #194 cross-issue contract.`,
 	};
 }
 

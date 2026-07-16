@@ -23,6 +23,7 @@ import {
 	releaseProjectLock,
 	validateDatabaseContinuity,
 	validateDatabaseIdentity,
+	validateApprovedComposeTarget,
 	validateComposeIdentityContinuity,
 	validateMeasurementIntegrity,
 	validateMeasurementStart,
@@ -43,19 +44,14 @@ const requiredRuntimeInputs = [
 	'PGPASSWORD',
 	'WARM_RUNS',
 	'ACTIVITY_SAMPLE_INTERVAL_MS',
+	'EXPECTED_COMPOSE_PROJECT',
+	'EXPECTED_POSTGRES_SERVICE',
+	'EXPECTED_POSTGRES_IMAGE_ID',
+	'EXPECTED_POSTGRES_IMAGE_REFERENCE',
 ];
 
-for (const name of requiredRuntimeInputs) {
-	if (!process.env[name]) {
-		throw new Error(`${name} is required at runtime.`);
-	}
-}
-if (process.env.ALLOW_EXPLAIN_ANALYZE !== 'true') {
-	throw new Error('EXPLAIN ANALYZE is blocked. Set ALLOW_EXPLAIN_ANALYZE=true only in the approved isolated measurement window.');
-}
-
-const warmRuns = parseWarmRuns(process.env.WARM_RUNS);
-const activitySampleIntervalMs = parseActivitySampleInterval(process.env.ACTIVITY_SAMPLE_INTERVAL_MS);
+let warmRuns = null;
+let activitySampleIntervalMs = null;
 
 function writeRejectedReport(filePath, details) {
 	return writeRejectedReportFile(filePath, { ...details, activitySampleIntervalMs });
@@ -83,13 +79,13 @@ process.exitCode = exitCode;
 async function run() {
 	const startedAt = new Date().toISOString();
 	const reportDirectory = allocateReportDirectory(reportsRoot, {
-		datasetId: process.env.DATASET_ID,
-		fixtureRunId: process.env.FIXTURE_RUN_ID,
+		datasetId: rejectedReportSegment(process.env.DATASET_ID, 'missing-dataset-id'),
+		fixtureRunId: rejectedReportSegment(process.env.FIXTURE_RUN_ID, 'missing-fixture-run-id'),
 		startedAt,
 		nonce: randomBytes(8).toString('hex'),
 	});
 	const reportPath = path.join(reportDirectory, 'baseline-report.json');
-	const crossIssueReportPath = path.resolve(process.env.CROSS_ISSUE_REPORT);
+	let crossIssueReportPath = null;
 	let crossIssueReportText = null;
 	let crossIssueReport = null;
 	let crossIssueArtifacts = [];
@@ -120,6 +116,10 @@ async function run() {
 		measurementContinuity: composeMeasurementContinuity,
 	});
 	try {
+		validateRuntimeInputs();
+		warmRuns = parseWarmRuns(process.env.WARM_RUNS);
+		activitySampleIntervalMs = parseActivitySampleInterval(process.env.ACTIVITY_SAMPLE_INTERVAL_MS);
+		crossIssueReportPath = path.resolve(process.env.CROSS_ISSUE_REPORT);
 		crossIssueReportText = fs.readFileSync(crossIssueReportPath, 'utf8');
 		crossIssueReport = JSON.parse(crossIssueReportText);
 		validateCrossIssueReport(crossIssueReport);
@@ -154,6 +154,7 @@ async function run() {
 			throw new Error(`Source identity is not adoptable; no Docker/psql/EXPLAIN was run: ${sourceIntegrity.reasons.join(', ')}`);
 		}
 		composeIdentityBeforeLock = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+		validateApprovedComposeTarget(composeIdentityBeforeLock, approvedComposeTarget());
 	} catch (error) {
 		writeRejectedReport(reportPath, {
 			phase: 'start-integrity', reasons: ['input-or-identity-preflight-failure'], queryRunCount: 0,
@@ -182,6 +183,7 @@ async function run() {
 	let measurementMonitor = null;
 	try {
 		composeIdentityAfterLock = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+		validateApprovedComposeTarget(composeIdentityAfterLock, approvedComposeTarget());
 		composeLockContinuity = validateComposeIdentityContinuity(composeIdentityBeforeLock, composeIdentityAfterLock);
 		if (!composeLockContinuity.stable) {
 			writeRejectedReport(reportPath, {
@@ -202,9 +204,11 @@ async function run() {
 			});
 			throw new Error('PostgreSQL container identity changed around the DB identity capture; no schema, anchor, or EXPLAIN was run.');
 		}
-		validateDatabaseIdentity(composeIdentityAfterDatabaseIdentity, databaseIdentity, process.env.PGDATABASE);
+		validateDatabaseIdentity(composeIdentityAfterDatabaseIdentity, databaseIdentity, process.env.PGDATABASE, process.env.PGUSER);
 		schemaBefore = captureSchemaState(inventory.observedTables);
-		const schemaStartIntegrity = validateSchemaSnapshot(schemaBefore, inventory.observedTables);
+		const schemaStartIntegrity = validateSchemaSnapshot(
+			schemaBefore, inventory.observedTables, inventory.currentDevelopContract.schemaContract
+		);
 		if (!schemaStartIntegrity.adoptable) {
 			writeRejectedReport(reportPath, {
 				phase: 'start-integrity', reasons: schemaStartIntegrity.reasons, queryRunCount: 0,
@@ -297,7 +301,9 @@ async function run() {
 		});
 		const after = capturePlannerState(inventory.observedTables);
 		const schemaAfter = captureSchemaState(inventory.observedTables);
-		const schemaAfterIntegrity = validateSchemaSnapshot(schemaAfter, inventory.observedTables);
+		const schemaAfterIntegrity = validateSchemaSnapshot(
+			schemaAfter, inventory.observedTables, inventory.currentDevelopContract.schemaContract
+		);
 		const databaseIdentityAfter = captureDatabaseIdentity();
 		const controlSourcesAfter = loadSqlSources(scenarioRoot, ['inventory.json', 'report-contract.json', 'source-manifest.json']);
 		const sourceIdentityAfter = captureSourceIdentity(
@@ -313,8 +319,9 @@ async function run() {
 		});
 		const crossArtifactContinuity = validateArtifactContinuity(crossIssueArtifacts, crossIssueArtifactsAfter);
 		composeIdentityAfterMeasurement = inspectComposeIdentity(process.env.POSTGRES_CONTAINER);
+		validateApprovedComposeTarget(composeIdentityAfterMeasurement, approvedComposeTarget());
 		composeMeasurementContinuity = validateComposeIdentityContinuity(composeIdentityAfterDatabaseIdentity, composeIdentityAfterMeasurement);
-		validateDatabaseIdentity(composeIdentityAfterMeasurement, databaseIdentityAfter, process.env.PGDATABASE);
+		validateDatabaseIdentity(composeIdentityAfterMeasurement, databaseIdentityAfter, process.env.PGDATABASE, process.env.PGUSER);
 		const finishedAt = new Date().toISOString();
 		const plannerIntegrity = validateMeasurementIntegrity(before, after, {
 			expectedTables: inventory.observedTables,
@@ -354,8 +361,9 @@ async function run() {
 		}
 		assertProjectLockOwned(projectLock);
 		const report = {
-		schemaVersion: reportContract.schemaVersion,
-		status: measurementOutcome.status,
+			schemaVersion: reportContract.schemaVersion,
+			status: measurementOutcome.status,
+			automaticAdoption: false,
 		issueNumber: 194,
 		datasetId: process.env.DATASET_ID,
 		fixtureRunId: process.env.FIXTURE_RUN_ID,
@@ -463,6 +471,35 @@ async function run() {
 	}
 }
 
+function validateRuntimeInputs() {
+	for (const name of requiredRuntimeInputs) {
+		if (!process.env[name]) {
+			throw new Error(`${name} is required at runtime; no fallback is allowed.`);
+		}
+	}
+	for (const name of ['DATASET_ID', 'FIXTURE_RUN_ID']) {
+		if (!/^[A-Za-z0-9._-]+$/.test(process.env[name])) {
+			throw new Error(`${name} may contain only letters, digits, dot, underscore, and hyphen.`);
+		}
+	}
+	if (process.env.ALLOW_EXPLAIN_ANALYZE !== 'true') {
+		throw new Error('EXPLAIN ANALYZE is blocked. Set ALLOW_EXPLAIN_ANALYZE=true only in the approved isolated measurement window.');
+	}
+}
+
+function rejectedReportSegment(value, missingValue) {
+	return typeof value === 'string' && /^[A-Za-z0-9._-]+$/.test(value) ? value : missingValue;
+}
+
+function approvedComposeTarget() {
+	return {
+		composeProject: process.env.EXPECTED_COMPOSE_PROJECT,
+		composeService: process.env.EXPECTED_POSTGRES_SERVICE,
+		postgresImageId: process.env.EXPECTED_POSTGRES_IMAGE_ID,
+		postgresImageReference: process.env.EXPECTED_POSTGRES_IMAGE_REFERENCE,
+	};
+}
+
 function validateCrossIssueReport(report) {
 	if (report.datasetId !== process.env.DATASET_ID) {
 		throw new Error('CROSS_ISSUE_REPORT datasetId does not match DATASET_ID.');
@@ -494,6 +531,9 @@ function inspectComposeIdentity(container) {
 	const configuredDatabase = (item.Config?.Env || [])
 		.find((entry) => entry.startsWith('POSTGRES_DB='))
 		?.slice('POSTGRES_DB='.length);
+	const configuredUser = (item.Config?.Env || [])
+		.find((entry) => entry.startsWith('POSTGRES_USER='))
+		?.slice('POSTGRES_USER='.length);
 	const composeProject = labels['com.docker.compose.project'];
 	const composeService = labels['com.docker.compose.service'];
 	if (!composeProject || !composeService) {
@@ -516,7 +556,7 @@ function inspectComposeIdentity(container) {
 		.flatMap((network) => [network.ipAddress, network.globalIPv6Address])
 		.filter(Boolean)
 		.sort();
-	if (!postgresPortKey || containerNetworkAddresses.length === 0 || !item.State?.StartedAt || !configuredDatabase
+	if (!postgresPortKey || containerNetworkAddresses.length === 0 || !item.State?.StartedAt || !configuredDatabase || !configuredUser
 		|| !item.Id || !item.Name || !item.Image || !item.Config?.Image) {
 		throw new Error('PostgreSQL container inspect data is missing container, image, database, port, network, or start-time identity evidence.');
 	}
@@ -530,6 +570,7 @@ function inspectComposeIdentity(container) {
 		composeConfigFiles: labels['com.docker.compose.project.config_files'] || null,
 		composeWorkingDir: labels['com.docker.compose.project.working_dir'] || null,
 		configuredDatabase,
+		configuredUser,
 		containerStartedAt: item.State.StartedAt,
 		postgresInternalPort: Number(postgresPortKey.split('/')[0]),
 		containerNetworkAddresses,
@@ -543,6 +584,8 @@ function captureDatabaseIdentity() {
 			'serverAddress', inet_server_addr()::text,
 			'serverPort', inet_server_port(),
 			'database', current_database(),
+			'currentUser', current_user,
+			'sessionUser', session_user,
 			'postmasterStartedAt', pg_postmaster_start_time()
 		);
 	`;
@@ -569,16 +612,23 @@ function capturePlannerState(observedTables) {
 					'lastAutoanalyze', stats.last_autoanalyze,
 					'lastVacuum', stats.last_vacuum,
 					'lastAutovacuum', stats.last_autovacuum,
-					'vacuumCount', stats.vacuum_count,
-					'autovacuumCount', stats.autovacuum_count,
-					'nModSinceAnalyze', stats.n_mod_since_analyze,
-					'liveTuples', stats.n_live_tup,
-					'deadTuples', stats.n_dead_tup,
-					'allVisiblePages', class.relallvisible
+					'vacuumCount', stats.vacuum_count::text,
+					'autovacuumCount', stats.autovacuum_count::text,
+					'nModSinceAnalyze', stats.n_mod_since_analyze::text,
+					'liveTuples', stats.n_live_tup::text,
+					'deadTuples', stats.n_dead_tup::text,
+					'allVisiblePages', class.relallvisible::text
 				) ORDER BY stats.relname), '[]'::json)
 				FROM pg_stat_all_tables stats
 				JOIN pg_class class ON class.oid = stats.relid
 				WHERE stats.schemaname = current_schema() AND stats.relname IN (${tableList})
+			),
+			'pgStatStatements', (
+				SELECT json_build_object(
+					'available', EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'),
+					'extensionVersion', (SELECT extversion FROM pg_extension WHERE extname = 'pg_stat_statements'),
+					'viewAvailable', to_regclass('pg_stat_statements') IS NOT NULL
+				)
 			),
 			'externalActivity', (
 				SELECT json_build_object(
@@ -631,7 +681,66 @@ function captureSchemaState(observedTables) {
 			'indexes', (SELECT COALESCE(json_agg(json_build_object(
 				'table', tablename, 'name', indexname, 'definition', indexdef
 			) ORDER BY tablename, indexname), '[]'::json)
-			FROM pg_indexes WHERE schemaname = current_schema() AND tablename IN (${tableList}))
+			FROM pg_indexes WHERE schemaname = current_schema() AND tablename IN (${tableList})),
+			'databaseRole', (
+				SELECT json_build_object(
+					'currentUser', current_user,
+					'sessionUser', session_user,
+					'rowSecuritySetting', current_setting('row_security'),
+					'superuser', role.rolsuper,
+					'bypassRls', role.rolbypassrls,
+					'schemaUsage', has_schema_privilege(current_user, current_schema(), 'USAGE'),
+					'publicExposureCount', (
+						SELECT count(*) FROM (
+							SELECT 1 FROM pg_namespace n CROSS JOIN LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) acl
+							WHERE n.nspname = current_schema() AND acl.grantee = 0
+							UNION ALL
+							SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+							CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault(CASE WHEN c.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END, c.relowner))) acl
+							WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'p', 'S') AND acl.grantee = 0
+							UNION ALL
+							SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+							CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) acl
+							WHERE n.nspname = current_schema() AND acl.grantee = 0
+						) exposure
+					),
+					'dataApiExposureCount', (
+						SELECT count(*) FROM (
+							SELECT acl.grantee FROM pg_namespace n CROSS JOIN LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) acl
+							WHERE n.nspname = current_schema()
+							UNION ALL
+							SELECT acl.grantee FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+							CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault(CASE WHEN c.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END, c.relowner))) acl
+							WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'p', 'S')
+							UNION ALL
+							SELECT acl.grantee FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+							CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) acl
+							WHERE n.nspname = current_schema()
+						) exposure JOIN pg_roles grantee ON grantee.oid = exposure.grantee
+						WHERE grantee.rolname IN ('anon', 'authenticated', 'service_role')
+					),
+					'exposedDefaultAclCount', (
+						SELECT count(*) FROM pg_default_acl defaults
+						CROSS JOIN LATERAL aclexplode(defaults.defaclacl) acl
+						LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
+						WHERE acl.grantee = 0 OR grantee.rolname IN ('anon', 'authenticated', 'service_role')
+					)
+				) FROM pg_roles role WHERE role.rolname = current_user
+			),
+			'tableSecurity', (
+				SELECT COALESCE(json_agg(json_build_object(
+					'table', class.relname,
+					'owner', pg_get_userbyid(class.relowner),
+					'rowSecurityEnabled', class.relrowsecurity,
+					'rowSecurityForced', class.relforcerowsecurity,
+					'policyCount', (SELECT count(*) FROM pg_policy policy WHERE policy.polrelid = class.oid),
+					'currentUserHasSelect', has_table_privilege(current_user, class.oid, 'SELECT'),
+					'currentUserOwnsTable', pg_get_userbyid(class.relowner) = current_user
+				) ORDER BY class.relname), '[]'::json)
+				FROM pg_class class JOIN pg_namespace namespace ON namespace.oid = class.relnamespace
+				WHERE namespace.nspname = current_schema() AND class.relkind IN ('r', 'p')
+				  AND class.relname <> 'flyway_schema_history'
+			)
 		);
 	`));
 	return normalizeSchemaState(raw);
@@ -643,8 +752,32 @@ function captureAnchorPreflight(variables) {
 			'campusExists', EXISTS (SELECT 1 FROM campuses WHERE id = :'campus_id'::bigint),
 			'memberInCampus', EXISTS (SELECT 1 FROM campus_members WHERE campus_id = :'campus_id'::bigint AND user_id = :'member_user_id'::bigint AND status = 'ACTIVE'),
 			'pollInCampus', EXISTS (SELECT 1 FROM polls WHERE id = :'poll_id'::bigint AND campus_id = :'campus_id'::bigint),
+			'pollCreatorActiveMember', EXISTS (
+				SELECT 1 FROM polls p JOIN campus_members cm
+				  ON cm.campus_id = p.campus_id AND cm.user_id = p.created_by AND cm.status = 'ACTIVE'
+				WHERE p.id = :'poll_id'::bigint AND p.campus_id = :'campus_id'::bigint
+			),
+			'pollCreatorActiveCoffeeDuty', EXISTS (
+				SELECT 1 FROM polls p JOIN campus_duty_assignments cda
+				  ON cda.campus_id = p.campus_id AND cda.user_id = p.created_by
+				 AND cda.duty_type = 'COFFEE' AND cda.is_active = TRUE
+				WHERE p.id = :'poll_id'::bigint AND p.campus_id = :'campus_id'::bigint
+			),
+			'pollPaymentAccountOwnedActiveCoffee', EXISTS (
+				SELECT 1 FROM polls p JOIN payment_accounts pa ON pa.id = p.payment_account_id
+				WHERE p.id = :'poll_id'::bigint AND p.campus_id = :'campus_id'::bigint
+				  AND pa.id = :'payment_account_id'::bigint AND pa.campus_id = p.campus_id
+				  AND pa.owner_user_id = p.created_by AND pa.account_type = 'COFFEE'
+				  AND pa.is_active = TRUE AND pa.deleted_at IS NULL
+			),
+			'pollConfigurationConsistent', EXISTS (
+				SELECT 1 FROM polls p
+				WHERE p.id = :'poll_id'::bigint AND p.campus_id = :'campus_id'::bigint
+				  AND p.poll_type = 'COFFEE' AND p.charge_generation_type = 'OPTION_PRICE'
+				  AND p.payment_category = 'COFFEE'
+			),
 			'mealPollInCampus', EXISTS (SELECT 1 FROM polls p JOIN meal_poll_settlements s ON s.poll_id = p.id WHERE p.id = :'meal_poll_id'::bigint AND p.campus_id = :'campus_id'::bigint),
-			'paymentAccountInCampus', EXISTS (SELECT 1 FROM payment_accounts WHERE id = :'payment_account_id'::bigint AND campus_id = :'campus_id'::bigint AND is_active = true),
+			'paymentAccountInCampus', EXISTS (SELECT 1 FROM payment_accounts WHERE id = :'payment_account_id'::bigint AND campus_id = :'campus_id'::bigint AND is_active = true AND deleted_at IS NULL),
 			'prayerSeasonInCampus', EXISTS (SELECT 1 FROM prayer_seasons WHERE id = :'prayer_season_id'::bigint AND campus_id = :'campus_id'::bigint),
 			'prayerWeekInSeason', EXISTS (SELECT 1 FROM prayer_weeks WHERE id = :'prayer_week_id'::bigint AND season_id = :'prayer_season_id'::bigint AND campus_id = :'campus_id'::bigint AND week_start_date = :'week_start_date'::date),
 			'memberStatus', (SELECT status FROM campus_members WHERE campus_id = :'campus_id'::bigint AND user_id = :'member_user_id'::bigint),
@@ -663,7 +796,18 @@ function captureAnchorPreflight(variables) {
 			'mealPollCount', (SELECT count(*) FROM polls p JOIN meal_poll_settlements s ON s.poll_id = p.id WHERE p.id = :'meal_poll_id'::bigint AND p.campus_id = :'campus_id'::bigint),
 			'paymentAccountCount', (SELECT count(*) FROM payment_accounts WHERE id = :'payment_account_id'::bigint AND campus_id = :'campus_id'::bigint AND is_active = true),
 			'prayerSeasonCount', (SELECT count(*) FROM prayer_seasons WHERE id = :'prayer_season_id'::bigint AND campus_id = :'campus_id'::bigint),
-			'prayerWeekCount', (SELECT count(*) FROM prayer_weeks WHERE id = :'prayer_week_id'::bigint AND season_id = :'prayer_season_id'::bigint AND campus_id = :'campus_id'::bigint AND week_start_date = :'week_start_date'::date)
+			'prayerWeekCount', (SELECT count(*) FROM prayer_weeks WHERE id = :'prayer_week_id'::bigint AND season_id = :'prayer_season_id'::bigint AND campus_id = :'campus_id'::bigint AND week_start_date = :'week_start_date'::date),
+			'coffeeTemplateAccountNeutralityViolationCount', (
+				SELECT count(*) FROM poll_templates
+				WHERE poll_type = 'COFFEE' AND charge_generation_type = 'OPTION_PRICE'
+				  AND payment_category = 'COFFEE' AND payment_account_id IS NOT NULL
+			),
+			'coffeeTemplateInconsistentActiveCount', (
+				SELECT count(*) FROM poll_templates
+				WHERE is_active = TRUE
+				  AND (poll_type = 'COFFEE' OR charge_generation_type = 'OPTION_PRICE' OR payment_category = 'COFFEE')
+				  AND NOT (poll_type = 'COFFEE' AND charge_generation_type = 'OPTION_PRICE' AND payment_category = 'COFFEE')
+			)
 		);
 	`, variables));
 }
@@ -678,7 +822,10 @@ function captureSourceIdentity(inventory, sourceManifest, sourceManifestText, sq
 		gitDirty: dirtyOutput.length > 0,
 		sqlFiles: inventory.queries.map((query) => query.sqlFile),
 		sqlSources,
-		productionSourceRefs: inventory.queries.flatMap((query) => query.productionSourceRefs),
+		productionSourceRefs: [
+			...inventory.queries.flatMap((query) => query.productionSourceRefs),
+			...(inventory.currentDevelopContract?.repositorySourceRefs || []),
+		],
 		inventoryPath: 'inventory.json',
 		reportContractPath: 'report-contract.json',
 		sourceManifestPath: 'source-manifest.json',

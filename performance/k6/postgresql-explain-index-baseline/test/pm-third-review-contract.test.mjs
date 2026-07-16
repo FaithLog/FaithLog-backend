@@ -69,7 +69,7 @@ test('canonical lock rebinds immutable Compose identity before psql and verifies
 		postgresContainerId: 'container-a', postgresContainerName: '/faithlog-postgres',
 		postgresImageId: 'sha256:image-a', postgresImageReference: 'postgres:17',
 		containerStartedAt: '2026-07-14T00:00:00Z', composeProject: 'faithlog', composeService: 'postgres',
-		composeConfigFiles: '/repo/compose.yml', composeWorkingDir: '/repo', configuredDatabase: 'faithlog',
+		composeConfigFiles: '/repo/compose.yml', composeWorkingDir: '/repo', configuredDatabase: 'faithlog', configuredUser: 'faithlog',
 		postgresInternalPort: 5432, containerNetworkAddresses: ['172.20.0.2'],
 		networkIdentity: [{ name: 'faithlog_default', networkId: 'network-a', ipAddress: '172.20.0.2', globalIPv6Address: '' }],
 	};
