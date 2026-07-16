@@ -156,3 +156,67 @@ test('latest source/Flyway and related fixture correctness remain anchored witho
 	assert.doesNotMatch(issueFile('retention-dry-verify.sql'), /ORDER BY|LIMIT|OFFSET/i);
 	assert.match(issueFile('retention-dry-verify.sql'), /BEGIN TRANSACTION READ ONLY/i);
 });
+
+test('approved clean detached checkout and later image creation replace unavailable image revision labels', async () => {
+	const contractPath = path.join(ISSUE_DIR, 'lib/source-image-provenance.mjs');
+	assert.equal(fs.existsSync(contractPath), true, 'source/image provenance contract must exist');
+	const { validateSourceImageProvenance } = await import(pathToFileURL(contractPath));
+	const sourceWorktree = '/private/tmp/FaithLog-perf-206-deploy';
+	const facts = {
+		schemaVersion: 1,
+		proofMode: 'clean-detached-checkout-image-created-after-checkout',
+		sourceWorktree,
+		composeWorkingDir: sourceWorktree,
+		revision: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
+		detached: true,
+		clean: true,
+		checkoutAt: '2026-07-16T04:20:28.000Z',
+		imageId: image('1'),
+		imageCreatedAt: '2026-07-16T04:22:48.810Z',
+		apiContractSha256: id('2'),
+		limitation: 'image-alone-revision-label-unavailable',
+	};
+	const expected = {
+		sourceWorktree,
+		revision: facts.revision,
+		imageId: facts.imageId,
+		apiContractSha256: facts.apiContractSha256,
+	};
+	assert.equal(validateSourceImageProvenance(facts, expected), facts);
+	assert.throws(
+		() => validateSourceImageProvenance({ ...facts, clean: false }, expected),
+		/clean/i,
+	);
+	assert.throws(
+		() => validateSourceImageProvenance({ ...facts, imageCreatedAt: facts.checkoutAt }, expected),
+		/after checkout/i,
+	);
+	assert.throws(
+		() => validateSourceImageProvenance({ ...facts, composeWorkingDir: '/private/tmp/other' }, expected),
+		/working directory/i,
+	);
+});
+
+test('both runners use source/image provenance without requiring unavailable OCI revision labels', () => {
+	for (const runnerName of ['run-devotion-baseline.sh', 'run-retention-dry-verify.sh']) {
+		const runner = issueFile(runnerName);
+		assert.match(runner, /APP_SOURCE_WORKTREE/);
+		assert.match(runner, /source-image-provenance\.mjs/);
+		assert.match(runner, /com\.docker\.compose\.project\.working_dir/);
+		assert.match(runner, /docker image inspect[^\n]*\.Created/);
+		assert.doesNotMatch(runner, /org\.opencontainers\.image\.(revision|api-contract-sha256)/);
+	}
+});
+
+test('devotion credentials are child-scoped and every fixture report namespace is fresh', () => {
+	const devotionRunner = issueFile('run-devotion-baseline.sh');
+	const retentionRunner = issueFile('run-retention-dry-verify.sh');
+	assert.match(devotionRunner, /credentials_file="\$CREDENTIALS_FILE"[\s\S]*unset CREDENTIALS_FILE/);
+	assert.match(devotionRunner, /CREDENTIALS_FILE="\$credentials_file"[\s\\]*\n[\t ]*PHASE="?\$phase"?/);
+	for (const runner of [devotionRunner, retentionRunner]) {
+		assert.match(runner, /fixture_report_root="build\/reports\/k6\/issue-197\/\$fixture_run_id"/);
+		assert.match(runner, /mkdir -m 700 "\$fixture_report_root"/);
+		assert.match(runner, /fixture report namespace already exists/i);
+		assert.doesNotMatch(runner, /mkdir -p "\$report_root"/);
+	}
+});
