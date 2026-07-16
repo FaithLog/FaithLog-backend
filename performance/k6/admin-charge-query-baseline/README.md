@@ -70,9 +70,9 @@ fixture는 승인된 service ADMIN과 일반 duty user를 포함해 기존 ACTIV
 
 ## Measurement approval gate
 
-사용자 승인 없는 before 측정과 production 최적화는 금지한다. 승인된 G는 resource cadence validation에서 rejected됐으며, fresh H는 PM의 새 독립 measurement-ready 리뷰와 사용자 승인 전에는 실행하지 않는다. 승인 후에도 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 실제 수집을 진행한다.
+사용자 승인 없는 before 측정과 production 최적화는 금지한다. 승인된 H는 measurement-integrity boundary에서 rejected됐으며, fresh I는 PM의 새 독립 measurement-ready 리뷰와 사용자 승인 전에는 실행하지 않는다. 승인 후에도 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 실제 수집을 진행한다.
 
-fresh H 제안 식별자는 `I193_BEFORE_20260716_H / I193_FIXTURE_20260716_H / EXEC193_BEFORE_20260716_H`다. 아직 생성하거나 실행하지 않았으며 B/C/D/E/F/G namespace와 report는 절대 재사용하지 않는다.
+fresh I 제안 식별자는 `I193_BEFORE_20260716_I / I193_FIXTURE_20260716_I / EXEC193_BEFORE_20260716_I`다. 아직 생성하거나 실행하지 않았으며 B/C/D/E/F/G/H namespace와 report는 절대 재사용하지 않는다.
 
 PM 승인 요청용 추천값은 다음과 같다.
 
@@ -99,6 +99,8 @@ k6는 16 cases를 frontend 순서로 한 iteration 안에서 실행한다. warmu
 Docker Desktop의 `MemUsage`는 `499.7MiB`, `7.653GiB`처럼 표시 정밀도에서 반올림된 관측치다. Resource evidence는 이를 exact byte 한 점으로 만들지 않는다. `memoryUsed`와 `memoryLimit`은 원본 `displayed`와 가능한 inclusive integer-byte `minimumBytesInclusive`/`maximumBytesInclusive` decimal-string 범위를 저장하고, `memoryPercent`는 원본 `displayed`와 반올림 구간의 exact numerator/denominator를 저장한다. Validator는 이 스키마를 원본 표시값에서 재계산하고, safe magnitude·positive limit·used≤limit과 가능한 used/limit ratio 구간이 MemPerc rational 구간과 겹치는지를 `BigInt`로 fail-closed 검증한다. 기존 scalar `memoryUsedBytes`, `memoryLimitBytes`, `memoryPercent` 수치 계약은 false precision을 피하기 위해 사용하지 않는다.
 
 Resource cadence는 nominal requested interval과 approved maximum gap을 분리한다. `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`과 `DOCKER_STATS_MAX_GAP_SECONDS=5`를 runtime에 각각 명시하고 run conditions와 validation output에 둘 다 기록한다. Blocking `docker stats --no-stream` 뒤에는 고정 sleep을 추가하지 않고 즉시 다음 capture를 시작하며, validator는 timestamp monotonicity와 measured-window coverage를 유지한 채 인접 gap을 별도 5초 gate로 검증한다. maximum gap 누락·비정상 값·nominal interval 미만·실제 gap 초과는 fail-closed다.
+
+Fresh measured login은 `users.last_login_at`을 갱신하므로 PostgreSQL cumulative table stats flush가 HTTP 응답보다 늦을 수 있다. Runner는 runtime 입력이나 default를 추가하지 않고 issue-local 상수 `1초 간격`, `최대 5회`로 pre-boundary pair를 수집한다. 각 시도는 `capture → 1초 sleep → capture`이며 두 JSON의 database identity/postmaster/stats reset, planner settings, 4개 table의 analyze/vacuum maintenance state가 exact 일치할 때만 두 번째 snapshot을 `measurement-state-before.json`으로 이동한다. 안정화 실패는 measured counter-before와 window 시작 전에 fail-closed하며, measured 이후 기존 exact before/after continuity gate는 완화하지 않는다.
 
 공유 stack의 quiet snapshot은 경계 관찰일 뿐이다. 모든 DB/resource validator 뒤에는 app/PostgreSQL/Redis runtime, database, numeric loopback binding을 final snapshot으로 다시 비교하고, 이 final continuity를 통과한 뒤에만 classification을 기록한다. post-lock 이후 psql과 Docker stats는 mutable name이 아니라 승인된 full container ID를 사용한다. `measurementStatus`는 최대 `conditional-shared-stack`, `evidenceIntegrity`는 별도 검증 상태이며 `automaticAdoption=false`다. PM이 exclusive-use 전체 window와 evidence를 검토하기 전 baseline으로 채택할 수 없다.
 
@@ -143,3 +145,11 @@ Measured load 시작 전 첫 resource normalization에서 정상 Docker Desktop 
 Measured summary, counter-after, measurement-state-after, PostgreSQL-after evidence는 존재하지만 resource validator에서 중단되어 runtime-final과 adoption/classification은 생성되지 않았다. 관찰된 sample gap은 최소 1.869초, 최대 4.807초였다. 기존 runner가 `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`을 maximum gap으로 해석하면서 blocking `docker stats --no-stream` 뒤에 0.5초 sleep까지 추가해, 실제 1.37~4.31초 capture overhead가 있는 환경에서 1초 validation gate를 구조적으로 만족할 수 없었다.
 
 측정 계정 15020/15021은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. G namespace, DB rows, report는 삭제하거나 복구하지 않고 보존하며 절대 재사용하지 않는다. G의 measured 요청 수, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다. Fresh H만 별도 승인 후 사용할 수 있다.
+
+## Rejected actual-before attempt H (2026-07-16)
+
+`I193_BEFORE_20260716_H / I193_FIXTURE_20260716_H / EXEC193_BEFORE_20260716_H` 실행은 partial rejected evidence로만 보존한다. Fresh campus fixture를 COMMIT했고 measured 16 cases를 각각 320 requests, HTTP/custom failure 0으로 완료했다. Resource validation도 통과했다.
+
+Measurement-integrity에서 `users.nModSinceAnalyze`가 before 51, after 52로 보여 중단됐다. Fresh measured ADMIN login은 `last_login_at=2026-07-16T05:07:13.053898Z`에 users row를 갱신했고 단일 before snapshot은 약 478ms 뒤인 `capturedAt=2026-07-16T05:07:13.531998Z`에 수집됐다. PostgreSQL cumulative stats flush가 지연돼 login UPDATE가 before에 아직 반영되지 않았다가 measured 구간 중 보인 false contamination이며, measured GET workload의 users write로 추정하지 않는다.
+
+Runtime-final과 adoption/classification은 생성되지 않았다. 측정 계정 15022/15023은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. H namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. H의 request count, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다. Fresh I만 별도 승인 후 사용할 수 있다.

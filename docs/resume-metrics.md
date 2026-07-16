@@ -1430,4 +1430,14 @@ Metric candidates:
 - evidence 경계: measured summary, counter-after, measurement-state-after, PostgreSQL-after는 존재하지만 resource validator에서 중단됐다. runtime-final과 adoption/classification은 생성되지 않았으므로 G의 measured 요청 수, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
 - 복구/보존: 측정 계정 15020/15021은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. G namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 재발 방지: runtime-required `DOCKER_STATS_MAX_GAP_SECONDS=5`를 별도 추가하고 nominal interval 1초와 함께 run conditions/validator output에 기록한다. Sampler는 blocking capture를 back-to-back으로 수행하고 unconditional post-capture sleep을 제거한다. maxGap 누락·비정상 값·nominal 미만·실제 gap 초과는 fail-closed다.
-- 다음 제안: `I193_BEFORE_20260716_H / I193_FIXTURE_20260716_H / EXEC193_BEFORE_20260716_H`. PM 독립 리뷰와 사용자 승인 전에는 생성하거나 실행하지 않는다.
+- 후속 H는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 pre-boundary cumulative stats 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt H rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_H / I193_FIXTURE_20260716_H / EXEC193_BEFORE_20260716_H`.
+- 실행 범위: fresh campus fixture COMMIT, measured 16 cases 각각 request count 320, HTTP/custom failure 0, resource validation 통과.
+- 거부 원인: measurement-integrity에서 `users.nModSinceAnalyze`가 before 51, after 52로 보여 중단됐다. Fresh measured ADMIN login의 `last_login_at=2026-07-16T05:07:13.053898Z` UPDATE 후 약 478ms인 `measurement-state-before capturedAt=2026-07-16T05:07:13.531998Z`에 단일 snapshot을 채택해 PostgreSQL cumulative stats flush가 아직 반영되지 않은 false contamination이었다. Measured GET workload 자체의 users write로 해석하지 않는다.
+- evidence 경계: runtime-final과 adoption/classification은 생성되지 않았다. H의 request count, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15022/15023은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. H namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: issue-local 상수로 최대 5회 `capture → 1초 sleep → capture`를 수행한다. DB identity/postmaster/stats reset, planner settings, 4개 table maintenance state가 exact 일치한 pair의 두 번째 snapshot만 counter-before/window 이전 `measurement-state-before.json`으로 사용한다. 안정화되지 않으면 fail-closed하며 measured 이후 기존 exact continuity는 유지한다.
+- 다음 제안: `I193_BEFORE_20260716_I / I193_FIXTURE_20260716_I / EXEC193_BEFORE_20260716_I`. PM 독립 리뷰와 사용자 승인 전에는 생성하거나 실행하지 않는다.
