@@ -456,6 +456,59 @@ test('inventory matches the production controller and REST API query contract', 
 	assert.match(campusAccessPolicy, /requireCampusManager\(requesterMembership/);
 });
 
+test('current develop page, archive, permission, RLS, and ordering drift is explicit', () => {
+	const contract = JSON.parse(read(files.contract));
+	const readRepository = (relativePath) => read(path.join(repositoryRoot, relativePath));
+	const adminController = readRepository('src/main/java/com/faithlog/admin/controller/AdminManagementController.java');
+	const campusController = readRepository('src/main/java/com/faithlog/campus/controller/AdminCampusController.java');
+	const pageValidator = readRepository('src/main/java/com/faithlog/global/controller/PageSortRequestValidator.java');
+	const memberService = readRepository('src/main/java/com/faithlog/campus/service/CampusMemberManagementService.java');
+	const dutyService = readRepository('src/main/java/com/faithlog/campus/service/CampusDutyAssignmentService.java');
+	const memberRepository = readRepository('src/main/java/com/faithlog/campus/infrastructure/repository/CampusMemberRepository.java');
+	const dutyRepository = readRepository('src/main/java/com/faithlog/campus/infrastructure/repository/CampusDutyAssignmentRepository.java');
+	const rlsMigration = readRepository('src/main/resources/db/migration/V11__secure_supabase_data_api.sql');
+
+	assert.equal((adminController.match(/defaultValue = "20"\) int size/g) || []).length, 2);
+	assert.match(pageValidator, /MAX_SIZE\s*=\s*100/);
+	assert.doesNotMatch(adminController, /includeArchived/);
+	assert.doesNotMatch(campusController, /includeArchived/);
+	assert.match(campusController, /@RequestParam\(defaultValue = "false"\) String staleOnly/);
+	assert.match(campusController, /parseStaleOnly\(staleOnly\)/);
+	assert.match(dutyService, /getDutyAssignments\(campusId, requesterId, false\)/);
+	assert.match(dutyService, /findActiveWithActiveMemberByCampusIdOrderByIdAsc/);
+	assert.match(dutyService, /campusAccessPolicy\.getUsers\(/);
+	assert.match(memberService, /findByCampusIdAndStatusOrderByIdAsc[\s\S]*CampusMemberStatus\.ACTIVE/);
+	assert.match(memberService, /getUserOrThrow\(member\.userId\(\)\)/);
+	assert.match(memberRepository, /findByCampusIdAndStatusOrderByIdAsc/);
+	assert.match(dutyRepository, /findActiveWithActiveMemberByCampusIdOrderByIdAsc/);
+	assert.match(dutyRepository, /order by assignment\.id asc/);
+	assert.match(rlsMigration, /ENABLE ROW LEVEL SECURITY/);
+	assert.doesNotMatch(rlsMigration, /FORCE ROW LEVEL SECURITY/);
+
+	assert.deepEqual(contract.currentDevelop, {
+		adminDefaultPageSize: 20,
+		maximumPageSize: 100,
+		includeArchivedSupported: false,
+		dutyDefaultStaleOnly: false,
+		dutyUserLookup: 'bulk-current-develop',
+		campusMemberUserLookup: 'per-member-current-develop',
+		rlsJdbcBoundary: 'owner-jdbc-no-force-rls-runtime-verification-required',
+		stableOrdering: 'explicit-id-asc; issue-206-billing-tie-break-not-applicable',
+	});
+	const duty = contract.endpoints.find(({ key }) => key === 'duty_assignments');
+	assert.deepEqual(duty.queryParameters, ['staleOnly']);
+	assert.deepEqual(duty.cases, [{ key: 'full_list', query: { staleOnly: false } }]);
+	assert.ok(contract.correctness.includes('activeMembershipOnly'));
+	assert.ok(contract.correctness.includes('noUnsupportedArchiveParameter'));
+
+	const readme = read(files.readme);
+	assert.match(readme, /staleOnly=false/);
+	assert.match(readme, /includeArchived.*not supported/i);
+	assert.match(readme, /#200.*duty.*bulk/i);
+	assert.match(readme, /#202.*FORCE ROW LEVEL SECURITY.*not used/i);
+	assert.match(readme, /#206.*billing.*not applicable/i);
+});
+
 test('scenario manifest separates endpoints, page depths, filters, and correctness checks', () => {
 	const contract = JSON.parse(read(files.contract));
 
