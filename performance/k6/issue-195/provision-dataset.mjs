@@ -1,9 +1,10 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { validateTargetIdentity } from './validate-target-identity.mjs';
+import { captureContainerIdentity } from './runtime-container-identity.mjs';
+export { sanitizedChildEnvironment } from './runtime-container-identity.mjs';
 
 const contract = JSON.parse(fs.readFileSync(new URL('./scenario-contract.json', import.meta.url), 'utf8'));
 
@@ -265,38 +266,10 @@ function createReportDirectory(reportRoot, datasetId) {
 
 function captureDockerRuntimeIdentity(env) {
 	return {
-		app: inspectContainer(env.APP_CONTAINER_ID),
-		postgres: inspectContainer(env.POSTGRES_CONTAINER_ID),
-		redis: inspectContainer(env.REDIS_CONTAINER_ID),
+		app: captureContainerIdentity(env.APP_CONTAINER_ID),
+		postgres: captureContainerIdentity(env.POSTGRES_CONTAINER_ID),
+		redis: captureContainerIdentity(env.REDIS_CONTAINER_ID),
 	};
-}
-
-function inspectContainer(containerId) {
-	const inspected = JSON.parse(execFileSync(
-		'docker',
-		['inspect', containerId],
-		{ encoding: 'utf8', env: sanitizedChildEnvironment(process.env) },
-	));
-	if (!Array.isArray(inspected) || inspected.length !== 1) {
-		throw new Error('Docker inspect must resolve exactly one container.');
-	}
-	const value = inspected[0];
-	return {
-		containerId: value.Id,
-		name: value.Name,
-		imageId: value.Image,
-		startedAt: value.State?.StartedAt,
-		composeProject: value.Config?.Labels?.['com.docker.compose.project'],
-		composeService: value.Config?.Labels?.['com.docker.compose.service'],
-		publishedPorts: value.NetworkSettings?.Ports,
-	};
-}
-
-export function sanitizedChildEnvironment(environment) {
-	return Object.fromEntries(Object.entries(environment).filter(([name]) => (
-		!/(PASSWORD|TOKEN|SECRET|CREDENTIAL)/i.test(name)
-		&& name !== 'PERF_ADMIN_EMAIL'
-	)));
 }
 
 function validateRuntimeTarget(identity, inputs) {

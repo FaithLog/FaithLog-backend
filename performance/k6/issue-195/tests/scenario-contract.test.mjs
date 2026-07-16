@@ -14,6 +14,7 @@ const files = {
 	contract: path.join(issueRoot, 'scenario-contract.json'),
 	scenario: path.join(issueRoot, 'member-list-baseline.js'),
 	fixture: path.join(issueRoot, 'prepare-fixture.mjs'),
+	runtimeContainerIdentity: path.join(issueRoot, 'runtime-container-identity.mjs'),
 	runtimeLogin: path.join(issueRoot, 'runtime-login.mjs'),
 	targetIdentity: path.join(issueRoot, 'validate-target-identity.mjs'),
 	approvedRuntimeTarget: path.join(issueRoot, 'validate-approved-runtime-target.mjs'),
@@ -661,6 +662,7 @@ test('k6 scenario is one-endpoint-per-run and emits endpoint metrics', () => {
 
 test('fixture preparation is additive and keeps credentials runtime-only', () => {
 	const source = read(files.fixture);
+	const runtimeIdentity = read(files.runtimeContainerIdentity);
 
 	for (const environmentName of [
 		'BASE_URL',
@@ -680,7 +682,7 @@ test('fixture preparation is additive and keeps credentials runtime-only', () =>
 	assert.doesNotMatch(source, /method:\s*['"](?:PATCH|DELETE)['"]/);
 	assert.doesNotMatch(source, /password\s*:\s*['"][^'"]+['"]/i);
 	assert.match(source, /docker/);
-	assert.match(source, /com\.docker\.compose\.project/);
+	assert.match(`${source}\n${runtimeIdentity}`, /com\.docker\.compose\.project/);
 	assert.match(source, /\/tmp\/faithlog-performance-/);
 	assert.match(source, /mkdirSync/);
 	assert.match(source, /finally[\s\S]*rmdirSync/);
@@ -1038,18 +1040,12 @@ test('BASE_URL is runtime-required and bound to approved Compose services and th
 	try {
 		const dockerPath = path.join(tempDirectory, 'docker');
 		fs.writeFileSync(dockerPath, `#!/usr/bin/env bash
-if [[ "$*" == *'{{.Id}}'* ]]; then printf 'sha256:%s-container\\n' "\${*: -1}"
-elif [[ "$*" == *'{{.Name}}'* ]]; then printf '/%s\\n' "\${*: -1}"
-elif [[ "$*" == *'{{.Image}}'* ]]; then printf 'sha256:%s-image\\n' "\${*: -1}"
-elif [[ "$*" == *State.StartedAt* ]]; then printf '%s\\n' '2026-07-16T00:00:00Z'
-elif [[ "$*" == *com.docker.compose.project* ]]; then printf '%s\\n' fixture-project
-elif [[ "$*" == *com.docker.compose.service* ]]; then
-	if [[ "\${*: -1}" == fake-postgres ]]; then printf '%s\\n' postgres
-	elif [[ "\${*: -1}" == fake-redis ]]; then printf '%s\\n' redis
-	else printf '%s\\n' app
-	fi
-else printf '%s\\n' '{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18080"}]}'
+container="\${2-}"
+if [[ "$container" == fake-postgres ]]; then service=postgres
+elif [[ "$container" == fake-redis ]]; then service=redis
+else service=app
 fi
+printf '[{"Id":"sha256:%s-container","Name":"/%s","Image":"sha256:%s-image","State":{"StartedAt":"2026-07-16T00:00:00Z"},"Config":{"Labels":{"com.docker.compose.project":"fixture-project","com.docker.compose.service":"%s"}},"NetworkSettings":{"Ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18080"}]}}}]\\n' "$container" "$container" "$container" "$service"
 `);
 		fs.chmodSync(dockerPath, 0o755);
 		const fixtureResult = spawnSync(process.execPath, [files.fixture], {
@@ -1074,12 +1070,21 @@ fi
 				EXPECTED_REDIS_IMAGE_ID: 'sha256:fake-redis-image',
 				EXPECTED_ACTIVE_MEMBERS: '1000',
 				EXPECTED_DUTY_ASSIGNMENTS: '101',
+				TOKEN_SAFETY_MARGIN_SECONDS: '120',
 				PERF_REPORT_ROOT: path.join(tempDirectory, 'reports'),
 			},
 		});
 		assert.notEqual(fixtureResult.status, 0);
 		assert.match(fixtureResult.stderr, /must match exactly one published port/);
-		assert.equal(fs.existsSync(path.join(tempDirectory, 'reports')), false, 'port mismatch must precede every API mutation/report');
+		const rejection = JSON.parse(fs.readFileSync(path.join(
+			tempDirectory,
+			'reports',
+			'PERF_CONTRACT',
+			'ISSUE195_CONTRACT',
+			'first-rejection.json',
+		), 'utf8'));
+		assert.equal(rejection.stage, 'pre-lock-identity');
+		assert.deepEqual(rejection.mutationCounts, { campuses: 0, memberships: 0, duties: 0 });
 	} finally {
 		fs.rmSync(tempDirectory, { recursive: true, force: true });
 	}
