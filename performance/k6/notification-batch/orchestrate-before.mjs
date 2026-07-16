@@ -9,7 +9,7 @@ import {
 	rmdirSync,
 	writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	assertApprovedSnapshotInputs,
@@ -39,8 +39,16 @@ const ALLOWED_CHILD_ENVIRONMENT = new Set([
 	'PERF_INACTIVE_COUNT', 'PERF_NO_TOKEN_COUNT', 'PERF_BUSINESS_DATE',
 	'PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS', 'PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS',
 	'PERF_REDIS_DATABASE', 'PERF_REDIS_SNAPSHOT_DATABASE',
+	'PERF_REPORT_ROOT', 'EXPECTED_WARMUP_SAMPLES', 'EXPECTED_MEASURED_SAMPLES',
+	'CUMULATIVE_STATE_STRATEGY',
 	'PERF_SEED_RECEIPT_PATH',
 	'PERF_ORCHESTRATION_LOCK_RECEIPT',
+]);
+
+const REPORT_PATH_ENVIRONMENT = new Set([
+	'PERF_ORCHESTRATION_LOCK_RECEIPT', 'PERF_SEED_RECEIPT_PATH', 'PERF_SNAPSHOT_ROOT',
+	'PERF_SNAPSHOT_RECEIPT_PATH', 'PERF_RESTORE_RECEIPT_PATH', 'MANIFEST_PATH',
+	'RUN_DIRS_FILE', 'OUTPUT_PATH', 'SNAPSHOT_RECEIPT_PATH', 'RESTORE_RECEIPTS_FILE',
 ]);
 
 const sanitizedChildEnvironment = (source, additions = {}) => {
@@ -50,6 +58,20 @@ const sanitizedChildEnvironment = (source, additions = {}) => {
 	}
 	for (const [key, value] of Object.entries(additions)) {
 		if (value !== undefined && value !== '') result[key] = String(value);
+	}
+	return result;
+};
+
+const orchestrationChildEnvironment = (source, reportRoot, additions = {}) => {
+	const approvedRoot = resolve(reportRoot);
+	const result = sanitizedChildEnvironment(source, additions);
+	assert.equal(result.PERF_REPORT_ROOT, approvedRoot, 'Child PERF_REPORT_ROOT must equal the parent-approved root');
+	for (const key of REPORT_PATH_ENVIRONMENT) {
+		if (result[key] === undefined) continue;
+		assert.ok(isAbsolute(result[key]), `${key} must be absolute`);
+		const pathFromRoot = relative(approvedRoot, resolve(result[key]));
+		assert.ok(pathFromRoot.length > 0 && !pathFromRoot.startsWith('..') && !isAbsolute(pathFromRoot),
+			`${key} must stay contained in PERF_REPORT_ROOT`);
 	}
 	return result;
 };
@@ -222,7 +244,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 	try {
 		await suppliedAdapters.provisionSyntheticDataset({
 			receiptPath: seedReceiptPath,
-			childEnvironment: sanitizedChildEnvironment(base, {
+			childEnvironment: orchestrationChildEnvironment(base, reportRoot, {
 				PERF_SEED_RECEIPT_PATH: seedReceiptPath,
 			}),
 		});
@@ -231,12 +253,12 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		assert.equal(seedReceipt.composeProject, expectedComposeProject);
 		assert.equal(seedReceipt.datasetId, base.PERF_DATASET_ID);
 		const seedReceiptSha256 = sha256File(seedReceiptPath);
-		base = sanitizedChildEnvironment(base, { PERF_CAMPUS_ID: seedReceipt.campusId });
+		base = orchestrationChildEnvironment(base, reportRoot, { PERF_CAMPUS_ID: seedReceipt.campusId });
 
 		stage = 'canonical-fixture';
 		await suppliedAdapters.prepareCanonicalFixture({
 			manifestPath: canonicalManifestPath,
-			childEnvironment: sanitizedChildEnvironment(base, {
+			childEnvironment: orchestrationChildEnvironment(base, reportRoot, {
 				PERF_FIXTURE_RUN_ID: canonicalFixtureRunId,
 				PERF_SAMPLE_KIND: 'canonical',
 			}),
@@ -251,7 +273,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		await suppliedAdapters.captureSnapshot({
 			outputPath: snapshotReceiptPath,
 			manifestPath: canonicalManifestPath,
-			childEnvironment: sanitizedChildEnvironment(base, {
+			childEnvironment: orchestrationChildEnvironment(base, reportRoot, {
 				PERF_SNAPSHOT_ID: snapshotId,
 				PERF_SNAPSHOT_ROOT: batchRoot,
 				PERF_SNAPSHOT_RECEIPT_PATH: snapshotReceiptPath,
@@ -276,7 +298,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 				restoreOrdinal,
 				snapshot,
 				snapshotReceiptSha256,
-				childEnvironment: sanitizedChildEnvironment(base, {
+				childEnvironment: orchestrationChildEnvironment(base, reportRoot, {
 					PERF_SNAPSHOT_ROOT: batchRoot,
 					PERF_SNAPSHOT_RECEIPT_PATH: snapshotReceiptPath,
 					PERF_RESTORE_RECEIPT_PATH: restorePath,
@@ -300,7 +322,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 				sample,
 				runDir,
 				manifestPath: sampleManifestPath,
-				childEnvironment: sanitizedChildEnvironment(base, {
+				childEnvironment: orchestrationChildEnvironment(base, reportRoot, {
 					MANIFEST_PATH: sampleManifestPath,
 					RUN_ID: sample.sampleId,
 					PERF_SAMPLE_KIND: sample.sampleKind,
@@ -322,7 +344,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		if (typeof suppliedAdapters.summarize === 'function') {
 			stage = 'summary';
 			await suppliedAdapters.summarize({
-				childEnvironment: sanitizedChildEnvironment(base, {
+				childEnvironment: orchestrationChildEnvironment(base, reportRoot, {
 					RUN_DIRS_FILE: runDirsFile,
 					OUTPUT_PATH: join(batchRoot, 'summary', 'baseline-summary.json'),
 					SNAPSHOT_RECEIPT_PATH: snapshotReceiptPath,
