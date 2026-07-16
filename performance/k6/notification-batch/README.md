@@ -15,12 +15,16 @@
 - #201 pagination/archive 계약은 알림 로그 API의 기본 page size를 바꾸지 않았고 이 harness는 HTTP 목록 API를 호출하지 않는다. correctness는 request ID 내부 log를 stable ID ascending ordering으로 조회한다.
 - #202 V11은 Data API 역할 deny-all과 direct owner JDBC 경계를 유지한다. `POSTGRES_USER`, `POSTGRES_DB`, `PERF_EXPECTED_POSTGRES_ROLE`은 runtime 필수이며 snapshot의 `current_user`가 승인 role과 다르면 실패한다. `FORCE ROW LEVEL SECURITY`는 허용하지 않는다.
 - #206 stable ordering은 charge list offset pagination용 계약이므로 notification workload에는 적용되지 않는다. 이 scenario는 charge pagination이나 archive query를 실행하지 않는다.
+- Pagination: not applicable to the internal notification harness; 목록 API는 호출하지 않는다.
+- Archive: not applicable to the internal notification harness; archive query는 호출하지 않는다.
 
 ## 측정 경계
 
 자동 알림 scheduler가 target user ID 목록을 계산한 다음 호출하는 실제 production 경계인 `NotificationRequestCommandService.requestAutomaticNotification(...)`와 실제 `NotificationDeliveryWorker.processRequest(...)`를 test-only harness에서 직접 호출한다.
 
-이 workload는 HTTP 부하가 아니라 Java harness가 production service를 직접 1회 호출하므로 **k6 v2 Counter/Rate/Trend는 not applicable**이다. 대신 scenario result가 creation → dedupe-replay → delivery 순서, exact count, `scenarioFailureCount=0`, `scenarioFailureRate=0`을 기록한다. p50/p95/p99/max latency ordering은 사용자 승인 sample 수와 cumulative-state 전략이 구현된 뒤에만 summarizer가 계산하며 현재는 fail-closed disabled다.
+이 workload는 HTTP 부하가 아니라 Java harness가 production service를 직접 1회 호출하므로 실제 측정값을 k6 HTTP metric으로 가장하지 않는다. scenario result가 creation → dedupe-replay → delivery 순서, exact count, `scenarioFailureCount=0`, `scenarioFailureRate=0`을 기록한다. 공통 harness 호환성용 fake full-run은 installed k6 v2의 direct/`metric.values` Counter/Rate/Trend 수학을 별도로 fail-closed 검증하지만, 이 합성 metric은 실제 #198 baseline 수치가 아니다. p50/p95/p99/max는 승인된 snapshot-restore 10개 measured result에서 summarizer가 계산한다.
+
+k6 v2 actual workload: not applicable. Counter/Rate/Trend는 공통 fake contract 검증에만 사용한다.
 
 생성 phase의 현재 동작:
 
@@ -54,7 +58,7 @@ cron cadence와 upstream target discovery 자체는 duration에 포함하지 않
 
 ## Dataset과 fixtureRunId
 
-`PERF_DATASET_ID`는 이름이 정확히 datasetId 또는 `<datasetId> Campus`인 기존 PERFORMANCE 1,000명 campus를 식별하고 `PERF_FIXTURE_RUN_ID`는 한 번의 warmup 또는 measured sample을 식별한다. 준비 script는 user/campus/member를 만들거나 수정하지 않는다. 선택된 ACTIVE member가 정확히 1,000명인지 확인한 뒤 아래 test-only dummy token만 저장한다.
+`PERF_DATASET_ID`는 이름이 정확히 datasetId 또는 `<datasetId> Campus`인 기존 PERFORMANCE 1,000명 campus를 식별한다. `PERF_FIXTURE_RUN_ID`는 11개 sample이 함께 사용하는 canonical fixture 하나를 식별하고 `PERF_SAMPLE_KIND=canonical`만 허용한다. 준비 script는 user/campus/member를 만들거나 수정하지 않는다. 선택된 ACTIVE member가 정확히 1,000명인지 확인한 뒤 아래 test-only dummy token만 한 번 저장한다.
 
 - active token immediate success
 - active token transient failure 1회 후 success
@@ -65,7 +69,7 @@ cron cadence와 upstream target discovery 자체는 duration에 포함하지 않
 
 각 user category count는 실행자가 명시하며 모두 1 이상이고 합계가 1,000이어야 한다. mixed-token sentinel은 success category의 첫 사용자에게 permanent dummy token 1개를 추가하는 고정 correctness probe이며 category 사용자 수를 바꾸지 않는다. 이 때문에 active token 있음/없음 비율과 injected failure 비율이 manifest에 명확하게 남고, 시나리오가 임의 비율을 결정하지 않는다.
 
-재측정 시 선택 사용자에 속한 이전 `PERFORMANCE_198_DUMMY:` exact prefix의 active token을 inactive로 바꾼 뒤 새로운 fixtureRunId dummy token을 추가한다. 즉, 과거 #198 fixture token은 수정하지만 실제 token과 다른 이슈 fixture token은 수정하지 않는다. SQL wildcard `LIKE`를 사용하지 않으므로 `PERFORMANCEX198XDUMMY:` 같은 near-prefix 실제 token은 dummy로 분류하거나 수정하지 않는다. 선택 사용자에 dummy가 아닌 active token이 하나라도 있으면 preparation이 fail closed한다. permanent cohort를 먼저 배치하고 뒤에 success cohort가 오도록 해 permanent failure 이후에도 후속 사용자가 SENT가 되는지를 관찰한다. 생성되는 notification log의 title/body에도 fixtureRunId와 test-only 표식을 넣는다. token 원문, 비밀번호, credential은 report에 쓰지 않는다.
+canonical 준비 시 선택 사용자에 속한 이전 `PERFORMANCE_198_DUMMY:` exact prefix의 active token을 inactive로 바꾼 뒤 새로운 fixtureRunId dummy token을 추가한다. 즉, 과거 #198 fixture token은 수정하지만 실제 token과 다른 이슈 fixture token은 수정하지 않는다. SQL wildcard `LIKE`를 사용하지 않으므로 `PERFORMANCEX198XDUMMY:` 같은 near-prefix 실제 token은 dummy로 분류하거나 수정하지 않는다. 선택 사용자에 dummy가 아닌 active token이 하나라도 있으면 preparation이 fail closed한다. canonical 준비가 끝난 직후 PostgreSQL logical dump와 Redis logical snapshot을 한 번 capture하고, 이후 fixture SQL을 다시 실행하지 않는다. 각 sample은 snapshot restore와 fingerprint 검증 뒤 같은 fixtureRunId를 사용한다. sample-specific manifest view는 `sampleKind`만 `warmup|measured`로 바꾸는 local metadata이며 business row를 만들지 않는다. permanent cohort를 먼저 배치하고 뒤에 success cohort가 오도록 해 permanent failure 이후에도 후속 사용자가 SENT가 되는지를 관찰한다. token 원문, 비밀번호, credential은 report에 쓰지 않는다.
 
 manifest에는 실제 Compose project와 PostgreSQL database도 기록한다. runner는 현재 guard가 확인한 project/database와 manifest가 정확히 일치하지 않으면 실행을 거부하므로, 다른 전용 stack에서 fixture manifest를 재사용할 수 없다.
 
@@ -110,6 +114,14 @@ build/reports/k6/notification-batch/
     harness-provenance-report.json
     gradle-harness-build.log
     gradle-scenario.log
+  orchestrations/<batchId>/
+    snapshot-receipt.json
+    payload/postgres.dump
+    restores/<ordinal>-<sampleKind>.json
+    run-dirs.txt
+    restore-receipts.txt
+    orchestration-receipt.json
+    summary/baseline-summary.json
 ```
 
 ## Fixture preparation — 지금은 실행 금지
@@ -138,7 +150,7 @@ PERF_REDIS_AUTH_MODE=<none-or-password> \
 PERF_MEMBER_COUNT=1000 \
 PERF_DATASET_ID=PERFORMANCE_<dataset> \
 PERF_FIXTURE_RUN_ID=<fresh-fixture-run-id> \
-PERF_SAMPLE_KIND=warmup \
+PERF_SAMPLE_KIND=canonical \
 PERF_CAMPUS_ID=<performance-campus-id> \
 PERF_SUCCESS_COUNT=<positive-count> \
 PERF_TRANSIENT_COUNT=<positive-count> \
@@ -148,7 +160,7 @@ PERF_NO_TOKEN_COUNT=<positive-count> \
 bash performance/k6/notification-batch/prepare-fixtures.sh
 ```
 
-measured sample은 새 `PERF_FIXTURE_RUN_ID`와 `PERF_SAMPLE_KIND=measured`로 별도 준비한다. preparation은 measurement runner 안에서 자동 호출되지 않는다.
+직접 호출은 저수준 진단용이다. 승인된 full orchestration은 canonical fixture를 정확히 한 번 준비한 뒤 snapshot을 capture하므로 measured sample별 fixture 준비를 반복하지 않는다.
 
 ## Single-sample runner — 지금은 실행 금지
 
@@ -195,24 +207,30 @@ PostgreSQL/Redis counter와 Docker stats의 window는 Gradle 실행, Spring star
 
 모든 verified/failed/prepared 결과는 `accepted=false`, `automaticAdoption=false`다. 실패 시 ignored `rejections/` 아래 first machine-readable rejection을 exclusive-create로 한 번만 기록해 뒤의 cleanup/verification 실패가 최초 stage와 reason을 덮어쓰지 않는다. credential/token 원문은 rejection에 포함하지 않는다.
 
-## p50/p95/p99/max 집계 — 지금은 실행 금지
+## p50/p95/p99/max 집계와 snapshot restore
 
-한 fixtureRunId는 생성 1회와 delivery 1회의 독립 sample이다. 현재 runner는 sample마다 `--no-daemon` test JVM을 새로 시작하므로 `cold-jvm-per-sample`이고, warmup은 PostgreSQL/Redis 외부 cache만 데우며 JVM JIT/Spring bean/connection pool을 measured sample과 공유하지 않는다. sample마다 이전 dummy token/log/dedupe history가 남으므로 additive fixture만으로는 두 번째 sample의 pre-run token/log cardinality, relation bytes, Redis DBSIZE가 첫 sample과 같을 수 없다.
+승인된 정책은 `EXPECTED_WARMUP_SAMPLES=1`, `EXPECTED_MEASURED_SAMPLES=10`, `CUMULATIVE_STATE_STRATEGY=snapshot-restore`다. runner는 sample마다 `--no-daemon` test JVM을 새로 시작하므로 실행 모델은 `cold-jvm-per-sample`이며 warmup은 percentile에서 제외한다.
 
-따라서 현재 summarizer는 fail-closed disabled다. `EXPECTED_WARMUP_SAMPLES`와 `EXPECTED_MEASURED_SAMPLES`를 runtime 필수값으로 받아 각각 정확히 일치하는지, 모든 sampleKind가 `warmup|measured`인지, fixtureRunId가 전체에서 유일한지 먼저 검증한다. warmup은 최소 1개, measured는 percentile을 위해 최소 2개이며 단일 measured 또는 warmup 0은 허용하지 않는다. `CUMULATIVE_STATE_STRATEGY`도 `snapshot-restore|fixture-only-cleanup` 중 하나를 runtime에 명시해야 하지만, 어느 전략도 아직 사용자 승인·구현되지 않았으므로 count 검증을 통과해도 non-zero로 종료하고 summary를 만들지 않는다. 이 세션은 snapshot/cleanup을 실행하거나 임의 선택하지 않는다.
+`snapshot-policy.json`이 exact `fixture prepare 1 / snapshot capture 1 / restore 11 / warmup 1 / measured 10 / automaticAdoption=false`를 기계 판독 계약으로 고정한다. orchestration runtime 입력이 이 값과 다르면 fixture 준비 전에 실패한다.
 
-권고는 isolated performance stack의 전체 상태 동등성을 가장 직접적으로 증명하는 `snapshot-restore`다. 다만 snapshot 생성·복구 lifecycle의 별도 사용자 승인이 선행되어야 한다. `fixture-only-cleanup`은 변경 범위가 좁지만 누락된 side effect가 sample 간 누적될 위험이 있다. exact warmup/measured 횟수는 실제 측정 window 비용과 percentile 정책을 사용자가 결정할 때까지 미설정 상태를 유지한다.
+`orchestrate-before.mjs`는 fresh batch namespace를 먼저 reserve하고 `canonical fixture prepare 1회 → snapshot capture 1회 → restore/hash·cardinality 검증 → sample run` 순서를 고정한다. restore/run은 warmup 1회와 measured 10회, 총 11회다. restore가 실패하거나 PostgreSQL fingerprint, Redis key/value hash, Redis TTL-intent hash, cardinality 중 하나라도 drift하면 해당 sample과 이후 sample을 실행하지 않고 최초 rejection만 보존한다.
+
+orchestration parent는 host-global lock과 canonical Compose-project lock을 fixture 준비 전부터 마지막 sample·summary 종료까지 계속 소유한다. 각 shell child는 parent PID, exact project, 두 lock path가 결속된 `orchestration-lock.json`만 상속하며 lock을 개별 해제하지 않으므로 restore와 sample 사이에도 다른 performance runner가 진입할 수 없다.
+
+PostgreSQL은 canonical fixture 완료 후 `pg_dump --format=custom` payload SHA-256, 관련 table cardinality와 ordered row fingerprint를 receipt에 기록하고 dedicated DB에 `pg_restore --clean --single-transaction`으로 복구한다. Redis는 전용 snapshot DB에 serialized value와 captured PTTL intent를 보관한다. receipt는 key/value state SHA-1과 `key + serialized value + captured PTTL` TTL-intent SHA-1을 분리한다. live PTTL은 시간이 흐르므로 exact 비교하지 않고 restore Lua가 실제 사용한 저장 metadata hash를 각 restore receipt에 결속한다. named volume 삭제, Compose down/stop/restart, volume/system prune은 없다.
 
 ```bash
-RUN_DIRS_FILE=<approved-run-directory-list.txt> \
-OUTPUT_PATH=build/reports/k6/notification-batch/before-summary.json \
-EXPECTED_WARMUP_SAMPLES=<user-approved-exact-count> \
-EXPECTED_MEASURED_SAMPLES=<user-approved-exact-count-at-least-2> \
-CUMULATIVE_STATE_STRATEGY=<snapshot-restore-or-fixture-only-cleanup> \
-node performance/k6/notification-batch/summarize-before.mjs
+PERF_BATCH_ID=<fresh-safe-batch-id> \
+PERF_REPORT_ROOT=<absolute-fresh-report-root> \
+EXPECTED_WARMUP_SAMPLES=1 \
+EXPECTED_MEASURED_SAMPLES=10 \
+CUMULATIVE_STATE_STRATEGY=snapshot-restore \
+PERF_REDIS_DATABASE=<dedicated-workload-db> \
+PERF_REDIS_SNAPSHOT_DATABASE=<fresh-dedicated-snapshot-db> \
+node performance/k6/notification-batch/orchestrate-before.mjs
 ```
 
-위 명령은 현재 의도적으로 실패한다. 사용자가 하나의 cumulative-state 전략과 실행 모델을 승인하고, 해당 restore/cleanup 구현이 매 sample의 동일 pre-run fingerprint를 증명한 뒤에만 fail-closed gate를 제거할 수 있다. 그 이후 summary는 creation/delivery 각각 다음을 만든다.
+위 명령은 나머지 target, credential, fixture 분포, business date, cadence, harness provenance runtime 값도 모두 명시해야 한다. 프로젝트 이름은 `faithlog-perf-198*` 전용 namespace여야 하며 `faithlog-frontend-latest`, shared/latest/qa project는 fixture mutation 전에 거부한다. 성공 summary도 `conditional-isolated-snapshot-restored`, `accepted=false`, `automaticAdoption=false`이고 다음을 만든다.
 
 - 전체 duration p50/p95/p99/max
 - throughput p50/p95/p99/max

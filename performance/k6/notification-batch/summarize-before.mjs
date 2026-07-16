@@ -1,17 +1,28 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import {
+	APPROVED_SNAPSHOT_POLICY,
+	buildApprovedSamplePlan,
+	validateSnapshotSequence,
+} from './snapshot-contract.mjs';
 
 const runDirsFile = process.env.RUN_DIRS_FILE;
 const outputPath = process.env.OUTPUT_PATH;
 const expectedWarmupSamplesRaw = process.env.EXPECTED_WARMUP_SAMPLES;
 const expectedMeasuredSamplesRaw = process.env.EXPECTED_MEASURED_SAMPLES;
 const cumulativeStateStrategy = process.env.CUMULATIVE_STATE_STRATEGY;
+const snapshotReceiptPath = process.env.SNAPSHOT_RECEIPT_PATH;
+const restoreReceiptsFile = process.env.RESTORE_RECEIPTS_FILE;
+const batchId = process.env.PERF_BATCH_ID;
 assert.ok(runDirsFile, 'RUN_DIRS_FILE is required');
 assert.ok(outputPath, 'OUTPUT_PATH is required');
 assert.ok(expectedWarmupSamplesRaw, 'EXPECTED_WARMUP_SAMPLES is a required runtime approval');
 assert.ok(expectedMeasuredSamplesRaw, 'EXPECTED_MEASURED_SAMPLES is a required runtime approval');
 assert.ok(cumulativeStateStrategy, 'CUMULATIVE_STATE_STRATEGY is a required runtime approval');
+assert.ok(snapshotReceiptPath, 'SNAPSHOT_RECEIPT_PATH is required');
+assert.ok(restoreReceiptsFile, 'RESTORE_RECEIPTS_FILE is required');
+assert.ok(batchId, 'PERF_BATCH_ID is required');
 
 const parseApprovedSampleCount = (raw, name, minimum) => {
 	assert.match(raw, /^[0-9]+$/, `${name} must be an explicit non-negative integer`);
@@ -21,10 +32,12 @@ const parseApprovedSampleCount = (raw, name, minimum) => {
 };
 const expectedWarmupSamples = parseApprovedSampleCount(expectedWarmupSamplesRaw, 'EXPECTED_WARMUP_SAMPLES', 1);
 const expectedMeasuredSamples = parseApprovedSampleCount(expectedMeasuredSamplesRaw, 'EXPECTED_MEASURED_SAMPLES', 2);
-assert.ok(
-	['snapshot-restore', 'fixture-only-cleanup'].includes(cumulativeStateStrategy),
-	'CUMULATIVE_STATE_STRATEGY must be snapshot-restore or fixture-only-cleanup',
-);
+assert.equal(expectedWarmupSamples, APPROVED_SNAPSHOT_POLICY.warmupSamples,
+	'EXPECTED_WARMUP_SAMPLES must be exactly 1');
+assert.equal(expectedMeasuredSamples, APPROVED_SNAPSHOT_POLICY.measuredSamples,
+	'EXPECTED_MEASURED_SAMPLES must be exactly 10');
+assert.equal(cumulativeStateStrategy, APPROVED_SNAPSHOT_POLICY.strategy,
+	'CUMULATIVE_STATE_STRATEGY must be snapshot-restore');
 
 const runDirs = readFileSync(runDirsFile, 'utf8')
 	.split(/\r?\n/)
@@ -61,13 +74,20 @@ assert.equal(measured.length, expectedMeasuredSamples,
 assert.equal(samples.length, expectedWarmupSamples + expectedMeasuredSamples,
 	'Only approved warmup and measured samples may be aggregated');
 assert.equal(new Set(measured.map((sample) => sample.result.datasetId)).size, 1);
-assert.equal(new Set(samples.map((sample) => sample.result.fixtureRunId)).size, samples.length,
-	'Duplicate fixtureRunIds are forbidden');
-assert.fail(
-	`Cumulative-state strategy ${cumulativeStateStrategy} is selected but not implemented; `
-		+ 'baseline aggregation stays disabled until the user approves and tooling proves snapshot restore '
-		+ 'or fixture-only cleanup equivalence',
-);
+assert.equal(new Set(samples.map((sample) => sample.result.fixtureRunId)).size, 1,
+	'All samples must use the one canonical prepared fixture snapshot');
+const snapshot = JSON.parse(readFileSync(snapshotReceiptPath, 'utf8'));
+const restorePaths = readFileSync(restoreReceiptsFile, 'utf8')
+	.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+assert.equal(new Set(restorePaths).size, restorePaths.length, 'Restore receipt paths must be unique');
+const restores = restorePaths.map((path) => JSON.parse(readFileSync(path, 'utf8')));
+const snapshotReceiptSha256 = restores[0]?.snapshotReceiptSha256;
+const snapshotSequence = validateSnapshotSequence({
+	snapshot,
+	snapshotReceiptSha256,
+	plan: buildApprovedSamplePlan(batchId),
+	restores,
+});
 
 const workloadSignature = (sample) => JSON.stringify({
 	datasetId: sample.manifest.datasetId,
@@ -232,11 +252,17 @@ const summary = {
 	status: 'before-baseline',
 	accepted: false,
 	automaticAdoption: false,
-	measurementStatus: 'disabled-pending-user-approved-cumulative-state-strategy',
+	measurementStatus: 'conditional-isolated-snapshot-restored',
 	datasetId: measured[0].result.datasetId,
 	warmupCount: warmups.length,
 	measuredCount: measured.length,
-	fixtureRunIds: measured.map((sample) => sample.result.fixtureRunId),
+	fixtureRunId: measured[0].result.fixtureRunId,
+	snapshot: {
+		snapshotId: snapshot.snapshotId,
+		snapshotReceiptSha256,
+		fixturePrepareCount: 1,
+		...snapshotSequence,
+	},
 	creation: phaseSummary('creation'),
 	delivery: phaseSummary('delivery'),
 	endToEnd: endToEndSummary,

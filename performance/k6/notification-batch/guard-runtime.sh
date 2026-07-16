@@ -108,8 +108,10 @@ guard_notification_batch_runtime() {
 		echo "Actual Compose label does not match PERF_EXPECTED_COMPOSE_PROJECT." >&2
 		return 2
 	fi
-	if [[ "${postgres_project}" == *"faithlog-latest"* ]]; then
-		echo "The shared faithlog-latest stack is forbidden for #198." >&2
+	if [[ "${postgres_project}" == *"faithlog-latest"* \
+		|| ! "${postgres_project}" =~ ^faithlog-perf-198($|-[A-Za-z0-9_-]+$) \
+		|| "${postgres_project}" =~ (shared|latest|frontend|qa) ]]; then
+		echo "Only a dedicated #198 isolated Compose project is allowed; shared stacks are forbidden." >&2
 		return 2
 	fi
 	if [[ "${postgres_id}" != "${PERF_EXPECTED_POSTGRES_CONTAINER_ID}" \
@@ -140,6 +142,31 @@ guard_notification_batch_runtime() {
 
 acquire_notification_batch_locks() {
 	: "${PERF_COMPOSE_PROJECT:?guard_notification_batch_runtime must run before lock acquisition.}"
+	if [[ -n "${PERF_ORCHESTRATION_LOCK_RECEIPT:-}" ]]; then
+		local inherited_lock_exports
+		if ! inherited_lock_exports="$(node -e '
+			const fs = require("node:fs");
+			const receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+			const expectedPid = Number(process.argv[2]);
+			const expectedProject = process.argv[3];
+			if (receipt.schemaVersion !== 1 || receipt.ownerPid !== expectedPid
+				|| receipt.composeProject !== expectedProject || receipt.automaticAdoption !== false) process.exit(2);
+			const globalLock = "/tmp/faithlog-performance-global.lock";
+			const projectLock = `/tmp/faithlog-performance-${expectedProject}.lock`;
+			if (receipt.globalLockDir !== globalLock || receipt.projectLockDir !== projectLock
+				|| !fs.statSync(globalLock).isDirectory() || !fs.statSync(projectLock).isDirectory()) process.exit(2);
+			process.stdout.write(`PERF_GLOBAL_LOCK_DIR=${globalLock}\nPERF_PROJECT_LOCK_DIR=${projectLock}\n`);
+		' "${PERF_ORCHESTRATION_LOCK_RECEIPT}" "${PPID}" "${PERF_COMPOSE_PROJECT}")"; then
+			echo "Orchestration lock receipt does not match the parent process and Compose project." >&2
+			return 2
+		fi
+		eval "${inherited_lock_exports}"
+		PERF_GLOBAL_LOCK_HELD=true
+		PERF_PROJECT_LOCK_HELD=true
+		PERF_LOCK_RELEASE_OWNER=false
+		export PERF_GLOBAL_LOCK_DIR PERF_PROJECT_LOCK_DIR PERF_GLOBAL_LOCK_HELD PERF_PROJECT_LOCK_HELD PERF_LOCK_RELEASE_OWNER
+		return 0
+	fi
 	PERF_GLOBAL_LOCK_DIR="/tmp/faithlog-performance-global.lock"
 	PERF_PROJECT_LOCK_DIR="/tmp/faithlog-performance-${PERF_COMPOSE_PROJECT}.lock"
 	PERF_GLOBAL_LOCK_HELD=false
@@ -156,7 +183,8 @@ acquire_notification_batch_locks() {
 		return 2
 	fi
 	PERF_PROJECT_LOCK_HELD=true
-	export PERF_GLOBAL_LOCK_DIR PERF_PROJECT_LOCK_DIR PERF_GLOBAL_LOCK_HELD PERF_PROJECT_LOCK_HELD
+	PERF_LOCK_RELEASE_OWNER=true
+	export PERF_GLOBAL_LOCK_DIR PERF_PROJECT_LOCK_DIR PERF_GLOBAL_LOCK_HELD PERF_PROJECT_LOCK_HELD PERF_LOCK_RELEASE_OWNER
 }
 
 verify_notification_batch_runtime_after_lock() {
@@ -197,6 +225,11 @@ verify_notification_batch_runtime_after_lock() {
 }
 
 release_notification_batch_locks() {
+	if [[ "${PERF_LOCK_RELEASE_OWNER:-true}" != "true" ]]; then
+		PERF_PROJECT_LOCK_HELD=false
+		PERF_GLOBAL_LOCK_HELD=false
+		return 0
+	fi
 	if [[ "${PERF_PROJECT_LOCK_HELD:-false}" == "true" && -n "${PERF_PROJECT_LOCK_DIR:-}" ]]; then
 		rmdir "${PERF_PROJECT_LOCK_DIR}" 2>/dev/null || true
 		PERF_PROJECT_LOCK_HELD=false

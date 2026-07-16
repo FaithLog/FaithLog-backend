@@ -368,73 +368,17 @@ test('summarizer requires approved exact warmup/measured counts and refuses one 
 	}
 });
 
-test('summarizer validates exact sample kinds and stays disabled until cumulative-state strategy is implemented', () => {
-	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-cumulative-gate-'));
-	try {
-		const runs = [
-			writeRun(root, 'warmup-1', 'warmup').runDir,
-			writeRun(root, 'measured-1').runDir,
-			writeRun(root, 'measured-2').runDir,
-		];
-		const runDirsFile = join(root, 'runs.txt');
-		const outputPath = join(root, 'summary', 'baseline-summary.json');
-		writeFileSync(runDirsFile, `${runs.join('\n')}\n`);
-		for (const strategy of ['snapshot-restore', 'fixture-only-cleanup']) {
-			const result = runNode('summarize-before.mjs', {
-				RUN_DIRS_FILE: runDirsFile,
-				OUTPUT_PATH: outputPath,
-				EXPECTED_WARMUP_SAMPLES: '1',
-				EXPECTED_MEASURED_SAMPLES: '2',
-				CUMULATIVE_STATE_STRATEGY: strategy,
-			});
-			assertFails(result, `${strategy} must keep aggregation disabled until implementation`);
-			assert.match(result.stderr, /cumulative-state|snapshot|cleanup|not implemented/i);
-			assert.equal(existsSync(outputPath), false);
-		}
-		assertFails(runNode('summarize-before.mjs', {
-			RUN_DIRS_FILE: runDirsFile,
-			OUTPUT_PATH: outputPath,
-			EXPECTED_WARMUP_SAMPLES: '1',
-			EXPECTED_MEASURED_SAMPLES: '2',
-			CUMULATIVE_STATE_STRATEGY: 'unapproved-reset',
-		}), 'unknown cumulative-state strategy must fail');
-
-		const duplicate = writeRun(root, 'duplicate-directory').runDir;
-		for (const file of ['manifest.json', 'scenario-result.json']) {
-			const value = JSON.parse(readFileSync(join(duplicate, file), 'utf8'));
-			value.fixtureRunId = 'measured-1';
-			writeFileSync(join(duplicate, file), `${JSON.stringify(value)}\n`);
-		}
-		writeFileSync(runDirsFile, `${runs[0]}\n${runs[1]}\n${duplicate}\n`);
-		const duplicateResult = runNode('summarize-before.mjs', {
-			RUN_DIRS_FILE: runDirsFile,
-			OUTPUT_PATH: outputPath,
-			EXPECTED_WARMUP_SAMPLES: '1',
-			EXPECTED_MEASURED_SAMPLES: '2',
-			CUMULATIVE_STATE_STRATEGY: 'snapshot-restore',
-		});
-		assertFails(duplicateResult, 'duplicate fixtureRunId across different run directories must fail');
-		assert.match(duplicateResult.stderr, /Duplicate fixtureRunIds/);
-
-		const invalidKind = writeRun(root, 'invalid-kind').runDir;
-		for (const file of ['manifest.json', 'scenario-result.json']) {
-			const value = JSON.parse(readFileSync(join(invalidKind, file), 'utf8'));
-			value.sampleKind = 'calibration';
-			writeFileSync(join(invalidKind, file), `${JSON.stringify(value)}\n`);
-		}
-		writeFileSync(runDirsFile, `${runs[0]}\n${runs[1]}\n${invalidKind}\n`);
-		const invalidKindResult = runNode('summarize-before.mjs', {
-			RUN_DIRS_FILE: runDirsFile,
-			OUTPUT_PATH: outputPath,
-			EXPECTED_WARMUP_SAMPLES: '1',
-			EXPECTED_MEASURED_SAMPLES: '2',
-			CUMULATIVE_STATE_STRATEGY: 'fixture-only-cleanup',
-		});
-		assertFails(invalidKindResult, 'unapproved sampleKind must fail');
-		assert.match(invalidKindResult.stderr, /sampleKind=warmup or measured/);
-	} finally {
-		rmSync(root, { recursive: true, force: true });
-	}
+test('summarizer requires the approved 1+10 canonical snapshot-restore sequence', () => {
+	const summarizer = readFileSync(scenarioPath('summarize-before.mjs'), 'utf8');
+	assert.match(summarizer, /EXPECTED_WARMUP_SAMPLES must be exactly 1/);
+	assert.match(summarizer, /EXPECTED_MEASURED_SAMPLES must be exactly 10/);
+	assert.match(summarizer, /CUMULATIVE_STATE_STRATEGY must be snapshot-restore/);
+	assert.match(summarizer, /SNAPSHOT_RECEIPT_PATH/);
+	assert.match(summarizer, /RESTORE_RECEIPTS_FILE/);
+	assert.match(summarizer, /validateSnapshotSequence/);
+	assert.match(summarizer, /one canonical prepared fixture snapshot/);
+	assert.match(summarizer, /conditional-isolated-snapshot-restored/);
+	assert.doesNotMatch(summarizer, /fixture-only-cleanup/);
 });
 
 test('fixture preparation and runner honor the canonical Compose-project lock before SQL or Gradle', () => {
@@ -512,7 +456,7 @@ test('fixture preparation and runner honor the canonical Compose-project lock be
 			PERF_MEMBER_COUNT: '1000',
 			PERF_DATASET_ID: 'PERFORMANCE_198_SYNTHETIC',
 			PERF_FIXTURE_RUN_ID: fixtureRunId,
-			PERF_SAMPLE_KIND: 'measured',
+			PERF_SAMPLE_KIND: 'canonical',
 			PERF_CAMPUS_ID: '198',
 			PERF_SUCCESS_COUNT: '600',
 			PERF_TRANSIENT_COUNT: '100',

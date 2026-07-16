@@ -133,7 +133,8 @@ if [[ ! "${PERF_DATASET_ID}" =~ ^PERFORMANCE_[A-Za-z0-9_-]+$ \
 	|| "${PERF_MANIFEST_INSERTED_DUMMY_TOKEN_COUNT}" != "$((PERF_MEMBER_COUNT - PERF_NO_TOKEN_COUNT + 1))" \
 	|| ! "${PERF_CAMPUS_ID}" =~ ^[1-9][0-9]*$ \
 	|| ( "${PERF_SAMPLE_KIND}" != "warmup" && "${PERF_SAMPLE_KIND}" != "measured" ) \
-	|| "${PERF_FIXTURE_RUN_ID}" != "$(basename "$(dirname "${MANIFEST_PATH}")")" \
+	|| ( "${PERF_FIXTURE_RUN_ID}" != "$(basename "$(dirname "${MANIFEST_PATH}")")" \
+		&& "${PERF_FIXTURE_RUN_ID}" != "$(basename "$(dirname "$(dirname "${MANIFEST_PATH}")")")" ) \
 	|| "${PERF_MANIFEST_COMPOSE_PROJECT}" != "${PERF_COMPOSE_PROJECT}" \
 	|| "${PERF_MANIFEST_POSTGRES_DATABASE}" != "${POSTGRES_DB}" ]]; then
 	echo "Manifest dataset, campus, Compose project, or database violates the Issue #198 contract." >&2

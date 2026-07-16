@@ -68,7 +68,7 @@ fi
 : "${POSTGRES_DB:?Set the runtime-approved dedicated PostgreSQL database.}"
 : "${PERF_EXPECTED_POSTGRES_ROLE:?Set the runtime-approved direct owner JDBC role for #202 continuity.}"
 : "${PERF_DATASET_ID:?Set the existing PERFORMANCE datasetId.}"
-: "${PERF_SAMPLE_KIND:?Set PERF_SAMPLE_KIND to warmup or measured.}"
+: "${PERF_SAMPLE_KIND:?Set PERF_SAMPLE_KIND=canonical for the one prepared snapshot source.}"
 : "${PERF_CAMPUS_ID:?Set the existing 1,000-member PERFORMANCE campus ID.}"
 : "${PERF_SUCCESS_COUNT:?Set the active-token immediate-success count.}"
 : "${PERF_TRANSIENT_COUNT:?Set the active-token transient-then-success count.}"
@@ -89,8 +89,8 @@ if [[ ! "${PERF_CAMPUS_ID}" =~ ^[1-9][0-9]*$ ]]; then
 	echo "PERF_CAMPUS_ID must be a positive integer." >&2
 	exit 2
 fi
-if [[ "${PERF_SAMPLE_KIND}" != "warmup" && "${PERF_SAMPLE_KIND}" != "measured" ]]; then
-	echo "PERF_SAMPLE_KIND must be warmup or measured." >&2
+if [[ "${PERF_SAMPLE_KIND}" != "canonical" ]]; then
+	echo "PERF_SAMPLE_KIND must be canonical; per-sample kinds are metadata views after restore." >&2
 	exit 2
 fi
 if [[ ! "${POSTGRES_USER}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ \
