@@ -18,6 +18,10 @@ input="$(cat)"
 [[ "$input" == 'select issue_196_identity;' ]] || exit 73
 [[ -n "\${PGPASSWORD:-}" ]] || exit 74
 [[ -z "\${PERF_ADMIN_PASSWORD:-}" && -z "\${PERF_MEMBER_PASSWORD:-}" ]] || exit 75
+if [[ "\${FAKE_CHILD_FAILURE:-false}" == true ]]; then
+	printf '%s\n' 'select issue_196_identity; db-secret-not-for-output synthetic-child-stderr' >&2
+	exit 76
+fi
 [[ "\${FAKE_EMPTY_OUTPUT:-false}" == true ]] && exit 0
 printf '%s\n' '{"currentDatabase":"faithlog","postmasterStartedAt":"2026-07-17T00:00:00.000Z"}'
 `);
@@ -78,4 +82,28 @@ test('every issue-local docker collector that consumes SQL stdin attaches contai
 	assert.equal((shape.match(/docker exec -i /g) || []).length, 1, 'shape DB identity collector must attach stdin');
 	assert.equal((runner.match(/docker exec -i /g) || []).length, 3,
 		'runner identity, table-stat, and activity collectors must attach stdin');
+});
+
+test('DB identity collector sanitizes child-process stderr on failure', async () => {
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-db-identity-child-error-'));
+	try {
+		const dockerCommand = fakeDocker(temporary);
+		const { captureDockerDbIdentity } = await import(`${pathToFileURL(MODULE_URL.pathname).href}?child=${Date.now()}`);
+		assert.throws(() => captureDockerDbIdentity({
+			dockerCommand,
+			container: 'approved-db',
+			user: 'faithlog',
+			database: 'faithlog',
+			password: 'db-secret-not-for-output',
+			applicationName: 'faithlog_issue196_observer',
+			sql: 'select issue_196_identity;',
+			env: { PATH: process.env.PATH, FAKE_CHILD_FAILURE: 'true' },
+		}), (error) => {
+			assert.match(error.message, /DB identity collector child failed/);
+			assert.doesNotMatch(error.message, /select issue_196_identity|db-secret-not-for-output|synthetic-child-stderr/);
+			return true;
+		});
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
 });
