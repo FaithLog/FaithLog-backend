@@ -1440,4 +1440,14 @@ Metric candidates:
 - evidence 경계: runtime-final과 adoption/classification은 생성되지 않았다. H의 request count, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
 - 복구/보존: 측정 계정 15022/15023은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. H namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 재발 방지: issue-local 상수로 최대 5회 `capture → 1초 sleep → capture`를 수행한다. DB identity/postmaster/stats reset, planner settings, 4개 table maintenance state가 exact 일치한 pair의 두 번째 snapshot만 counter-before/window 이전 `measurement-state-before.json`으로 사용한다. 안정화되지 않으면 fail-closed하며 measured 이후 기존 exact continuity는 유지한다.
-- 다음 제안: `I193_BEFORE_20260716_I / I193_FIXTURE_20260716_I / EXEC193_BEFORE_20260716_I`. PM 독립 리뷰와 사용자 승인 전에는 생성하거나 실행하지 않는다.
+- 후속 I는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 measured-window autoanalyze 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt I rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_I / I193_FIXTURE_20260716_I / EXEC193_BEFORE_20260716_I`.
+- 실행 범위: measured 16 cases 완료, failure 0. Pre-boundary users `nModSinceAnalyze`는 59→59로 안정적이었다.
+- 거부 원인: `charge_items` before는 `nModSinceAnalyze=70000`, `lastAutoanalyze=2026-07-16T04:54:17.632105Z`, `autoanalyzeCount=10`이었지만 after는 `nModSinceAnalyze=0`, `lastAutoanalyze=2026-07-16T05:20:17.275926Z`, `autoanalyzeCount=11`이었다. Measured start 후 autoanalyze가 실행돼 기존 strict maintenance continuity가 measurement-integrity를 거부했다.
+- 채택 경계: I의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15024/15025는 모두 USER로 복구됐고 canonical lock free가 확인됐다. I namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 승인된 재발 방지: fixture COMMIT 직후, expectations/preflight/warmup 전에 별도 stdin SQL로 exact `ANALYZE campus_members, payment_accounts, charge_items;`를 실행하고 completion marker를 남긴다. users, 다른 table, VACUUM, reset/config/extension, schema/index/Flyway는 변경하지 않는다. Measured before/after analyze/autoanalyze continuity는 완화하지 않는다.
+- 다음 제안: `I193_BEFORE_20260716_J / I193_FIXTURE_20260716_J / EXEC193_BEFORE_20260716_J`. PM 독립 리뷰와 사용자 승인 전에는 생성하거나 실행하지 않는다.

@@ -70,9 +70,9 @@ fixture는 승인된 service ADMIN과 일반 duty user를 포함해 기존 ACTIV
 
 ## Measurement approval gate
 
-사용자 승인 없는 before 측정과 production 최적화는 금지한다. 승인된 H는 measurement-integrity boundary에서 rejected됐으며, fresh I는 PM의 새 독립 measurement-ready 리뷰와 사용자 승인 전에는 실행하지 않는다. 승인 후에도 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 실제 수집을 진행한다.
+사용자 승인 없는 before 측정과 production 최적화는 금지한다. 승인된 I는 measured 중 `charge_items` autoanalyze로 measurement-integrity에서 rejected됐으며, fresh J는 PM의 새 독립 measurement-ready 리뷰와 사용자 승인 전에는 실행하지 않는다. 승인 후에도 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 실제 수집을 진행한다.
 
-fresh I 제안 식별자는 `I193_BEFORE_20260716_I / I193_FIXTURE_20260716_I / EXEC193_BEFORE_20260716_I`다. 아직 생성하거나 실행하지 않았으며 B/C/D/E/F/G/H namespace와 report는 절대 재사용하지 않는다.
+fresh J 제안 식별자는 `I193_BEFORE_20260716_J / I193_FIXTURE_20260716_J / EXEC193_BEFORE_20260716_J`다. 아직 생성하거나 실행하지 않았으며 B/C/D/E/F/G/H/I namespace와 report는 절대 재사용하지 않는다.
 
 PM 승인 요청용 추천값은 다음과 같다.
 
@@ -101,6 +101,8 @@ Docker Desktop의 `MemUsage`는 `499.7MiB`, `7.653GiB`처럼 표시 정밀도에
 Resource cadence는 nominal requested interval과 approved maximum gap을 분리한다. `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`과 `DOCKER_STATS_MAX_GAP_SECONDS=5`를 runtime에 각각 명시하고 run conditions와 validation output에 둘 다 기록한다. Blocking `docker stats --no-stream` 뒤에는 고정 sleep을 추가하지 않고 즉시 다음 capture를 시작하며, validator는 timestamp monotonicity와 measured-window coverage를 유지한 채 인접 gap을 별도 5초 gate로 검증한다. maximum gap 누락·비정상 값·nominal interval 미만·실제 gap 초과는 fail-closed다.
 
 Fresh measured login은 `users.last_login_at`을 갱신하므로 PostgreSQL cumulative table stats flush가 HTTP 응답보다 늦을 수 있다. Runner는 runtime 입력이나 default를 추가하지 않고 issue-local 상수 `1초 간격`, `최대 5회`로 pre-boundary pair를 수집한다. 각 시도는 `capture → 1초 sleep → capture`이며 두 JSON의 database identity/postmaster/stats reset, planner settings, 4개 table의 analyze/vacuum maintenance state가 exact 일치할 때만 두 번째 snapshot을 `measurement-state-before.json`으로 이동한다. 안정화 실패는 measured counter-before와 window 시작 전에 fail-closed하며, measured 이후 기존 exact before/after continuity gate는 완화하지 않는다.
+
+Fixture bulk insert의 planner stats는 transaction 내부에서 임의로 변경하지 않는다. `prepare-fixture.sql` COMMIT 성공 직후 별도 issue-local stdin SQL로 exact `ANALYZE campus_members, payment_accounts, charge_items;`를 한 번 실행하고 completion marker를 남긴 뒤에만 dataset binding, expectations, preflight, warmup으로 진행한다. `users`는 bulk fixture 대상이 아니므로 ANALYZE하지 않고 measured login stats는 pre-boundary stable-pair gate가 담당한다. 데이터/schema/index/Flyway/config/reset/VACUUM은 변경하지 않으며 measured before/after의 analyze/autoanalyze continuity 검증은 그대로 유지한다.
 
 공유 stack의 quiet snapshot은 경계 관찰일 뿐이다. 모든 DB/resource validator 뒤에는 app/PostgreSQL/Redis runtime, database, numeric loopback binding을 final snapshot으로 다시 비교하고, 이 final continuity를 통과한 뒤에만 classification을 기록한다. post-lock 이후 psql과 Docker stats는 mutable name이 아니라 승인된 full container ID를 사용한다. `measurementStatus`는 최대 `conditional-shared-stack`, `evidenceIntegrity`는 별도 검증 상태이며 `automaticAdoption=false`다. PM이 exclusive-use 전체 window와 evidence를 검토하기 전 baseline으로 채택할 수 없다.
 
@@ -153,3 +155,11 @@ Measured summary, counter-after, measurement-state-after, PostgreSQL-after evide
 Measurement-integrity에서 `users.nModSinceAnalyze`가 before 51, after 52로 보여 중단됐다. Fresh measured ADMIN login은 `last_login_at=2026-07-16T05:07:13.053898Z`에 users row를 갱신했고 단일 before snapshot은 약 478ms 뒤인 `capturedAt=2026-07-16T05:07:13.531998Z`에 수집됐다. PostgreSQL cumulative stats flush가 지연돼 login UPDATE가 before에 아직 반영되지 않았다가 measured 구간 중 보인 false contamination이며, measured GET workload의 users write로 추정하지 않는다.
 
 Runtime-final과 adoption/classification은 생성되지 않았다. 측정 계정 15022/15023은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. H namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. H의 request count, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다. Fresh I만 별도 승인 후 사용할 수 있다.
+
+## Rejected actual-before attempt I (2026-07-16)
+
+`I193_BEFORE_20260716_I / I193_FIXTURE_20260716_I / EXEC193_BEFORE_20260716_I` 실행은 partial rejected evidence로만 보존한다. Measured 16 cases를 failure 0으로 완료했고 pre-boundary users stats는 `nModSinceAnalyze 59 → 59`로 안정적이었다.
+
+`charge_items`는 before에 `nModSinceAnalyze=70000`, `lastAutoanalyze=2026-07-16T04:54:17.632105Z`, `autoanalyzeCount=10`이었지만 after에는 `nModSinceAnalyze=0`, `lastAutoanalyze=2026-07-16T05:20:17.275926Z`, `autoanalyzeCount=11`이었다. Measured start 후 PostgreSQL autoanalyze가 실행돼 기존 strict maintenance continuity가 올바르게 measurement-integrity를 거부했다.
+
+측정 계정 15024/15025는 모두 USER로 복구됐고 canonical lock free가 확인됐다. I namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. I의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다. Fresh J만 별도 승인 후 사용할 수 있다.
