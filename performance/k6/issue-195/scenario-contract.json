@@ -1,6 +1,14 @@
 {
   "issue": 195,
   "status": "scenario-ready/not-measured",
+  "sourceIdentity": {
+    "originDevelopCommit": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
+    "flywayBoundary": "V11__secure_supabase_data_api.sql",
+    "apiSources": [
+      "src/main/java/com/faithlog/admin/controller/AdminManagementController.java",
+      "src/main/java/com/faithlog/campus/controller/AdminCampusController.java"
+    ]
+  },
   "dataset": {
     "requiredActiveMembers": 1000,
     "identifiers": ["datasetId", "fixtureRunId"],
@@ -100,11 +108,15 @@
     "noUnsupportedArchiveParameter"
   ],
   "adoption": [
+    "approvedSourceAndImageIdentity",
     "approvedPublishedTargetIdentity",
     "runtimeTargetContinuity",
+    "redisRuntimeContinuity",
     "tokenLifetime",
     "nonEmptyFiniteSummary",
+    "exactRateObservationCount",
     "validatedBoundaryResourceSnapshots",
+    "resourceBoundaryCadence",
     "currentDatabaseCompositeQueryDelta",
     "queryAvailabilityContinuity",
     "nonEmptyProductionQueryInventory",
@@ -113,7 +125,8 @@
     "analyzePlannerStability",
     "tableCounterExpectationsAndInvariance",
     "freshExecutionReportDirectory",
-    "conditionalSharedStackClassification"
+    "conditionalSharedStackClassification",
+    "firstMachineReadableRejection"
   ],
   "expectedDatabaseTransactionsPerRequest": 2
 }

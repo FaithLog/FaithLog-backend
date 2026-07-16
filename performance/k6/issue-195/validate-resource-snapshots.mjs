@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
-const [identityPath, resourcePath, windowsPath, scenario, caseName, outputPath] = process.argv.slice(2);
-if (!identityPath || !resourcePath || !windowsPath || !scenario || !caseName || !outputPath) {
-	throw new Error('identityPath, resourcePath, windowsPath, scenario, caseName, and outputPath are required.');
+const [identityPath, resourcePath, windowsPath, scenario, caseName, maximumGapInput, outputPath] = process.argv.slice(2);
+if (!identityPath || !resourcePath || !windowsPath || !scenario || !caseName || !maximumGapInput || !outputPath) {
+	throw new Error('identityPath, resourcePath, windowsPath, scenario, caseName, maximumGapSeconds, and outputPath are required.');
+}
+const maximumGapSeconds = Number(maximumGapInput);
+if (!Number.isFinite(maximumGapSeconds) || maximumGapSeconds <= 0) {
+	throw new Error('maximumGapSeconds must be finite and positive.');
 }
 
 const identity = readJson(identityPath);
@@ -13,6 +17,7 @@ const failures = [];
 const expectedContainers = new Map([
 	['app', identity?.app],
 	['postgres', identity?.postgres],
+	['redis', identity?.redis],
 ]);
 
 if (snapshots.length !== 2) failures.push('exactly two resource snapshots are required');
@@ -55,10 +60,17 @@ if ([beforeAt, startAt, endAt, afterAt].every((value) => value !== null)
 	&& !(beforeAt < startAt && startAt <= endAt && endAt < afterAt)) {
 	failures.push('resource/case timestamps must satisfy before < measured-start <= measured-end < after');
 }
+if (beforeAt !== null && startAt !== null && (startAt - beforeAt) / 1000 > maximumGapSeconds) {
+	failures.push('before resource snapshot exceeds the approved boundary cadence');
+}
+if (endAt !== null && afterAt !== null && (afterAt - endAt) / 1000 > maximumGapSeconds) {
+	failures.push('after resource snapshot exceeds the approved boundary cadence');
+}
 
 const result = {
 	status: failures.length === 0 ? 'adoptable' : 'non-adoptable',
 	coverage: 'boundary-only',
+	maximumBoundaryGapSeconds: maximumGapSeconds,
 	scenario,
 	case: caseName,
 	failures,
@@ -80,8 +92,8 @@ function validateSnapshot(snapshot) {
 	if (!['before', 'after'].includes(snapshot.phase)) failures.push('resource snapshot phase is invalid');
 	if (snapshot.coverage !== 'boundary-only') failures.push('resource snapshot coverage must be boundary-only');
 	timestamp(snapshot.capturedAt, 'resource capturedAt');
-	if (!Array.isArray(snapshot.containers) || snapshot.containers.length !== 2) {
-		failures.push('resource snapshot must contain exactly app and postgres');
+	if (!Array.isArray(snapshot.containers) || snapshot.containers.length !== 3) {
+		failures.push('resource snapshot must contain exactly app, postgres, and redis');
 		return;
 	}
 	const roles = new Set();
@@ -92,14 +104,17 @@ function validateSnapshot(snapshot) {
 		}
 		if (!isDeepStrictEqual(
 			Object.keys(container).sort(),
-			['containerId', 'cpuPercent', 'memoryBytes', 'name', 'role'],
+			['containerId', 'cpuPercent', 'imageId', 'memoryBytes', 'name', 'role', 'startedAt'],
 		)) failures.push('resource container schema is incomplete or unexpected');
 		if (roles.has(container.role)) failures.push(`duplicate resource role ${container.role}`);
 		roles.add(container.role);
 		const expected = expectedContainers.get(container.role);
 		if (!expected) {
 			failures.push(`unexpected resource role ${container.role}`);
-		} else if (container.containerId !== expected.containerId || container.name !== expected.name) {
+		} else if (container.containerId !== expected.containerId
+			|| container.name !== expected.name
+			|| container.imageId !== expected.imageId
+			|| container.startedAt !== expected.startedAt) {
 			failures.push(`${container.role} resource identity does not match initial runtime identity`);
 		}
 		if (typeof container.cpuPercent !== 'number' || !Number.isFinite(container.cpuPercent) || container.cpuPercent < 0) {
@@ -109,7 +124,9 @@ function validateSnapshot(snapshot) {
 			failures.push(`${container.role}.memoryBytes must be a non-negative safe integer`);
 		}
 	}
-	if (!roles.has('app') || !roles.has('postgres')) failures.push('resource snapshot roles must be exactly app and postgres');
+	if (!roles.has('app') || !roles.has('postgres') || !roles.has('redis')) {
+		failures.push('resource snapshot roles must be exactly app, postgres, and redis');
+	}
 }
 
 function timestamp(value, label) {

@@ -14,6 +14,7 @@ const snapshot = {
 	containers: [
 		container('app', 'APP'),
 		container('postgres', 'POSTGRES'),
+		container('redis', 'REDIS'),
 	],
 };
 fs.appendFileSync(outputPath, `${JSON.stringify(snapshot)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -21,11 +22,15 @@ fs.appendFileSync(outputPath, `${JSON.stringify(snapshot)}\n`, { encoding: 'utf8
 function container(role, prefix) {
 	const containerId = required(`${prefix}_ACTUAL_ID`);
 	const name = required(`${prefix}_ACTUAL_NAME`);
+	const imageId = required(`${prefix}_IMAGE_ID`);
+	const startedAt = required(`${prefix}_STARTED_AT`);
 	const raw = JSON.parse(required(`${prefix}_STATS_JSON`));
 	return {
 		role,
 		containerId,
 		name,
+		imageId,
+		startedAt,
 		cpuPercent: parsePercent(raw.CPUPerc, `${role}.CPUPerc`),
 		memoryBytes: parseMemoryBytes(raw.MemUsage, `${role}.MemUsage`),
 	};

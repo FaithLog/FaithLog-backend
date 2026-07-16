@@ -25,6 +25,14 @@ requirePositiveFinite(requests?.rate, `${metricName}_requests.rate`);
 if (!Number.isFinite(failures?.rate) || failures.rate !== 0) {
 	throw new Error(`${metricName}_failures.rate must be finite and exactly zero.`);
 }
+requireNonNegativeSafeInteger(failures?.passes, `${metricName}_failures.passes`);
+requireNonNegativeSafeInteger(failures?.fails, `${metricName}_failures.fails`);
+if (failures.fails !== 0) {
+	throw new Error(`${metricName}_failures.fails must be exactly zero.`);
+}
+if (failures.passes + failures.fails !== requests.count) {
+	throw new Error(`${metricName}_failures observations must equal ${metricName}_requests.count.`);
+}
 const normalized = {
 	status: 'adoptable',
 	phase,
@@ -62,6 +70,12 @@ function requireNonNegativeFinite(value, name) {
 function requirePositiveSafeInteger(value, name) {
 	if (!Number.isSafeInteger(value) || value <= 0) {
 		throw new Error(`${name} must be a positive safe integer.`);
+	}
+}
+
+function requireNonNegativeSafeInteger(value, name) {
+	if (!Number.isSafeInteger(value) || value < 0) {
+		throw new Error(`${name} must be a non-negative safe integer.`);
 	}
 }
 

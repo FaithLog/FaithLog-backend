@@ -19,6 +19,7 @@ const result = {
 	identityFields: {
 		app: ['containerId', 'name', 'imageId', 'startedAt', 'composeProject', 'composeService', 'publishedPorts'],
 		postgres: ['containerId', 'name', 'imageId', 'startedAt', 'composeProject', 'composeService', 'publishedPorts'],
+		redis: ['containerId', 'name', 'imageId', 'startedAt', 'composeProject', 'composeService', 'publishedPorts'],
 		database: ['name', 'serverAddress', 'serverPort', 'postmasterStartedAt'],
 	},
 };
@@ -30,9 +31,10 @@ function validateIdentity(identity, label) {
 		failures.push(`${label} identity must be an object`);
 		return;
 	}
-	requireExactKeys(identity, ['app', 'postgres', 'database'], label);
+	requireExactKeys(identity, ['app', 'postgres', 'redis', 'database'], label);
 	validateContainer(identity.app, `${label}.app`, true);
 	validateContainer(identity.postgres, `${label}.postgres`, true);
+	validateContainer(identity.redis, `${label}.redis`, true);
 	if (!isObject(identity.database)) {
 		failures.push(`${label}.database must be an object`);
 		return;

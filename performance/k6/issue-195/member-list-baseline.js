@@ -12,8 +12,10 @@ const EXECUTION_RUN_ID = __ENV.PERF_EXECUTION_RUN_ID;
 const CAMPUS_ID = __ENV.CAMPUS_ID;
 const ISOLATION_CAMPUS_ID = __ENV.ISOLATION_CAMPUS_ID;
 const ISOLATION_USER_ID = __ENV.ISOLATION_USER_ID;
-const EXPECTED_ACTIVE_MEMBERS = Number(__ENV.EXPECTED_ACTIVE_MEMBERS || 1000);
-const EXPECTED_DUTY_ASSIGNMENTS = Number(__ENV.EXPECTED_DUTY_ASSIGNMENTS || 101);
+const EXPECTED_ACTIVE_MEMBERS_INPUT = __ENV.EXPECTED_ACTIVE_MEMBERS;
+const EXPECTED_DUTY_ASSIGNMENTS_INPUT = __ENV.EXPECTED_DUTY_ASSIGNMENTS;
+const EXPECTED_ACTIVE_MEMBERS = Number(EXPECTED_ACTIVE_MEMBERS_INPUT);
+const EXPECTED_DUTY_ASSIGNMENTS = Number(EXPECTED_DUTY_ASSIGNMENTS_INPUT);
 const VUS = Number(__ENV.VUS);
 const DURATION = __ENV.DURATION;
 const MAX_FAILURE_RATE_INPUT = __ENV.MAX_FAILURE_RATE;
@@ -55,6 +57,8 @@ export function setup() {
 		PERF_ACCESS_TOKEN,
 		DURATION,
 		MAX_FAILURE_RATE_INPUT,
+		EXPECTED_ACTIVE_MEMBERS_INPUT,
+		EXPECTED_DUTY_ASSIGNMENTS_INPUT,
 	})) {
 		if (!value) {
 			fail(`${name} is required.`);
@@ -68,6 +72,14 @@ export function setup() {
 	}
 	if (!Number.isInteger(VUS) || VUS <= 0) {
 		fail('VUS must be a positive runtime integer.');
+	}
+	if (!Number.isSafeInteger(EXPECTED_ACTIVE_MEMBERS)
+		|| EXPECTED_ACTIVE_MEMBERS !== contract.dataset.requiredActiveMembers) {
+		fail('EXPECTED_ACTIVE_MEMBERS must equal the approved scenario contract.');
+	}
+	if (!Number.isSafeInteger(EXPECTED_DUTY_ASSIGNMENTS)
+		|| EXPECTED_DUTY_ASSIGNMENTS !== contract.dataset.activeDutyAssignments) {
+		fail('EXPECTED_DUTY_ASSIGNMENTS must equal the approved scenario contract.');
 	}
 	if (MAX_FAILURE_RATE !== 0) {
 		fail('MAX_FAILURE_RATE must be explicitly approved as 0 for exact correctness.');
@@ -197,7 +209,7 @@ function validateFilters(body) {
 
 function validateExactCardinality(body) {
 	if (SCENARIO === 'admin_users') {
-		return body.data?.totalElements === 1000;
+		return body.data?.totalElements === EXPECTED_ACTIVE_MEMBERS;
 	}
 	if (SCENARIO === 'admin_campuses') {
 		const expected = CASE === 'active_search' ? 1 : contract.dataset.pageableCampusCount;

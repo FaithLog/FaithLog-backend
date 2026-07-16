@@ -23,6 +23,8 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - TDD: 최신 develop의 page size, 미지원 archive, #200 권한·lookup, #202 owner-JDBC RLS 경계, #206 ordering 적용 범위를 고정한 계약 테스트를 먼저 추가했고 기존 manifest에서 targeted `1 test / 1 failure` RED를 확인했다.
 - 시나리오 계약: 관리자 사용자·캠퍼스는 `size=20`/`size=100`을 분리하고 explicit `id,asc`를 사용한다. 캠퍼스 멤버는 ACTIVE membership/ID ASC, 담당자는 `staleOnly=false`/ACTIVE assignment+membership/ID ASC다. `includeArchived`는 네 endpoint 모두 보내지 않는다. #200 이후 duty user lookup은 이미 bulk, campus member lookup은 per-member인 current-develop 상태를 측정 대상으로 고정한다.
 - 실행 정책: #192-#199 issue-local test code는 병렬 보정하지만 실제 fixture/HTTP/DB/Docker/k6 부하는 PM exclusive measurement slot에서만 순차 실행한다. 이번 작업에서는 actual load와 전체 Gradle/build/asciidoctor를 실행하지 않는다.
+- 공통 무결성 감사: 기존 36개 계약을 유지한 채 source/image/workload 무fallback, Redis 3-container continuity, Counter/Rate exact observation math, full resource identity+boundary cadence, atomic first rejection 5개 gap을 묶어 `5 tests / 5 failures` RED로 재현했다. Runtime 승인값을 새로 결정하지 않고 모두 필수 입력으로 전환했다. Self-review에서 fixture PostgreSQL 연속성과 source preflight 최초 rejection 보존 2개 gap을 추가 `2 tests / 2 failures`로 재현하고, source-contract child가 API/DB credential을 상속하는 순서 gap도 targeted RED로 고정·보정했다. 최종 issue-local 계약은 `43 tests / 0 failures`다.
+- 채택 경계: pgss availability/BigInt, DB activity/planner/maintenance, pagination/archive/#200/#206 correctness는 기존 계약이 충족해 중복 구현하지 않았다. 결과는 계속 `scenario-ready/not-measured`, `automaticAdoption=false`이고 성능 수치나 개선 성과는 없다.
 
 ## 핵심 지표 후보
 

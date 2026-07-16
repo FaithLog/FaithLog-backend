@@ -1044,7 +1044,10 @@ elif [[ "$*" == *'{{.Image}}'* ]]; then printf 'sha256:%s-image\\n' "\${*: -1}"
 elif [[ "$*" == *State.StartedAt* ]]; then printf '%s\\n' '2026-07-16T00:00:00Z'
 elif [[ "$*" == *com.docker.compose.project* ]]; then printf '%s\\n' fixture-project
 elif [[ "$*" == *com.docker.compose.service* ]]; then
-	if [[ "\${*: -1}" == fake-redis ]]; then printf '%s\\n' redis; else printf '%s\\n' app; fi
+	if [[ "\${*: -1}" == fake-postgres ]]; then printf '%s\\n' postgres
+	elif [[ "\${*: -1}" == fake-redis ]]; then printf '%s\\n' redis
+	else printf '%s\\n' app
+	fi
 else printf '%s\\n' '{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18080"}]}'
 fi
 `);
@@ -1063,6 +1066,9 @@ fi
 				APP_CONTAINER_ID: 'fake-app',
 				EXPECTED_APP_COMPOSE_SERVICE: 'app',
 				EXPECTED_APP_IMAGE_ID: 'sha256:fake-app-image',
+				POSTGRES_CONTAINER_ID: 'fake-postgres',
+				EXPECTED_POSTGRES_COMPOSE_SERVICE: 'postgres',
+				EXPECTED_POSTGRES_IMAGE_ID: 'sha256:fake-postgres-image',
 				REDIS_CONTAINER_ID: 'fake-redis',
 				EXPECTED_REDIS_COMPOSE_SERVICE: 'redis',
 				EXPECTED_REDIS_IMAGE_ID: 'sha256:fake-redis-image',
@@ -1692,6 +1698,10 @@ test('common integrity audit - source, target image, credential, and workload in
 	assert.match(runner, /PERF_SOURCE_COMMIT.*sourceIdentity\.originDevelopCommit/s);
 	assert.match(runner, /EXPECTED_ACTIVE_MEMBERS.*requiredActiveMembers/s);
 	assert.match(runner, /EXPECTED_DUTY_ASSIGNMENTS.*activeDutyAssignments/s);
+	assert.ok(
+		runner.indexOf('export -n PERF_ADMIN_EMAIL') < runner.indexOf('CURRENT_STAGE=source-contract'),
+		'API/DB credentials must be unexported before the source-contract Node child starts',
+	);
 	assert.doesNotMatch(scenario, /EXPECTED_ACTIVE_MEMBERS\s*\|\|/);
 	assert.doesNotMatch(scenario, /EXPECTED_DUTY_ASSIGNMENTS\s*\|\|/);
 	for (const name of [
