@@ -412,6 +412,63 @@ test('measurement integrity rejects activity, planner, maintenance, pgss, and co
 	}
 });
 
+test('pre-boundary maintenance state requires two consecutive stable snapshots after measured login', async () => {
+	const runner = await read('run-baseline.sh');
+	assert.doesNotMatch(
+		runner,
+		/psql_exec -q -t -A < "\$SCENARIO_DIR\/collect-measurement-state\.sql" \\\n\s*> "\$REPORT_DIR\/evidence\/measurement-state-before\.json"/,
+		'a fresh measured login must not be followed by one directly adopted maintenance snapshot',
+	);
+
+	const {
+		PRE_BOUNDARY_STABILIZATION,
+		validateStablePreBoundaryState,
+	} = await module('pre-boundary-state.mjs');
+	assert.deepEqual(PRE_BOUNDARY_STABILIZATION, {
+		intervalSeconds: 1,
+		maximumAttempts: 5,
+	});
+	const first = integrityFixture().beforeState;
+	first.capturedAt = '2026-07-16T05:07:13.531Z';
+	first.tables.users.nModSinceAnalyze = 51;
+	const flushed = structuredClone(first);
+	flushed.capturedAt = '2026-07-16T05:07:14.531Z';
+	flushed.tables.users.nModSinceAnalyze = 52;
+	assert.throws(() => validateStablePreBoundaryState(first, flushed, 'faithlog'));
+	const stable = structuredClone(flushed);
+	stable.capturedAt = '2026-07-16T05:07:15.531Z';
+	assert.deepEqual(validateStablePreBoundaryState(flushed, stable, 'faithlog'), stable);
+
+	const tooSoon = structuredClone(stable);
+	tooSoon.capturedAt = '2026-07-16T05:07:16.530Z';
+	assert.throws(() => validateStablePreBoundaryState(stable, tooSoon, 'faithlog'));
+	for (const mutate of [
+		(value) => { value.database.statsReset = '2026-07-16T05:00:00.000Z'; },
+		(value) => { value.database.postmasterStartTime = '2026-07-16T04:00:00.000Z'; },
+		(value) => { value.plannerSettings.work_mem = '8MB'; },
+		(value) => { value.tables.users.nModSinceAnalyze += 1; },
+		(value) => { value.tables.charge_items.analyzeCount += 1; },
+		(value) => { value.tables.payment_accounts.lastAutoanalyze = '2026-07-16T05:07:16.000Z'; },
+		(value) => { value.tables.campus_members.autovacuumCount += 1; },
+	]) {
+		const changed = structuredClone(stable);
+		changed.capturedAt = '2026-07-16T05:07:16.531Z';
+		mutate(changed);
+		assert.throws(() => validateStablePreBoundaryState(stable, changed, 'faithlog'));
+	}
+
+	assert.match(runner, /PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS=1/);
+	assert.match(runner, /PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS=5/);
+	assert.doesNotMatch(runner, /:\s+"\$\{PRE_BOUNDARY_STABILIZATION_/);
+	const measuredLogin = runner.indexOf('IDENTITY_LABEL=ADMIN_MEASURED');
+	const stabilization = runner.indexOf('measurement-state-pre-boundary-attempt-');
+	const counterBefore = runner.indexOf('counter-before.json');
+	const measuredWindow = runner.indexOf('MEASURED_START=');
+	assert.ok(measuredLogin < stabilization && stabilization < counterBefore && counterBefore < measuredWindow);
+	assert.match(runner, /sleep "\$PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS"/);
+	assert.match(runner, /pre-boundary-state\.mjs[\s\S]*mv "\$PRE_BOUNDARY_SECOND_STATE" "\$REPORT_DIR\/evidence\/measurement-state-before\.json"/);
+});
+
 test('database evidence is exact, non-mutating, and keeps optional pgss continuity', async () => {
 	const state = await read('collect-measurement-state.sql');
 	const counters = await read('collect-counter-boundary.sql');
