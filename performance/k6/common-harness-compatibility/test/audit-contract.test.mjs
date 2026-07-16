@@ -44,7 +44,20 @@ test('matrix contract covers issues 192 through 199 and all ten compatibility ch
 				assert.equal(typeof cell.recommendation, 'string');
 			} else {
 				assert.equal(typeof cell.reason, 'string');
+				assert.match(cell.evidence.file, /^performance\/k6\//);
+				assert.ok(Number.isInteger(cell.evidence.line) && cell.evidence.line > 0);
 			}
+		}
+	}
+});
+
+test('EXPLAIN-only #194 and local Gradle #198 do not inherit irrelevant k6 HTTP gates', () => {
+	for (const issueNumber of [194, 198]) {
+		const target = contract.targets.find((candidate) => candidate.issueNumber === issueNumber);
+		for (const checkId of ['k6-json-init', 'k6-metric-math', 'secret-serialization', 'token-ttl', 'macos-k6-v2']) {
+			const cell = target.cells.find((candidate) => candidate.checkId === checkId);
+			assert.equal(cell.mode, 'not-applicable');
+			assert.match(cell.reason, issueNumber === 194 ? /EXPLAIN-only/ : /Gradle/);
 		}
 	}
 });

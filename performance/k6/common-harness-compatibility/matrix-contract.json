@@ -1,0 +1,965 @@
+{
+  "schemaVersion": 1,
+  "issueNumbers": [
+    192,
+    193,
+    194,
+    195,
+    196,
+    197,
+    198,
+    199
+  ],
+  "checks": [
+    {
+      "id": "k6-json-init",
+      "group": "JSON import"
+    },
+    {
+      "id": "k6-metric-math",
+      "group": "k6 v2 metrics"
+    },
+    {
+      "id": "secret-serialization",
+      "group": "token serialization"
+    },
+    {
+      "id": "token-ttl",
+      "group": "token TTL"
+    },
+    {
+      "id": "docker-resource-identity",
+      "group": "Docker unit"
+    },
+    {
+      "id": "psql-machine-io",
+      "group": "psql machine output"
+    },
+    {
+      "id": "fresh-report-root",
+      "group": "report freshness"
+    },
+    {
+      "id": "db-control-attribution",
+      "group": "DB attribution"
+    },
+    {
+      "id": "runtime-continuity",
+      "group": "identity"
+    },
+    {
+      "id": "macos-k6-v2",
+      "group": "portability"
+    }
+  ],
+  "targets": [
+    {
+      "issueNumber": 192,
+      "worktreeEnv": "ISSUE_192_WORKTREE",
+      "cells": [
+        {
+          "checkId": "k6-json-init",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 k6-json-init contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/settlement-baseline.js",
+              "require": "JSON\\.parse\\(open\\("
+            }
+          ]
+        },
+        {
+          "checkId": "k6-metric-math",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 k6-metric-math contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/evidence-contract.mjs",
+              "forbid": "metricValue\\.wrapped && !hasPasses"
+            }
+          ]
+        },
+        {
+          "checkId": "secret-serialization",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 secret-serialization contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "token-ttl",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 token-ttl contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/prepare-measured-token.mjs",
+              "require": "safety|Safety|SAFETY"
+            }
+          ]
+        },
+        {
+          "checkId": "docker-resource-identity",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 docker-resource-identity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "psql-machine-io",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 psql-machine-io contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "fresh-report-root",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 fresh-report-root contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "db-control-attribution",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 db-control-attribution contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "runtime-continuity",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 runtime-continuity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "macos-k6-v2",
+          "mode": "probe",
+          "recommendation": "Patch issue #192 macos-k6-v2 contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/poll-settlement/README.md",
+              "require": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueNumber": 193,
+      "worktreeEnv": "ISSUE_193_WORKTREE",
+      "cells": [
+        {
+          "checkId": "k6-json-init",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 k6-json-init contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/admin-charge-query-baseline.js",
+              "require": "JSON\\.parse\\(open\\("
+            }
+          ]
+        },
+        {
+          "checkId": "k6-metric-math",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 k6-metric-math contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/validate-measured-summary.mjs",
+              "require": "passes"
+            }
+          ]
+        },
+        {
+          "checkId": "secret-serialization",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 secret-serialization contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "token-ttl",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 token-ttl contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/auth-contract.mjs",
+              "require": "safety|Safety|SAFETY"
+            }
+          ]
+        },
+        {
+          "checkId": "docker-resource-identity",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 docker-resource-identity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "psql-machine-io",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 psql-machine-io contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "fresh-report-root",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 fresh-report-root contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "db-control-attribution",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 db-control-attribution contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "runtime-continuity",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 runtime-continuity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "macos-k6-v2",
+          "mode": "probe",
+          "recommendation": "Patch issue #193 macos-k6-v2 contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/admin-charge-query-baseline/README.md",
+              "require": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueNumber": 194,
+      "worktreeEnv": "ISSUE_194_WORKTREE",
+      "cells": [
+        {
+          "checkId": "k6-json-init",
+          "mode": "not-applicable",
+          "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+            "line": 1
+          }
+        },
+        {
+          "checkId": "k6-metric-math",
+          "mode": "not-applicable",
+          "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+            "line": 1
+          }
+        },
+        {
+          "checkId": "secret-serialization",
+          "mode": "not-applicable",
+          "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+            "line": 1
+          }
+        },
+        {
+          "checkId": "token-ttl",
+          "mode": "not-applicable",
+          "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+            "line": 1
+          }
+        },
+        {
+          "checkId": "docker-resource-identity",
+          "mode": "probe",
+          "recommendation": "Patch issue #194 docker-resource-identity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "psql-machine-io",
+          "mode": "probe",
+          "recommendation": "Patch issue #194 psql-machine-io contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "fresh-report-root",
+          "mode": "probe",
+          "recommendation": "Patch issue #194 fresh-report-root contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "db-control-attribution",
+          "mode": "probe",
+          "recommendation": "Patch issue #194 db-control-attribution contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "runtime-continuity",
+          "mode": "probe",
+          "recommendation": "Patch issue #194 runtime-continuity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "macos-k6-v2",
+          "mode": "not-applicable",
+          "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/postgresql-explain-index-baseline/README.md",
+            "line": 1
+          }
+        }
+      ]
+    },
+    {
+      "issueNumber": 195,
+      "worktreeEnv": "ISSUE_195_WORKTREE",
+      "cells": [
+        {
+          "checkId": "k6-json-init",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 k6-json-init contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/member-list-baseline.js",
+              "require": "JSON\\.parse\\(open\\("
+            }
+          ]
+        },
+        {
+          "checkId": "k6-metric-math",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 k6-metric-math contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/validate-k6-summary.mjs",
+              "require": "passes"
+            }
+          ]
+        },
+        {
+          "checkId": "secret-serialization",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 secret-serialization contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "token-ttl",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 token-ttl contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/validate-token-lifetime.mjs",
+              "require": "safety|Safety|SAFETY"
+            }
+          ]
+        },
+        {
+          "checkId": "docker-resource-identity",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 docker-resource-identity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "psql-machine-io",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 psql-machine-io contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "fresh-report-root",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 fresh-report-root contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "db-control-attribution",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 db-control-attribution contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "runtime-continuity",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 runtime-continuity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "macos-k6-v2",
+          "mode": "probe",
+          "recommendation": "Patch issue #195 macos-k6-v2 contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-195/README.md",
+              "require": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueNumber": 196,
+      "worktreeEnv": "ISSUE_196_WORKTREE",
+      "cells": [
+        {
+          "checkId": "k6-json-init",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 k6-json-init contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/scenario.js",
+              "require": "JSON\\.parse\\(open\\("
+            }
+          ]
+        },
+        {
+          "checkId": "k6-metric-math",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 k6-metric-math contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs",
+              "forbid": "const failureRate = strictNumber\\(failureValues\\.rate\\)"
+            }
+          ]
+        },
+        {
+          "checkId": "secret-serialization",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 secret-serialization contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "token-ttl",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 token-ttl contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/token-lifetime.mjs",
+              "require": "safety|Safety|SAFETY"
+            }
+          ]
+        },
+        {
+          "checkId": "docker-resource-identity",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 docker-resource-identity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "psql-machine-io",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 psql-machine-io contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "fresh-report-root",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 fresh-report-root contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "db-control-attribution",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 db-control-attribution contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "runtime-continuity",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 runtime-continuity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "macos-k6-v2",
+          "mode": "probe",
+          "recommendation": "Patch issue #196 macos-k6-v2 contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
+              "require": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueNumber": 197,
+      "worktreeEnv": "ISSUE_197_WORKTREE",
+      "cells": [
+        {
+          "checkId": "k6-json-init",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 k6-json-init contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/devotion-write.js",
+              "require": "JSON\\.parse\\(open\\("
+            }
+          ]
+        },
+        {
+          "checkId": "k6-metric-math",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 k6-metric-math contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/lib/validate-k6-summary.mjs",
+              "forbid": "failureRate: numeric\\(failures\\.rate \\?\\? failures\\.value"
+            }
+          ]
+        },
+        {
+          "checkId": "secret-serialization",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 secret-serialization contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "token-ttl",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 token-ttl contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/lib/runtime-contract.mjs",
+              "require": "safety|Safety|SAFETY"
+            }
+          ]
+        },
+        {
+          "checkId": "docker-resource-identity",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 docker-resource-identity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "psql-machine-io",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 psql-machine-io contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "fresh-report-root",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 fresh-report-root contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "db-control-attribution",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 db-control-attribution contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "runtime-continuity",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 runtime-continuity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "macos-k6-v2",
+          "mode": "probe",
+          "recommendation": "Patch issue #197 macos-k6-v2 contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-197/README.md",
+              "require": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueNumber": 198,
+      "worktreeEnv": "ISSUE_198_WORKTREE",
+      "cells": [
+        {
+          "checkId": "k6-json-init",
+          "mode": "not-applicable",
+          "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/notification-batch/README.md",
+            "line": 1
+          }
+        },
+        {
+          "checkId": "k6-metric-math",
+          "mode": "not-applicable",
+          "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/notification-batch/README.md",
+            "line": 1
+          }
+        },
+        {
+          "checkId": "secret-serialization",
+          "mode": "not-applicable",
+          "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/notification-batch/README.md",
+            "line": 1
+          }
+        },
+        {
+          "checkId": "token-ttl",
+          "mode": "not-applicable",
+          "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/notification-batch/README.md",
+            "line": 1
+          }
+        },
+        {
+          "checkId": "docker-resource-identity",
+          "mode": "probe",
+          "recommendation": "Patch issue #198 docker-resource-identity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/notification-batch/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "psql-machine-io",
+          "mode": "probe",
+          "recommendation": "Patch issue #198 psql-machine-io contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/notification-batch/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "fresh-report-root",
+          "mode": "probe",
+          "recommendation": "Patch issue #198 fresh-report-root contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/notification-batch/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "db-control-attribution",
+          "mode": "probe",
+          "recommendation": "Patch issue #198 db-control-attribution contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/notification-batch/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "runtime-continuity",
+          "mode": "probe",
+          "recommendation": "Patch issue #198 runtime-continuity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/notification-batch/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "macos-k6-v2",
+          "mode": "not-applicable",
+          "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
+          "evidence": {
+            "file": "performance/k6/notification-batch/README.md",
+            "line": 1
+          }
+        }
+      ]
+    },
+    {
+      "issueNumber": 199,
+      "worktreeEnv": "ISSUE_199_WORKTREE",
+      "cells": [
+        {
+          "checkId": "k6-json-init",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 k6-json-init contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/admin-dashboard-baseline.js",
+              "require": "JSON\\.parse\\(open\\("
+            }
+          ]
+        },
+        {
+          "checkId": "k6-metric-math",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 k6-metric-math contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/validate-k6-summary.mjs",
+              "forbid": "Object\\.hasOwn\\(failures, 'passes'\\) \\|\\|"
+            }
+          ]
+        },
+        {
+          "checkId": "secret-serialization",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 secret-serialization contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "token-ttl",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 token-ttl contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/validate-token-lifetime.mjs",
+              "require": "safety|Safety|SAFETY"
+            }
+          ]
+        },
+        {
+          "checkId": "docker-resource-identity",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 docker-resource-identity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "psql-machine-io",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 psql-machine-io contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "fresh-report-root",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 fresh-report-root contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "db-control-attribution",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 db-control-attribution contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "runtime-continuity",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 runtime-continuity contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
+              "require": "."
+            }
+          ]
+        },
+        {
+          "checkId": "macos-k6-v2",
+          "mode": "probe",
+          "recommendation": "Patch issue #199 macos-k6-v2 contract to the #208 exact common contract.",
+          "probes": [
+            {
+              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
+              "require": "."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
