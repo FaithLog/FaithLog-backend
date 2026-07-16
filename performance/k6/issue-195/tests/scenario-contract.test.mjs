@@ -1661,6 +1661,12 @@ test('README keeps reports ignored and records scenario-ready/not-measured statu
 	assert.match(readme, /Docker.*실행하지 않/i);
 	assert.match(readme, /다른 부하.*병렬.*금지/);
 	assert.match(readme, /production.*변경.*금지/i);
+	assert.doesNotMatch(readme, /BASE_URL=http:\/\/localhost:8080/);
+	assert.equal(
+		(readme.match(/BASE_URL=http:\/\/127\.0\.0\.1:28080/g) || []).length,
+		3,
+		'all three handoff examples must use the exact approved numeric-loopback target',
+	);
 });
 
 test('common integrity audit - source, target image, credential, and workload inputs have no fallback', () => {
