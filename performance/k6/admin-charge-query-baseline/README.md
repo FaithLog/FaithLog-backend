@@ -70,9 +70,9 @@ fixture는 승인된 service ADMIN과 일반 duty user를 포함해 기존 ACTIV
 
 ## Measurement approval gate
 
-L은 fresh measured login 뒤 users VACUUM(ANALYZE)을 완료했지만 login commit 약 166ms 뒤 maintenance가 시작돼 아직 flush되지 않은 login UPDATE 통계가 measured 중 users `nModSinceAnalyze 0→1`로 반영되면서 rejected됐다. 이 목표의 k6/fixture/validator/test/docs 변경은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행하지만, `src/main` production backend 또는 Flyway 변경 직전에는 사용자 승인을 받아야 한다. 실제 수집은 개발 세션에서 실행하지 않으며, 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 진행한다.
+M은 exact login update ACK부터 final continuity까지 모든 technical validator를 통과했지만 같은 host의 다른 개발 세션들이 병렬 static/Node 작업을 시작해 PM이 exclusive CPU provenance를 입증할 수 없었다. 따라서 `conditional-shared-stack`, `automaticAdoption=false` supporting evidence로만 보존하고 valid before baseline으로 채택하지 않는다. 이 목표의 k6/fixture/validator/test/docs 변경은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행하지만, `src/main` production backend 또는 Flyway 변경 직전에는 사용자 승인을 받아야 한다. 실제 수집은 개발 세션에서 실행하지 않으며 한 서버 한 load와 host-exclusive 조건을 모두 충족한 PM 실행에서만 진행한다.
 
-`I193_BEFORE_20260716_L / I193_FIXTURE_20260716_L / EXEC193_BEFORE_20260716_L`는 rejected evidence로 보존하며 B/C/D/E/F/G/H/I/J/K/L namespace와 report를 절대 재사용하지 않는다. PM 실행 제안용 fresh M 식별자는 `I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M`이고 report 경로는 `build/reports/k6/issue-193/I193_BEFORE_20260716_M/I193_FIXTURE_20260716_M/EXEC193_BEFORE_20260716_M`이다.
+`I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M`은 conditional supporting evidence로 보존하며 B/C/D/E/F/G/H/I/J/K/L/M namespace와 report를 절대 재사용하지 않는다. PM 실행 제안용 fresh N 식별자는 `I193_BEFORE_20260716_N / I193_FIXTURE_20260716_N / EXEC193_BEFORE_20260716_N`이고 report 경로는 `build/reports/k6/issue-193/I193_BEFORE_20260716_N/I193_FIXTURE_20260716_N/EXEC193_BEFORE_20260716_N`이다.
 
 PM 승인 요청용 추천값은 다음과 같다.
 
@@ -194,4 +194,12 @@ Measured login의 `last_login_at` commit은 `2026-07-16T06:00:28.808644Z`, users
 
 측정 계정 15030/15031은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. L namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. L의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
 
-Runner는 login 직전 users `n_tup_upd`를 캡처하고 login 뒤 최대 5회 read-only polling으로 exact +1 ACK를 기다린다. ACK 이후에만 existing users VACUUM과 strict stable-pair/continuity를 진행한다. 다음 actual 후보는 위 fresh M namespace뿐이고 개발 세션에서는 실행하지 않는다.
+Runner는 login 직전 users `n_tup_upd`를 캡처하고 login 뒤 최대 5회 read-only polling으로 exact +1 ACK를 기다린다. ACK 이후에만 existing users VACUUM과 strict stable-pair/continuity를 진행한다. 후속 M은 별도 fresh namespace로 실행돼 모든 technical validator를 통과했지만 아래 host-exclusive provenance 사유로 PM 채택이 거부됐다.
+
+## Conditional supporting evidence attempt M (2026-07-16)
+
+`I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M` 실행은 conditional supporting evidence로만 보존한다. Exact login `n_tup_upd +1` ACK와 users VACUUM 뒤 strict users `nModSinceAnalyze` 안정성, 모든 metric/DB/resource/runtime/final continuity validator를 통과했다. Classification은 `conditional-shared-stack`, `automaticAdoption=false`다.
+
+Measured HTTP는 2,720건, failure 0이며 16 cases 각각 170건이었다. 관찰값은 whole avg `673.748ms`, p50 `583.891ms`, p95 `1378.754ms`, p99 `2085.566ms`, max `4763.404ms`, throughput `14.678 req/s`다. 그러나 같은 host에서 #192/#194~#199 개발 세션의 병렬 static/Node 작업이 시작돼 PM이 CPU exclusive-use provenance를 입증할 수 없으므로 이 수치를 valid before baseline이나 개선 성과로 채택하지 않는다.
+
+측정 계정 15032/15033은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. M namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. 다음 actual 후보는 위 fresh N namespace뿐이며 PM은 다른 세션을 일시 정지한 뒤 단독 실행한다.

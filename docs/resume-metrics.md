@@ -1482,3 +1482,12 @@ Metric candidates:
 - 복구/보존: 측정 계정 15030/15031은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. L namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 재발 방지: measured login 직전 users `n_tup_upd` canonical decimal counter를 캡처하고, login 뒤 immutable PostgreSQL ID read-only polling에서 exact `before+1`을 ACK한 뒤에만 users VACUUM을 실행한다. `+0`은 기존 1초/최대 5회 안에서 pending이며 감소, `>+1`, timeout, malformed/bigint 범위 초과는 fail-closed한다. Stable-pair와 measured strict continuity는 유지한다.
 - Fresh M 제안: `I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_M/I193_FIXTURE_20260716_M/EXEC193_BEFORE_20260716_M`. 개발 세션 actual 실행은 금지한다.
+
+### 2026-07-16 Issue #193 actual-before attempt M conditional supporting evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M`.
+- technical 결과: exact login `n_tup_upd +1` ACK, users VACUUM 뒤 strict users `nModSinceAnalyze` 안정성, 모든 metric/DB/resource/runtime/final continuity validator 통과. `measurement-classification=conditional-shared-stack`, `automaticAdoption=false`.
+- 관찰값: measured HTTP 2,720건, failure 0, 16 cases 각각 170건. Whole avg `673.748ms`, p50 `583.891ms`, p95 `1378.754ms`, p99 `2085.566ms`, max `4763.404ms`, throughput `14.678 req/s`.
+- PM 거부 원인: 같은 host에서 #192/#194~#199 개발 세션들이 병렬 static/Node 작업을 시작해 host CPU exclusive-use provenance를 입증할 수 없었다. 위 수치는 conditional supporting evidence일 뿐 valid before baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15032/15033은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. M namespace/DB rows/report를 보존하며 재사용하지 않는다.
+- Fresh N 제안: `I193_BEFORE_20260716_N / I193_FIXTURE_20260716_N / EXEC193_BEFORE_20260716_N`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_N/I193_FIXTURE_20260716_N/EXEC193_BEFORE_20260716_N`. PM은 다른 개발 세션을 일시 정지한 뒤 host-exclusive actual을 단독 실행한다.
