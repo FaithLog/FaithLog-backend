@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -103,6 +104,33 @@ test('DB identity collector sanitizes child-process stderr on failure', async ()
 			assert.doesNotMatch(error.message, /select issue_196_identity|db-secret-not-for-output|synthetic-child-stderr/);
 			return true;
 		});
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
+});
+
+test('shape streams SQL through attached stdin so psql variables are expanded', () => {
+	const shape = readFileSync(new URL('./shape-fixture.sh', import.meta.url), 'utf8');
+	assert.match(shape, /shape_result=.*docker exec -i[\s\S]*-v open_id=[\s\S]*-f - <<< "\$\{sql\}"/);
+	assert.doesNotMatch(shape, /-c "\$\{sql\}"/);
+
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-shape-stdin-'));
+	try {
+		const command = join(temporary, 'docker');
+		writeFileSync(command, `#!/usr/bin/env bash
+set -euo pipefail
+[[ "\${1:-}" == exec && "\${2:-}" == -i && "$*" == *'-v open_id=41'* && "$*" == *'-f -'* ]] || exit 81
+input="$(cat)"
+[[ "$input" == *":'open_id'"* ]] || exit 82
+printf '%s\n' '{"open":{"startsAt":"2026-07-17T00:00:00Z"}}'
+`);
+		chmodSync(command, 0o755);
+		const result = spawnSync(command, [
+			'exec', '-i', '-e', 'PGPASSWORD', 'approved-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
+			'-v', 'open_id=41', '-f', '-',
+		], { encoding: 'utf8', input: "SELECT :'open_id';", env: { PATH: process.env.PATH, PGPASSWORD: 'db-secret' } });
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(JSON.parse(result.stdout).open.startsAt, '2026-07-17T00:00:00Z');
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
 	}
