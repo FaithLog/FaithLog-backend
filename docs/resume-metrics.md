@@ -9,11 +9,19 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-16 - Issue #206 청구 페이징 동률 정렬 안정화
+
+- 발견: #193 current-develop before preflight에서 동일 `created_at` 청구 쌍의 ID 순서가 API 응답마다 asc/desc로 혼재해 offset paging의 중복·누락 가능성과 측정 correctness 실패를 확인했다. #193 D는 1,000 ACTIVE 멤버/35,000 청구 fixture까지만 생성되고 k6 warmup/measured 0, summary 없음으로 거부·보존됐다.
+- TDD RED: `BillingPageRequests.chargeItems()`의 모든 허용 primary sort에 동일 방향 `id` secondary order가 있어야 한다는 단위 계약과, 동일 timestamp 두 행을 `size=1`로 두 공개 API에서 조회하는 통합 계약을 추가했다. 기존 구현은 신규 3 tests 중 adminMembers 불변 1개만 통과하고 `2 failures`였다. 실제 응답도 기대한 높은 ID 대신 낮은 ID를 첫 페이지에 반환했다.
+- 최소 GREEN: validated primary sort 뒤 같은 방향 `id` sort를 추가했다. 내 청구 목록과 관리자 회원별 상세만 적용하고 관리자 회원 집계, 공통 sort validator, API/DTO/ErrorCode/Flyway/dependency는 변경하지 않았다.
+- 최종 검증: `./gradlew test`는 88 suites / 555 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`와 `./gradlew asciidoctor`는 모두 성공했다. REST Docs 170 snippet groups와 최신 `build/docs/asciidoc/index.html` 생성을 확인했다.
+- 프론트 영향: path/query/response shape와 sort parameter 형식이 동일하므로 production API client/type/UI 수정은 필요 없다. 별도 frontend integration mock의 `getMockAdminMemberChargeState`, `getMockMemberChargeList`는 primary 방향과 무관하게 ID ASC tie-break를 사용해 DESC에서 backend와 불일치하므로 mock과 관련 테스트의 최소 수정은 필요하다. 이 backend 작업에서는 frontend 파일을 편집하지 않았다.
+
 ## 핵심 지표 후보
 
 | 영역 | 지표 | 측정 방법 | 최신값 | 목표 |
 | --- | --- | --- | --- | --- |
-| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-15 #202, 552 tests / 0 failures / 0 errors / 3 skipped) | 100% |
+| 품질 | 테스트 통과율 | `./gradlew test` | 100% of executed tests (2026-07-16 #206, 555 tests / 0 failures / 0 errors / 3 skipped) | 100% |
 | 품질 | Line coverage | `./gradlew test jacocoTestReport` | 94.41% (7,223 / 7,651, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Branch coverage | `./gradlew test jacocoTestReport` | 75.77% (1,113 / 1,469, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |
 | 품질 | Class coverage | `./gradlew test jacocoTestReport` | 97.70% (510 / 522, 2026-07-14 integration) | 사용자 승인 전 threshold 없음 |

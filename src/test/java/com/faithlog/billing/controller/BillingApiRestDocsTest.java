@@ -710,7 +710,7 @@ class BillingApiRestDocsTest {
 					parameterWithName("includeArchived").optional().description("이전 완료 기록 포함 여부. 기본 false이면 UNPAID는 기간 제한 없이 포함하고 PAID/WAIVED/CANCELED는 완료 시각 기준 최근 1개월만 포함"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 10, 최대 100"),
-					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
+					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`. primary 값이 같으면 같은 방향의 `id`로 안정적으로 정렬")
 				),
 				responseFields(apiResponseFields(combine(
 					fields(
@@ -909,7 +909,7 @@ class BillingApiRestDocsTest {
 					parameterWithName("includeArchived").optional().description("이전 완료 기록 포함 여부. 기본 false이면 UNPAID는 기간 제한 없이 포함하고 PAID/WAIVED/CANCELED는 완료 시각 기준 최근 1개월만 포함"),
 					parameterWithName("page").optional().description("페이지 번호. 기본 0"),
 					parameterWithName("size").optional().description("페이지 크기. 기본 20, 최대 100"),
-					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`")
+					parameterWithName("sort").optional().description("정렬. 기본 `createdAt,desc`. primary 값이 같으면 같은 방향의 `id`로 안정적으로 정렬")
 				),
 				responseFields(apiResponseFields(combine(
 					fields(
