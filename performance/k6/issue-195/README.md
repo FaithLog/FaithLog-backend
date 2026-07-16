@@ -80,7 +80,7 @@ The script uses only public APIs. It never patches or deletes an existing user, 
 Credentials are required only as runtime environment variables and are not written to manifests or reports.
 
 ```bash
-BASE_URL=http://localhost:8080 \
+BASE_URL=http://127.0.0.1:28080 \
 PERF_ADMIN_EMAIL=runtime-only-admin@example.com \
 PERF_ADMIN_PASSWORD=runtime-only-secret \
 PERF_DATASET_ID=PERF_1000_YYYYMMDD_A \
@@ -130,7 +130,7 @@ Each measured endpoint case also records app/PostgreSQL/Redis `docker stats --no
 The report directory is atomically created before source/target preflight. From the source-contract gate onward, any non-zero path records `first-rejection.json` with only schema version, non-adoptable status, `automaticAdoption=false`, stage, scenario/case, and exit code. Creation is exclusive and later cleanup or validation failures cannot overwrite the first rejection. Credentials, tokens, raw environment values, and exception text are excluded.
 
 ```bash
-BASE_URL=http://localhost:8080 \
+BASE_URL=http://127.0.0.1:28080 \
 PERF_ADMIN_EMAIL=runtime-only-admin@example.com \
 PERF_ADMIN_PASSWORD=runtime-only-secret \
 PERF_DATASET_ID=PERF_1000_YYYYMMDD_A \
