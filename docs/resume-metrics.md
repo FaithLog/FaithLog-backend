@@ -1394,5 +1394,16 @@ Metric candidates:
 - fixture 결과: campus ID 21, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
 - 거부 원인: 요청은 `sort=createdAt,desc`였고 DB의 일부 charge item은 `created_at`이 exact tie였다. current develop API 응답은 해당 status pair들에서 ID 오름차순과 내림차순이 혼재했다. Spring `Pageable`에는 primary `createdAt` sort만 있어 tie를 안정화하는 secondary sort가 없다. PM 독립 대조 결과 이는 scenario 오판이 아니라 실제 API pagination/order 경계다.
 - 측정 결과: correctness preflight에서 중단되어 k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
-- 보존: D namespace/DB rows/report는 partial rejected evidence로만 보존하며 재사용하지 않는다. fresh E는 실행하지 않는다.
-- 후속 해결: 사용자가 모든 charge-item pageable endpoint에 primary sort와 같은 방향의 `id` secondary sort를 자동 추가하는 정책(`createdAt,desc → id,desc`, `createdAt,asc → id,asc`)을 승인했고, Issue #206/PR #207이 develop commit `6796ed146244d8f3f5b5dd7048ebe16865084a97`로 병합됐다. Scenario는 exact tie의 `id,desc` 검증을 유지하며 fixture timestamp를 인위적으로 벌리지 않는다. D 자체는 계속 rejected evidence이고 fresh E는 PM의 독립 measurement-ready 리뷰 전 실행하지 않는다.
+- 보존: D namespace/DB rows/report는 partial rejected evidence로만 보존하며 재사용하지 않는다. 후속 E는 별도 fresh namespace로만 실행됐다.
+- 후속 해결: 사용자가 모든 charge-item pageable endpoint에 primary sort와 같은 방향의 `id` secondary sort를 자동 추가하는 정책(`createdAt,desc → id,desc`, `createdAt,asc → id,asc`)을 승인했고, Issue #206/PR #207이 develop commit `6796ed146244d8f3f5b5dd7048ebe16865084a97`로 병합됐다. Scenario는 exact tie의 `id,desc` 검증을 유지하며 fixture timestamp를 인위적으로 벌리지 않는다. D 자체는 계속 rejected evidence이며, E는 별도 fresh namespace로 실행된 뒤 아래 validator 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt E rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_E / I193_FIXTURE_20260716_E / EXEC193_BEFORE_20260716_E`.
+- fixture 결과: campus ID 23, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- warmup 결과: 5 iterations, HTTP request 80개, HTTP failure 0. 이 warmup은 성능 baseline이나 성과 수치로 채택하지 않는다.
+- 거부 원인: 실제 k6 v2 custom Rate의 무오류 shape `{"passes":0,"fails":5,"value":0}`에서 `passes`는 true count, `fails`는 false/total count지만 validator가 존재하지 않는 `rate` 필드를 읽어 16개 case를 모두 거부했다.
+- 미실행 범위: measured k6 0건, measured DB/resource boundary 0건, measured summary/classification 없음. `accepted=false`와 `automaticAdoption=false` 경계를 유지한다.
+- 복구/보존: 측정 계정 15016/15017은 모두 USER로 복구됐고 canonical lock 제거를 확인했다. E namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: direct metric과 `metric.values` wrapper를 모두 지원하되 `value=0`, `passes=0`, `fails=expected count`만 무오류로 허용한다. positive value, passes 증가, fails/count mismatch, malformed/nonfinite field는 warmup/measured 양 phase에서 fail-closed다.
+- 다음 제안: `I193_BEFORE_20260716_F / I193_FIXTURE_20260716_F / EXEC193_BEFORE_20260716_F`. PM 독립 리뷰 전에는 생성하거나 실행하지 않는다.
