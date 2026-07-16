@@ -129,7 +129,7 @@ label() {
 
 capture_database_identity() {
 	local raw
-	raw="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
+	raw="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -i -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
 		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
 		-f - < "${DB_RUNTIME_IDENTITY_SQL}")"
 	DB_RUNTIME_IDENTITY_JSON="${raw}" EXPECTED_FLYWAY_VERSION="${EXPECTED_FLYWAY_VERSION}" node "${VALIDATE_RUNTIME_IDENTITY}"
@@ -327,7 +327,7 @@ login_token() {
 
 snapshot_db_tables() {
 	local output="$1"
-	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD "${DB_CONTAINER}" \
+	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -i -e PGPASSWORD "${DB_CONTAINER}" \
 		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At -f - \
 		< "${DB_STATS_SQL}" > "${output}"
 }
@@ -373,7 +373,7 @@ sample_runtime_integrity() {
 		if (( lsof_status > 1 )); then
 			return "${lsof_status}"
 		fi
-		db_activity="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
+		db_activity="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -i -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
 			psql -X -v ON_ERROR_STOP=1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
 			-v app_client_addrs="${app_client_addrs}" -f - < "${DB_ACTIVITY_SQL}")"
 		LSOF_TEXT="${lsof_text}" DB_ACTIVITY_JSON="${db_activity}" K6_PID="${k6_pid}" \

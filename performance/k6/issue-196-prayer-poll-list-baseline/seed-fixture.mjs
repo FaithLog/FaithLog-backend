@@ -7,6 +7,7 @@ import { validateRuntimeIdentity } from './validate-runtime-identity.mjs';
 import { parseRedisRuntimeIdentity } from './redis-runtime-identity.mjs';
 import { assertRuntimePreparationMatches, validateRuntimePrepManifest } from './runtime-prep-contract.mjs';
 import { assertCurrentTooling } from './tooling-provenance.mjs';
+import { captureDockerDbIdentity } from './docker-db-identity.mjs';
 
 const BASE_URL = required('BASE_URL').replace(/\/$/, '');
 const DATASET_ID = process.env.DATASET_ID || FIXTURE_CONTRACT.datasetId;
@@ -618,12 +619,16 @@ function verifyComposeRuntime() {
 
 function captureDatabaseIdentity() {
 	const sql = readFileSync(new URL('./db-runtime-identity.sql', import.meta.url), 'utf8');
-	const result = execFileSync('docker', [
-		'exec', '-e', 'PGPASSWORD', '-e', 'PGAPPNAME=faithlog_issue196_observer', DB_CONTAINER,
-		'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-U', DB_USER, '-d', DB_NAME, '-At',
-		'-f', '-',
-	], { encoding: 'utf8', input: sql, env: { ...sanitizedChildEnv(), PGPASSWORD: DB_PASSWORD } }).trim();
-	return validateRuntimeIdentity(JSON.parse(result), {
+	const result = captureDockerDbIdentity({
+		container: DB_CONTAINER,
+		user: DB_USER,
+		database: DB_NAME,
+		password: DB_PASSWORD,
+		applicationName: 'faithlog_issue196_observer',
+		sql,
+		env: sanitizedChildEnv(),
+	});
+	return validateRuntimeIdentity(result, {
 		expectedFlywayVersion: EXPECTED_FLYWAY_VERSION,
 		expectedTableCount: FIXTURE_CONTRACT.currentDevelop.publicApplicationTableCount,
 	});

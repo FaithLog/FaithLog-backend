@@ -280,6 +280,7 @@ These commands do not seed, run k6, access Docker, or access a database:
 ```bash
 node --test performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/fixture-contract.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/docker-db-identity.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/seed-fixture.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/scenario.js
 node --check performance/k6/issue-196-prayer-poll-list-baseline/token-lifetime.mjs
@@ -299,6 +300,7 @@ bash -n performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh
 node --test performance/k6/issue-196-prayer-poll-list-baseline/runtime-prep-orchestration.test.mjs
 node --test performance/k6/issue-196-prayer-poll-list-baseline/k6-rate-contract.test.mjs
+node --test performance/k6/issue-196-prayer-poll-list-baseline/docker-db-identity.test.mjs
 ```
 
 This session syntax-checks `scenario.js` without executing k6; the contract test separately fixes its endpoint, metric, sequencing, correctness, current-develop source/Flyway/RLS identity, app/DB/Redis continuity, pgss state, BigInt counter, and resource evidence markers. Test-code auditing across performance issues may run in parallel, but actual shared-stack seed/load measurement remains PM-controlled and strictly sequential.

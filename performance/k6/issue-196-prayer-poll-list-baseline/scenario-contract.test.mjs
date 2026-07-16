@@ -15,6 +15,7 @@ const REQUIRED_FILES = [
 	'scenario.js',
 	'run-baseline.sh',
 	'db-table-stats.sql',
+	'docker-db-identity.mjs',
 	'db-runtime-identity.sql',
 	'validate-runtime-identity.mjs',
 	'redis-runtime-identity.mjs',
