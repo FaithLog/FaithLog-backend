@@ -488,6 +488,91 @@ test('database supporting window records current-source target upserts but rejec
 	assert.match(JSON.stringify(rejected.failures), /users\.n_tup_upd/);
 });
 
+test('H-shaped asynchronous PostgreSQL publication lag remains supporting-only and records source-unattributed deltas', async () => {
+	const { validateDbWindow } = await import(
+		`${pathToFileURL(requiredPath('lib/validate-db-window.mjs')).href}?publication-lag=${Date.now()}`
+	);
+	const before = dbSnapshot();
+	const after = dbSnapshot({ measured: true });
+	for (const [relname, inserts] of [
+		['weekly_devotion_records', 595],
+		['devotion_daily_checks', 4165],
+		['charge_items', 595],
+	]) {
+		const table = after.snapshot.tables.find((item) => item.relname === relname);
+		table.n_tup_ins = String(inserts);
+		table.n_mod_since_analyze = String(inserts);
+	}
+	after.snapshot.tables.find(({ relname }) => relname === 'users').n_tup_upd = '9';
+	Object.assign(after.snapshot.database, {
+		blks_hit: '54', tup_returned: '21', tup_fetched: '13', tup_inserted: '5355', tup_updated: '9',
+	});
+	after.snapshot.allDatabases[0] = structuredClone(after.snapshot.database);
+	Object.assign(after.snapshot.allDatabases[1], { blks_hit: '54', tup_returned: '21', tup_fetched: '13' });
+
+	const evidence = validateDbWindow(before, after, 'none');
+	assert.equal(evidence.supporting, true, JSON.stringify(evidence.failures));
+	assert.equal(evidence.status, 'supporting-clean');
+	assert.equal(evidence.adoptable, false);
+	assert.equal(evidence.automaticAdoption, false);
+	assert.equal(evidence.tableDeltas.weekly_devotion_records.n_tup_ins, '595');
+	assert.equal(evidence.tableDeltas.devotion_daily_checks.n_tup_ins, '4165');
+	assert.equal(evidence.tableDeltas.charge_items.n_tup_ins, '595');
+	assert.equal(evidence.sourceUnattributedDeltas.tables.users.n_tup_upd, '9');
+	assert.equal(evidence.sourceUnattributedDeltas.database.tup_inserted, '5355');
+	assert.equal(evidence.sourceUnattributedDeltas.nonCurrentDatabases.postgres.blks_hit, '54');
+
+	const regressedBefore = dbSnapshot();
+	regressedBefore.snapshot.tables.find(({ relname }) => relname === 'weekly_devotion_records').n_tup_ins = '596';
+	const regressed = validateDbWindow(regressedBefore, after, 'none');
+	assert.equal(regressed.supporting, false);
+	assert.match(JSON.stringify(regressed.failures), /weekly_devotion_records\.n_tup_ins delta/);
+});
+
+test('measured direct fixture cardinality is exact before rollback and enclosed by runtime continuity', async () => {
+	const validatorPath = requiredPath('lib/validate-devotion-cardinality.mjs');
+	const { validateDevotionCardinality } = await import(`${pathToFileURL(validatorPath).href}?direct=${Date.now()}`);
+	const manifest = devotionManifest();
+	const exact = directDevotionCardinality(manifest);
+	const evidence = validateDevotionCardinality(manifest, exact, 'measured');
+	assert.equal(evidence.exact, true);
+	assert.equal(evidence.status, 'exact');
+	for (const [field, value] of [
+		['weeklyCount', 1000], ['distinctWeeklyUsers', 1000],
+		['dailyCount', 7000], ['distinctDailyUsers', 1000], ['correctDailyDateCount', 7000],
+		['chargeCount', 1000], ['distinctChargeUsers', 1000], ['correctChargeAmountCount', 1000],
+		['correctChargeBindingCount', 1000], ['chargeAmountSum', 2250000],
+	]) assert.equal(evidence.counts.measured[field], value);
+	assert.equal(evidence.counts.warmup.chargeCount, 1);
+	assert.equal(evidence.counts.successCampusDevotionChargeCount, 1001);
+	for (const mutation of [
+		(value) => { value.measured.weeklyCount = 999; },
+		(value) => { value.measured.distinctWeeklyUsers = 999; },
+		(value) => { value.measured.correctDailyDateCount = 6999; },
+		(value) => { value.measured.correctChargeBindingCount = 999; },
+		(value) => { value.measured.chargeAmountSum = 2247750; },
+		(value) => { value.successCampusDevotionChargeCount = 1000; },
+		(value) => { value.rollback.weeklyCount = 1; },
+	]) {
+		const invalid = structuredClone(exact);
+		mutation(invalid);
+		assert.throws(() => validateDevotionCardinality(manifest, invalid, 'measured'), /cardinality|weekly|daily|charge|rollback/i);
+	}
+
+	const runner = fs.readFileSync(requiredPath('run-devotion-baseline.sh'), 'utf8');
+	const databaseAfter = runner.indexOf('db-counters-after.jsonl');
+	const measuredAfterIdentity = runner.indexOf('runtime-identity-measured-after.json');
+	const directCapture = runner.indexOf('measured-direct-cardinality.json');
+	const directAfterIdentity = runner.indexOf('runtime-identity-measured-cardinality-after.json');
+	const rollback = runner.indexOf("CURRENT_STAGE='rollback'");
+	assert.ok(databaseAfter < measuredAfterIdentity);
+	assert.ok(measuredAfterIdentity < directCapture);
+	assert.ok(directCapture < directAfterIdentity);
+	assert.ok(directAfterIdentity < rollback);
+	assert.match(runner, /validate-devotion-cardinality\.mjs/);
+	assert.match(runner, /measuredCardinalityAfter/);
+});
+
 test('database window preserves cumulative counter deltas beyond MAX_SAFE_INTEGER', async () => {
 	const { validateDbWindow } = await import(
 		`${pathToFileURL(requiredPath('lib/validate-db-window.mjs')).href}?bigint-window=${Date.now()}`
@@ -888,6 +973,23 @@ function dbSnapshot({ measured = false } = {}) {
 			plannerSettings: plannerSettings(),
 		},
 		pgStatStatements: { available: false, reason: 'not installed', statements: [] },
+	};
+}
+
+function directDevotionCardinality(manifest) {
+	return {
+		datasetId: manifest.datasetId,
+		fixtureRunId: manifest.fixtureRunId,
+		successCampusDevotionChargeCount: 1001,
+		warmup: { weeklyCount: 1, submittedCount: 1, chargeCount: 1 },
+		measured: {
+			expectedUserCount: 1000, weeklyCount: 1000, distinctWeeklyUsers: 1000, submittedCount: 1000,
+			dailyCount: 7000, distinctDailyUsers: 1000, usersWithSevenDaily: 1000, correctDailyDateCount: 7000,
+			chargeCount: 1000, distinctChargeUsers: 1000, correctChargeAmountCount: 1000,
+			distinctChargeSourceCount: 1000, correctChargeBindingCount: 1000,
+			chargeAmountSum: 2250000, duplicateChargeSourceGroups: 0,
+		},
+		rollback: { weeklyCount: 0, dailyCount: 0, chargeCount: 0 },
 	};
 }
 
