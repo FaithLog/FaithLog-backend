@@ -191,7 +191,7 @@ test('k6 v2 metrics, PostgreSQL Redis evidence, and Docker resources stay strict
 	}));
 });
 
-test('fake full run executes capture once, restores before every sample, and stops on first drift', async () => {
+test('fake full run prepares once, captures once, restores before every sample, and stops on first drift', async () => {
 	const { orchestrateNotificationBatchBefore } = await importScenario('orchestrate-before.mjs');
 	const temporaryRoot = mkdtempSync(join(tmpdir(), 'faithlog-198-orchestration-'));
 	try {
@@ -215,6 +215,19 @@ test('fake full run executes capture once, restores before every sample, and sto
 				COOKIE: 'must-not-leak',
 			},
 		}, {
+			prepareCanonicalFixture: async ({ manifestPath, childEnvironment }) => {
+				actions.push('fixture:canonical');
+				childEnvironments.push(childEnvironment);
+				writeFileSync(manifestPath, `${JSON.stringify({
+					datasetId: 'PERFORMANCE_198_FAKE', fixtureRunId: 'issue198-fake-full-a-fixture',
+					sampleKind: 'canonical', composeProject: 'faithlog-perf-198-before',
+					postgresDatabase: 'faithlog', campusId: 198, memberCount: 1000,
+					successCount: 600, transientCount: 100, permanentCount: 100,
+					inactiveCount: 100, noTokenCount: 100, mixedTokenUserCount: 1,
+					insertedDummyTokenCount: 901,
+					fixturePolicy: 'dummy-token-and-generated-log-only', credentialRecorded: false,
+				})}\n`, { flag: 'wx' });
+			},
 			captureSnapshot: async ({ outputPath, childEnvironment }) => {
 				actions.push('capture');
 				childEnvironments.push(childEnvironment);
@@ -245,13 +258,10 @@ test('fake full run executes capture once, restores before every sample, and sto
 					automaticAdoption: false,
 				})}\n`, { flag: 'wx' });
 			},
-			prepareFixture: async ({ sample, childEnvironment }) => {
-				actions.push(`fixture:${sample.sampleKind}:${sample.sampleIndex}`);
-				childEnvironments.push(childEnvironment);
-			},
 			runSample: async ({ sample, runDir, childEnvironment }) => {
 				actions.push(`run:${sample.sampleKind}:${sample.sampleIndex}`);
 				childEnvironments.push(childEnvironment);
+				mkdirSync(runDir, { recursive: true });
 				writeFileSync(join(runDir, 'k6-summary.json'), `${JSON.stringify({ metrics: {
 					notification_batch_requests: { values: { count: 10, rate: 5 } },
 					notification_batch_failures: { values: { value: 0, passes: 0, fails: 10 } },
@@ -260,13 +270,15 @@ test('fake full run executes capture once, restores before every sample, and sto
 			},
 		});
 		assert.equal(result.captureCount, 1);
+		assert.equal(result.fixturePrepareCount, 1);
 		assert.equal(result.restoreCount, 11);
 		assert.equal(result.warmupCount, 1);
 		assert.equal(result.measuredCount, 10);
 		assert.equal(result.automaticAdoption, false);
+		assert.deepEqual(actions.slice(0, 2), ['fixture:canonical', 'capture']);
 		assert.equal(actions.filter((action) => action === 'capture').length, 1);
 		assert.equal(actions.filter((action) => action.startsWith('restore:')).length, 11);
-		assert.equal(actions.filter((action) => action.startsWith('fixture:')).length, 11);
+		assert.equal(actions.filter((action) => action.startsWith('fixture:')).length, 1);
 		assert.equal(actions.filter((action) => action.startsWith('run:')).length, 11);
 		for (const childEnvironment of childEnvironments) {
 			assert.equal(childEnvironment.API_KEY, undefined);
@@ -285,6 +297,15 @@ test('fake full run executes capture once, restores before every sample, and sto
 			actualComposeProject: 'faithlog-perf-198-before',
 			baseChildEnvironment: { PATH: process.env.PATH, POSTGRES_PASSWORD: 'secret' },
 		}, {
+			prepareCanonicalFixture: async ({ manifestPath }) => writeFileSync(manifestPath, `${JSON.stringify({
+				datasetId: 'PERFORMANCE_198_FAKE', fixtureRunId: 'issue198-fake-drift-a-fixture',
+				sampleKind: 'canonical', composeProject: 'faithlog-perf-198-before',
+				postgresDatabase: 'faithlog', campusId: 198, memberCount: 1000,
+				successCount: 600, transientCount: 100, permanentCount: 100,
+				inactiveCount: 100, noTokenCount: 100, mixedTokenUserCount: 1,
+				insertedDummyTokenCount: 901,
+				fixturePolicy: 'dummy-token-and-generated-log-only', credentialRecorded: false,
+			})}\n`, { flag: 'wx' }),
 			captureSnapshot: async ({ outputPath }) => writeFileSync(outputPath, readFileSync(join(temporaryRoot, 'issue198-fake-full-a', 'snapshot-receipt.json')), { flag: 'wx' }),
 			restoreSnapshot: async ({ outputPath, sample, restoreOrdinal, snapshot, snapshotReceiptSha256 }) => writeFileSync(outputPath, `${JSON.stringify({
 				schemaVersion: 1, snapshotId: snapshot.snapshotId, snapshotReceiptSha256,
@@ -293,7 +314,6 @@ test('fake full run executes capture once, restores before every sample, and sto
 				postgres: { ...snapshot.postgres, stateSha256: restoreOrdinal === 2 ? 'f'.repeat(64) : snapshot.postgres.stateSha256 },
 				redis: snapshot.redis,
 			})}\n`, { flag: 'wx' }),
-			prepareFixture: async () => {},
 			runSample: async () => { runCount += 1; },
 		}), /snapshot|state|drift/i);
 		assert.equal(runCount, 1, 'the first restore drift must prevent its sample and every later sample');
@@ -320,4 +340,5 @@ test('snapshot scripts forbid lifecycle and volume deletion while using fixed sn
 	assert.doesNotMatch(combined, /docker\s+(?:compose\s+)?(?:down|stop|restart)|docker\s+volume\s+rm|volume\s+prune|system\s+prune/);
 	assert.doesNotMatch(combined, /rm\s+-rf|DROP\s+DATABASE/i);
 	assert.match(combined, /automaticAdoption/);
+	assert.ok(orchestrator.indexOf('prepareCanonicalFixture') < orchestrator.indexOf('captureSnapshot'));
 });
