@@ -85,14 +85,13 @@ export function setup() {
 	if (MAX_FAILURE_RATE !== 0) {
 		fail('MAX_FAILURE_RATE must be explicitly approved as 0 for exact correctness.');
 	}
-	return { token: PERF_ACCESS_TOKEN };
 }
 
-export default function ({ token }) {
+export default function () {
 	const path = buildPath();
 	const response = http.get(`${BASE_URL}${path}`, {
 		headers: {
-			Authorization: `Bearer ${token}`,
+			Authorization: `Bearer ${PERF_ACCESS_TOKEN}`,
 			'X-FaithLog-Performance-Run': EXECUTION_RUN_ID,
 		},
 		tags: { name: metricName, issue: '195', endpoint: SCENARIO, case: CASE },

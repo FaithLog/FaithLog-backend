@@ -68,8 +68,9 @@ function parseMemoryBytes(value, label) {
 		TB: 1_000_000_000_000,
 		TiB: 1_099_511_627_776,
 	};
-	const parsed = Number(match[1]) * factors[match[2]];
-	if (!Number.isFinite(parsed) || parsed < 0 || !Number.isSafeInteger(parsed)) {
+	const scaled = Number(match[1]) * factors[match[2]];
+	const parsed = Math.round(scaled);
+	if (!Number.isFinite(scaled) || scaled < 0 || !Number.isSafeInteger(parsed)) {
 		throw new Error(`${label} cannot be represented as non-negative safe bytes.`);
 	}
 	return parsed;
