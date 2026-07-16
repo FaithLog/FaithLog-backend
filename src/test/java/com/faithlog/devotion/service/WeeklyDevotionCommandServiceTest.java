@@ -94,10 +94,6 @@ class WeeklyDevotionCommandServiceTest {
 		)).thenReturn(Optional.of(weeklyRecord));
 		when(dailyCheckRepository.findByWeeklyRecordIdOrderByRecordDateAsc(WEEKLY_RECORD_ID))
 			.thenReturn(List.of());
-		when(dailyCheckRepository.findByWeeklyRecordIdAndRecordDate(anyLong(), any(LocalDate.class)))
-			.thenReturn(Optional.empty());
-		when(dailyCheckRepository.save(any(DevotionDailyCheck.class)))
-			.thenAnswer(invocation -> invocation.getArgument(0));
 		when(campusRepository.findById(CAMPUS_ID)).thenReturn(Optional.of(campus));
 
 		service.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(
