@@ -29,7 +29,10 @@ test('DB evidence excludes Flyway metadata and gates exact write/maintenance sta
 	const sql = read('db-table-stats.sql');
 	const runner = read('run-baseline.sh');
 	assert.match(sql, /from pg_stat_user_tables\s+where schemaname = 'public' and relname <> 'flyway_schema_history'/);
+	assert.match(runner, /PERF_MAINTENANCE_QUIET_SECONDS=.*:\?/);
 	assert.match(runner, /PERF_QUIESCENCE_TIMEOUT_SECONDS=.*:\?/);
+	assert.match(runner, /"\$\{SAMPLING_INTERVAL_SECONDS\}" "\$\{PERF_MAINTENANCE_QUIET_SECONDS\}" "\$\{PERF_QUIESCENCE_TIMEOUT_SECONDS\}"/);
+	assert.doesNotMatch(runner, /VALIDATE_DB_QUIESCENCE[\s\S]{0,300}SAMPLING_MAX_GAP_SECONDS/);
 	assert.match(runner, /wait_for_database_quiescence[\s\S]*snapshot_db_tables "\$\{before_file\}"/);
 	assert.match(runner, /login_token[\s\S]*logger-probe[\s\S]*wait_for_database_quiescence/);
 	assert.match(runner, /next_tick_ms[\s\S]*sleep_until_tick/,
@@ -49,10 +52,16 @@ test('quiescence requires exact application-table schema, no active maintenance,
 		writeFileSync(evidence, `${JSON.stringify(snapshot('2026-07-17T00:00:02.000Z', { usersUpdate: '5' }))}\n`, { flag: 'a' });
 		assert.equal(runQuiescence(evidence).status, 2, 'published login writes must restart the exact quiet window');
 
-		writeFileSync(evidence, [3, 4, 5, 6].map((second) => JSON.stringify(snapshot(`2026-07-17T00:00:0${second}.000Z`, { usersUpdate: '5' }))).join('\n') + '\n', { flag: 'a' });
+		writeFileSync(evidence, Array.from({ length: 30 }, (_, index) => index + 3)
+			.map((second) => JSON.stringify(snapshot(`2026-07-17T00:00:${String(second).padStart(2, '0')}.000Z`, { usersUpdate: '5' })))
+			.join('\n') + '\n', { flag: 'a' });
 		const stable = runQuiescence(evidence);
 		assert.equal(stable.status, 0, stable.stderr);
 		assert.match(stable.stdout, /"finalStatus":"passed"/);
+		assert.equal(runQuiescence(evidence, '1', '3', '180').status, 1,
+			'resource max-gap must not be accepted as the maintenance quiet window');
+		assert.equal(runQuiescence(evidence, '1', '30', '181').status, 1,
+			'the approved maintenance timeout is exactly 180 seconds');
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
 	}
@@ -98,8 +107,8 @@ function read(name) {
 	return readFileSync(join(ROOT, name), 'utf8');
 }
 
-function runQuiescence(path) {
-	return spawnSync(process.execPath, [QUIESCENCE, path, '1', '3', '180'], { encoding: 'utf8' });
+function runQuiescence(path, interval = '1', quiet = '30', timeout = '180') {
+	return spawnSync(process.execPath, [QUIESCENCE, path, interval, quiet, timeout], { encoding: 'utf8' });
 }
 
 function snapshot(capturedAt, { activeWorkers = 0, usersUpdate = '0' } = {}) {
