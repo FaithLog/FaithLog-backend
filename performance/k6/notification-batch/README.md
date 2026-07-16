@@ -58,7 +58,9 @@ cron cadence와 upstream target discovery 자체는 duration에 포함하지 않
 
 ## Dataset과 fixtureRunId
 
-`PERF_DATASET_ID`는 이름이 정확히 datasetId 또는 `<datasetId> Campus`인 기존 PERFORMANCE 1,000명 campus를 식별한다. `PERF_FIXTURE_RUN_ID`는 11개 sample이 함께 사용하는 canonical fixture 하나를 식별하고 `PERF_SAMPLE_KIND=canonical`만 허용한다. 준비 script는 user/campus/member를 만들거나 수정하지 않는다. 선택된 ACTIVE member가 정확히 1,000명인지 확인한 뒤 아래 test-only dummy token만 한 번 저장한다.
+`PERF_DATASET_ID`는 #198 전용 빈 isolated database에 `provision-isolated-dataset.sh`가 생성하는 synthetic PERFORMANCE campus를 식별한다. provisioner는 shared dump나 business row를 복사하지 않고 current-develop contract로 SHA-bound된 V1–V11 원본 migration을 순서대로 적용한 뒤, 고정 timestamp와 disabled-login synthetic identity로 ACTIVE user 1,000명과 ACTIVE MEMBER membership 1,000개만 만든다. 생성된 campus ID는 `seed-receipt.json`에 결속되고 orchestration이 `PERF_CAMPUS_ID`로 전달하므로 198 하드코딩이나 수동 조회가 필요 없다. receipt는 migration contract와 dataset state SHA-256, exact count, `credentialRecorded=false`, `externalDataCopied=false`, `externalFcm=false`, `automaticAdoption=false`를 기록한다.
+
+`PERF_FIXTURE_RUN_ID`는 11개 sample이 함께 사용하는 canonical fixture 하나를 식별하고 `PERF_SAMPLE_KIND=canonical`만 허용한다. fixture 준비 script 자체는 user/campus/member를 만들거나 수정하지 않는다. provisioned ACTIVE member가 정확히 1,000명인지 확인한 뒤 아래 test-only dummy token만 한 번 저장한다.
 
 - active token immediate success
 - active token transient failure 1회 후 success
@@ -115,6 +117,9 @@ build/reports/k6/notification-batch/
     gradle-harness-build.log
     gradle-scenario.log
   orchestrations/<batchId>/
+    seed-receipt.json
+    runtime-identity-seed-{locked,before,after}.json
+    runtime-continuity-seed-{before,report}.json
     snapshot-receipt.json
     payload/postgres.dump
     restores/<ordinal>-<sampleKind>.json
@@ -213,7 +218,7 @@ PostgreSQL/Redis counter와 Docker stats의 window는 Gradle 실행, Spring star
 
 `snapshot-policy.json`이 exact `fixture prepare 1 / snapshot capture 1 / restore 11 / warmup 1 / measured 10 / automaticAdoption=false`를 기계 판독 계약으로 고정한다. orchestration runtime 입력이 이 값과 다르면 fixture 준비 전에 실패한다.
 
-`orchestrate-before.mjs`는 fresh batch namespace를 먼저 reserve하고 `canonical fixture prepare 1회 → snapshot capture 1회 → restore/hash·cardinality 검증 → sample run` 순서를 고정한다. restore/run은 warmup 1회와 measured 10회, 총 11회다. restore가 실패하거나 PostgreSQL fingerprint, Redis key/value hash, Redis TTL-intent hash, cardinality 중 하나라도 drift하면 해당 sample과 이후 sample을 실행하지 않고 최초 rejection만 보존한다.
+`orchestrate-before.mjs`는 fresh batch namespace를 먼저 reserve하고 `isolated V1–V11 + synthetic dataset provision 1회 → canonical fixture prepare 1회 → snapshot capture 1회 → restore/hash·cardinality 검증 → sample run` 순서를 고정한다. provisioner는 schema-empty database와 dedicated `faithlog-perf-198*` project만 허용하며 seed 전후 immutable PostgreSQL/Redis identity를 비교한다. restore/run은 warmup 1회와 measured 10회, 총 11회다. seed, restore, PostgreSQL fingerprint, Redis key/value hash, Redis TTL-intent hash, cardinality 중 하나라도 실패하거나 drift하면 해당 단계 이후를 실행하지 않고 최초 rejection만 보존한다.
 
 orchestration parent는 host-global lock과 canonical Compose-project lock을 fixture 준비 전부터 마지막 sample·summary 종료까지 계속 소유한다. 각 shell child는 parent PID, exact project, 두 lock path가 결속된 `orchestration-lock.json`만 상속하며 lock을 개별 해제하지 않으므로 restore와 sample 사이에도 다른 performance runner가 진입할 수 없다.
 
@@ -231,6 +236,8 @@ node performance/k6/notification-batch/orchestrate-before.mjs
 ```
 
 위 명령은 나머지 target, credential, fixture 분포, business date, cadence, harness provenance runtime 값도 모두 명시해야 한다. 프로젝트 이름은 `faithlog-perf-198*` 전용 namespace여야 하며 `faithlog-frontend-latest`, shared/latest/qa project는 fixture mutation 전에 거부한다. 성공 summary도 `conditional-isolated-snapshot-restored`, `accepted=false`, `automaticAdoption=false`이고 다음을 만든다.
+
+외부 sanitized dump나 shared dataset은 prerequisite가 아니다. PM은 전용 PostgreSQL/Redis를 schema-empty 상태로 기동한 뒤 위 orchestration 한 명령만 실행한다. provisioner가 schema와 dataset을 생성하고 receipt의 generated campus ID를 fixture와 harness에 자동 전달한다.
 
 - 전체 duration p50/p95/p99/max
 - throughput p50/p95/p99/max

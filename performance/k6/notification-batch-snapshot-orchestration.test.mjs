@@ -240,6 +240,7 @@ test('fake full run prepares once, captures once, restores before every sample, 
 			baseChildEnvironment: {
 				PATH: process.env.PATH,
 				HOME: temporaryRoot,
+				PERF_DATASET_ID: 'PERFORMANCE_198_FAKE',
 				POSTGRES_PASSWORD: 'runtime-secret',
 				REDIS_PASSWORD: 'runtime-secret',
 				API_KEY: 'must-not-leak',
@@ -247,8 +248,20 @@ test('fake full run prepares once, captures once, restores before every sample, 
 				COOKIE: 'must-not-leak',
 			},
 		}, {
+			provisionSyntheticDataset: async ({ receiptPath }) => {
+				actions.push('seed');
+				writeFileSync(receiptPath, `${JSON.stringify({
+					schemaVersion: 1, composeProject: 'faithlog-perf-198-before',
+					postgresDatabase: 'faithlog', datasetId: 'PERFORMANCE_198_FAKE', campusId: 198,
+					activeUserCount: 1000, activeMemberCount: 1000, migrationCount: 11,
+					migrationContractSha256: 'a'.repeat(64), datasetStateSha256: 'b'.repeat(64),
+					credentialRecorded: false, externalDataCopied: false, externalFcm: false,
+					automaticAdoption: false,
+				})}\n`, { flag: 'wx' });
+			},
 			prepareCanonicalFixture: async ({ manifestPath, childEnvironment }) => {
 				assert.equal(lockHeld, true);
+				assert.equal(childEnvironment.PERF_CAMPUS_ID, '198');
 				actions.push('fixture:canonical');
 				childEnvironments.push(childEnvironment);
 				mkdirSync(join(manifestPath, '..'), { recursive: true });
@@ -313,7 +326,8 @@ test('fake full run prepares once, captures once, restores before every sample, 
 		assert.equal(result.measuredCount, 10);
 		assert.equal(result.automaticAdoption, false);
 		assert.equal(lockHeld, false);
-		assert.deepEqual(actions.slice(0, 2), ['fixture:canonical', 'capture']);
+		assert.deepEqual(actions.slice(0, 3), ['seed', 'fixture:canonical', 'capture']);
+		assert.equal(actions.filter((action) => action === 'seed').length, 1);
 		assert.equal(actions.filter((action) => action === 'capture').length, 1);
 		assert.equal(actions.filter((action) => action.startsWith('restore:')).length, 11);
 		assert.equal(actions.filter((action) => action.startsWith('fixture:')).length, 1);
@@ -344,8 +358,18 @@ test('fake full run prepares once, captures once, restores before every sample, 
 					release: () => { driftLockHeld = false; },
 				};
 			},
-			baseChildEnvironment: { PATH: process.env.PATH, POSTGRES_PASSWORD: 'secret' },
+			baseChildEnvironment: {
+				PATH: process.env.PATH, POSTGRES_PASSWORD: 'secret', PERF_DATASET_ID: 'PERFORMANCE_198_FAKE',
+			},
 		}, {
+			provisionSyntheticDataset: async ({ receiptPath }) => writeFileSync(receiptPath, `${JSON.stringify({
+				schemaVersion: 1, composeProject: 'faithlog-perf-198-before',
+				postgresDatabase: 'faithlog', datasetId: 'PERFORMANCE_198_FAKE', campusId: 198,
+				activeUserCount: 1000, activeMemberCount: 1000, migrationCount: 11,
+				migrationContractSha256: 'a'.repeat(64), datasetStateSha256: 'b'.repeat(64),
+				credentialRecorded: false, externalDataCopied: false, externalFcm: false,
+				automaticAdoption: false,
+			})}\n`, { flag: 'wx' }),
 			prepareCanonicalFixture: async ({ manifestPath }) => {
 				mkdirSync(join(manifestPath, '..'), { recursive: true });
 				writeFileSync(manifestPath, `${JSON.stringify({
@@ -494,7 +518,7 @@ test('isolated schema and synthetic dataset bootstrap is mandatory before canoni
 	assert.match(seedSql, /PERFORMANCE_/);
 	assert.match(seedSql, /campus_members/);
 	assert.match(seedSql, /status[\s\S]*ACTIVE/i);
-	assert.doesNotMatch(seedSql, /user_fcm_tokens|notification_logs|firebase|fcm/i);
+	assert.doesNotMatch(seedSql, /INSERT\s+INTO\s+(?:user_fcm_tokens|notification_logs)|firebase/i);
 
 	const { validateSeedReceipt } = await importScenario('seed-contract.mjs');
 	const receipt = {

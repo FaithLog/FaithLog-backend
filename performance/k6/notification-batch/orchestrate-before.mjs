@@ -19,6 +19,7 @@ import {
 	validateSnapshotReceipt,
 	validateSnapshotSequence,
 } from './snapshot-contract.mjs';
+import { validateSeedReceipt as validateSyntheticSeedReceipt } from './seed-contract.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const SAFE_BATCH_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,30}$/;
@@ -37,6 +38,7 @@ const ALLOWED_CHILD_ENVIRONMENT = new Set([
 	'PERF_INACTIVE_COUNT', 'PERF_NO_TOKEN_COUNT', 'PERF_BUSINESS_DATE',
 	'PERF_DOCKER_STATS_SAMPLE_INTERVAL_SECONDS', 'PERF_DOCKER_STATS_MAX_GAP_MILLISECONDS',
 	'PERF_REDIS_DATABASE', 'PERF_REDIS_SNAPSHOT_DATABASE',
+	'PERF_SEED_RECEIPT_PATH',
 	'PERF_ORCHESTRATION_LOCK_RECEIPT',
 ]);
 
@@ -70,6 +72,9 @@ const runFixedNode = (scriptName, childEnvironment) => {
 };
 
 const defaultAdapters = {
+	provisionSyntheticDataset: async ({ childEnvironment }) => {
+		runFixedCommand('provision-isolated-dataset.sh', childEnvironment);
+	},
 	prepareCanonicalFixture: async ({ childEnvironment }) => {
 		runFixedCommand('prepare-fixtures.sh', childEnvironment);
 	},
@@ -172,7 +177,9 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		expectedComposeProject,
 		actualComposeProject,
 	});
-	for (const adapter of ['prepareCanonicalFixture', 'captureSnapshot', 'restoreSnapshot', 'runSample']) {
+	for (const adapter of [
+		'provisionSyntheticDataset', 'prepareCanonicalFixture', 'captureSnapshot', 'restoreSnapshot', 'runSample',
+	]) {
 		assert.equal(typeof suppliedAdapters[adapter], 'function', `${adapter} adapter is required`);
 	}
 
@@ -186,6 +193,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		resolve(reportRoot), 'fixtures', canonicalFixtureRunId, 'manifest.json',
 	);
 	const snapshotReceiptPath = join(batchRoot, 'snapshot-receipt.json');
+	const seedReceiptPath = join(batchRoot, 'seed-receipt.json');
 	const snapshotId = `${batchId}-snapshot`;
 	const plan = buildApprovedSamplePlan(batchId);
 	const restores = [];
@@ -200,7 +208,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		writeFirstRejection(rejectionPath, stage, `${stage}-failed`);
 		throw error;
 	}
-	const base = sanitizedChildEnvironment(baseChildEnvironment, {
+	let base = sanitizedChildEnvironment(baseChildEnvironment, {
 		PERF_REPORT_ROOT: resolve(reportRoot),
 		PERF_EXPECTED_COMPOSE_PROJECT: expectedComposeProject,
 		EXPECTED_WARMUP_SAMPLES: expectedWarmupSamples,
@@ -209,8 +217,22 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		...lockHandle.childEnvironment,
 	});
 
-	stage = 'canonical-fixture';
+	stage = 'synthetic-seed';
 	try {
+		await suppliedAdapters.provisionSyntheticDataset({
+			receiptPath: seedReceiptPath,
+			childEnvironment: sanitizedChildEnvironment(base, {
+				PERF_SEED_RECEIPT_PATH: seedReceiptPath,
+			}),
+		});
+		assert.ok(existsSync(seedReceiptPath), 'Synthetic seed receipt was not created');
+		const seedReceipt = validateSyntheticSeedReceipt(readJson(seedReceiptPath));
+		assert.equal(seedReceipt.composeProject, expectedComposeProject);
+		assert.equal(seedReceipt.datasetId, base.PERF_DATASET_ID);
+		const seedReceiptSha256 = sha256File(seedReceiptPath);
+		base = sanitizedChildEnvironment(base, { PERF_CAMPUS_ID: seedReceipt.campusId });
+
+		stage = 'canonical-fixture';
 		await suppliedAdapters.prepareCanonicalFixture({
 			manifestPath: canonicalManifestPath,
 			childEnvironment: sanitizedChildEnvironment(base, {
@@ -315,6 +337,8 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 			fixturePrepareCount: 1,
 			...sequence,
 			canonicalFixtureRunId,
+			seedReceiptSha256,
+			seedCampusId: seedReceipt.campusId,
 			snapshotId,
 			snapshotReceiptSha256,
 			runDirs,
