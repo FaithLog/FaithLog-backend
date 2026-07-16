@@ -133,6 +133,7 @@ docker/redis-data/
 coverage/
 htmlcov/
 test-results/
+performance/k6/issue-195/reports/
 
 # Misc local files
 *.swp

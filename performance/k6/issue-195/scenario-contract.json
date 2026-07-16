@@ -1,0 +1,107 @@
+{
+  "issue": 195,
+  "status": "scenario-ready/not-measured",
+  "dataset": {
+    "requiredActiveMembers": 1000,
+    "identifiers": ["datasetId", "fixtureRunId"],
+    "measurementIdentifiers": ["executionRunId"],
+    "pageableCampusCount": 25,
+    "activeDutyAssignments": 101
+  },
+  "endpoints": [
+    {
+      "key": "admin_users",
+      "path": "/api/v1/admin/users",
+      "authorization": "active service ADMIN",
+      "queryParameters": ["name", "email", "userId", "role", "page", "size", "sort"],
+      "cases": [
+        {
+          "key": "first_page",
+          "query": {"name": "${datasetId}", "page": 0, "size": 20, "sort": "id,asc"}
+        },
+        {
+          "key": "middle_page",
+          "query": {"name": "${datasetId}", "page": 25, "size": 20, "sort": "id,asc"}
+        },
+        {
+          "key": "large_page",
+          "query": {"name": "${datasetId}", "page": 0, "size": 100, "sort": "id,asc"}
+        },
+        {
+          "key": "role_filter",
+          "query": {"name": "${datasetId}", "role": "USER", "page": 0, "size": 20, "sort": "id,asc"}
+        },
+        {
+          "key": "search_filter",
+          "query": {"name": "${datasetId}", "email": "${datasetId}", "page": 0, "size": 20, "sort": "id,asc"}
+        }
+      ]
+    },
+    {
+      "key": "admin_campuses",
+      "path": "/api/v1/admin/campuses",
+      "authorization": "active service ADMIN",
+      "queryParameters": ["name", "region", "status", "page", "size", "sort"],
+      "cases": [
+        {
+          "key": "first_page",
+          "query": {"name": "${fixtureRunId}", "region": "${datasetId}", "status": "ACTIVE", "page": 0, "size": 20, "sort": "id,asc"}
+        },
+        {
+          "key": "middle_page",
+          "query": {"name": "${fixtureRunId}", "region": "${datasetId}", "status": "ACTIVE", "page": 1, "size": 20, "sort": "id,asc"}
+        },
+        {
+          "key": "large_page",
+          "query": {"name": "${fixtureRunId}", "region": "${datasetId}", "status": "ACTIVE", "page": 0, "size": 100, "sort": "id,asc"}
+        },
+        {
+          "key": "active_search",
+          "query": {"name": "${fixtureRunId} PRIMARY", "region": "${datasetId}", "status": "ACTIVE", "page": 0, "size": 20, "sort": "id,asc"}
+        }
+      ]
+    },
+    {
+      "key": "campus_members",
+      "path": "/api/v1/admin/campuses/{campusId}/members",
+      "authorization": "active service ADMIN or active campus MINISTER/ELDER/CAMPUS_LEADER",
+      "queryParameters": [],
+      "cases": [{"key": "full_list", "query": {}}]
+    },
+    {
+      "key": "duty_assignments",
+      "path": "/api/v1/admin/campuses/{campusId}/duty-assignments",
+      "authorization": "active service ADMIN or active campus MINISTER/ELDER/CAMPUS_LEADER",
+      "queryParameters": [],
+      "cases": [{"key": "full_list", "query": {}}]
+    }
+  ],
+  "metrics": ["p50", "p95", "p99", "max", "throughput", "failureRate", "cpuBoundarySnapshots", "memoryBoundarySnapshots"],
+  "correctness": [
+    "http200",
+    "successEnvelope",
+    "resultShape",
+    "stableOrder",
+    "pageMetadata",
+    "filterContract",
+    "exactCardinality",
+    "campusIsolation"
+  ],
+  "adoption": [
+    "approvedPublishedTargetIdentity",
+    "runtimeTargetContinuity",
+    "tokenLifetime",
+    "nonEmptyFiniteSummary",
+    "validatedBoundaryResourceSnapshots",
+    "currentDatabaseCompositeQueryDelta",
+    "queryAvailabilityContinuity",
+    "nonEmptyProductionQueryInventory",
+    "exactCaseEvidenceBinding",
+    "externalDatabaseActivity",
+    "analyzePlannerStability",
+    "tableCounterExpectationsAndInvariance",
+    "freshExecutionReportDirectory",
+    "conditionalSharedStackClassification"
+  ],
+  "expectedDatabaseTransactionsPerRequest": 2
+}
