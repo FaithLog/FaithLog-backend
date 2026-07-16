@@ -72,7 +72,7 @@ test('BASE_URL accepts only a numeric loopback target discovered from the publis
 	assert.throws(() => validateNumericLoopbackHost('localhost', 'DB_HOST'), /numeric loopback/i);
 });
 
-test('both runners require and continuously attest exact app revision, image, binary, and API contract identity', () => {
+test('both runners attest exact app source, image, binary, and API contract identity without OCI revision labels', () => {
 	const devotionRunner = readIssueFile('run-devotion-baseline.sh');
 	const retentionRunner = readIssueFile('run-retention-dry-verify.sh');
 	const identityValidator = readIssueFile('lib/validate-runtime-identity.mjs');
@@ -81,8 +81,11 @@ test('both runners require and continuously attest exact app revision, image, bi
 			assert.match(source, new RegExp(`\\b${variable}\\b`));
 		}
 		assert.match(source, /require_env "\$name"/);
-		assert.match(source, /org\.opencontainers\.image\.revision/);
-		assert.match(source, /org\.opencontainers\.image\.api-contract-sha256/);
+		assert.match(source, /APP_SOURCE_WORKTREE/);
+		assert.match(source, /source-image-provenance\.mjs/);
+		assert.match(source, /com\.docker\.compose\.project\.working_dir/);
+		assert.match(source, /docker image inspect[^\n]*\.Created/);
+		assert.doesNotMatch(source, /org\.opencontainers\.image\.(revision|api-contract-sha256)/);
 		assert.match(source, /sha256sum \/app\/app\.jar/);
 	}
 	for (const field of ['revision', 'jarSha256', 'apiContractSha256']) {

@@ -43,6 +43,7 @@ test('workload values have no defaults and missing values fail before any runner
 			FIXTURE_MANIFEST: '/tmp/not-used.json', CREDENTIALS_FILE: '/tmp/not-used-credentials.json',
 			ATTRIBUTION_SIGNATURE_FILE: '/tmp/not-used-signature.json',
 			APP_CONTAINER: 'not-used-app', DB_CONTAINER: 'not-used-db', REDIS_CONTAINER: 'not-used-redis',
+			APP_SOURCE_WORKTREE: REPO_ROOT,
 			EXPECTED_COMPOSE_PROJECT: 'not-used-project', EXPECTED_APP_COMPOSE_SERVICE: 'not-used-app-service', EXPECTED_DB_COMPOSE_SERVICE: 'not-used-db-service',
 			EXPECTED_REDIS_COMPOSE_SERVICE: 'not-used-redis-service',
 			EXPECTED_APP_REVISION: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
@@ -983,7 +984,11 @@ function createRunnerHarness() {
 	const fakeBin = path.join(temporaryDirectory, 'bin');
 	const fakeLog = path.join(temporaryDirectory, 'commands.log');
 	const composeProject = `faithlog-perf-197-contract-${process.pid}-${path.basename(temporaryDirectory).replace(/[^A-Za-z0-9._-]/g, '-')}`;
+	const sourceWorktree = path.join(temporaryDirectory, 'source-worktree');
+	const apiTreeInventory = '100644 blob 1111111111111111111111111111111111111111\tsrc/main/java/com/faithlog/faithlog/domain/devotion/DevotionService.java';
+	const apiContractSha256 = createHash('sha256').update(`${apiTreeInventory}\n`).digest('hex');
 	fs.mkdirSync(fakeBin);
+	fs.mkdirSync(sourceWorktree);
 	const manifest = devotionManifest();
 	const manifestPath = writeJson(temporaryDirectory, 'devotion-manifest.json', manifest);
 	const credentialsPath = writeJson(temporaryDirectory, 'devotion-credentials.json', devotionCredentials(manifest, Math.floor(Date.now() / 1000) + 3600));
@@ -1021,12 +1026,20 @@ exec ${shellQuote(process.execPath)} "$@"
 printf 'k6:%s\n' "$*" >> "$FAKE_LOG"
 exit 1
 `);
+fs.writeFileSync(path.join(fakeBin, 'git'), `#!/usr/bin/env bash
+if [[ "$*" == *" status --porcelain=v1 --untracked-files=all"* ]]; then exit 0; fi
+if [[ "$*" == *" symbolic-ref -q HEAD"* ]]; then exit 1; fi
+if [[ "$*" == *" rev-parse HEAD"* ]]; then printf '%s\n' "$EXPECTED_APP_REVISION"; exit 0; fi
+if [[ "$*" == *" reflog --date=iso-strict"* ]]; then printf '2026-07-16T04:20:28.000Z\tcheckout: moving from develop to 6796ed1\n'; exit 0; fi
+if [[ "$*" == *" ls-tree -r "* ]]; then printf '%s\n' "$FAKE_API_TREE_INVENTORY"; exit 0; fi
+exit 1
+`);
 fs.writeFileSync(path.join(fakeBin, 'docker'), `#!/usr/bin/env bash
 printf 'docker:%s\n' "$*" >> "$FAKE_LOG"
+if [[ "\${1:-}" == image && "\${2:-}" == inspect ]]; then printf '2026-07-16T04:22:48.810Z\n'; exit 0; fi
 if [[ "\${1:-}" == inspect ]]; then
 	target="\${@: -1}"
-  if [[ "$*" == *org.opencontainers.image.revision* ]]; then printf '%s\n' "$EXPECTED_APP_REVISION";
-	elif [[ "$*" == *org.opencontainers.image.api-contract-sha256* ]]; then printf '%s\n' "$EXPECTED_API_CONTRACT_SHA256";
+  if [[ "$*" == *com.docker.compose.project.working_dir* ]]; then printf '%s\n' "$APP_SOURCE_WORKTREE";
 	elif [[ "$*" == *com.docker.compose.project* ]]; then printf '%s\n' "$FAKE_COMPOSE_PROJECT";
   elif [[ "$*" == *com.docker.compose.service* ]]; then
 	  if [[ "$target" == "$FAKE_APP_CONTAINER" ]]; then printf '%s\n' "$FAKE_APP_SERVICE";
@@ -1071,10 +1084,11 @@ if [[ "\${1:-}" == exec ]]; then
 fi
 exit 1
 `);
-	for (const name of ['node', 'k6', 'docker']) fs.chmodSync(path.join(fakeBin, name), 0o755);
+	for (const name of ['node', 'k6', 'git', 'docker']) fs.chmodSync(path.join(fakeBin, name), 0o755);
 
 	const baseEnvironment = {
 		...process.env, PATH: `${fakeBin}:${process.env.PATH}`, FAKE_LOG: fakeLog, FAKE_COMPOSE_PROJECT: composeProject,
+		FAKE_API_TREE_INVENTORY: apiTreeInventory, APP_SOURCE_WORKTREE: sourceWorktree,
 		FAKE_APP_CONTAINER: 'contract-app', FAKE_DB_CONTAINER: 'contract-postgres', FAKE_REDIS_CONTAINER: 'contract-redis',
 		FAKE_APP_SERVICE: 'contract-app-service', FAKE_DB_SERVICE: 'contract-db-service', FAKE_REDIS_SERVICE: 'contract-redis-service',
 		FAKE_APP_CONTAINER_ID: APP_CONTAINER_ID, FAKE_DB_CONTAINER_ID: DB_CONTAINER_ID,
@@ -1088,7 +1102,7 @@ exit 1
 		EXPECTED_APP_REVISION: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
 		EXPECTED_APP_IMAGE_ID: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 		EXPECTED_APP_JAR_SHA256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-		EXPECTED_API_CONTRACT_SHA256: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+		EXPECTED_API_CONTRACT_SHA256: apiContractSha256,
 		EXPECTED_DB_IMAGE_ID: `sha256:${'4'.repeat(64)}`, EXPECTED_REDIS_IMAGE_ID: `sha256:${'5'.repeat(64)}`,
 		EXPECTED_FLYWAY_VERSION: '11', EXPECTED_FLYWAY_SCRIPT: 'V11__secure_supabase_data_api.sql', EXPECTED_FLYWAY_CHECKSUM: '-123456789',
 		DB_HOST: '127.0.0.1', REDIS_HOST: '127.0.0.1',

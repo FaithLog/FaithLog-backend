@@ -6,6 +6,7 @@ REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)"
 LOCK_DIR=''
 LOCK_OWNED='false'
 STATS_PID=''
+PROVENANCE_TMP=''
 CURRENT_STAGE='bootstrap'
 cd "$REPO_ROOT"
 
@@ -26,6 +27,10 @@ release_lock() {
 	if [[ "$LOCK_OWNED" == 'true' && -n "$LOCK_DIR" ]]; then
 		rmdir "$LOCK_DIR" 2>/dev/null || true
 		LOCK_OWNED='false'
+	fi
+	if [[ -n "$PROVENANCE_TMP" ]]; then
+		rm -f "$PROVENANCE_TMP"
+		PROVENANCE_TMP=''
 	fi
 }
 
@@ -50,7 +55,7 @@ node "$SCRIPT_DIR/lib/rejection-contract.mjs" prepare "$REJECTION_EVIDENCE_FILE"
 
 CURRENT_STAGE='runtime-input'
 for name in \
-	FIXTURE_MANIFEST CREDENTIALS_FILE ATTRIBUTION_SIGNATURE_FILE APP_CONTAINER DB_CONTAINER REDIS_CONTAINER \
+	FIXTURE_MANIFEST CREDENTIALS_FILE ATTRIBUTION_SIGNATURE_FILE APP_CONTAINER DB_CONTAINER REDIS_CONTAINER APP_SOURCE_WORKTREE \
 	EXPECTED_COMPOSE_PROJECT EXPECTED_APP_COMPOSE_SERVICE EXPECTED_DB_COMPOSE_SERVICE EXPECTED_REDIS_COMPOSE_SERVICE DB_NAME DB_USER BASE_URL \
 	EXPECTED_APP_REVISION EXPECTED_APP_IMAGE_ID EXPECTED_APP_JAR_SHA256 EXPECTED_API_CONTRACT_SHA256 \
 	EXPECTED_DB_IMAGE_ID EXPECTED_REDIS_IMAGE_ID EXPECTED_FLYWAY_VERSION EXPECTED_FLYWAY_SCRIPT EXPECTED_FLYWAY_CHECKSUM \
@@ -61,6 +66,8 @@ for name in \
 	EXTERNAL_ACTIVITY; do
 	require_env "$name"
 done
+credentials_file="$CREDENTIALS_FILE"
+unset CREDENTIALS_FILE
 
 if [[ "$EXTERNAL_ACTIVITY" != 'none' ]]; then
 	printf 'EXTERNAL_ACTIVITY must be exactly none before any Issue #197 write.\n' >&2
@@ -81,8 +88,8 @@ node "$SCRIPT_DIR/lib/validate-resource-window.mjs" validate-settings \
 node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-host "$DB_HOST" DB_HOST >/dev/null
 node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-host "$REDIS_HOST" REDIS_HOST >/dev/null
 
-node "$SCRIPT_DIR/lib/fixture-contract.mjs" validate-devotion "$FIXTURE_MANIFEST" "$CREDENTIALS_FILE" >/dev/null
-node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-run "$FIXTURE_MANIFEST" "$CREDENTIALS_FILE" >/dev/null
+node "$SCRIPT_DIR/lib/fixture-contract.mjs" validate-devotion "$FIXTURE_MANIFEST" "$credentials_file" >/dev/null
+node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-run "$FIXTURE_MANIFEST" "$credentials_file" >/dev/null
 node "$SCRIPT_DIR/lib/validate-activity-attribution.mjs" validate-signature \
 	"$ATTRIBUTION_SIGNATURE_FILE" "$FIXTURE_MANIFEST" "$DB_NAME" >/dev/null
 
@@ -92,8 +99,8 @@ app_compose_service="$(docker inspect --format '{{ index .Config.Labels "com.doc
 app_container_id="$(docker inspect --format '{{.Id}}' "$APP_CONTAINER")"
 app_image_id="$(docker inspect --format '{{.Image}}' "$APP_CONTAINER")"
 app_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$APP_CONTAINER")"
-app_revision="$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$APP_CONTAINER")"
-app_api_contract_sha256="$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.api-contract-sha256" }}' "$APP_CONTAINER")"
+app_compose_working_dir="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$APP_CONTAINER")"
+app_image_created_at="$(docker image inspect --format '{{.Created}}' "$app_image_id")"
 app_jar_sha256="$(docker exec "$APP_CONTAINER" sha256sum /app/app.jar | awk '{print $1}')"
 db_compose_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$DB_CONTAINER")"
 db_compose_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$DB_CONTAINER")"
@@ -109,7 +116,7 @@ app_published_port="$(docker inspect --format '{{with (index .NetworkSettings.Po
 
 for label_value in \
 	"$app_compose_project" "$app_compose_service" "$app_container_id" "$app_image_id" "$app_started_at" \
-	"$app_revision" "$app_api_contract_sha256" "$app_jar_sha256" \
+	"$app_compose_working_dir" "$app_image_created_at" "$app_jar_sha256" \
 	"$db_compose_project" "$db_compose_service" "$db_container_id" "$db_image_id" "$db_started_at" \
 	"$redis_compose_project" "$redis_compose_service" "$redis_container_id" "$redis_image_id" "$redis_started_at"; do
 	if [[ -z "$label_value" ]]; then
@@ -136,9 +143,13 @@ if [[ ! "$app_compose_project" =~ ^[A-Za-z0-9._-]+$ ]]; then
 	printf 'Unsafe Compose project label for performance runner lock: %s\n' "$app_compose_project" >&2
 	exit 1
 fi
+PROVENANCE_TMP="$(mktemp /tmp/faithlog-197-source-provenance.XXXXXX)"
+node "$SCRIPT_DIR/lib/source-image-provenance.mjs" capture \
+	"$APP_SOURCE_WORKTREE" "$app_compose_working_dir" "$EXPECTED_APP_REVISION" "$app_image_id" \
+	"$app_image_created_at" "$EXPECTED_API_CONTRACT_SHA256" "$PROVENANCE_TMP"
 node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-app-identity \
 	"$EXPECTED_APP_REVISION" "$EXPECTED_APP_IMAGE_ID" "$EXPECTED_APP_JAR_SHA256" "$EXPECTED_API_CONTRACT_SHA256" \
-	"$app_revision" "$app_image_id" "$app_jar_sha256" "$app_api_contract_sha256" >/dev/null
+	"$EXPECTED_APP_REVISION" "$app_image_id" "$app_jar_sha256" "$EXPECTED_API_CONTRACT_SHA256" >/dev/null
 node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-target "$BASE_URL" "$app_published_port" >/dev/null
 
 CURRENT_STAGE='lock'
@@ -178,8 +189,14 @@ measured_user_ids="$(node "$SCRIPT_DIR/lib/fixture-contract.mjs" cohort-ids "$FI
 rollback_user_ids="$(node "$SCRIPT_DIR/lib/fixture-contract.mjs" cohort-ids "$FIXTURE_MANIFEST" rollback)"
 warmup_user_count="$(node -e 'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(m.warmupUserIds.length));' "$FIXTURE_MANIFEST")"
 rollback_user_count="$(node -e 'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(m.rollbackUserIds.length));' "$FIXTURE_MANIFEST")"
-report_root="build/reports/k6/issue-197/$fixture_run_id/devotion"
-mkdir -p "$report_root"
+fixture_report_root="build/reports/k6/issue-197/$fixture_run_id"
+mkdir -p build/reports/k6/issue-197
+if ! mkdir -m 700 "$fixture_report_root" 2>/dev/null; then
+	printf 'Fixture report namespace already exists; fresh fixtureRunId is required: %s\n' "$fixture_report_root" >&2
+	exit 1
+fi
+report_root="$fixture_report_root/devotion"
+mkdir -m 700 "$report_root"
 frozen_signature_file="$report_root/approved-activity-signature.json"
 frozen_signature_sha256="$(node "$SCRIPT_DIR/lib/validate-activity-attribution.mjs" freeze-signature \
 	"$ATTRIBUTION_SIGNATURE_FILE" "$FIXTURE_MANIFEST" "$DB_NAME" "$frozen_signature_file")"
@@ -194,8 +211,8 @@ capture_runtime_identity() {
 	local db_server_file="${output_file%.json}-database-server.json"
 	local redis_server_file="${output_file%.json}-redis-server.txt"
 	local current_app_container_id current_app_image_id current_app_started_at
-	local current_app_revision current_app_jar_sha256 current_app_api_contract_sha256
-	local current_app_project current_app_service current_app_port
+	local current_app_jar_sha256 current_app_project current_app_service current_app_port
+	local current_app_compose_working_dir current_app_image_created_at source_provenance_file
 	local current_db_container_id current_db_image_id current_db_started_at
 	local current_db_project current_db_service
 	local current_redis_container_id current_redis_image_id current_redis_started_at
@@ -203,8 +220,8 @@ capture_runtime_identity() {
 	current_app_container_id="$(docker inspect --format '{{.Id}}' "$APP_CONTAINER")"
 	current_app_image_id="$(docker inspect --format '{{.Image}}' "$APP_CONTAINER")"
 	current_app_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$APP_CONTAINER")"
-	current_app_revision="$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$APP_CONTAINER")"
-	current_app_api_contract_sha256="$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.api-contract-sha256" }}' "$APP_CONTAINER")"
+	current_app_compose_working_dir="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$APP_CONTAINER")"
+	current_app_image_created_at="$(docker image inspect --format '{{.Created}}' "$current_app_image_id")"
 	current_app_jar_sha256="$(docker exec "$APP_CONTAINER" sha256sum /app/app.jar | awk '{print $1}')"
 	current_app_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$APP_CONTAINER")"
 	current_app_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$APP_CONTAINER")"
@@ -219,13 +236,17 @@ capture_runtime_identity() {
 	current_redis_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$REDIS_CONTAINER")"
 	current_redis_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$REDIS_CONTAINER")"
 	current_redis_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$REDIS_CONTAINER")"
+	source_provenance_file="${output_file%.json}-source-image-provenance.json"
+	node "$SCRIPT_DIR/lib/source-image-provenance.mjs" capture \
+		"$APP_SOURCE_WORKTREE" "$current_app_compose_working_dir" "$EXPECTED_APP_REVISION" "$current_app_image_id" \
+		"$current_app_image_created_at" "$EXPECTED_API_CONTRACT_SHA256" "$source_provenance_file"
 	node "$SCRIPT_DIR/lib/runtime-contract.mjs" validate-app-identity \
 		"$EXPECTED_APP_REVISION" "$EXPECTED_APP_IMAGE_ID" "$EXPECTED_APP_JAR_SHA256" "$EXPECTED_API_CONTRACT_SHA256" \
-		"$current_app_revision" "$current_app_image_id" "$current_app_jar_sha256" "$current_app_api_contract_sha256" >/dev/null
+		"$EXPECTED_APP_REVISION" "$current_app_image_id" "$current_app_jar_sha256" "$EXPECTED_API_CONTRACT_SHA256" >/dev/null
 	if [[ "$checkpoint" == 'initial' && ( \
 		"$current_app_container_id" != "$app_container_id" || "$current_app_image_id" != "$app_image_id" || \
-		"$current_app_started_at" != "$app_started_at" || "$current_app_revision" != "$app_revision" || \
-		"$current_app_jar_sha256" != "$app_jar_sha256" || "$current_app_api_contract_sha256" != "$app_api_contract_sha256" || \
+		"$current_app_started_at" != "$app_started_at" || "$current_app_compose_working_dir" != "$app_compose_working_dir" || \
+		"$current_app_image_created_at" != "$app_image_created_at" || "$current_app_jar_sha256" != "$app_jar_sha256" || \
 		"$current_app_project" != "$app_compose_project" || "$current_app_service" != "$app_compose_service" || \
 		"$current_app_port" != "$app_published_port" || "$current_db_container_id" != "$db_container_id" || \
 		"$current_db_image_id" != "$db_image_id" || "$current_db_started_at" != "$db_started_at" || \
@@ -241,7 +262,7 @@ capture_runtime_identity() {
 	docker exec "$REDIS_CONTAINER" redis-cli -h "$REDIS_HOST" -p "$EXPECTED_REDIS_PORT" --raw INFO server >"$redis_server_file"
 	APP_CONTAINER_ID="$current_app_container_id" APP_IMAGE_ID="$current_app_image_id" APP_STARTED_AT="$current_app_started_at" \
 	APP_COMPOSE_PROJECT="$current_app_project" APP_COMPOSE_SERVICE="$current_app_service" APP_PUBLISHED_PORT="$current_app_port" \
-	APP_REVISION="$current_app_revision" APP_JAR_SHA256="$current_app_jar_sha256" APP_API_CONTRACT_SHA256="$current_app_api_contract_sha256" \
+	APP_REVISION="$EXPECTED_APP_REVISION" APP_JAR_SHA256="$current_app_jar_sha256" APP_API_CONTRACT_SHA256="$EXPECTED_API_CONTRACT_SHA256" \
 	DB_CONTAINER_ID="$current_db_container_id" DB_IMAGE_ID="$current_db_image_id" DB_STARTED_AT="$current_db_started_at" \
 	DB_COMPOSE_PROJECT="$current_db_project" DB_COMPOSE_SERVICE="$current_db_service" \
 	REDIS_CONTAINER_ID="$current_redis_container_id" REDIS_IMAGE_ID="$current_redis_image_id" REDIS_STARTED_AT="$current_redis_started_at" \
@@ -327,7 +348,7 @@ run_phase() {
 	local vus="$2"
 	local max_duration="$3"
 	local summary_file="$4"
-	BASE_URL="$BASE_URL" FIXTURE_MANIFEST="$FIXTURE_MANIFEST" CREDENTIALS_FILE="$CREDENTIALS_FILE" \
+	BASE_URL="$BASE_URL" FIXTURE_MANIFEST="$FIXTURE_MANIFEST" CREDENTIALS_FILE="$credentials_file" \
 		PHASE="$phase" VUS="$vus" MAX_DURATION="$max_duration" \
 		k6 run --summary-export "$summary_file" "$SCRIPT_DIR/devotion-write.js"
 }
