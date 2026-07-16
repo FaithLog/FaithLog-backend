@@ -23,9 +23,50 @@ The member and duty endpoints are intentionally not given invented pagination. R
 - #202 enables RLS but `FORCE ROW LEVEL SECURITY` is not used. The owner JDBC path is therefore expected to remain unaffected, but its exact runtime identity and continuity still require the future authorized measurement; this scenario-only session does not verify or claim a DB result.
 - #206 adds a billing paging tie-break and is not applicable to these member/campus APIs. Admin cases request explicit `id,asc`; campus member and duty repositories return their own IDs in ascending order.
 
+## Fresh Dataset Provisioning
+
+Issue #195 cannot reuse the Issue #192 dataset: that namespace contains 999 ACTIVE `USER` rows plus one service `ADMIN`, while this scenario requires exactly 1,000 ACTIVE service-role `USER` rows and excludes the runtime admin. `provision-dataset.mjs` therefore reserves a fresh report namespace first, takes the actual Compose-project common performance lock, exact-checks full app/PostgreSQL/Redis container IDs, images, `StartedAt`, labels and the app published endpoint before and after the lock, then creates exactly 1,000 users through `POST /api/v1/auth/signup`. It re-reads all 1,000 rows through the admin list/detail APIs and accepts only unique, ACTIVE `USER` rows whose name and email both contain the dataset ID. It performs no update, role change, delete, cleanup, or retry of an occupied ID.
+
+The current fresh handoff candidates are:
+
+- `PERF_DATASET_ID=PERF_1000_20260716_195_A`
+- `PERF_FIXTURE_RUN_ID=ISSUE195_BEFORE_20260716_A`
+- `PERF_EXECUTION_RUN_ID=EXEC195_BEFORE_20260716_A`
+- report reservation: `performance/k6/issue-195/reports/PERF_1000_20260716_195_A/_provisioning/`
+
+The source input is exactly `6796ed146244d8f3f5b5dd7048ebe16865084a97`. Operational provenance is the clean detached checkout `/private/tmp/FaithLog-perf-206-deploy` at that commit and an app image created after the checkout. The current handoff identities are app container `a7df78b330f457a7fd60a9531362d0f1f063ae7aa6cae5f2d996eb8cb51fe79d` / image `sha256:8e0f8d85d697a7d34aabf3703ddb27b4f1af326dec4f7c35556986303b0b816c`, PostgreSQL container `81aa74ca1b491b45eb691b3d65de9e42eb47ef64a6bcb961d0b627b030139ae9` / image `sha256:48d29282d2b43c402465c28f8572021b59aaf43574056faaad2fd7bb85ffdd4e`, and Redis container `4109f6525948d12d1e5377fb6160c8955f6c3fcd7816e02786b2dd8031e23de9` / image `sha256:80dd823f4d2bf93dd5e418a0ae2817319a1ba279953e234082e54a5a18306223`. The app image has no OCI revision label or `git.properties`, so image-alone cryptographic source proof is unavailable; this approved operational bind is recorded as a limitation, not a new blocker. PM must still re-read the full identities, actual Compose service labels, and `http://127.0.0.1:28080` binding immediately before execution.
+
+All values below are runtime-required; none has a script fallback. Passwords remain in memory/environment only and must not be placed in shell history, argv, reports, or committed files.
+
+```bash
+BASE_URL=http://127.0.0.1:28080 \
+PERF_ADMIN_EMAIL=<runtime-only-admin-email> \
+PERF_ADMIN_PASSWORD=<runtime-only-admin-password> \
+PERF_DATASET_MEMBER_PASSWORD=<runtime-only-member-password> \
+PERF_DATASET_ID=PERF_1000_20260716_195_A \
+PERF_SOURCE_COMMIT=6796ed146244d8f3f5b5dd7048ebe16865084a97 \
+PERF_REPORT_ROOT=performance/k6/issue-195/reports \
+APP_CONTAINER_ID=<reverified-full-app-container-id> \
+EXPECTED_APP_COMPOSE_SERVICE=<reverified-app-service> \
+EXPECTED_APP_IMAGE_ID=<reverified-full-app-image-id> \
+POSTGRES_CONTAINER_ID=<reverified-full-postgres-container-id> \
+EXPECTED_POSTGRES_COMPOSE_SERVICE=<reverified-postgres-service> \
+EXPECTED_POSTGRES_IMAGE_ID=<reverified-full-postgres-image-id> \
+REDIS_CONTAINER_ID=<reverified-full-redis-container-id> \
+EXPECTED_REDIS_COMPOSE_SERVICE=<reverified-redis-service> \
+EXPECTED_REDIS_IMAGE_ID=<reverified-full-redis-image-id> \
+EXPECTED_ACTIVE_MEMBERS=1000 \
+TOKEN_SAFETY_MARGIN_SECONDS=120 \
+node performance/k6/issue-195/provision-dataset.mjs
+```
+
+The preflight token is not reused after the potentially long signup loop. Immediately after the 1,000th signup, provisioning logs in again, decodes the in-memory JWT `exp`, and requires at least runtime `TOKEN_SAFETY_MARGIN_SECONDS` remaining before verification. It rechecks before every verification page/detail request (therefore at least every 100-user chunk) and logs in again only when the remaining lifetime falls below the margin. Token and expiry values are never persisted; the manifest records only `verificationTokenRefreshCount`.
+
+Any failure writes the first secret-free `first-rejection.json`, marks the dataset ID non-reusable, preserves every additive row, and releases the common lock. Post-signup login failure is `verification-login`; insufficient or malformed fresh-token lifetime is `verification-token`. There is no automatic cleanup. A partial or colliding attempt requires brand-new dataset, fixture, and execution IDs.
+
 ## Fixture Contract
 
-`PERF_DATASET_ID` identifies the existing common PERFORMANCE user dataset. `PERF_FIXTURE_RUN_ID` identifies only the additive Issue #195 relationship fixture. They are never interchangeable. Preparation stops unless the dataset search resolves to exactly 1,000 users, every user is ACTIVE with service role `USER`, every name/email contains `datasetId`, and the runtime service admin is outside that dataset. Before login or mutation, fixture preparation requires `BASE_URL` plus app/PostgreSQL/Redis container identities, compares their actual Compose services and images with the runtime-approved values, and requires the URL origin to match exactly one published app-container port. It then holds the same `/tmp/faithlog-performance-{composeProject}.lock` used by measurement.
+`PERF_DATASET_ID` identifies the freshly provisioned PERFORMANCE user dataset. `PERF_FIXTURE_RUN_ID` identifies only the additive Issue #195 relationship fixture. They are never interchangeable. Preparation stops unless the dataset search resolves to exactly 1,000 users, every user is ACTIVE with service role `USER`, every name/email contains `datasetId`, and the runtime service admin is outside that dataset. Before login or mutation, fixture preparation requires `BASE_URL` plus app/PostgreSQL/Redis container identities, compares their actual Compose services and images with the runtime-approved values, and requires the URL origin to match exactly one published app-container port. It then holds the same `/tmp/faithlog-performance-{composeProject}.lock` used by measurement.
 
 The preparation script requires a fresh `ISSUE195_*` run ID and exact runtime-approved source commit, app/PostgreSQL/Redis Compose services, immutable image IDs, and fixture cardinalities. It captures all three containers' immutable identities before the common lock, rechecks them after the lock before login or mutation, and checks them again before writing the manifest. There is no target, image, credential, or cardinality fallback. It creates:
 
@@ -46,24 +87,24 @@ PERF_DATASET_ID=PERF_1000_YYYYMMDD_A \
 PERF_FIXTURE_RUN_ID=ISSUE195_YYYYMMDD_A \
 PERF_SOURCE_COMMIT=approved-origin-develop-commit \
 APP_CONTAINER_ID=actual-app-container-id \
-EXPECTED_APP_COMPOSE_SERVICE=user-approved-app-service \
-EXPECTED_APP_IMAGE_ID=user-approved-full-app-image-id \
+EXPECTED_APP_COMPOSE_SERVICE=runtime-verified-app-service \
+EXPECTED_APP_IMAGE_ID=runtime-verified-full-app-image-id \
 POSTGRES_CONTAINER_ID=actual-postgres-container-id \
-EXPECTED_POSTGRES_COMPOSE_SERVICE=user-approved-postgres-service \
-EXPECTED_POSTGRES_IMAGE_ID=user-approved-full-postgres-image-id \
+EXPECTED_POSTGRES_COMPOSE_SERVICE=runtime-verified-postgres-service \
+EXPECTED_POSTGRES_IMAGE_ID=runtime-verified-full-postgres-image-id \
 REDIS_CONTAINER_ID=actual-redis-container-id \
-EXPECTED_REDIS_COMPOSE_SERVICE=user-approved-redis-service \
-EXPECTED_REDIS_IMAGE_ID=user-approved-full-redis-image-id \
+EXPECTED_REDIS_COMPOSE_SERVICE=runtime-verified-redis-service \
+EXPECTED_REDIS_IMAGE_ID=runtime-verified-full-redis-image-id \
 EXPECTED_ACTIVE_MEMBERS=1000 \
 EXPECTED_DUTY_ASSIGNMENTS=101 \
 node performance/k6/issue-195/prepare-fixture.mjs
 ```
 
-Do not run this command until the PM integration session authorizes the shared Docker/DB measurement stage.
+This development session does not run the command. Once the concurrently active #192 analysis/load slot is clear and every runtime gate is reverified, the PM may run provisioning, fixture preparation, and load sequentially without another user approval.
 
 ## Independent Cases
 
-Each case below uses separate warmup and measured k6 processes. The operator must supply user-approved `WARMUP_VUS`, `WARMUP_DURATION`, `MEASURED_VUS`, and `MEASURED_DURATION`; there are no load defaults or latency thresholds. `MAX_FAILURE_RATE` is also runtime-required and the current exact correctness gate accepts only the explicitly supplied value `0`. The runner executes every process sequentially under the Compose-project common performance lock; another load test or fixture mutation must not run in parallel.
+Each case below uses separate warmup and measured k6 processes. The operator must supply `WARMUP_VUS`, `WARMUP_DURATION`, `MEASURED_VUS`, and `MEASURED_DURATION` as no-default runtime inputs; there are no load defaults or latency thresholds. `MAX_FAILURE_RATE` is also runtime-required and the current exact correctness gate accepts only the explicitly supplied value `0`. The runner executes every process sequentially under the Compose-project common performance lock; another load test or fixture mutation must not run in parallel.
 
 - `admin_users`: first page (`page=0,size=20`), middle page (`page=25,size=20`), large page (`page=0,size=100`), `role=USER`, and dataset name+email search.
 - `admin_campuses`: first page (`page=0,size=20`), middle page (`page=1,size=20`), large page (`page=0,size=100`), and exact ACTIVE primary-campus search. Every case is isolated by `fixtureRunId` and `datasetId`.
@@ -100,33 +141,43 @@ CAMPUS_ID=primary-campus-id \
 ISOLATION_CAMPUS_ID=isolation-campus-id \
 ISOLATION_USER_ID=isolation-user-id \
 APP_CONTAINER_ID=actual-app-container-id \
-EXPECTED_APP_COMPOSE_SERVICE=user-approved-app-service \
-EXPECTED_APP_IMAGE_ID=user-approved-full-app-image-id \
+EXPECTED_APP_COMPOSE_SERVICE=runtime-verified-app-service \
+EXPECTED_APP_IMAGE_ID=runtime-verified-full-app-image-id \
 POSTGRES_CONTAINER_ID=actual-postgres-container-id \
-EXPECTED_POSTGRES_COMPOSE_SERVICE=user-approved-postgres-service \
-EXPECTED_POSTGRES_IMAGE_ID=user-approved-full-postgres-image-id \
+EXPECTED_POSTGRES_COMPOSE_SERVICE=runtime-verified-postgres-service \
+EXPECTED_POSTGRES_IMAGE_ID=runtime-verified-full-postgres-image-id \
 REDIS_CONTAINER_ID=actual-redis-container-id \
-EXPECTED_REDIS_COMPOSE_SERVICE=user-approved-redis-service \
-EXPECTED_REDIS_IMAGE_ID=user-approved-full-redis-image-id \
+EXPECTED_REDIS_COMPOSE_SERVICE=runtime-verified-redis-service \
+EXPECTED_REDIS_IMAGE_ID=runtime-verified-full-redis-image-id \
 POSTGRES_USER=runtime-only-user \
 POSTGRES_DB=runtime-only-db \
 POSTGRES_PASSWORD=runtime-only-secret \
-WARMUP_VUS=user-approved-value \
-WARMUP_DURATION=user-approved-value \
-MEASURED_VUS=user-approved-value \
-MEASURED_DURATION=user-approved-value \
+WARMUP_VUS=no-default-runtime-value \
+WARMUP_DURATION=no-default-runtime-value \
+MEASURED_VUS=no-default-runtime-value \
+MEASURED_DURATION=no-default-runtime-value \
 MAX_FAILURE_RATE=0 \
-TOKEN_SAFETY_MARGIN_SECONDS=user-approved-seconds \
+TOKEN_SAFETY_MARGIN_SECONDS=no-default-runtime-seconds \
 EXPECTED_ACTIVE_MEMBERS=1000 \
 EXPECTED_DUTY_ASSIGNMENTS=101 \
-RESOURCE_BOUNDARY_MAX_GAP_SECONDS=user-approved-seconds \
-K6_BIN=user-approved-k6-binary \
+RESOURCE_BOUNDARY_MAX_GAP_SECONDS=no-default-runtime-seconds \
+K6_BIN=no-default-runtime-k6-binary \
 performance/k6/issue-195/run-baseline.sh
 ```
 
+### Exact PM handoff sequence
+
+1. Re-read source checkout cleanliness, full app/PostgreSQL/Redis identities, actual service labels, published endpoint, PostgreSQL server/postmaster identity, candidate DB namespace count `0`, and all three report paths. Stop before login if any value differs.
+2. Run `provision-dataset.mjs` with the fresh dataset ID. Expected minimum API calls are 2 namespace reads, 2 logins (preflight and mandatory post-signup refresh), 1 `/me`, 1,000 signup mutations, 10 verification pages, and 1,000 detail reads: 2,015 calls, plus only the conditional token refreshes required by the runtime margin. Login may update the existing admin's last-login/session state; the only dataset business writes are 1,000 new ACTIVE `USER` rows. No existing dataset row is updated or deleted.
+3. Remove `PERF_DATASET_MEMBER_PASSWORD` from the environment and run `prepare-fixture.mjs` with `PERF_FIXTURE_RUN_ID=ISSUE195_BEFORE_20260716_A`. It performs 1,126 additive mutation requests: 25 campus creates, 1,000 explicit membership adds, and 101 duty assignments. Expected new business rows are 25 campuses, 1,025 memberships including the automatic creator memberships, and 101 duties. Its full API flow is 2,141 calls including login, preflight, dataset pages/details, and final correctness reads.
+4. Read `fixture-manifest.json`; pass its primary campus, isolation campus, and isolation user IDs exactly as `CAMPUS_ID`, `ISOLATION_CAMPUS_ID`, and `ISOLATION_USER_ID`. Remove the member password from the runner environment. Run `run-baseline.sh` with `PERF_EXECUTION_RUN_ID=EXEC195_BEFORE_20260716_A` and the remaining required API/DB/runtime inputs.
+5. The current recommended handoff values are `WARMUP_VUS=1`, `WARMUP_DURATION=30s`, `MEASURED_VUS=10`, `MEASURED_DURATION=2m`, `MAX_FAILURE_RATE=0`, `TOKEN_SAFETY_MARGIN_SECONDS=120`, and `RESOURCE_BOUNDARY_MAX_GAP_SECONDS=10`. They are recommendations, not hard-coded defaults or already measured/approved results; PM supplies them explicitly at runtime under the user's automatic sequential-load decision. `K6_BIN`, service labels, API/DB credentials, and all reverified immutable identities remain required inputs.
+
+The 22 k6 processes have exactly 27 minutes 30 seconds of configured load time. Planning allowance, not a measured result, is 15–30 minutes for at least 2,015 serial provisioning calls (including 1,000 BCrypt signups), 20–45 minutes for fixture creation/verification, and 10–25 minutes for per-case login/evidence/validation around k6, for roughly 75–130 minutes end to end. Stop at the first lock, source/target/runtime identity, credential, collision, partial-write, cardinality, ADMIN/inactive/duplicate, token-lifetime, summary, correctness, DB/query/table, resource cadence, or first-rejection gate failure. Preserve all evidence and additive rows; do not cleanup or continue to the next phase.
+
 Reports are written below the ignored path `performance/k6/issue-195/reports/{datasetId}/{fixtureRunId}/{executionRunId}/`. `PERF_EXECUTION_RUN_ID` must be a fresh `EXEC195_*` identifier; the runner atomically creates its directory and refuses every existing directory instead of overwriting or appending stale evidence. Keep separate warmup/measured summaries and normalized evidence-validator records, case windows, CPU/RAM snapshots, target/Compose identity, run metadata, and per-case DB evidence together. Passing an individual evidence validator means only that evidence file is structurally consistent. Boundary activity evidence and a cooperative lock cannot prove the absence of transient frontend/QA/CPU-only shared-stack load, so the final `measurement-classification.json` is fixed to `conditional-not-adoptable` with `automaticAdoption=false`; the runner writes it and exits non-zero. A future automatically adoptable mode requires a separate user-approved exclusive/continuous provenance contract and is not selected here. Do not commit credentials, tokens, raw environment dumps, or report files.
 
-Authoring verification: the first PM-finding contract failed `6/8` before passing `8/8`; the second PM test-only RED was `8 pass / 5 fail` before `13/13`. Subsequent PM audits expanded strict target/token/query/activity/summary/report/table/runtime/resource contracts through `35/35`. The current-develop drift contract then failed `1/1` before `36/36`. The final common integrity audit preserved those 36 contracts and failed all five new source/image/workload, Redis continuity, Rate observation math, full-resource cadence, and first-rejection contracts before `41/41`. Self-review then reproduced two remaining fixture-PostgreSQL continuity and pre-lock rejection-preservation gaps as `2/2` RED, followed by one credential child-inheritance ordering RED, before the final `43/43` GREEN. Node/Bash syntax, JSON parse, and `git diff --check` are issue-local gates; the earlier full Gradle `449 tests / 0 failures / 0 errors / 3 skipped` predates this scenario-only adjustment and was not rerun. All orchestration uses only temp shell/Node stubs and does not run Docker, DB, HTTP, seed, or k6. No production Java or REST Docs changed. This verifies tooling only, not a baseline result.
+Authoring verification: the first PM-finding contract failed `6/8` before passing `8/8`; the second PM test-only RED was `8 pass / 5 fail` before `13/13`. Subsequent PM audits expanded strict target/token/query/activity/summary/report/table/runtime/resource contracts through `35/35`. The current-develop drift contract then failed `1/1` before `36/36`. The final common integrity audit preserved those 36 contracts and failed all five new source/image/workload, Redis continuity, Rate observation math, full-resource cadence, and first-rejection contracts before `41/41`. Self-review then reproduced two remaining fixture-PostgreSQL continuity and pre-lock rejection-preservation gaps as `2/2` RED, followed by one credential child-inheritance ordering RED, before `43/43` GREEN. Fresh provisioning first failed all six top-level contracts without an implementation, then passed 11 nested/total contracts. The PM JWT finding subsequently produced `9 pass / 7 fail` RED before targeted `16/16` and full issue-local `59/59` GREEN. Node/Bash syntax, JSON parse, and `git diff --check` are issue-local gates; the earlier full Gradle `449 tests / 0 failures / 0 errors / 3 skipped` predates this scenario-only adjustment and was not rerun. All orchestration uses only temp shell/Node stubs and does not run Docker, DB, HTTP, seed, or k6. No production Java or REST Docs changed. This verifies tooling only, not a baseline result.
 
 ## Hard Stops
 
@@ -137,4 +188,4 @@ Authoring verification: the first PM-finding contract failed `6/8` before passin
 - Docker는 이 개발 세션에서 실행하지 않는다.
 - Docker, seed, k6, and DB execution are deferred; this development session must not run them.
 - production Java/API/authorization/response/error/transaction/Entity/DB/Flyway/dependency 변경 금지.
-- A before report must not claim optimization or resume improvement. Record the result only after an authorized measurement as local-Docker baseline evidence.
+- A before report must not claim optimization or resume improvement. Record the result only after the PM's sequential measurement as local-Docker baseline evidence.

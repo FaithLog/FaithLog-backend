@@ -135,6 +135,7 @@ test('post-signup and each 100-detail boundary use a fresh-enough runtime-only a
 			harness.api.advanceAfterDetailTo = 1100;
 			const result = await provisionDataset(harness.options());
 			assert.equal(harness.api.loginCalls, 3);
+			assert.deepEqual(harness.api.loginDetailCounts, [0, 0, 100]);
 			assert.equal(JSON.parse(fs.readFileSync(result.manifestPath, 'utf8')).verificationTokenRefreshCount, 2);
 		});
 	});
@@ -306,7 +307,9 @@ function fakeApi(datasetId, adminEmail, clock) {
 		loginCalls: 0,
 		signupCalls: 0,
 		adminReadCalls: 0,
+		detailCalls: 0,
 		deleteCalls: 0,
+		loginDetailCounts: [],
 		issuedTokens: [],
 		tokenExpByLogin: new Map(),
 		failLoginAt: 0,
@@ -327,6 +330,7 @@ function fakeApi(datasetId, adminEmail, clock) {
 		state.calls.push({ path: parsed.pathname, method: options.method || 'GET' });
 		if (parsed.pathname === '/api/v1/auth/login') {
 			state.loginCalls += 1;
+			state.loginDetailCounts.push(state.detailCalls);
 			assert.deepEqual(body, { email: adminEmail, password: 'runtime-admin-secret' });
 			if (state.loginCalls === state.failLoginAt) return response(401, null, false, 'synthetic login failure');
 			const token = jwt(state.tokenExpByLogin.get(state.loginCalls) ?? 100_000, state.loginCalls);
@@ -373,9 +377,9 @@ function fakeApi(datasetId, adminEmail, clock) {
 		if (detail) {
 			state.adminReadCalls += 1;
 			if (!authorized(options.headers?.Authorization, clock.now)) return response(401, null, false, 'expired token');
-			const detailCall = state.adminReadCalls - 2;
+			state.detailCalls += 1;
 			const result = response(200, state.users.find(({ userId }) => userId === Number(detail[1])));
-			if (detailCall === state.advanceAfterDetailAt) clock.now = state.advanceAfterDetailTo;
+			if (state.detailCalls === state.advanceAfterDetailAt) clock.now = state.advanceAfterDetailTo;
 			return result;
 		}
 		if (options.method === 'DELETE') state.deleteCalls += 1;
