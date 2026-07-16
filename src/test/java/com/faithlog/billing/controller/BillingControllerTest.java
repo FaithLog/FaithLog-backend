@@ -701,6 +701,42 @@ class BillingControllerTest {
 	}
 
 	@Test
+	void charge_item_pages_use_id_as_stable_tie_break_for_my_and_admin_member_lists() throws Exception {
+		String managerToken = signupAndLogin("billing-stable-order-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-stable-order-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "206정렬캠");
+		long campusId = campus.path("campusId").asLong();
+		String memberToken = signupAndLogin("billing-stable-order-member@example.com", UserRole.USER);
+		User member = userRepository.findByEmail("billing-stable-order-member@example.com").orElseThrow();
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		createPenaltyAccount(campusId, manager.id(), "206-STABLE-ORDER");
+		ChargeItemResult lowerIdCharge = createPenaltyCharge(campusId, member.id(), 20601L);
+		ChargeItemResult higherIdCharge = createPenaltyCharge(campusId, member.id(), 20602L);
+		Instant tiedCreatedAt = Instant.parse("2026-07-16T00:00:00.123456Z");
+		jdbcTemplate.update(
+			"update charge_items set created_at = ? where id in (?, ?)",
+			tiedCreatedAt,
+			lowerIdCharge.id(),
+			higherIdCharge.id()
+		);
+
+		assertStableChargePages(
+			"/api/v1/campuses/{campusId}/charges/me",
+			memberToken,
+			new Object[] {campusId},
+			higherIdCharge.id(),
+			lowerIdCharge.id()
+		);
+		assertStableChargePages(
+			"/api/v1/admin/campuses/{campusId}/members/{userId}/charges",
+			managerToken,
+			new Object[] {campusId, member.id()},
+			higherIdCharge.id(),
+			lowerIdCharge.id()
+		);
+	}
+
+	@Test
 	void admin_campus_charge_query_with_unpaid_status_returns_only_members_having_unpaid_charges() throws Exception {
 		String managerToken = signupAndLogin("billing-http-unpaid-filter-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("billing-http-unpaid-filter-manager@example.com").orElseThrow();
@@ -1286,6 +1322,36 @@ class BillingControllerTest {
 			amount,
 			null
 		));
+	}
+
+	private void assertStableChargePages(
+		String path,
+		String accessToken,
+		Object[] pathVariables,
+		Long firstId,
+		Long secondId
+	) throws Exception {
+		mockMvc.perform(get(path, pathVariables)
+				.header("Authorization", "Bearer " + accessToken)
+				.param("page", "0")
+				.param("size", "1")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.totalElements").value(2))
+			.andExpect(jsonPath("$.data.totalPages").value(2))
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].id").value(firstId));
+
+		mockMvc.perform(get(path, pathVariables)
+				.header("Authorization", "Bearer " + accessToken)
+				.param("page", "1")
+				.param("size", "1")
+				.param("sort", "createdAt,desc"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.totalElements").value(2))
+			.andExpect(jsonPath("$.data.totalPages").value(2))
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].id").value(secondId));
 	}
 
 	private void assertThatChargeSnapshotPreserved(

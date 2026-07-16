@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-16 - Issue #206 Stable Charge Item Pagination Ordering
+
+- Context: Issue #193 current-develop before preflight에서 `sort=createdAt,desc`로 조회한 회원별 청구 상세의 동일 `created_at` 행이 일부는 ID 오름차순, 일부는 내림차순으로 반환됐다. primary 정렬만 있는 offset paging은 동률 행의 페이지 간 중복·누락 가능성이 있어 정확한 baseline 검증을 중단했다.
+- Decision: `BillingPageRequests.chargeItems()`를 사용하는 내 청구 목록과 관리자 회원별 청구 상세는 기존 primary property/direction을 유지하고, primary 값이 같으면 같은 방향의 `id` secondary sort를 자동 적용한다. 모든 기존 허용 primary sort에 적용하며 클라이언트가 `id`를 직접 sort parameter로 지정하는 새 계약은 만들지 않는다.
+- Impact: API path/query 형식, page/size/filter/권한, 응답 DTO, ErrorCode, 관리자 회원 집계의 기존 `userId` tie-break, DB/Flyway/dependency는 변경하지 않는다. production frontend API client/type/UI 수정은 필요 없다. 다만 integration mock의 `getMockAdminMemberChargeState`, `getMockMemberChargeList`는 primary 방향과 무관하게 ID ASC tie-break를 사용하므로 DESC 계약에 맞춘 별도 최소 수정과 테스트 갱신이 필요하다.
+
 ### 2026-07-15 - Issue #202 Supabase Data API Deny-All Security Boundary
 
 - Context: Supabase Security Advisor reported `rls_disabled_in_public` for every `public` table and `sensitive_columns_exposed` for `payment_accounts.account_number` and `user_fcm_tokens.token`. A privilege audit confirmed that `anon`, `authenticated`, and `service_role` had CRUD grants while all 26 public tables had RLS disabled. FaithLog uses direct PostgreSQL JDBC as `postgres` and does not use Supabase Auth, PostgREST, GraphQL, an anon key, or a service-role key.
