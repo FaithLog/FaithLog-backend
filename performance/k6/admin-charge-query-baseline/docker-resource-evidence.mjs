@@ -226,7 +226,7 @@ function validateMemoryEvidence(memoryUsed, memoryLimit, memoryPercent, label) {
 	if (usedMinimum > usedMaximum
 		|| limitMinimum <= 0n
 		|| limitMinimum > limitMaximum
-		|| usedMaximum > limitMinimum
+		|| usedMinimum > limitMaximum
 		|| limitMaximum > MAX_SAFE_BYTES) {
 		throw new Error(`${label} Docker memory usage and limit ranges are invalid.`);
 	}
