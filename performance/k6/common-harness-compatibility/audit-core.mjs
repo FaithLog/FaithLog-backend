@@ -76,7 +76,9 @@ export function auditTarget({ issueNumber, worktree, cells, commandEvidence = {}
 				try { text = fs.readFileSync(resolveRegularFile(root, probe.file), 'utf8'); }
 				catch (error) { findings.push({ file: probe.file, line: 1, counterexample: error.message, recommendation: cell.recommendation }); continue; }
 				if (probe.capability === 'rate-exact-external-count') {
-					if (!/passes/.test(text) || !/fails/.test(text) || !/(expectedTotal|requestCount|expectedRequestCount)/.test(text)) {
+					const focused = commandEvidence[JSON.stringify(probe.focusedCommand)];
+					const markerAlternativePassed = probe.markerAlternatives?.some((markers) => markers.every((marker) => new RegExp(marker, 'm').test(text)));
+					if (!focused?.ok || !markerAlternativePassed) {
 						const evidence = findLine(text, 'failureRate|failureValues|failures\\.rate') ?? { line: 1, counterexample: 'Rate validator lacks passes/fails and separate Counter total' };
 						findings.push({ file: probe.file, ...evidence, recommendation: cell.recommendation });
 					}

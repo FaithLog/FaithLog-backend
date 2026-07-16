@@ -82,7 +82,19 @@
           "probes": [
             {
               "file": "performance/k6/poll-settlement/evidence-contract.mjs",
-              "capability": "rate-exact-external-count"
+              "capability": "rate-exact-external-count",
+              "focusedCommand": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ],
+              "markerAlternatives": [
+                [
+                  "counterCount\\(",
+                  "value\\.passes\\s*\\+\\s*value\\.fails\\s*!==\\s*expectedTotal",
+                  "result\\s*!==\\s*value\\.passes\\s*\\/\\s*expectedTotal"
+                ]
+              ]
             },
             {
               "command": [
@@ -240,7 +252,19 @@
           "probes": [
             {
               "file": "performance/k6/admin-charge-query-baseline/validate-measured-summary.mjs",
-              "capability": "rate-exact-external-count"
+              "capability": "rate-exact-external-count",
+              "focusedCommand": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ],
+              "markerAlternatives": [
+                [
+                  "requests\\?\\.count|requests\\.count",
+                  "passes\\s*\\+\\s*fails\\s*!==\\s*requestCount",
+                  "failureRate\\s*!==\\s*passes\\s*\\/"
+                ]
+              ]
             },
             {
               "command": [
@@ -524,7 +548,20 @@
           "probes": [
             {
               "file": "performance/k6/issue-195/validate-k6-summary.mjs",
-              "capability": "rate-exact-external-count"
+              "capability": "rate-exact-external-count",
+              "focusedCommand": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ],
+              "markerAlternatives": [
+                [
+                  "requests\\?\\.count|requests\\.count",
+                  "failures\\.passes\\s*!==\\s*0",
+                  "failures\\.fails\\s*!==\\s*requests\\.count",
+                  "failures\\.value\\s*!==\\s*0"
+                ]
+              ]
             },
             {
               "command": [
@@ -681,8 +718,21 @@
           "recommendation": "Patch issue #196 k6-metric-math contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs",
-              "capability": "rate-exact-external-count"
+              "file": "performance/k6/issue-196-prayer-poll-list-baseline/k6-rate-contract.mjs",
+              "capability": "rate-exact-external-count",
+              "focusedCommand": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ],
+              "markerAlternatives": [
+                [
+                  "values\\.count",
+                  "values\\.passes\\s*\\+\\s*values\\.fails",
+                  "observedTotal\\s*!==\\s*expectedTotal",
+                  "values\\.rate\\s*!==\\s*values\\.value"
+                ]
+              ]
             },
             {
               "command": [
@@ -840,7 +890,20 @@
           "probes": [
             {
               "file": "performance/k6/issue-197/lib/validate-k6-summary.mjs",
-              "capability": "rate-exact-external-count"
+              "capability": "rate-exact-external-count",
+              "focusedCommand": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ],
+              "markerAlternatives": [
+                [
+                  "transactions\\.count",
+                  "failurePasses\\s*\\+\\s*failureFails",
+                  "assert\\.equal\\(failureTotal, metrics\\.transactions",
+                  "assert\\.equal\\(rate, value"
+                ]
+              ]
             },
             {
               "command": [
@@ -1124,7 +1187,20 @@
           "probes": [
             {
               "file": "performance/k6/issue-199-admin-dashboard-baseline/validate-k6-summary.mjs",
-              "capability": "rate-exact-external-count"
+              "capability": "rate-exact-external-count",
+              "focusedCommand": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ],
+              "markerAlternatives": [
+                [
+                  "requests\\.count",
+                  "passes\\s*\\+\\s*fails",
+                  "requestCount",
+                  "assert\\.equal\\(values\\.rate, values\\.value"
+                ]
+              ]
             },
             {
               "command": [

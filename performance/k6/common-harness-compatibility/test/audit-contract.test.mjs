@@ -46,6 +46,10 @@ test('matrix contract covers issues 192 through 199 and all ten compatibility ch
 				for (const probe of cell.probes) {
 					assert.notEqual(probe.require, '.', `${target.issueNumber}/${cell.checkId} cannot pass on README existence`);
 					assert.ok(probe.command || probe.require || probe.forbid || probe.capability);
+					if (probe.capability === 'rate-exact-external-count') {
+						assert.deepEqual(probe.focusedCommand?.slice(0, 2), ['node', '--test']);
+						assert.ok(probe.markerAlternatives?.every((alternative) => alternative.length >= 3));
+					}
 				}
 			} else {
 				assert.equal(typeof cell.reason, 'string');
@@ -201,9 +205,11 @@ export function validateSummary(summary, expectedTransactions) {
 }
 `);
 		fs.writeFileSync(path.join(temporary, 'keywords.mjs'), '// transactions.count passes fails expectedTransactions rate value assert.equal\n');
-		const cell = (file) => ({ checkId: 'rate', mode: 'probe', recommendation: 'exact Rate math', probes: [{ file, capability: 'rate-exact-external-count' }] });
-		assert.equal(auditTarget({ issueNumber: 197, worktree: temporary, cells: [cell('valid.mjs')] }).cells[0].status, 'PASS');
-		assert.equal(auditTarget({ issueNumber: 999, worktree: temporary, cells: [cell('keywords.mjs')] }).cells[0].status, 'FAIL');
+		const command = ['node', '--test', 'focused.test.mjs'];
+		const cell = (file) => ({ checkId: 'rate', mode: 'probe', recommendation: 'exact Rate math', probes: [{ file, capability: 'rate-exact-external-count', focusedCommand: command, markerAlternatives: [['transactions\\.count', '(?:evidence\\.)?failurePasses\\s*\\+\\s*(?:evidence\\.)?failureFails', 'assert\\.equal\\(failureTotal, evidence\\.transactions', 'assert\\.equal\\(rate, value']] }] });
+		const validResult = auditTarget({ issueNumber: 197, worktree: temporary, cells: [cell('valid.mjs')], commandEvidence: { [JSON.stringify(command)]: { ok: true } } });
+		assert.equal(validResult.cells[0].status, 'PASS', JSON.stringify(validResult.cells[0]));
+		assert.equal(auditTarget({ issueNumber: 999, worktree: temporary, cells: [cell('keywords.mjs')], commandEvidence: {} }).cells[0].status, 'FAIL');
 	} finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 });
 
