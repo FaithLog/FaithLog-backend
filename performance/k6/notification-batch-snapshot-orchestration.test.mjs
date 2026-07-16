@@ -472,3 +472,41 @@ test('snapshot scripts forbid lifecycle and volume deletion while using fixed sn
 	assert.match(combined, /automaticAdoption/);
 	assert.ok(orchestrator.indexOf('prepareCanonicalFixture') < orchestrator.indexOf('captureSnapshot'));
 });
+
+test('isolated schema and synthetic dataset bootstrap is mandatory before canonical fixture', async () => {
+	const orchestrator = readFileSync(new URL(
+		'./notification-batch/orchestrate-before.mjs', import.meta.url), 'utf8');
+	const provisioner = readFileSync(new URL(
+		'./notification-batch/provision-isolated-dataset.sh', import.meta.url), 'utf8');
+	const seedSql = readFileSync(new URL(
+		'./notification-batch/provision-isolated-dataset.sql', import.meta.url), 'utf8');
+	assert.ok(orchestrator.indexOf('provisionSyntheticDataset')
+		< orchestrator.indexOf('prepareCanonicalFixture'));
+	assert.match(orchestrator, /seed-receipt\.json/);
+	assert.match(orchestrator, /PERF_CAMPUS_ID/);
+	assert.match(provisioner, /verify-current-develop-contract\.mjs/);
+	assert.match(provisioner, /src\/main\/resources\/db\/migration/);
+	assert.match(provisioner, /V1__initial_schema\.sql/);
+	assert.match(provisioner, /V11__secure_supabase_data_api\.sql/);
+	assert.match(provisioner, /faithlog-perf-198/);
+	assert.doesNotMatch(provisioner, /pg_dump|COPY\s+.*FROM\s+PROGRAM|faithlog-latest/i);
+	assert.match(seedSql, /generate_series\(1,\s*1000\)/i);
+	assert.match(seedSql, /PERFORMANCE_/);
+	assert.match(seedSql, /campus_members/);
+	assert.match(seedSql, /status[\s\S]*ACTIVE/i);
+	assert.doesNotMatch(seedSql, /user_fcm_tokens|notification_logs|firebase|fcm/i);
+
+	const { validateSeedReceipt } = await importScenario('seed-contract.mjs');
+	const receipt = {
+		schemaVersion: 1, composeProject: 'faithlog-perf-198-before',
+		postgresDatabase: 'faithlog_perf_198', datasetId: 'PERFORMANCE_198_SYNTHETIC', campusId: 1,
+		activeUserCount: 1000, activeMemberCount: 1000, migrationCount: 11,
+		migrationContractSha256: 'a'.repeat(64), datasetStateSha256: 'b'.repeat(64),
+		credentialRecorded: false, externalDataCopied: false, externalFcm: false,
+		automaticAdoption: false,
+	};
+	assert.equal(validateSeedReceipt(receipt), receipt);
+	assert.throws(() => validateSeedReceipt({ ...receipt, activeMemberCount: 999 }), /1000/);
+	assert.throws(() => validateSeedReceipt({ ...receipt, externalDataCopied: true }), /external|copied/i);
+	assert.throws(() => validateSeedReceipt({ ...receipt, externalFcm: true }), /FCM/i);
+});
