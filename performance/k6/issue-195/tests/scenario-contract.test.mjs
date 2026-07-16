@@ -24,6 +24,7 @@ const files = {
 	resourceSnapshotValidator: path.join(issueRoot, 'validate-resource-snapshots.mjs'),
 	resourceSnapshotCapture: path.join(issueRoot, 'capture-resource-snapshot.mjs'),
 	measurementClassifier: path.join(issueRoot, 'classify-measurement.mjs'),
+	firstRejectionRecorder: path.join(issueRoot, 'record-first-rejection.mjs'),
 	tableCounterValidator: path.join(issueRoot, 'validate-table-counters.mjs'),
 	runner: path.join(issueRoot, 'run-baseline.sh'),
 	dbCollector: path.join(issueRoot, 'collect-db-evidence.sh'),
@@ -1566,4 +1567,210 @@ test('README keeps reports ignored and records scenario-ready/not-measured statu
 	assert.match(readme, /Docker.*실행하지 않/i);
 	assert.match(readme, /다른 부하.*병렬.*금지/);
 	assert.match(readme, /production.*변경.*금지/i);
+});
+
+test('common integrity audit - source, target image, credential, and workload inputs have no fallback', () => {
+	const contract = JSON.parse(read(files.contract));
+	const runner = read(files.runner);
+	const fixture = read(files.fixture);
+	const scenario = read(files.scenario);
+	const originDevelop = spawnSync('git', ['rev-parse', 'origin/develop'], {
+		cwd: repositoryRoot,
+		encoding: 'utf8',
+	});
+	assert.equal(originDevelop.status, 0, originDevelop.stderr);
+	assert.deepEqual(contract.sourceIdentity, {
+		originDevelopCommit: originDevelop.stdout.trim(),
+		flywayBoundary: 'V11__secure_supabase_data_api.sql',
+		apiSources: [
+			'src/main/java/com/faithlog/admin/controller/AdminManagementController.java',
+			'src/main/java/com/faithlog/campus/controller/AdminCampusController.java',
+		],
+	});
+	for (const name of [
+		'PERF_SOURCE_COMMIT',
+		'EXPECTED_APP_IMAGE_ID',
+		'EXPECTED_POSTGRES_IMAGE_ID',
+		'REDIS_CONTAINER_ID',
+		'EXPECTED_REDIS_COMPOSE_SERVICE',
+		'EXPECTED_REDIS_IMAGE_ID',
+		'EXPECTED_ACTIVE_MEMBERS',
+		'EXPECTED_DUTY_ASSIGNMENTS',
+		'RESOURCE_BOUNDARY_MAX_GAP_SECONDS',
+		'K6_BIN',
+	]) {
+		assert.match(runner, new RegExp(`\\$\\{${name}:\\?`), `${name} must be runtime-required`);
+	}
+	assert.match(runner, /PERF_SOURCE_COMMIT.*sourceIdentity\.originDevelopCommit/s);
+	assert.match(runner, /EXPECTED_ACTIVE_MEMBERS.*requiredActiveMembers/s);
+	assert.match(runner, /EXPECTED_DUTY_ASSIGNMENTS.*activeDutyAssignments/s);
+	assert.doesNotMatch(scenario, /EXPECTED_ACTIVE_MEMBERS\s*\|\|/);
+	assert.doesNotMatch(scenario, /EXPECTED_DUTY_ASSIGNMENTS\s*\|\|/);
+	for (const name of [
+		'EXPECTED_APP_IMAGE_ID',
+		'REDIS_CONTAINER_ID',
+		'EXPECTED_REDIS_COMPOSE_SERVICE',
+		'EXPECTED_REDIS_IMAGE_ID',
+	]) {
+		assert.match(fixture, new RegExp(`process\\.env\\.${name}`), `fixture must require ${name}`);
+	}
+	assert.match(fixture, /post-lock.*identity.*before.*login/is);
+});
+
+test('common integrity audit - Redis joins immutable pre/post/final runtime continuity', () => {
+	const runner = read(files.runner);
+	assert.match(runner, /REDIS_CONTAINER_ID/);
+	assert.match(runner, /redis-compose-labels\.json/);
+	assert.match(runner, /redis:\{containerId:/);
+	assert.match(runner, /final-runtime-continuity-adoption\.json/);
+
+	const identity = {
+		app: {
+			containerId: 'sha256:app-container', name: '/faithlog-app', imageId: 'sha256:app-image',
+			startedAt: '2026-07-16T00:00:00Z', composeProject: 'faithlog', composeService: 'app',
+			publishedPorts: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '18080' }] },
+		},
+		postgres: {
+			containerId: 'sha256:postgres-container', name: '/faithlog-postgres', imageId: 'sha256:postgres-image',
+			startedAt: '2026-07-16T00:00:00Z', composeProject: 'faithlog', composeService: 'postgres',
+			publishedPorts: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '25432' }] },
+		},
+		redis: {
+			containerId: 'sha256:redis-container', name: '/faithlog-redis', imageId: 'sha256:redis-image',
+			startedAt: '2026-07-16T00:00:00Z', composeProject: 'faithlog', composeService: 'redis',
+			publishedPorts: { '6379/tcp': [{ HostIp: '127.0.0.1', HostPort: '26379' }] },
+		},
+		database: {
+			name: 'faithlog', serverAddress: '127.0.0.1', serverPort: 5432,
+			postmasterStartedAt: '2026-07-16T00:00:00Z',
+		},
+	};
+	withTempJsonFiles('faithlog-195-redis-continuity-', [identity, structuredClone(identity)], (paths, directory) => {
+		const outputPath = path.join(directory, 'adoption.json');
+		const valid = runJsonTool(files.runtimeContinuityValidator, [...paths, outputPath]);
+		assert.equal(valid.status, 0, valid.stderr);
+		assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, 'utf8')).identityFields.redis, [
+			'containerId', 'name', 'imageId', 'startedAt', 'composeProject', 'composeService', 'publishedPorts',
+		]);
+	});
+	const replaced = structuredClone(identity);
+	replaced.redis.imageId = 'sha256:redis-image-replaced';
+	withTempJsonFiles('faithlog-195-redis-replacement-', [identity, replaced], (paths, directory) => {
+		assert.notEqual(runJsonTool(
+			files.runtimeContinuityValidator,
+			[...paths, path.join(directory, 'adoption.json')],
+		).status, 0);
+	});
+});
+
+test('common integrity audit - Counter and Rate observations agree for direct and values summaries', () => {
+	const metricName = 'issue195_admin_users_first_page';
+	const validValues = {
+		[`${metricName}_duration`]: { 'p(50)': 1, 'p(95)': 2, 'p(99)': 3, max: 4 },
+		[`${metricName}_requests`]: { count: 10, rate: 2 },
+		[`${metricName}_failures`]: { rate: 0, passes: 10, fails: 0 },
+	};
+	for (const shape of ['direct', 'values']) {
+		const shapeMetrics = (metrics) => shape === 'values'
+			? Object.fromEntries(Object.entries(metrics).map(([key, values]) => [key, { values }]))
+			: metrics;
+		withTempJsonFiles(`faithlog-195-rate-valid-${shape}-`, [{ metrics: shapeMetrics(validValues) }], ([summaryPath], directory) => {
+			assert.equal(runJsonTool(files.summaryValidator, [
+				summaryPath, 'admin_users', 'first_page', 'measured', path.join(directory, 'normalized.json'),
+			]).status, 0);
+		});
+		for (const [label, mutate] of [
+			['observation-count-mismatch', (values) => { values[`${metricName}_failures`].passes = 9; }],
+			['hidden-failure', (values) => {
+				values[`${metricName}_failures`].passes = 9;
+				values[`${metricName}_failures`].fails = 1;
+			}],
+		]) {
+			const malformed = structuredClone(validValues);
+			mutate(malformed);
+			withTempJsonFiles(`faithlog-195-rate-${label}-${shape}-`, [{ metrics: shapeMetrics(malformed) }], ([summaryPath], directory) => {
+				assert.notEqual(runJsonTool(files.summaryValidator, [
+					summaryPath, 'admin_users', 'first_page', 'measured', path.join(directory, 'normalized.json'),
+				]).status, 0, `${label}/${shape}`);
+			});
+		}
+	}
+});
+
+test('common integrity audit - resource snapshots bind full three-container identity and boundary cadence', () => {
+	assert.match(read(files.resourceSnapshotCapture), /container\('redis', 'REDIS'\)/);
+	const identity = {
+		app: { containerId: 'sha256:app', name: '/app', imageId: 'sha256:app-image', startedAt: '2026-07-16T00:00:00Z' },
+		postgres: { containerId: 'sha256:postgres', name: '/postgres', imageId: 'sha256:postgres-image', startedAt: '2026-07-16T00:00:00Z' },
+		redis: { containerId: 'sha256:redis', name: '/redis', imageId: 'sha256:redis-image', startedAt: '2026-07-16T00:00:00Z' },
+	};
+	const container = (role, cpuPercent, memoryBytes) => ({
+		role,
+		containerId: identity[role].containerId,
+		name: identity[role].name,
+		imageId: identity[role].imageId,
+		startedAt: identity[role].startedAt,
+		cpuPercent,
+		memoryBytes,
+	});
+	const snapshot = (phase, capturedAt) => ({
+		scenario: 'admin_users', case: 'first_page', phase, capturedAt, coverage: 'boundary-only',
+		containers: [container('app', 1.5, 1_048_576), container('postgres', 0, 2_097_152), container('redis', 0.2, 524_288)],
+	});
+	const windows = [
+		{ scenario: 'admin_users', case: 'first_page', event: 'measured-start', status: 'pending', at: '2026-07-16T00:00:02.000Z' },
+		{ scenario: 'admin_users', case: 'first_page', event: 'measured-end', status: 'passed', at: '2026-07-16T00:00:03.000Z' },
+	];
+	const run = (snapshots) => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-resource-audit-'));
+		try {
+			const identityPath = path.join(directory, 'identity.json');
+			const resourcePath = path.join(directory, 'resource.ndjson');
+			const windowsPath = path.join(directory, 'windows.ndjson');
+			fs.writeFileSync(identityPath, `${JSON.stringify(identity)}\n`);
+			fs.writeFileSync(resourcePath, `${snapshots.map(JSON.stringify).join('\n')}\n`);
+			fs.writeFileSync(windowsPath, `${windows.map(JSON.stringify).join('\n')}\n`);
+			return runJsonTool(files.resourceSnapshotValidator, [
+				identityPath, resourcePath, windowsPath, 'admin_users', 'first_page', '1', path.join(directory, 'adoption.json'),
+			]);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	};
+	assert.equal(run([
+		snapshot('before', '2026-07-16T00:00:01.500Z'),
+		snapshot('after', '2026-07-16T00:00:03.500Z'),
+	]).status, 0);
+	assert.notEqual(run([
+		snapshot('before', '2026-07-16T00:00:00.000Z'),
+		snapshot('after', '2026-07-16T00:00:03.500Z'),
+	]).status, 0, 'before-to-start cadence beyond the runtime-approved window must fail closed');
+});
+
+test('common integrity audit - first machine-readable rejection is atomic and never overwritten', () => {
+	assert.ok(fs.existsSync(files.firstRejectionRecorder), 'first rejection recorder is required');
+	const runner = read(files.runner);
+	assert.match(runner, /first-rejection\.json/);
+	assert.match(runner, /record-first-rejection\.mjs/);
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-first-rejection-'));
+	try {
+		const outputPath = path.join(directory, 'first-rejection.json');
+		assert.equal(runJsonTool(files.firstRejectionRecorder, [
+			outputPath, 'measured-summary', 'admin_users', 'first_page', '7',
+		]).status, 0);
+		assert.equal(runJsonTool(files.firstRejectionRecorder, [
+			outputPath, 'later-cleanup', 'duty_assignments', 'full_list', '9',
+		]).status, 0);
+		assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, 'utf8')), {
+			schemaVersion: 1,
+			status: 'non-adoptable',
+			automaticAdoption: false,
+			stage: 'measured-summary',
+			scenario: 'admin_users',
+			case: 'first_page',
+			exitCode: 7,
+		});
+	} finally {
+		fs.rmSync(directory, { recursive: true, force: true });
+	}
 });
