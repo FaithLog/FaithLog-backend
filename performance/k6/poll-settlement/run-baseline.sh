@@ -3,11 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-TARGET_CONTRACT="${SCRIPT_DIR}/target-contract.json"
 
-for name in MODE BASE_URL REPORT_ROOT PERF_DATASET_ID PERF_FIXTURE_RUN_ID PERF_EXECUTION_RUN_ID PERF_PASSWORD TOKEN_EXPIRY_SAFETY_SECONDS MAINTENANCE_POLL_INTERVAL_SECONDS MAINTENANCE_QUIET_SECONDS MAINTENANCE_TIMEOUT_SECONDS; do
+for name in MODE BASE_URL TARGET_CONTRACT REPORT_ROOT PERF_DATASET_ID PERF_FIXTURE_RUN_ID PERF_EXECUTION_RUN_ID PERF_PASSWORD TOKEN_EXPIRY_SAFETY_SECONDS MAINTENANCE_POLL_INTERVAL_SECONDS MAINTENANCE_QUIET_SECONDS MAINTENANCE_TIMEOUT_SECONDS; do
 	[[ -n "${!name:-}" ]] || { echo "${name} is required at runtime." >&2; exit 2; }
 done
+TARGET_CONTRACT="$(node -e 'console.log(require("path").resolve(process.argv[1]))' "${TARGET_CONTRACT}")"
 MODE="$(MODE="${MODE}" node --input-type=module -e 'import { requireExactMode } from "./performance/k6/poll-settlement/single-mode-contract.mjs"; process.stdout.write(requireExactMode(process.env.MODE));')"
 for command in node docker curl k6; do
 	command -v "${command}" >/dev/null || { echo "Missing command: ${command}" >&2; exit 2; }
@@ -27,6 +27,8 @@ EXPECTED_BASE_URL="$(read_target baseUrl)"
 EXPECTED_FLYWAY="$(read_target flywayVersion)"
 COMPOSE_PROJECT="$(read_target containers.app.composeProject)"
 POSTGRES_CONTAINER_ID="$(read_target containers.postgres.id)"
+POSTGRES_USER="$(read_target database.user)"
+POSTGRES_DB="$(read_target database.name)"
 SAMPLING_INTERVAL_MS="$(read_target resourceSampling.samplingIntervalMs)"
 MAX_GAP_MS="$(read_target resourceSampling.maxGapMs)"
 EXPECTED_MAINTENANCE_POLL_INTERVAL_SECONDS="$(read_target maintenanceReadiness.pollIntervalSeconds)"
@@ -51,12 +53,13 @@ node --test \
 	"${SCRIPT_DIR}/maintenance-readiness.test.mjs" \
 	"${SCRIPT_DIR}/single-mode-protocol.test.mjs" \
 	"${SCRIPT_DIR}/bundle-results.test.mjs" \
+	"${SCRIPT_DIR}/compare-bundles.test.mjs" \
 	"${SCRIPT_DIR}/run-baseline-fail-fast.test.mjs" \
 	"${SCRIPT_DIR}/run-baseline-sampler.test.mjs" \
 	"${SCRIPT_DIR}/evidence-contract.test.mjs" \
 	"${SCRIPT_DIR}/resource-contract.test.mjs" \
 	"${SCRIPT_DIR}/summarize-results.test.mjs"
-for script in seed-fixtures.mjs verify-baseline.mjs summarize-results.mjs bundle-results.mjs single-mode-contract.mjs capture-runtime.mjs capture-db-evidence.mjs capture-resource-sample.mjs evidence-contract.mjs resource-contract.mjs maintenance-quiet-contract.mjs wait-maintenance-quiet.mjs wait-maintenance-readiness.mjs validate-evidence.mjs prepare-measured-token.mjs; do
+for script in seed-fixtures.mjs verify-baseline.mjs summarize-results.mjs bundle-results.mjs compare-bundles.mjs single-mode-contract.mjs capture-runtime.mjs capture-db-evidence.mjs capture-resource-sample.mjs evidence-contract.mjs resource-contract.mjs maintenance-quiet-contract.mjs wait-maintenance-quiet.mjs wait-maintenance-readiness.mjs validate-evidence.mjs prepare-measured-token.mjs; do
 	node --check "${SCRIPT_DIR}/${script}"
 done
 k6 inspect -e BASE_URL="${BASE_URL}" -e MODE="${MODE}" -e PHASE=measured "${SCRIPT_DIR}/settlement-baseline.js" >/dev/null
@@ -139,7 +142,7 @@ node -e '
 		{method:"post",path:"/api/v1/campuses/{campusId}/meal/polls/{pollId}/charges"}
 	]) if (!d.paths?.[path]?.[method]) throw new Error(`Missing API contract: ${method.toUpperCase()} ${path}`);
 ' "${RUN_DIR}/api-docs.json"
-FLYWAY="$(docker exec "${POSTGRES_CONTAINER_ID}" psql -U faithlog -d faithlog -X -q -v ON_ERROR_STOP=1 -A -t -c 'SELECT max(installed_rank) FROM flyway_schema_history WHERE success;')"
+FLYWAY="$(docker exec "${POSTGRES_CONTAINER_ID}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -X -q -v ON_ERROR_STOP=1 -A -t -c 'SELECT max(installed_rank) FROM flyway_schema_history WHERE success;')"
 [[ "${FLYWAY}" == "${EXPECTED_FLYWAY}" ]] || { echo 'Flyway version drift.' >&2; exit 2; }
 capture_db "${RUN_DIR}/db-initial.json" global
 
