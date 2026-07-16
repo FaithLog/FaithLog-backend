@@ -629,6 +629,30 @@ test('runtime continuity rejects same-name container replacement before verifica
 	}
 });
 
+test('PostgreSQL inet evidence preserves raw host CIDR and compares only canonical loopback hosts', async () => {
+	const { validatePostgresServerAddress } = await import(
+		new URL('./notification-batch/runtime-inet-contract.mjs', import.meta.url));
+	for (const [actual, approved] of [
+		['127.0.0.1/32', '127.0.0.1'],
+		['127.0.0.1', '127.0.0.1'],
+		['::1/128', '::1'],
+		['0:0:0:0:0:0:0:1/128', '::1'],
+		['0:0:0:0:0:0:0:1', '::1'],
+	]) assert.equal(validatePostgresServerAddress(actual, approved), actual);
+	for (const [actual, approved] of [
+		['127.0.0.1/24', '127.0.0.1'], ['::1/64', '::1'],
+		['127.0.0.2/32', '127.0.0.1'], ['127.1.0.1/32', '127.0.0.1'],
+		['10.0.0.1/32', '127.0.0.1'], ['2001:db8::1/128', '::1'],
+		['127.0.0.1/32/32', '127.0.0.1'], ['not-an-ip', '127.0.0.1'],
+		['127.0.0.1/32', '127.0.0.1/32'], ['::1/128', '::1/128'],
+	]) assert.throws(() => validatePostgresServerAddress(actual, approved), /loopback|CIDR|address|target/i);
+
+	const capture = readFileSync(scenarioPath('capture-runtime-identity.sh'), 'utf8');
+	assert.match(capture, /PERF_EXPECTED_POSTGRES_SERVER_ADDRESS/);
+	assert.match(capture, /runtime-inet-contract\.mjs/);
+	assert.match(capture, /server:\s*postgresServer/);
+});
+
 test('post-lock runtime truth rejects a guard-to-lock replacement before SQL or workload', () => {
 	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-post-lock-race-'));
 	const project = `faithlog-perf-198-race-${process.pid}-${Date.now()}`;
