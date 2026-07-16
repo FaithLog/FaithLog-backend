@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,6 +22,8 @@ const files = {
 	tokenLifetime: path.join(issueRoot, 'validate-token-lifetime.mjs'),
 	summaryValidator: path.join(issueRoot, 'validate-k6-summary.mjs'),
 	dbIntegrityValidator: path.join(issueRoot, 'validate-db-integrity.mjs'),
+	dbControlCapture: path.join(issueRoot, 'capture-db-control-snapshot.sh'),
+	dbControlValidator: path.join(issueRoot, 'validate-db-control-window.mjs'),
 	runtimeContinuityValidator: path.join(issueRoot, 'validate-runtime-continuity.mjs'),
 	resourceSnapshotValidator: path.join(issueRoot, 'validate-resource-snapshots.mjs'),
 	resourceSnapshotCapture: path.join(issueRoot, 'capture-resource-snapshot.mjs'),
@@ -453,6 +456,26 @@ function validMeasuredAdoption(requestCount = 10) {
 		throughput: 2,
 		failureRate: 0,
 		latency: { p50: 1, p95: 2, p99: 3, max: 4 },
+	};
+}
+
+function validDbControlAdoption(overrides = {}) {
+	return {
+		schemaVersion: 1,
+		status: 'supporting-only',
+		automaticAdoption: false,
+		evidenceUse: 'supporting-only',
+		evidenceCase: 'admin_users-first_page',
+		configuredDuration: '2m',
+		beforeCapturedAt: '2026-07-16T12:46:36.000Z',
+		afterCapturedAt: '2026-07-16T12:48:37.000Z',
+		observedElapsedMilliseconds: 121_000,
+		controlCommitDelta: '18',
+		observerCommitOverhead: 1,
+		backgroundCommitDelta: '17',
+		rollbackDelta: '0',
+		backgroundSubtractionApplied: false,
+		...overrides,
 	};
 }
 
@@ -1412,6 +1435,158 @@ test('DB integrity validator rejects external activity, auto-analyze, and planne
 	});
 
 	assert.match(read(files.dbRuntimeIntegrity), /pid\s*<>\s*pg_backend_pid\(\)/);
+});
+
+test('DB-wide background commits stay exact, unattributed, and conditional instead of becoming a tolerance', () => {
+	assert.equal(fs.existsSync(files.dbControlCapture), true, 'idle control capture must exist');
+	assert.equal(fs.existsSync(files.dbControlValidator), true, 'idle control validator must exist');
+	const collector = read(files.dbCollector);
+	const beforeBranch = collector.slice(collector.indexOf('if [[ "$PHASE" == "before" ]]'), collector.indexOf('else'));
+	const afterBranch = collector.slice(collector.indexOf('else'), collector.indexOf('fi', collector.indexOf('else')));
+	assert.ok(beforeBranch.indexOf('capture_table_counters') < beforeBranch.indexOf('capture_query_evidence'));
+	assert.ok(beforeBranch.indexOf('capture_query_evidence') < beforeBranch.indexOf('capture_runtime_integrity'));
+	assert.ok(afterBranch.indexOf('capture_runtime_integrity') < afterBranch.indexOf('capture_query_evidence'));
+	assert.ok(afterBranch.indexOf('capture_query_evidence') < afterBranch.indexOf('capture_table_counters'));
+
+	const runtimeSql = read(files.dbRuntimeIntegrity);
+	assert.match(runtimeSql, /from\s+pg_stat_database/i);
+	assert.doesNotMatch(runtimeSql, /database_stats[\s\S]*application_name/i);
+	const runner = read(files.runner);
+	const loop = runner.slice(runner.indexOf('for entry in'));
+	const controlBeforeIndex = loop.indexOf('capture-db-control-snapshot.sh" "$EVIDENCE_CASE" before');
+	const controlSleepIndex = loop.indexOf('sleep "$MEASURED_DURATION"');
+	const controlAfterIndex = loop.indexOf('capture-db-control-snapshot.sh" "$EVIDENCE_CASE" after');
+	const measuredBeforeIndex = loop.indexOf('collect-db-evidence.sh" "$EVIDENCE_CASE" before');
+	assert.ok(controlBeforeIndex >= 0 && controlBeforeIndex < controlSleepIndex);
+	assert.ok(controlSleepIndex < controlAfterIndex && controlAfterIndex < measuredBeforeIndex);
+
+	const controlDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-db-control-'));
+	try {
+		const beforePath = path.join(controlDirectory, 'before.json');
+		const afterPath = path.join(controlDirectory, 'after.json');
+		const outputPath = path.join(controlDirectory, 'adoption.json');
+		const { before: baseBefore, after: baseAfter } = validDbIntegritySnapshots();
+		const controlBefore = {
+			...baseBefore,
+			schemaVersion: 1,
+			phase: 'before',
+			observerApplicationName: 'faithlog-issue195-control-admin_users-first_page-before',
+			capturedAt: '2026-07-16T12:46:36.000Z',
+			databaseStats: { xactCommit: '1000', xactRollback: '34' },
+		};
+		const controlAfter = {
+			...baseAfter,
+			schemaVersion: 1,
+			phase: 'after',
+			observerApplicationName: 'faithlog-issue195-control-admin_users-first_page-after',
+			capturedAt: '2026-07-16T12:48:37.000Z',
+			databaseStats: { xactCommit: '1018', xactRollback: '34' },
+		};
+		const writeControl = (beforeValue, afterValue) => {
+			fs.writeFileSync(beforePath, `${JSON.stringify(beforeValue)}\n`);
+			fs.writeFileSync(afterPath, `${JSON.stringify(afterValue)}\n`);
+		};
+		writeControl(controlBefore, controlAfter);
+		const result = runJsonTool(files.dbControlValidator, [
+			beforePath, afterPath, 'admin_users-first_page', '2m', outputPath,
+		]);
+		assert.equal(result.status, 0, 'idle control must preserve exact observed DB-wide counters');
+		assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, 'utf8')), validDbControlAdoption());
+
+		for (const [label, mutate] of [
+			['missing', (value) => { delete value.after.databaseStats; }],
+			['rollback', (value) => { value.after.databaseStats.xactRollback = '35'; }],
+			['maintenance', (value) => { value.after.tableMaintenance.users.autoanalyzeCount += 1; }],
+			['external-session', (value) => { value.before.externalActiveSessions = 1; }],
+			['short-window', (value) => { value.after.capturedAt = '2026-07-16T12:48:35.000Z'; }],
+		]) {
+			const value = { before: structuredClone(controlBefore), after: structuredClone(controlAfter) };
+			mutate(value);
+			writeControl(value.before, value.after);
+			const invalid = runJsonTool(files.dbControlValidator, [
+				beforePath, afterPath, 'admin_users-first_page', '2m', outputPath,
+			]);
+			assert.notEqual(invalid.status, 0, label);
+		}
+	} finally {
+		fs.rmSync(controlDirectory, { recursive: true, force: true });
+	}
+
+	for (const unattributedCommitDelta of [1n, 26n]) {
+		const { before, after, measured } = validDbIntegritySnapshots(4_200);
+		before.databaseStats.xactCommit = '129366';
+		const expected = 4_200n * 2n + 1n;
+		after.databaseStats.xactCommit = (129366n + expected + unattributedCommitDelta).toString();
+		withTempJsonFiles('faithlog-195-db-wide-background-', [
+			before, after, measured, validDbControlAdoption(),
+		], (paths, directory) => {
+			const outputPath = path.join(directory, 'adoption.json');
+			const result = runJsonTool(files.dbIntegrityValidator, [
+				...paths, outputPath, 'admin_users-first_page',
+			]);
+			assert.equal(result.status, 0, 'unattributed DB-wide commits must preserve supporting evidence collection');
+			const output = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+			assert.equal(output.status, 'conditional-not-adoptable');
+			assert.equal(output.automaticAdoption, false);
+			assert.equal(output.evidenceUse, 'supporting-only');
+			assert.equal(output.transactionAttribution, 'database-wide-unattributed');
+			assert.equal(output.expectedCommitDelta, expected.toString());
+			assert.equal(output.unattributedCommitDelta, unattributedCommitDelta.toString());
+			assert.equal(output.backgroundSubtractionApplied, false);
+		});
+	}
+
+	const { before, after, measured } = validDbIntegritySnapshots(4_200);
+	after.databaseStats.xactCommit = (BigInt(before.databaseStats.xactCommit) + 8_400n).toString();
+	withTempJsonFiles('faithlog-195-db-wide-missing-', [
+		before, after, measured, validDbControlAdoption(),
+	], (paths) => {
+		const result = runJsonTool(files.dbIntegrityValidator, [...paths, '', 'admin_users-first_page']);
+		assert.notEqual(result.status, 0, 'a missing expected commit must still fail closed');
+	});
+
+	const preservedReport = process.env.ISSUE195_EXECUTION_E_REPORT;
+	if (!preservedReport) return;
+	assert.ok(path.isAbsolute(preservedReport));
+	const evidenceDirectory = path.join(preservedReport, 'db-evidence', 'admin_users-first_page');
+	const paths = {
+		rejection: path.join(preservedReport, 'first-rejection.json'),
+		windows: path.join(preservedReport, 'case-windows.ndjson'),
+		measured: path.join(preservedReport, 'measured-admin_users-first_page-adoption.json'),
+		before: path.join(evidenceDirectory, 'before-runtime-integrity.json'),
+		after: path.join(evidenceDirectory, 'after-runtime-integrity.json'),
+		adoption: path.join(evidenceDirectory, 'db-integrity-adoption.json'),
+	};
+	const snapshot = Object.fromEntries(Object.entries(paths).map(([key, filePath]) => {
+		const content = fs.readFileSync(filePath, 'utf8');
+		return [key, {
+			content,
+			hash: createHash('sha256').update(content).digest('hex'),
+			stats: fs.statSync(filePath),
+		}];
+	}));
+	const rejection = JSON.parse(snapshot.rejection.content);
+	const preservedMeasured = JSON.parse(snapshot.measured.content);
+	const preservedBefore = JSON.parse(snapshot.before.content);
+	const preservedAfter = JSON.parse(snapshot.after.content);
+	assert.deepEqual({ stage: rejection.stage, scenario: rejection.scenario, case: rejection.case }, {
+		stage: 'measured-evidence-after', scenario: 'admin_users', case: 'first_page',
+	});
+	assert.equal(preservedMeasured.requestCount, 4_200);
+	assert.equal(preservedBefore.databaseStats.xactCommit, '129366');
+	assert.equal(preservedAfter.databaseStats.xactCommit, '137793');
+	assert.equal(
+		BigInt(preservedAfter.databaseStats.xactCommit) - BigInt(preservedBefore.databaseStats.xactCommit),
+		8_427n,
+	);
+	for (const [key, filePath] of Object.entries(paths)) {
+		const content = fs.readFileSync(filePath, 'utf8');
+		assert.equal(content, snapshot[key].content);
+		assert.equal(createHash('sha256').update(content).digest('hex'), snapshot[key].hash);
+		const stats = fs.statSync(filePath);
+		assert.equal(stats.size, snapshot[key].stats.size);
+		assert.equal(stats.mtimeMs, snapshot[key].stats.mtimeMs);
+	}
 });
 
 test('runtime integrity excludes only its own PID and counts same-name observer sessions', () => {
