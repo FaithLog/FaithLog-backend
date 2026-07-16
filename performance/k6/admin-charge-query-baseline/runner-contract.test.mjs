@@ -285,6 +285,28 @@ test('final immutable checkpoint follows every evidence validator and precedes c
 	}
 });
 
+test('dataset binding uses psql stdin variable substitution instead of -c', async () => {
+	const bindingQuery = `SELECT JSONB_BUILD_OBJECT(
+		'campusId', (SELECT id FROM campuses WHERE name = 'PERF_ISSUE_193:' || :'dataset_id'),
+		'crossCampusId', (SELECT id FROM campuses WHERE name = 'PERF_ISSUE_193:' || :'dataset_id' || ':CROSS')
+	)`;
+	assert.throws(() => fakePsql({
+		args: ['-q', '-t', '-A', '-c', bindingQuery, '-v', 'dataset_id=I193_BEFORE_20260716_B'],
+		stdin: '',
+	}), /syntax error at or near ":"/);
+	assert.equal(fakePsql({
+		args: ['-q', '-t', '-A', '-v', 'dataset_id=I193_BEFORE_20260716_C'],
+		stdin: bindingQuery,
+	}), '{"campusId":18,"crossCampusId":19}');
+
+	const runner = await read('run-baseline.sh');
+	const bindingSql = await read('select-dataset-binding.sql');
+	assert.doesNotMatch(runner, /DATASET_BINDING_JSON="\$\(psql_exec[^\n]*-c/);
+	assert.match(runner, /DATASET_BINDING_JSON="\$\(psql_exec -q -t -A[\s\S]*-v dataset_id="\$DATASET_ID"[\s\S]*< "\$SCENARIO_DIR\/select-dataset-binding\.sql"/);
+	assert.match(bindingSql, /:'dataset_id'/);
+	assert.doesNotMatch(bindingSql, /\$\{?DATASET_ID\}?|I193_BEFORE_/);
+});
+
 function integrityFixture() {
 	const plannerSettings = Object.fromEntries([
 		'enable_bitmapscan', 'enable_hashjoin', 'enable_indexonlyscan', 'enable_indexscan',
@@ -336,4 +358,18 @@ function integrityFixture() {
 		afterCounter: counters('9007199254741096'),
 		expectedDatabaseName: 'faithlog',
 	};
+}
+
+function fakePsql({args, stdin}) {
+	const commandIndex = args.indexOf('-c');
+	const command = commandIndex >= 0 ? args[commandIndex + 1] : null;
+	if (command?.includes(":'dataset_id'")) {
+		throw new Error('PostgreSQL syntax error at or near ":"');
+	}
+	const variableIndex = args.indexOf('-v');
+	const assignment = variableIndex >= 0 ? args[variableIndex + 1] : '';
+	if (!stdin.includes(":'dataset_id'") || !/^dataset_id=[A-Za-z0-9_-]+$/.test(assignment)) {
+		throw new Error('stdin SQL and dataset_id psql variable are required');
+	}
+	return '{"campusId":18,"crossCampusId":19}';
 }
