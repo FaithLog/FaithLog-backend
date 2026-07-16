@@ -11,6 +11,7 @@ export const RUNTIME_TOOLING_FILES = Object.freeze([
 	'performance/k6/issue-196-prayer-poll-list-baseline/db-table-stats.sql',
 	'performance/k6/issue-196-prayer-poll-list-baseline/filter-sql-log.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/fixture-contract.mjs',
+	'performance/k6/issue-196-prayer-poll-list-baseline/k6-rate-contract.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/prepare-runtime.sh',
 	'performance/k6/issue-196-prayer-poll-list-baseline/redis-runtime-identity.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh',

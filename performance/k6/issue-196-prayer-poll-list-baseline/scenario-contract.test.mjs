@@ -22,6 +22,7 @@ const REQUIRED_FILES = [
 	'activity-sample.mjs',
 	'token-lifetime.mjs',
 	'validate-published-target.mjs',
+	'k6-rate-contract.mjs',
 	'summarize-run.mjs',
 	'prepare-runtime.sh',
 	'runtime-evidence.override.yml',
@@ -1429,7 +1430,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			'mkdir -p "$(dirname "${summary}")"',
 			`if (( count == 3 )); then echo second-warmup-stop >> "${calls}"; exit 42; fi`,
 			`if (( count == 1 )); then printf '%s\\n' '{}' > "${'${summary}'}"; echo warmup-k6 >> "${calls}"; exit 0; fi`,
-			`printf '%s\\n' '{"metrics":{"endpoint_prayer_current_season_duration":{"values":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4}},"endpoint_prayer_current_season_requests":{"values":{"count":1,"rate":1}},"endpoint_prayer_current_season_failures":{"values":{"rate":0}}}}' > "${'${summary}'}"`,
+			`printf '%s\\n' '{"metrics":{"endpoint_prayer_current_season_duration":{"values":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4}},"endpoint_prayer_current_season_requests":{"values":{"count":1,"rate":1}},"endpoint_prayer_current_season_failures":{"values":{"rate":0,"passes":0,"fails":1}}}}' > "${'${summary}'}"`,
 			`sleep 3; echo measured-k6 >> "${calls}"; exit 0`, '',
 		].join('\n'));
 		for (const command of ['docker', 'k6', 'node']) chmodSync(join(bin, command), 0o755);
@@ -1529,7 +1530,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(paths.summary, JSON.stringify({ metrics: {
 			endpoint_poll_member_list_duration: { values: { 'p(50)': 10, 'p(95)': 20, 'p(99)': 30, max: 40 } },
 			endpoint_poll_member_list_requests: { values: { count: 2, rate: 1.5 } },
-			endpoint_poll_member_list_failures: { values: { rate: 0 } },
+			endpoint_poll_member_list_failures: { values: { rate: 0, passes: 0, fails: 2 } },
 		} }));
 		writeFileSync(paths.before, JSON.stringify(dbSnapshot('2026-07-14T00:00:01.000Z', { users: { n_live_tup: 1000 } })));
 		writeFileSync(paths.after, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', { users: { seq_scan: 4, seq_tup_read: 4000, n_live_tup: 1000 } })));
@@ -1556,6 +1557,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		assert.deepEqual(report.http, {
 			p50Ms: 10, p95Ms: 20, p99Ms: 30, maxMs: 40,
 			throughputPerSecond: 1.5, requestCount: 2, failureRate: 0,
+			failurePasses: 0, failureFails: 2, failureExpectedTotal: 2,
 		});
 		assert.equal(report.accepted, false);
 		assert.equal(report.automaticAdoption, false);
@@ -1717,7 +1719,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(directSummary, JSON.stringify({ metrics: {
 			endpoint_poll_member_list_duration: { 'p(50)': 10, 'p(95)': 20, 'p(99)': 30, max: 40 },
 			endpoint_poll_member_list_requests: { count: 2, rate: 1.5 },
-			endpoint_poll_member_list_failures: { rate: 0 },
+			endpoint_poll_member_list_failures: { rate: 0, passes: 0, fails: 2 },
 		} }));
 		const directProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			directSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, directReport]);
@@ -1729,7 +1731,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(zeroSummary, JSON.stringify({ metrics: {
 			endpoint_poll_member_list_duration: { values: { 'p(50)': 0, 'p(95)': 0, 'p(99)': 0, max: 0 } },
 			endpoint_poll_member_list_requests: { values: { count: 1, rate: 0 } },
-			endpoint_poll_member_list_failures: { values: { rate: 0 } },
+			endpoint_poll_member_list_failures: { values: { rate: 0, passes: 0, fails: 1 } },
 		} }));
 		const zeroProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			zeroSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, zeroReport]);
@@ -1745,7 +1747,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			writeFileSync(invertedSummary, JSON.stringify({ metrics: {
 				endpoint_poll_member_list_duration: metric({ 'p(50)': 100, 'p(95)': 50, 'p(99)': 10, max: 1 }),
 				endpoint_poll_member_list_requests: metric({ count: 2, rate: 1 }),
-				endpoint_poll_member_list_failures: metric({ rate: 0 }),
+				endpoint_poll_member_list_failures: metric({ rate: 0, passes: 0, fails: 2 }),
 			} }));
 			const invertedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 				invertedSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, invertedReport]);

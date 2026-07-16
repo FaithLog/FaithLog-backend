@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { validateRuntimeIdentity } from './validate-runtime-identity.mjs';
 import { FIXTURE_CONTRACT } from './fixture-contract.mjs';
+import { normalizeCounterMetric, normalizeFailureRate } from './k6-rate-contract.mjs';
 
 const [endpoint, summaryPath, beforePath, afterPath, sqlLogPath, resourcePath, integrityPath, metadataPath, outputPath] = process.argv.slice(2);
 if (![endpoint, summaryPath, beforePath, afterPath, sqlLogPath, resourcePath, integrityPath, metadataPath, outputPath].every(Boolean)) {
@@ -72,7 +73,6 @@ const integritySamples = readJsonLinesOptional(integrityPath);
 const metricName = endpoint.replace(/-/g, '_');
 const durationValues = metricValues(summary || {}, `endpoint_${metricName}_duration`);
 const requestValues = metricValues(summary || {}, `endpoint_${metricName}_requests`);
-const failureValues = metricValues(summary || {}, `endpoint_${metricName}_failures`);
 const queryLines = extractSql(sqlLog || '');
 
 const repeatedSqlMap = new Map();
@@ -85,9 +85,25 @@ const repeatedSql = [...repeatedSqlMap.entries()]
 	.filter((entry) => entry.count > 1)
 	.sort((left, right) => right.count - left.count || left.sql.localeCompare(right.sql));
 
-const requestCount = strictNumber(requestValues.count) ?? 0;
+let requestMetric = null;
+let requestMetricError = null;
+try {
+	requestMetric = normalizeCounterMetric(summary?.metrics?.[`endpoint_${metricName}_requests`]);
+} catch (error) {
+	requestMetricError = error;
+}
+const requestCount = requestMetric?.count ?? 0;
+let failureMetric = null;
+let failureMetricError = null;
+try {
+	failureMetric = normalizeFailureRate(summary?.metrics?.[`endpoint_${metricName}_failures`], requestCount);
+} catch (error) {
+	failureMetricError = error;
+}
 const queryCount = queryLines.length;
-const failureRate = strictNumber(failureValues.rate);
+const failureRate = failureMetric?.rate ?? null;
+const failurePasses = failureMetric?.passes ?? null;
+const failureFails = failureMetric?.fails ?? null;
 const latency = {
 	p50Ms: strictNumber(durationValues['p(50)']),
 	p95Ms: strictNumber(durationValues['p(95)']),
@@ -121,8 +137,8 @@ for (const name of [`endpoint_${metricName}_duration`, `endpoint_${metricName}_r
 	if (!Object.hasOwn(summary?.metrics || {}, name)) addReason(`missing-required-metric:${name}`);
 }
 if (!Number.isInteger(requestCount) || requestCount <= 0) addReason('zero-http-requests');
-if (!Number.isFinite(failureRate)) rejectionReasons.push('missing-correctness-rate');
-else if (failureRate !== 0) rejectionReasons.push('correctness-failure');
+if (requestMetricError) addReason('invalid-request-counter');
+if (failureMetricError) addReason('invalid-correctness-rate-math');
 if (!Object.values(latency).every((value) => Number.isFinite(value) && value >= 0)) rejectionReasons.push('missing-latency-metrics');
 else if (!(latency.p50Ms <= latency.p95Ms && latency.p95Ms <= latency.p99Ms && latency.p99Ms <= latency.maxMs)) {
 	rejectionReasons.push('invalid-latency-order');
@@ -154,9 +170,8 @@ const evidenceValid = k6ExitStatus === 0
 	&& fixtureWindowExitStatus === 0
 	&& logCaptureExitStatus === 0
 	&& afterDbSnapshotExitStatus === 0
-	&& requestCount > 0
-	&& Number.isFinite(failureRate)
-	&& failureRate === 0
+	&& requestMetric !== null
+	&& failureMetric !== null
 	&& rejectionReasons.length === 0;
 const accepted = false;
 addReason('adoption-policy-pending-user-approval');
@@ -184,6 +199,9 @@ const report = {
 		throughputPerSecond: Number.isFinite(throughputPerSecond) ? throughputPerSecond : null,
 		requestCount,
 		failureRate: Number.isFinite(failureRate) ? failureRate : null,
+		failurePasses,
+		failureFails,
+		failureExpectedTotal: failureMetric?.expectedTotal ?? null,
 	},
 	db: {
 		queryCount,

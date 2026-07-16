@@ -89,7 +89,7 @@ Each endpoint report includes:
 
 - exact endpoint custom k6 Trend: finite nonnegative `p50 <= p95 <= p99 <= max`, accepting both k6 v2 direct and `values` summary shapes;
 - exact endpoint custom request Counter: positive count and positive throughput/second;
-- exact endpoint custom failure Rate equal to zero;
+- exact endpoint custom failure Rate equal to zero, accepting direct or `values` wrappers and `rate` or `value` while requiring exact agreement when both are present; `passes + fails` must equal the separate request Counter, and zero-failure evidence must be exactly `passes=0`, `fails=requestCount`;
 - application/PostgreSQL/Redis CPU and RAM samples whose container set and full immutable IDs are exactly the three attested runtime identities. CPU is finite/nonnegative; memory usage and limit use strict Docker byte units, are safe nonnegative byte counts with `limit > 0` and `used <= limit`, and reported memory percentage is finite in `0..100`. Reports derive canonical memory percent and exact decimal byte totals from parsed usage/limit rather than inventing a tolerance;
 - Hibernate SQL log query count and `queriesPerRequest`;
 - repeated normalized SQL patterns as loop/N+1 evidence;
@@ -288,6 +288,8 @@ node --check performance/k6/issue-196-prayer-poll-list-baseline/redis-runtime-id
 node --check performance/k6/issue-196-prayer-poll-list-baseline/validate-published-target.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/validate-runtime-identity.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/k6-rate-contract.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/k6-rate-shape-probe.js
 node --check performance/k6/issue-196-prayer-poll-list-baseline/runtime-prep-contract.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/runtime-env-attestation.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/tooling-provenance.mjs
@@ -296,6 +298,7 @@ bash -n performance/k6/issue-196-prayer-poll-list-baseline/prepare-runtime.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh
 node --test performance/k6/issue-196-prayer-poll-list-baseline/runtime-prep-orchestration.test.mjs
+node --test performance/k6/issue-196-prayer-poll-list-baseline/k6-rate-contract.test.mjs
 ```
 
 This session syntax-checks `scenario.js` without executing k6; the contract test separately fixes its endpoint, metric, sequencing, correctness, current-develop source/Flyway/RLS identity, app/DB/Redis continuity, pgss state, BigInt counter, and resource evidence markers. Test-code auditing across performance issues may run in parallel, but actual shared-stack seed/load measurement remains PM-controlled and strictly sequential.
