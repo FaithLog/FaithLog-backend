@@ -70,9 +70,9 @@ fixture는 승인된 service ADMIN과 일반 duty user를 포함해 기존 ACTIV
 
 ## Measurement approval gate
 
-승인된 J는 measured 중 `campus_members` insert-triggered autovacuum으로 measurement-integrity에서 rejected됐다. 사용자는 fixture COMMIT 직후 exact 3-table `VACUUM (ANALYZE)`로 교체하는 정책을 승인했다. 이 목표의 k6/fixture/validator/test/docs 변경은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행하지만, `src/main` production backend 또는 Flyway 변경 직전에는 사용자 승인을 받아야 한다. 실제 수집은 개발 세션에서 실행하지 않으며, 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 진행한다.
+K는 measured 16 cases/6,000 HTTP를 failure 0으로 완료했지만 fresh measured login의 `users.last_login_at` UPDATE 통계가 stable pair 이후 늦게 반영돼 measurement-integrity에서 rejected됐다. 이 목표의 k6/fixture/validator/test/docs 변경은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행하지만, `src/main` production backend 또는 Flyway 변경 직전에는 사용자 승인을 받아야 한다. 실제 수집은 개발 세션에서 실행하지 않으며, 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 진행한다.
 
-`I193_BEFORE_20260716_J / I193_FIXTURE_20260716_J / EXEC193_BEFORE_20260716_J`는 rejected evidence로 보존하며 B/C/D/E/F/G/H/I/J namespace와 report를 절대 재사용하지 않는다. PM 실행 제안용 fresh K 식별자는 `I193_BEFORE_20260716_K / I193_FIXTURE_20260716_K / EXEC193_BEFORE_20260716_K`이고 report 경로는 `build/reports/k6/issue-193/I193_BEFORE_20260716_K/I193_FIXTURE_20260716_K/EXEC193_BEFORE_20260716_K`다.
+`I193_BEFORE_20260716_K / I193_FIXTURE_20260716_K / EXEC193_BEFORE_20260716_K`는 rejected evidence로 보존하며 B/C/D/E/F/G/H/I/J/K namespace와 report를 절대 재사용하지 않는다. PM 실행 제안용 fresh L 식별자는 `I193_BEFORE_20260716_L / I193_FIXTURE_20260716_L / EXEC193_BEFORE_20260716_L`이고 report 경로는 `build/reports/k6/issue-193/I193_BEFORE_20260716_L/I193_FIXTURE_20260716_L/EXEC193_BEFORE_20260716_L`이다.
 
 PM 승인 요청용 추천값은 다음과 같다.
 
@@ -100,7 +100,7 @@ Docker Desktop의 `MemUsage`는 `499.7MiB`, `7.653GiB`처럼 표시 정밀도에
 
 Resource cadence는 nominal requested interval과 approved maximum gap을 분리한다. `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`과 `DOCKER_STATS_MAX_GAP_SECONDS=5`를 runtime에 각각 명시하고 run conditions와 validation output에 둘 다 기록한다. Blocking `docker stats --no-stream` 뒤에는 고정 sleep을 추가하지 않고 즉시 다음 capture를 시작하며, validator는 timestamp monotonicity와 measured-window coverage를 유지한 채 인접 gap을 별도 5초 gate로 검증한다. maximum gap 누락·비정상 값·nominal interval 미만·실제 gap 초과는 fail-closed다.
 
-Fresh measured login은 `users.last_login_at`을 갱신하므로 PostgreSQL cumulative table stats flush가 HTTP 응답보다 늦을 수 있다. Runner는 runtime 입력이나 default를 추가하지 않고 issue-local 상수 `1초 간격`, `최대 5회`로 pre-boundary pair를 수집한다. 각 시도는 `capture → 1초 sleep → capture`이며 두 JSON의 database identity/postmaster/stats reset, planner settings, 4개 table의 analyze/vacuum maintenance state가 exact 일치할 때만 두 번째 snapshot을 `measurement-state-before.json`으로 이동한다. 안정화 실패는 measured counter-before와 window 시작 전에 fail-closed하며, measured 이후 기존 exact before/after continuity gate는 완화하지 않는다.
+Fresh measured login은 `users.last_login_at`을 갱신하므로 PostgreSQL cumulative table stats flush가 HTTP 응답보다 늦을 수 있다. Runner는 login 직후 transaction 밖에서 immutable PostgreSQL ID의 stdin으로 exact `VACUUM (ANALYZE) users;`를 실행하고 users-only completion evidence를 남긴다. 그 뒤 runtime 입력이나 default를 추가하지 않는 issue-local 상수 `1초 간격`, `최대 5회`로 pre-boundary pair를 수집한다. 각 시도는 `capture → 1초 sleep → capture`이며 두 JSON의 database identity/postmaster/stats reset, planner settings, 4개 table의 analyze/vacuum maintenance state가 exact 일치할 때만 두 번째 snapshot을 `measurement-state-before.json`으로 이동한다. 다른 table, `VACUUM FULL`, `FREEZE`는 허용하지 않고 안정화 실패는 measured counter-before와 window 시작 전에 fail-closed하며, measured 이후 기존 exact before/after continuity gate는 완화하지 않는다.
 
 Fixture bulk insert의 maintenance는 transaction 내부에서 실행하지 않는다. `prepare-fixture.sql` COMMIT 성공 직후 별도 issue-local stdin SQL로 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`를 한 번 실행하고 exact table completion marker를 남긴 뒤에만 dataset binding, expectations, preflight, warmup으로 진행한다. `users`나 다른 table, `VACUUM FULL`, `FREEZE`는 허용하지 않는다. Fresh measured login의 users stats는 pre-boundary stable-pair gate가 담당하며 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없다. Measured before/after의 vacuum/analyze/auto-maintenance continuity 검증은 그대로 유지한다.
 
@@ -174,4 +174,14 @@ Read-only 확인값은 `autovacuum_naptime=60s`, `autovacuum_vacuum_insert_thres
 
 측정 계정 15026/15027은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. J namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. J의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
 
-사용자는 기존 ANALYZE-only command를 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체하도록 승인했다. Runner는 이를 fixture COMMIT 직후 immutable PostgreSQL ID의 psql stdin으로 실행하고 `fixture-vacuum-analyze.txt`와 exact table completion marker를 남긴다. `users`/다른 table, `VACUUM FULL`, `FREEZE`, 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없으며 strict before/after continuity도 유지한다. 다음 actual 후보는 위 fresh K namespace뿐이고 개발 세션에서는 실행하지 않는다.
+사용자는 기존 ANALYZE-only command를 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체하도록 승인했다. Runner는 이를 fixture COMMIT 직후 immutable PostgreSQL ID의 psql stdin으로 실행하고 `fixture-vacuum-analyze.txt`와 exact table completion marker를 남긴다. `users`/다른 table, `VACUUM FULL`, `FREEZE`, 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없으며 strict before/after continuity도 유지한다. 후속 K는 별도 fresh namespace로 실행됐고 아래 delayed users stats 사유로 rejected됐다.
+
+## Rejected actual-before attempt K (2026-07-16)
+
+`I193_BEFORE_20260716_K / I193_FIXTURE_20260716_K / EXEC193_BEFORE_20260716_K` 실행은 partial rejected evidence로만 보존한다. Campus/fixture와 exact 3-table VACUUM(ANALYZE), warmup, measured 16 cases를 완료했고 measured HTTP는 총 6,000건, failure 0이었다. Exact measured window는 `2026-07-16T05:48:51Z`부터 `2026-07-16T05:52:00Z` 부근이다.
+
+`charge_items`, `campus_members`, `payment_accounts`는 `nModSinceAnalyze=0`과 maintenance timestamp/count가 before/after 안정적이었다. `users`의 analyze/vacuum/auto-maintenance timestamp/count도 안정적이었지만 `nModSinceAnalyze`가 before 72, after 73으로 바뀌어 validator가 `PostgreSQL planner/analyze/vacuum maintenance state changed for users.nModSinceAnalyze`로 거부했다. Fresh measured login의 `users.last_login_at` UPDATE가 기존 1초 stable pair 72/72 뒤에 늦게 반영된 false contamination이며 measured GET workload의 write로 해석하지 않는다.
+
+측정 계정 15028/15029는 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. K namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. K의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+
+Runner는 fresh measured login 직후, 모든 before evidence/counter/window보다 앞서 exact `VACUUM (ANALYZE) users;`를 immutable PostgreSQL ID의 stdin으로 실행하고 `measured-login-user-vacuum-analyze.txt`와 users-only completion marker를 남긴다. 기존 fixture 3-table VACUUM, stable-pair, measured strict continuity는 그대로 유지한다. 다음 actual 후보는 위 fresh L namespace뿐이고 개발 세션에서는 실행하지 않는다.

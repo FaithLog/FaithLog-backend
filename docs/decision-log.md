@@ -10,6 +10,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-16 - Issue #193 Fresh Measured Login Users Statistics Boundary
+
+- Context: Actual-before K는 fixture와 exact 3-table VACUUM(ANALYZE), warmup, measured 16 cases/6,000 HTTP를 failure 0으로 완료했다. 그러나 fresh measured login의 `users.last_login_at` UPDATE 통계가 1초 간격 stable pair의 72/72 뒤에 늦게 반영돼 after 73으로 나타났고 strict integrity가 false contamination으로 측정을 거부했다.
+- Decision: Fresh measured login 직후, PostgreSQL before evidence·stable pair·counter·resource sampler·measured window보다 앞서 immutable PostgreSQL container ID의 psql stdin으로 exact `VACUUM (ANALYZE) users;`를 실행한다. `pg_stat_clear_snapshot()`은 관측 backend snapshot만 비우고 `pg_stat_force_next_flush()`는 호출 backend 자체 통계만 대상으로 하므로 app login backend의 지연 통계를 확실히 정리하는 대안으로 채택하지 않는다.
+- Impact: Users-only completion evidence를 남기며 다른 table, `VACUUM FULL`, `FREEZE`, 데이터/schema/index/Flyway/config/reset/extension 변경은 금지한다. Fixture COMMIT 직후 exact 3-table VACUUM(ANALYZE), measured-login 뒤 stable-pair, measured before/after strict maintenance continuity는 모두 유지한다. 다음 actual은 fresh L namespace만 사용한다.
+
 ### 2026-07-16 - Performance Measurement Code Approval Boundary
 
 - Context: 반복되는 before 측정에서 fixture, k6, validator, fake/static test와 evidence 문서의 measurement-boundary 결함을 PM 리뷰로 보정해야 했지만, 매 보정마다 별도 사용자 승인을 기다리면 유효 baseline 확보가 지연됐다. 반면 production backend와 Flyway 변경은 실제 제품·데이터 계약에 영향을 줄 수 있어 사용자 결정권을 유지해야 한다.

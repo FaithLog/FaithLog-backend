@@ -1462,3 +1462,13 @@ Metric candidates:
 - 복구/보존: 측정 계정 15026/15027은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. J namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 승인된 재발 방지: 기존 ANALYZE-only command를 fixture COMMIT 직후 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체한다. Immutable PostgreSQL ID의 psql stdin으로 transaction 밖에서 실행하고 dataset binding/expectations/preflight/warmup보다 앞서 `fixture-vacuum-analyze.txt`와 exact table completion marker를 남긴다. `users`/다른 table, `VACUUM FULL`, `FREEZE`, 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없고 measured before/after strict maintenance continuity도 유지한다.
 - Fresh K 제안: `I193_BEFORE_20260716_K / I193_FIXTURE_20260716_K / EXEC193_BEFORE_20260716_K`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_K/I193_FIXTURE_20260716_K/EXEC193_BEFORE_20260716_K`. 개발 세션은 실제 Docker/DB/k6를 실행하지 않으며 PM finding 0 뒤 PM만 단독 실행한다.
+
+### 2026-07-16 Issue #193 actual-before attempt K rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_K / I193_FIXTURE_20260716_K / EXEC193_BEFORE_20260716_K`.
+- 실행 범위: campus/fixture와 exact 3-table VACUUM(ANALYZE), warmup, measured 16 cases를 완료했다. Measured HTTP 6,000건, failure 0이며 exact window는 `2026-07-16T05:48:51Z`~`2026-07-16T05:52:00Z` 부근이다.
+- 거부 원인: `charge_items`, `campus_members`, `payment_accounts`는 `nModSinceAnalyze=0`과 maintenance state가 안정적이었고 users analyze/vacuum/auto-maintenance timestamp/count도 안정적이었다. 그러나 users `nModSinceAnalyze`가 before 72, after 73으로 바뀌어 strict validator가 거부했다. Fresh measured login의 `last_login_at` UPDATE 통계가 기존 1초 stable pair 72/72 뒤에 늦게 반영된 false contamination이며 measured GET workload write로 해석하지 않는다.
+- 채택 경계: K latency/throughput/resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15028/15029는 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. K namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: fresh measured login 직후, before evidence/stable-pair/counter/window보다 앞서 immutable PostgreSQL ID의 stdin으로 exact `VACUUM (ANALYZE) users;`를 실행하고 users-only completion marker를 남긴다. 다른 table, `VACUUM FULL`, `FREEZE`, 데이터/schema/index/Flyway/config/reset/extension 변경은 없고 fixture 3-table VACUUM 및 measured strict continuity는 유지한다.
+- Fresh L 제안: `I193_BEFORE_20260716_L / I193_FIXTURE_20260716_L / EXEC193_BEFORE_20260716_L`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_L/I193_FIXTURE_20260716_L/EXEC193_BEFORE_20260716_L`. 개발 세션 actual 실행은 금지한다.
