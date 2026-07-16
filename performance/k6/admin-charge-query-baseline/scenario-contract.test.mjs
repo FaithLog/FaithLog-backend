@@ -503,6 +503,39 @@ test('manifest validation fails closed for exact archive and duty schemas', asyn
 	}
 });
 
+test('member-detail ordering preserves RFC3339 nanoseconds and uses id only for exact instant ties', async () => {
+	const {validateExpectationsManifest} = await definition();
+	const distinctInstants = await validManifest();
+	const distinctItems = distinctInstants.dutyScope.duty_member_detail_owned_only.items;
+	distinctItems[0].id = 701;
+	distinctItems[0]._sortCreatedAt = '2026-07-16T12:34:37.542110123Z';
+	distinctItems[1].id = 702;
+	distinctItems[1]._sortCreatedAt = '2026-07-16T21:34:37.542109999+09:00';
+	assert.equal(validateExpectationsManifest(distinctInstants, distinctInstants.campusId), true);
+
+	const exactTie = await validManifest();
+	const tieItems = exactTie.dutyScope.duty_member_detail_owned_only.items;
+	tieItems[0].id = 702;
+	tieItems[0]._sortCreatedAt = '2026-07-16T12:34:37.542110123Z';
+	tieItems[1].id = 701;
+	tieItems[1]._sortCreatedAt = '2026-07-16T21:34:37.542110123+09:00';
+	assert.equal(validateExpectationsManifest(exactTie, exactTie.campusId), true);
+	tieItems.reverse();
+	assert.throws(() => validateExpectationsManifest(exactTie, exactTie.campusId));
+
+	for (const invalid of [
+		'2026-07-16',
+		'2026-07-16T12:34:37Zjunk',
+		'2026-02-30T12:34:37Z',
+		'2026-07-16T24:00:00Z',
+		'2026-07-16T12:34:37.1234567890Z',
+	]) {
+		const malformed = await validManifest();
+		malformed.dutyScope.duty_member_detail_owned_only.items[0]._sortCreatedAt = invalid;
+		assert.throws(() => validateExpectationsManifest(malformed, malformed.campusId), invalid);
+	}
+});
+
 test('manifest rejects archive false-greens without exact terminal status deltas', async () => {
 	const {validateExpectationsManifest} = await definition();
 	for (const prefix of ['admin', 'my']) {
