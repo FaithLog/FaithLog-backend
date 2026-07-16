@@ -9,6 +9,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-17 - Issue #195 멤버 목록 N+1 bulk 보정
+
+- TDD RED: persistence context를 비운 통합 계약에서 동일 응답을 만들 때 관리자 사용자 4명/캠퍼스 2개 페이지는 8 SQL, 캠퍼스 ACTIVE 멤버 4명 목록은 6 SQL이 발생해 고정 3 SQL 계약에 실패했다. 페이지 number/size/totalElements/totalPages, 사용자/page 순서, 멤버십 ID 순서, ACTIVE 필터, 응답 이름·상태도 함께 고정했다.
+- 최소 GREEN: 관리자 목록은 page user ID 전체의 membership/campus left-join projection 1회로 바꾸고 원 page와 user별 membership ID ASC를 복원했다. 캠퍼스 멤버 목록은 기존 권한과 ACTIVE membership ID ASC 조회 뒤 기존 `CampusAccessPolicy.getUsers`/`findAllById` bulk lookup 1회로 전환했다. 두 focused 계약 모두 3 SQL로 통과했다.
+- 영향: API path/query/DTO/page metadata/권한/ErrorCode/transaction/entity/frontend/Flyway/dependency/index 변경은 없다. `getUser`와 role mutation의 single-user/lock 경로도 유지한다. G 조건부 before 수치는 그대로이며 after load를 실행하지 않았으므로 상태는 `production-code-ready/after-not-measured`, 성능 개선 수치와 이력서 성과는 아직 없다.
+
 ## 2026-07-16 - Issue #206 청구 페이징 동률 정렬 안정화
 
 - 발견: #193 current-develop before preflight에서 동일 `created_at` 청구 쌍의 ID 순서가 API 응답마다 asc/desc로 혼재해 offset paging의 중복·누락 가능성과 측정 correctness 실패를 확인했다. #193 D는 1,000 ACTIVE 멤버/35,000 청구 fixture까지만 생성되고 k6 warmup/measured 0, summary 없음으로 거부·보존됐다.

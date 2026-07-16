@@ -10,6 +10,14 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-17 - Issue #195 Member List Bulk Optimization Authorized And Implemented
+
+- Authorization: the user's latest decision supersedes the earlier proposal-only boundary and authorizes the two evidence-backed production backend changes without another approval wait. Actual Docker/DB/HTTP/k6 load remains prohibited while the other performance session is active; no after result or improvement claim is produced here.
+- TDD evidence: a focused integration RED preserved admin authorization, page metadata/order, campus membership order, ACTIVE filtering, response values, and measured JDBC statement counts after clearing the persistence context. Current source failed with 8 statements for a four-user/two-campus admin page and 6 statements for a four-member campus list; both contracts require a constant 3 statements.
+- Implementation: `AdminUserManagementService.searchUsers` now loads one left-joined membership/campus projection for the page user IDs, groups by user ID, and maps the original `Page` in its original order. The projection keeps membership ID ascending and explicitly raises `CAMPUS_NOT_FOUND` when a membership's campus cannot be resolved. `getUser` and role mutation retain the original single-user path and locking semantics.
+- Implementation: `CampusMemberManagementService.getCampusMembers` retains authorization first and the existing ACTIVE membership/ID-ascending query, then calls the existing `CampusAccessPolicy.getUsers` bulk boundary once and maps users back in membership order. Missing-user behavior remains `CAMPUS_MEMBER_NOT_FOUND`; user active status is not newly filtered.
+- Boundary: controller paths/queries, DTO fields, page metadata, authorization, ErrorCodes, read-only transaction boundaries, entities, frontend, dependencies, Flyway, and indexes are unchanged. `campus_members (user_id, id)` remains only a separately evidenced #194 query-plan candidate. Status is production-code-ready/after-not-measured; G remains conditional and no numerical target or performance achievement is adopted.
+
 ### 2026-07-17 - Issue #195 G Conditional Before Checkpoint And Optimization Boundary
 
 - Actual checkpoint: PM-controlled `EXEC195_BEFORE_20260716_G` reused `PERF_1000_20260716_195_A` / `ISSUE195_BEFORE_20260716_A` and completed measured adoption for all 11 cases with every `failureRate=0`. There was no intermediate case rejection. The only first rejection was the designed `final-classification` exit `2`; final status is `conditional-not-adoptable`, `automaticAdoption=false`, because boundary evidence and the cooperative lock cannot prove absence of transient external shared-stack load. PM confirmed one temporary account was restored to service role `USER` and lock/process count was zero.

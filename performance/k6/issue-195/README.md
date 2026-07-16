@@ -1,8 +1,10 @@
 # Issue #195 Member List Before Scenario
 
-Status: **actual-before-complete/conditional-not-adoptable**
+Status: **production-code-ready/after-not-measured**
 
 This directory records the before-only local Docker evidence for Issue #195. PM-controlled execution G completed all eleven measured cases with zero failures, but the shared-stack boundary cannot prove absence of transient external load. G is therefore a conditional shared-stack before baseline only: it is not automatically adoptable, is not an improvement claim, and must not be counted as a performance achievement.
+
+The user subsequently authorized the two G-supported production N+1 removals. The code and focused regressions are complete, but no after Docker/DB/HTTP/k6 load was run in this development session. G remains unchanged and the implementation has no measured improvement claim.
 
 Previous authoring checkpoint: `scenario-ready/not-measured` (superseded by the completed G checkpoint above).
 
@@ -58,25 +60,25 @@ The inventory is taken from the current production controllers and Spring REST D
 
 The member and duty endpoints are intentionally not given invented pagination. Role/search/page combinations apply to the service-admin user API; status/search/page combinations apply to the service-admin campus API. The two pageable admin APIs default to `size=20`, reject sizes above `100`, and the scenario separates `size=20` from the approved maximum `size=100`. `includeArchived` is not supported by any Issue #195 endpoint; the Issue #201 archive opt-in contract belongs to billing and poll lists and is not sent here.
 
-## Current Develop Boundary
+## G Source Boundary And Current Implementation
 
-- #200 authorization remains active service `ADMIN` or an ACTIVE campus `MINISTER`/`ELDER`/`CAMPUS_LEADER`. On current develop, the duty list already performs a bulk user lookup, while the campus-member list still performs a per-member user lookup. This scenario records that asymmetric current state and does not claim a pristine pre-bulk duty baseline.
+- #200 authorization remains active service `ADMIN` or an ACTIVE campus `MINISTER`/`ELDER`/`CAMPUS_LEADER`. At the G source commit, the duty list already performed a bulk user lookup while the campus-member list still performed a per-member user lookup. The current implementation now bulk-loads campus-member users as well; this does not retroactively change G or claim a pristine pre-bulk duty baseline.
 - #202 enables RLS but `FORCE ROW LEVEL SECURITY` is not used. G verified the bound PostgreSQL runtime identity and continuity required by this scenario; it did not isolate RLS as a performance factor, so no RLS-specific causal result is claimed.
 - #206 adds a billing paging tie-break and is not applicable to these member/campus APIs. Admin cases request explicit `id,asc`; campus member and duty repositories return their own IDs in ascending order.
 
-## Minimal Production Optimization Proposal (Not Approved)
+## Minimal Production Optimization (Implemented, After Not Measured)
 
-No production change is authorized by this document. The proposed first implementation targets only the two G cases that combine the slowest observed throughput/latency with a directly visible current-source N+1 path. `admin_campuses` is excluded because it has no equivalent enrichment loop and all four G cases are materially faster. `duty_assignments` is excluded because current develop already bulk-loads users and G reached 1108.765775 req/s with p95 14.022 ms.
+The user authorized only the two G cases that combine the slowest observed throughput/latency with a directly visible source N+1 path. `admin_campuses` remains excluded because it has no equivalent enrichment loop. `duty_assignments` remains excluded because the G source already bulk-loaded users.
 
-### Proposed files and query shape
+### Implemented files and query shape
 
 1. Admin user page enrichment:
-   - Change `AdminUserManagementService.java`, `AdminCampusMemberRepositoryPort.java`, and `CampusMemberRepository.java`; add one internal admin read projection such as `AdminUserCampusRow.java`. Do not change controllers, request/response DTO fields, entities, or `getUser`/role-mutation locking semantics.
-   - Materialize the page content once, collect distinct user IDs, and issue one bulk membership-to-campus projection query for those IDs. The query includes inactive and active memberships exactly as today, uses a left join or equivalent explicit missing-campus detection, and orders by `member.userId ASC, member.id ASC`.
+   - `AdminUserManagementService.java`, `AdminCampusMemberRepositoryPort.java`, and `CampusMemberRepository.java` now use the internal `AdminUserCampusRow.java` read projection. Controllers, request/response DTO fields, entities, and `getUser`/role-mutation locking semantics are unchanged.
+   - The service materializes the page content, collects its user IDs, and issues one bulk membership-to-campus projection query. The query includes inactive and active memberships exactly as before, uses a left join with explicit missing-campus detection, and orders by `member.userId ASC, member.id ASC`.
    - Group rows by user ID, then map the original page content in its original pageable order. Within each user, keep membership ID ascending. A missing campus must still raise `CAMPUS_NOT_FOUND`; it must not be silently dropped by an inner join.
    - This removes the page-sized per-user membership reads and per-membership campus reads while retaining the existing admin authorization check before the search and the same read-only transaction.
 2. Campus full member list enrichment:
-   - Change only `CampusMemberManagementService.java` for the production path. After the existing manager authorization and the existing ACTIVE-membership/ID-ascending query, collect distinct user IDs and call the already implemented `CampusAccessPolicy.getUsers(...)` once. `UserRepository.findCampusUsersByIds(...)` already overrides the port default with one `findAllById` bulk read.
+   - `CampusMemberManagementService.java` retains the existing manager authorization and ACTIVE-membership/ID-ascending query, then calls the already implemented `CampusAccessPolicy.getUsers(...)` once. `UserRepository.findCampusUsersByIds(...)` overrides the port default with one `findAllById` bulk read.
    - Map users by ID while iterating the original membership list, so membership ID order and response cardinality remain unchanged. Missing users still raise `CAMPUS_MEMBER_NOT_FOUND`; inactive users remain representable exactly as in the current per-member lookup because this list gates on membership status, not user active state.
 
 The expected database round-trip change is deterministic and should be proved in tests, not inferred from G latency: admin page enrichment becomes one bulk enrichment query after the existing authorization/page/count work, and campus member user enrichment becomes one bulk user query after the existing authorization/membership work. The JWT filter transaction and endpoint service transaction boundaries are not changed.
@@ -87,17 +89,15 @@ The expected database round-trip change is deterministic and should be proved in
 - Authorization/concurrency: keep authorization before data enrichment, preserve `@Transactional(readOnly=true)`, introduce no write or lock, and leave role mutation/deletion lock order untouched. Page order, membership ID ascending order, ACTIVE-only campus membership filtering, and all existing missing-resource behavior remain exact.
 - Flyway/index: no Flyway migration or new index is required for the first N+1 removal. The existing `uk_campus_members_campus_user (campus_id, user_id)` supports campus-scoped membership lookup by its leftmost column, while users and campuses are bulk-read by primary key. The proposed admin `user_id IN (...)` projection may still scan `campus_members` because the current unique key does not lead with `user_id`; do not add an index speculatively. Only a separately approved post-change query plan showing that scan dominates may justify a later `campus_members (user_id, id)` index and Flyway change.
 
-### Required TDD RED before implementation
+### TDD evidence
 
-1. Admin `size=20` and `size=100` service/integration tests must first show query count grows with page membership count; the GREEN contract caps enrichment at one bulk query and proves the old per-user/per-campus methods are not called.
-2. Admin mapping tests cover multiple memberships per user, shared campuses, users with zero memberships, ACTIVE and INACTIVE memberships, duplicate input IDs, page sort preservation, membership ID ascending order, `campusCount`, and exact `CAMPUS_NOT_FOUND` behavior.
-3. Campus member tests create a 1,000-member ACTIVE list and first reproduce per-member user reads. GREEN requires one bulk lookup, exact 1,000-row cardinality, membership ID ascending order, and unchanged name/email/role/status values.
-4. Authorization and error regressions cover service ADMIN, ACTIVE campus manager roles, ordinary/inactive/outsider requesters, missing users/campuses, and ensure no bulk data query occurs before a rejected authorization.
-5. Existing controller and REST Docs tests must stay byte-contract compatible. Focused service/repository tests, full Gradle tests, build/asciidoctor, and production/API/Flyway diff review are required before any after measurement.
+1. The focused RED used a four-user page with two shared campuses and observed 8 prepared statements; the GREEN path uses exactly 3 while preserving page number/size/total metadata, requested user order, `campusCount`, campus values, and membership ID order.
+2. The focused campus RED used four ACTIVE members plus one inactive membership and observed 6 prepared statements; the GREEN path uses exactly 3 while returning only ACTIVE memberships in ID order with unchanged names/status.
+3. Existing admin/campus service, controller, and REST Docs regressions remain required before after measurement. Missing-campus and missing-user ErrorCodes are preserved by explicit projection validation and the existing strict bulk lookup policy.
 
 ### Expected after verification
 
-After user approval and implementation, use the same workload/cardinality/runtime inputs and a fresh PM-assigned after execution ID; never reuse G. First require the deterministic query-count reductions and all functional tests to pass. Then compare all eleven zero-failure case metrics with G, focusing on `admin_users/large_page` and `campus_members/full_list` while checking the other nine for regression. No numerical latency/throughput acceptance threshold is approved here, so none may be invented. Shared-stack after evidence remains `conditional-not-adoptable` and cannot become an automatic performance achievement unless the user separately approves an exclusive/continuous provenance contract.
+In a later PM-controlled slot, use the same workload/cardinality/runtime inputs and a fresh PM-assigned after execution ID; never reuse G. First require the deterministic query-count reductions and all functional tests to pass. Then compare all eleven zero-failure case metrics with G, focusing on `admin_users/large_page` and `campus_members/full_list` while checking the other nine for regression. No numerical latency/throughput acceptance threshold is approved here, so none may be invented. Shared-stack after evidence remains `conditional-not-adoptable` and cannot become an automatic performance achievement unless the user separately approves an exclusive/continuous provenance contract.
 
 ## Fresh Dataset Provisioning
 
