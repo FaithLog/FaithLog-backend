@@ -185,12 +185,15 @@ export async function prepareDevotionFixture({
 		}, 201);
 		counts.accountsCreated += 1;
 
-		for (const rule of blueprint.penaltyRules) {
-			stage = `create-penalty-rule-${rule.ruleType.toLowerCase()}`;
-			await checkedRequest(boundedRequest, counts, stage, {
-				method: 'POST', path: `/api/v1/admin/campuses/${campusId}/penalty-rules`, accessToken: adminToken, body: rule,
-			}, 201);
-			counts.rulesCreated += 1;
+		for (const targetCampusId of [campusId, rollbackCampusId]) {
+			const targetCampusRole = targetCampusId === campusId ? 'success' : 'rollback';
+			for (const rule of blueprint.penaltyRules) {
+				stage = `create-${targetCampusRole}-penalty-rule-${rule.ruleType.toLowerCase()}`;
+				await checkedRequest(boundedRequest, counts, stage, {
+					method: 'POST', path: `/api/v1/admin/campuses/${targetCampusId}/penalty-rules`, accessToken: adminToken, body: rule,
+				}, 201);
+				counts.rulesCreated += 1;
+			}
 		}
 
 		const preparedUsers = [];

@@ -101,7 +101,12 @@ test('devotion preflight validates exact cohort, account, freshness, and penalty
 	assert.match(validator, /existingDevotionCharges/);
 	assert.match(sql, /campus_members/);
 	assert.match(sql, /penalty_rules/);
-	assert.match(sql, /calculatedPenaltyAmount/);
+	assert.match(sql, /successActivePenaltyRuleCount/);
+	assert.match(sql, /rollbackActivePenaltyRuleCount/);
+	assert.match(sql, /successDistinctActivePenaltyRuleTypeCount/);
+	assert.match(sql, /rollbackDistinctActivePenaltyRuleTypeCount/);
+	assert.match(sql, /successCalculatedPenaltyAmount/);
+	assert.match(sql, /rollbackCalculatedPenaltyAmount/);
 	assert.match(sql, /existingWeeklyCount/);
 	assert.match(sql, /existingDailyCount/);
 	assert.ok(runner.indexOf('preflight-devotion.sql') < runner.indexOf('PHASE=warmup'));

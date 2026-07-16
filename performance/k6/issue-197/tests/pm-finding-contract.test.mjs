@@ -111,13 +111,15 @@ test('devotion preflight validator rejects stale cohorts and wrong calculated am
 		const manifestPath = writeJson(temporaryDirectory, 'manifest.json', manifest);
 		const valid = preflightEvidence(manifest);
 		const validPath = writeJson(temporaryDirectory, 'valid.json', valid);
-		const stalePath = writeJson(temporaryDirectory, 'stale.json', { ...valid, existingWeeklyCount: 1, calculatedPenaltyAmount: 1 });
+		const stalePath = writeJson(temporaryDirectory, 'stale.json', { ...valid, existingWeeklyCount: 1, successCalculatedPenaltyAmount: 1 });
 		const wrongMembershipPath = writeJson(temporaryDirectory, 'wrong-membership.json', { ...valid, rollbackUsersInSuccessCampus: 1 });
-		const wrongRulesPath = writeJson(temporaryDirectory, 'wrong-rules.json', { ...valid, activePenaltyRuleCount: 3 });
+		const wrongRulesPath = writeJson(temporaryDirectory, 'wrong-rules.json', { ...valid, rollbackActivePenaltyRuleCount: 3 });
+		const duplicateRuleTypePath = writeJson(temporaryDirectory, 'duplicate-rule-type.json', { ...valid, rollbackDistinctActivePenaltyRuleTypeCount: 3 });
 		assert.equal(runNode(validator, manifestPath, validPath).status, 0);
 		assert.notEqual(runNode(validator, manifestPath, stalePath).status, 0);
 		assert.notEqual(runNode(validator, manifestPath, wrongMembershipPath).status, 0);
 		assert.notEqual(runNode(validator, manifestPath, wrongRulesPath).status, 0);
+		assert.notEqual(runNode(validator, manifestPath, duplicateRuleTypePath).status, 0);
 	} finally {
 		fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 	}
@@ -145,8 +147,10 @@ test('I-shaped rollback success proves the isolated campus lacked rules before t
 		'prepare must create the same four active penalty rules in both isolated campuses');
 	assert.match(preflightSql, /rollback_active_rules/);
 	assert.match(preflightSql, /rollbackActivePenaltyRuleCount/);
+	assert.match(preflightSql, /rollbackDistinctActivePenaltyRuleTypeCount/);
 	assert.match(preflightSql, /rollbackCalculatedPenaltyAmount/);
 	assert.match(preflightValidator, /rollbackActivePenaltyRuleCount:\s*4/);
+	assert.match(preflightValidator, /rollbackDistinctActivePenaltyRuleTypeCount:\s*4/);
 	assert.match(preflightValidator, /rollbackCalculatedPenaltyAmount:\s*manifest\.expectedPenaltyAmount/);
 });
 
@@ -916,7 +920,11 @@ function preflightEvidence(manifest) {
 		successActiveMembers: 1001, rollbackActiveMembers: 1, successUsersInRollbackCampus: 0, rollbackUsersInSuccessCampus: 0,
 		successActivePenaltyAccounts: 1, rollbackActivePenaltyAccounts: 0,
 		existingWeeklyCount: 0, existingDailyCount: 0, existingDevotionCharges: 0,
-		activePenaltyRuleCount: 4, invalidActivePenaltyRulePairs: 0, calculatedPenaltyAmount: manifest.expectedPenaltyAmount,
+		successActivePenaltyRuleCount: 4, rollbackActivePenaltyRuleCount: 4,
+		successDistinctActivePenaltyRuleTypeCount: 4, rollbackDistinctActivePenaltyRuleTypeCount: 4,
+		successInvalidActivePenaltyRulePairs: 0, rollbackInvalidActivePenaltyRulePairs: 0,
+		successCalculatedPenaltyAmount: manifest.expectedPenaltyAmount,
+		rollbackCalculatedPenaltyAmount: manifest.expectedPenaltyAmount,
 	};
 }
 

@@ -332,6 +332,7 @@ test('preparation inspector binds manifest, 1002 JWTs, preflight, workload, and 
 		successActiveMembers: 1001, rollbackActiveMembers: 1, successUsersInRollbackCampus: 0, rollbackUsersInSuccessCampus: 0,
 		successActivePenaltyAccounts: 1, rollbackActivePenaltyAccounts: 0,
 		successActivePenaltyRuleCount: 4, rollbackActivePenaltyRuleCount: 4,
+		successDistinctActivePenaltyRuleTypeCount: 4, rollbackDistinctActivePenaltyRuleTypeCount: 4,
 		successInvalidActivePenaltyRulePairs: 0, rollbackInvalidActivePenaltyRulePairs: 0,
 		successCalculatedPenaltyAmount: 2250, rollbackCalculatedPenaltyAmount: 2250,
 		existingWeeklyCount: 0, existingDailyCount: 0, existingDevotionCharges: 0,

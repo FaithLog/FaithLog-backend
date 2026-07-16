@@ -24,12 +24,17 @@ WITH warmup_users AS (
       ON fixture.user_id = weekly.user_id
      AND fixture.campus_id = weekly.campus_id
      AND fixture.week_start_date = weekly.week_start_date
-), active_rules AS (
+), success_active_rules AS (
     SELECT *
     FROM penalty_rules
     WHERE campus_id = :'campus_id'::BIGINT
       AND is_active = TRUE
-), calculated_penalty AS (
+), rollback_active_rules AS (
+    SELECT *
+    FROM penalty_rules
+    WHERE campus_id = :'rollback_campus_id'::BIGINT
+      AND is_active = TRUE
+), success_calculated_penalty AS (
     SELECT COALESCE(sum(
         CASE calculation_type
             WHEN 'MISSING_COUNT' THEN greatest(required_count - 4, 0)::BIGINT * amount_per_unit::BIGINT
@@ -37,7 +42,16 @@ WITH warmup_users AS (
             ELSE 0
         END
     ), 0) AS amount
-    FROM active_rules
+    FROM success_active_rules
+), rollback_calculated_penalty AS (
+    SELECT COALESCE(sum(
+        CASE calculation_type
+            WHEN 'MISSING_COUNT' THEN greatest(required_count - 4, 0)::BIGINT * amount_per_unit::BIGINT
+            WHEN 'LATE_MINUTE' THEN base_amount::BIGINT + 5::BIGINT * amount_per_unit::BIGINT
+            ELSE 0
+        END
+    ), 0) AS amount
+    FROM rollback_active_rules
 )
 SELECT json_build_object(
     'distinctFixtureUsers', (SELECT count(DISTINCT user_id) FROM fixture_scope),
@@ -91,11 +105,20 @@ SELECT json_build_object(
         JOIN fixture_scope fixture ON fixture.user_id = charge.user_id AND fixture.campus_id = charge.campus_id
         WHERE charge.payment_category = 'PENALTY' AND charge.source_type = 'DEVOTION_RECORD'
     ),
-    'activePenaltyRuleCount', (SELECT count(*) FROM active_rules),
-    'invalidActivePenaltyRulePairs', (
-        SELECT count(*) FROM active_rules
+    'successActivePenaltyRuleCount', (SELECT count(*) FROM success_active_rules),
+    'rollbackActivePenaltyRuleCount', (SELECT count(*) FROM rollback_active_rules),
+    'successDistinctActivePenaltyRuleTypeCount', (SELECT count(DISTINCT rule_type) FROM success_active_rules),
+    'rollbackDistinctActivePenaltyRuleTypeCount', (SELECT count(DISTINCT rule_type) FROM rollback_active_rules),
+    'successInvalidActivePenaltyRulePairs', (
+        SELECT count(*) FROM success_active_rules
         WHERE (rule_type IN ('QUIET_TIME', 'PRAYER', 'BIBLE_READING') AND calculation_type <> 'MISSING_COUNT')
            OR (rule_type = 'SATURDAY_LATE' AND calculation_type <> 'LATE_MINUTE')
     ),
-    'calculatedPenaltyAmount', (SELECT amount FROM calculated_penalty)
+    'rollbackInvalidActivePenaltyRulePairs', (
+        SELECT count(*) FROM rollback_active_rules
+        WHERE (rule_type IN ('QUIET_TIME', 'PRAYER', 'BIBLE_READING') AND calculation_type <> 'MISSING_COUNT')
+           OR (rule_type = 'SATURDAY_LATE' AND calculation_type <> 'LATE_MINUTE')
+    ),
+    'successCalculatedPenaltyAmount', (SELECT amount FROM success_calculated_penalty),
+    'rollbackCalculatedPenaltyAmount', (SELECT amount FROM rollback_calculated_penalty)
 );

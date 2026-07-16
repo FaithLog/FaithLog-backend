@@ -20,9 +20,14 @@ export function validatePreflight(manifest, evidence) {
 		existingWeeklyCount: 0,
 		existingDailyCount: 0,
 		existingDevotionCharges: 0,
-		activePenaltyRuleCount: 4,
-		invalidActivePenaltyRulePairs: 0,
-		calculatedPenaltyAmount: manifest.expectedPenaltyAmount,
+		successActivePenaltyRuleCount: 4,
+		rollbackActivePenaltyRuleCount: 4,
+		successDistinctActivePenaltyRuleTypeCount: 4,
+		rollbackDistinctActivePenaltyRuleTypeCount: 4,
+		successInvalidActivePenaltyRulePairs: 0,
+		rollbackInvalidActivePenaltyRulePairs: 0,
+		successCalculatedPenaltyAmount: manifest.expectedPenaltyAmount,
+		rollbackCalculatedPenaltyAmount: manifest.expectedPenaltyAmount,
 	};
 	const failures = [];
 	for (const [name, value] of Object.entries(expected)) {
