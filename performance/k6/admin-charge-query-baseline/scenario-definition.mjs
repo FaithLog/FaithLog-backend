@@ -547,9 +547,48 @@ function canonicalInstant(value, nullable) {
 	if (typeof value !== 'string') {
 		throw new Error('Instant must be an ISO-8601 string or allowed null.');
 	}
-	const parsed = new Date(value);
-	if (Number.isNaN(parsed.getTime())) {
+	const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+	if (!match) {
 		throw new Error('Instant is invalid.');
 	}
-	return parsed.toISOString();
+	const year = Number(match[1]);
+	const month = Number(match[2]);
+	const day = Number(match[3]);
+	const hour = Number(match[4]);
+	const minute = Number(match[5]);
+	const second = Number(match[6]);
+	const offsetHour = match[10] === undefined ? 0 : Number(match[10]);
+	const offsetMinute = match[11] === undefined ? 0 : Number(match[11]);
+	if (month < 1 || month > 12
+		|| day < 1 || day > daysInMonth(year, month)
+		|| hour > 23
+		|| minute > 59
+		|| second > 59
+		|| offsetHour > 23
+		|| offsetMinute > 59) {
+		throw new Error('Instant is invalid.');
+	}
+	const offsetSign = match[9] === '-' ? -1 : 1;
+	const offsetSeconds = offsetSign * (offsetHour * 3600 + offsetMinute * 60);
+	const localSeconds = BigInt(daysFromCivil(year, month, day)) * 86400n
+		+ BigInt(hour * 3600 + minute * 60 + second);
+	const fractionNanos = BigInt((match[7] ?? '').padEnd(9, '0'));
+	return (localSeconds - BigInt(offsetSeconds)) * 1000000000n + fractionNanos;
+}
+
+function daysInMonth(year, month) {
+	if (month === 2) {
+		return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+	}
+	return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
+function daysFromCivil(year, month, day) {
+	const adjustedYear = year - (month <= 2 ? 1 : 0);
+	const era = Math.floor(adjustedYear / 400);
+	const yearOfEra = adjustedYear - era * 400;
+	const adjustedMonth = month + (month > 2 ? -3 : 9);
+	const dayOfYear = Math.floor((153 * adjustedMonth + 2) / 5) + day - 1;
+	const dayOfEra = yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear;
+	return era * 146097 + dayOfEra - 719468;
 }

@@ -95,3 +95,11 @@ PM이 확인한 현재 shared PostgreSQL에서는 `pg_stat_statements`가 unavai
 직후 dataset binding 조회가 `psql -c` 문자열 안의 `:'dataset_id'`를 치환할 것으로 잘못 가정해 PostgreSQL `syntax error at or near ":"`로 중단됐다. k6 warmup/measured 실행은 모두 0건이고 summary도 생성되지 않았으므로 baseline 또는 성능 수치로 사용할 수 없다. 외부 보안 cleanup trap이 임시 ADMIN을 USER로 복구했고 memory-only credential은 runner shell 종료와 함께 폐기됐다.
 
 B namespace, DB rows, report directory는 삭제하거나 복구하지 않고 그대로 보존하며 절대 재사용하지 않는다. dataset binding은 raw shell interpolation 없이 `select-dataset-binding.sql`을 stdin으로 전달하고 `psql -v dataset_id=...`가 치환하도록 보정했다. 후속 실제 측정은 새 dataset/fixture/execution ID와 별도 승인 credential만 사용한다.
+
+## Rejected actual-before attempt C (2026-07-16)
+
+`I193_BEFORE_20260716_C / I193_FIXTURE_20260716_C / EXEC193_BEFORE_20260716_C` 실행도 partial rejected evidence로만 보존한다. dataset binding 보정, immutable runtime/DB/lock/quiet gate, fresh fixture prepare와 ADMIN/duty 인증을 통과했으며 campus ID 19에 ACTIVE membership 1,000개와 charge item 35,000개를 COMMIT했다.
+
+k6 전 correctness preflight에서 member-detail expectation의 `createdAt desc, id desc` 검증이 실패했다. 실제 SQL 순서는 `...37.542110`, `...37.542109`, `...37.542108`의 마이크로초 내림차순이고 같은 timestamp 안에서는 ID 내림차순이었지만, validator가 `Date` millisecond로 모두 `...37.542`에 절삭해 서로 다른 instant를 동률로 오판했다. k6 warmup/measured 실행은 모두 0건이고 summary도 없으므로 baseline 또는 성능 수치로 사용할 수 없다. 외부 보안 cleanup trap은 임시 ADMIN을 USER로 복구했고 memory-only credential은 폐기됐다.
+
+C namespace, DB rows, report directory는 삭제하거나 복구하지 않고 그대로 보존하며 절대 재사용하지 않는다. instant validator는 최대 9자리 fraction과 `Z`/offset을 strict parse해 lossless epoch nanoseconds로 비교하고, exact instant tie에서만 ID 내림차순을 요구한다. 날짜 전용 문자열, malformed timestamp, 유효하지 않은 달력 날짜, `24:00`, 9자리 초과 fraction은 fail-closed다. 설치된 k6의 정적 `inspect`로 BigInt module parse/instantiate 호환성도 확인하며, 후속 실제 측정은 새 namespace와 별도 승인 credential만 사용한다.

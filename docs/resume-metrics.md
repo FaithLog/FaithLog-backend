@@ -1369,3 +1369,13 @@ Metric candidates:
 - 측정 결과: k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
 - 복구/보존: 외부 cleanup trap이 임시 ADMIN을 USER로 복구했고 memory-only credential은 폐기됐다. B namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 재발 방지: dataset binding SQL을 issue-local read-only stdin 파일로 분리하고 `psql -v dataset_id=...`로만 치환한다. fake psql harness가 `-c` 실패와 stdin 성공을 고정한다.
+
+### 2026-07-16 Issue #193 actual-before attempt C rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_C / I193_FIXTURE_20260716_C / EXEC193_BEFORE_20260716_C`.
+- 검증된 준비 범위: dataset binding, immutable app/PostgreSQL/Redis 및 DB/binding continuity, canonical lock, quiet boundary, fresh fixture prepare, ADMIN/duty 인증과 member-detail expectation 직전 preflight.
+- fixture 결과: campus ID 19, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- 거부 원인: 실제 SQL의 `createdAt`은 `...37.542110`, `...37.542109`, `...37.542108` 순으로 정확했지만 JS `Date`가 millisecond로 절삭해 서로 다른 microsecond instant를 동률로 오판하고 전체 ID 내림차순을 요구했다.
+- 측정 결과: k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
+- 복구/보존: 외부 cleanup trap이 임시 ADMIN을 USER로 복구했고 memory-only credential은 폐기됐다. C namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: RFC3339 timestamp를 최대 9자리 fraction 및 `Z`/offset까지 strict parse한 lossless epoch nanoseconds로 비교하고 exact instant tie에서만 ID 내림차순을 적용한다. malformed/date-only/invalid calendar/`24:00`은 fail-closed며 설치된 k6의 정적 `inspect`로 module 호환성을 검증한다.
