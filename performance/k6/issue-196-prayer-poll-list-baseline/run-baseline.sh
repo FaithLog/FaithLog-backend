@@ -13,7 +13,8 @@ PARSE_REDIS_IDENTITY="${ROOT_DIR}/redis-runtime-identity.mjs"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
 EXECUTION_RUN_ID="${EXECUTION_RUN_ID:?EXECUTION_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
-REPORT_ROOT="${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/${EXECUTION_RUN_ID}"
+PERF_REPORT_ROOT="${PERF_REPORT_ROOT:-${REPO_ROOT}/build/reports/k6/issue-196}"
+REPORT_ROOT="${PERF_REPORT_ROOT}/${FIXTURE_RUN_ID}/${EXECUTION_RUN_ID}"
 BASE_URL="${BASE_URL:?BASE_URL is required at runtime}"
 WARMUP_VUS="${WARMUP_VUS:?WARMUP_VUS must be explicitly approved and supplied}"
 WARMUP_DURATION="${WARMUP_DURATION:?WARMUP_DURATION must be explicitly approved and supplied}"
@@ -45,6 +46,7 @@ EXPECTED_SOURCE_REVISION="${EXPECTED_SOURCE_REVISION:?EXPECTED_SOURCE_REVISION i
 SQL_LOG_MARKER="org.hibernate.SQL"
 REQUESTED_MODE="${1:?Mode is required: all, prayer, poll-member, poll-admin, or poll-duty}"
 MODE_SEQUENCE=(prayer poll-member poll-admin poll-duty)
+overall_non_adoptable=0
 
 export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD
 unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN \
@@ -416,6 +418,7 @@ run_endpoint() {
 	local runtime_continuity_status
 	local final_continuity_status
 	local summarize_status
+	local measurement_status
 
 	mkdir -p "$(dirname "${endpoint_dir}")"
 	if ! mkdir "${endpoint_dir}"; then
@@ -640,9 +643,23 @@ run_endpoint() {
 		"${sql_log_file}" "${resource_file}" "${integrity_file}" "${metadata_file}" "${report_file}"
 	summarize_status=$?
 	set -e
-	if (( summarize_status != 0 )); then
-		echo "Evidence report is non-adoptable for ${mode}/${endpoint}; see ${report_file}." >&2
-		return "${summarize_status}"
+	if ! measurement_status="$(node -e '
+		const fs = require("node:fs");
+		const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+		if (report.accepted !== false || report.automaticAdoption !== false
+			|| typeof report.measurementStatus !== "string") process.exit(1);
+		process.stdout.write(report.measurementStatus);
+	' "${report_file}")"; then
+		echo "Evidence report status is missing or malformed for ${mode}/${endpoint}." >&2
+		return 1
+	fi
+	if [[ "${measurement_status}" != "conditional-not-adoptable" || "${summarize_status}" -ne 2 ]]; then
+		if (( summarize_status != 0 )); then
+			echo "Evidence report was rejected for ${mode}/${endpoint}; see ${report_file}." >&2
+			return "${summarize_status}"
+		fi
+		echo "Unexpected evidence status=${measurement_status} for ${mode}/${endpoint}." >&2
+		return 1
 	fi
 	if (( k6_status != 0 )); then
 		echo "k6 failed for ${mode}/${endpoint}; failure evidence was preserved in ${endpoint_dir}." >&2
@@ -672,6 +689,8 @@ run_endpoint() {
 		echo "After-run DB snapshot failed for ${mode}/${endpoint}; report was rejected." >&2
 		return "${after_snapshot_status}"
 	fi
+	overall_non_adoptable=1
+	echo "Conditional evidence preserved for ${mode}/${endpoint}; continuing the approved sequential scope." >&2
 }
 
 if [[ "${REQUESTED_MODE}" == "all" ]]; then
@@ -689,4 +708,9 @@ for mode in "${modes[@]}"; do
 	done
 done
 
-echo "Issue #196 baseline finished requested mode=${REQUESTED_MODE}. Reports: ${REPORT_ROOT}"
+if (( overall_non_adoptable != 1 )); then
+	echo "Issue #196 produced no conditional evidence; refusing a successful completion." >&2
+	exit 1
+fi
+echo "Issue #196 baseline evidence collection finished requested mode=${REQUESTED_MODE}; automatic adoption remains disabled. Reports: ${REPORT_ROOT}" >&2
+exit 2
