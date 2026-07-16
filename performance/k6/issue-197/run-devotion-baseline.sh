@@ -6,6 +6,7 @@ REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)"
 LOCK_DIR=''
 LOCK_OWNED='false'
 STATS_PID=''
+STATS_STOP_FILE=''
 PROVENANCE_TMP=''
 CURRENT_STAGE='bootstrap'
 cd "$REPO_ROOT"
@@ -20,7 +21,9 @@ require_env() {
 
 release_lock() {
 	if [[ -n "$STATS_PID" ]]; then
-		kill "$STATS_PID" 2>/dev/null || true
+		if [[ -n "$STATS_STOP_FILE" ]]; then
+			: >"$STATS_STOP_FILE"
+		fi
 		wait "$STATS_PID" 2>/dev/null || true
 		STATS_PID=''
 	fi
@@ -314,24 +317,23 @@ node "$SCRIPT_DIR/lib/validate-devotion-preflight.mjs" "$FIXTURE_MANIFEST" "$rep
 
 stats_file="$report_root/measured-docker-stats.jsonl"
 : >"$stats_file"
-sample_stats_once() {
-	local role="$1"
-	local container_id="$2"
-	local raw observed_at cpu memory
-	raw="$(docker stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}' "$container_id")"
-	IFS='|' read -r cpu memory <<<"$raw"
+STATS_STOP_FILE="$report_root/resource-sampler.stop"
+sample_stats_snapshot() {
+	local raw observed_at
+	raw="$(docker stats --no-stream --no-trunc --format '{{.Container}}|{{.CPUPerc}}|{{.MemUsage}}' \
+		"$app_container_id" "$db_container_id" "$redis_container_id")"
 	observed_at="$(node -e 'process.stdout.write(new Date().toISOString())')"
-	node "$SCRIPT_DIR/lib/validate-resource-window.mjs" append-sample \
-		"$stats_file" "$observed_at" "$role" "$container_id" "$cpu" "$memory"
+	printf '%s\n' "$raw" | node "$SCRIPT_DIR/lib/validate-resource-window.mjs" append-snapshot \
+		"$stats_file" "$observed_at" "$app_container_id" "$db_container_id" "$redis_container_id"
 }
 
 sample_stats() {
-	while true; do
-		sleep "$RESOURCE_SAMPLE_INTERVAL_SECONDS"
-		sample_stats_once app "$app_container_id"
-		sample_stats_once database "$db_container_id"
-		sample_stats_once redis "$redis_container_id"
-	done
+	set +o pipefail
+	docker stats --no-trunc --format '{{.Container}}|{{.CPUPerc}}|{{.MemUsage}}' \
+		"$app_container_id" "$db_container_id" "$redis_container_id" | \
+		node "$SCRIPT_DIR/lib/validate-resource-window.mjs" stream-samples \
+			"$stats_file" "$STATS_STOP_FILE" "$RESOURCE_SAMPLE_MAX_GAP_SECONDS" \
+			"$app_container_id" "$db_container_id" "$redis_container_id"
 }
 
 run_phase() {
@@ -367,9 +369,7 @@ CURRENT_STAGE='measured'
 capture_runtime_identity "$report_root/runtime-identity-measured-before.json" measuredBefore
 validate_runtime_checkpoint measuredBefore "$report_root/runtime-identity-measured-before.json"
 collect_db_counters "$report_root/db-counters-before.jsonl"
-sample_stats_once app "$app_container_id"
-sample_stats_once database "$db_container_id"
-sample_stats_once redis "$redis_container_id"
+sample_stats_snapshot
 measured_start="$(node -e 'process.stdout.write(new Date().toISOString())')"
 sample_stats &
 STATS_PID="$!"
@@ -381,12 +381,13 @@ if ! kill -0 "$STATS_PID" 2>/dev/null; then
 	printf 'Measured resource sampler terminated before the measured window ended.\n' >&2
 	exit 1
 fi
-kill "$STATS_PID" 2>/dev/null || true
-wait "$STATS_PID" 2>/dev/null || true
+: >"$STATS_STOP_FILE"
+if ! wait "$STATS_PID"; then
+	STATS_PID=''
+	printf 'Measured resource sampler failed before a complete final boundary snapshot.\n' >&2
+	exit 1
+fi
 STATS_PID=''
-sample_stats_once app "$app_container_id"
-sample_stats_once database "$db_container_id"
-sample_stats_once redis "$redis_container_id"
 collect_db_counters "$report_root/db-counters-after.jsonl"
 capture_runtime_identity "$report_root/runtime-identity-measured-after.json" measuredAfter
 validate_runtime_checkpoint measuredAfter "$report_root/runtime-identity-measured-after.json"

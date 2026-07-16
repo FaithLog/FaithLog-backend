@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,7 +40,7 @@ test('E-shaped serial blocking Docker stats cannot satisfy the approved 1s/2s th
 		fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);
 		const result = spawnSync(process.execPath, [VALIDATOR, samplesPath, configPath, evidencePath], { encoding: 'utf8' });
 		assert.notEqual(result.status, 0);
-		assert.match(`${result.stdout}\n${result.stderr}`, /resource sample gap exceeds maxGapSeconds/);
+		assert.match(`${result.stdout}\n${result.stderr}`, /share one capture timestamp|resource sample gap exceeds maxGapSeconds/);
 		assert.equal(JSON.parse(fs.readFileSync(evidencePath, 'utf8')).adoptable, false);
 
 		const runner = fs.readFileSync(RUNNER, 'utf8');
@@ -53,6 +53,92 @@ test('E-shaped serial blocking Docker stats cannot satisfy the approved 1s/2s th
 	}
 });
 
+test('three-role snapshot and stream keep exact identity, shared timestamps, marker stop, and capture failure propagation', async () => {
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-197-resource-stream-'));
+	const snapshotPath = path.join(directory, 'snapshot.jsonl');
+	const streamPath = path.join(directory, 'stream.jsonl');
+	const stopPath = path.join(directory, 'stop');
+	const dockerRows = [
+		`${DATABASE_ID}|2.50%|2MiB / 1GiB`,
+		`${REDIS_ID}|0.50%|512KiB / 1GiB`,
+		`${APP_ID}|1.50%|1MiB / 1GiB`,
+	];
+	try {
+		const snapshotTime = '2026-07-17T18:23:31.900Z';
+		const snapshot = spawnSync(process.execPath, [
+			VALIDATOR, 'append-snapshot', snapshotPath, snapshotTime, APP_ID, DATABASE_ID, REDIS_ID,
+		], { encoding: 'utf8', input: `${dockerRows.join('\n')}\n` });
+		assert.equal(snapshot.status, 0, snapshot.stderr);
+		const snapshotSamples = readJsonLines(snapshotPath);
+		assert.deepEqual(snapshotSamples.map(({ role }) => role), ['app', 'database', 'redis']);
+		assert.deepEqual(new Set(snapshotSamples.map(({ observedAt }) => observedAt)), new Set([snapshotTime]));
+		const wrongIdentity = spawnSync(process.execPath, [
+			VALIDATOR, 'append-snapshot', path.join(directory, 'wrong.jsonl'), snapshotTime, APP_ID, DATABASE_ID, REDIS_ID,
+		], { encoding: 'utf8', input: `${dockerRows.slice(0, 2).concat(`${'d'.repeat(64)}|1.00%|1MiB / 1GiB`).join('\n')}\n` });
+		assert.notEqual(wrongIdentity.status, 0);
+		assert.match(wrongIdentity.stderr, /exact approved three-container set/);
+
+		const stream = spawn(process.execPath, [
+			VALIDATOR, 'stream-samples', streamPath, stopPath, '2', APP_ID, DATABASE_ID, REDIS_ID,
+		], { stdio: ['pipe', 'pipe', 'pipe'] });
+		let stderr = '';
+		stream.stderr.setEncoding('utf8');
+		stream.stderr.on('data', (chunk) => { stderr += chunk; });
+		stream.stdin.write(`${dockerRows.join('\n')}\n`);
+		await waitFor(() => fs.existsSync(streamPath) && readJsonLines(streamPath).length === 3);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		fs.writeFileSync(stopPath, 'stop\n');
+		stream.stdin.write(`${dockerRows.join('\n')}\n`);
+		stream.stdin.end();
+		assert.equal(await childExit(stream), 0, stderr);
+		const streamSamples = readJsonLines(streamPath);
+		assert.equal(streamSamples.length, 6);
+		assert.deepEqual(streamSamples.slice(0, 3).map(({ role }) => role), ['app', 'database', 'redis']);
+		assert.deepEqual(streamSamples.slice(3).map(({ role }) => role), ['app', 'database', 'redis']);
+		assert.equal(new Set(streamSamples.slice(0, 3).map(({ observedAt }) => observedAt)).size, 1);
+		assert.equal(new Set(streamSamples.slice(3).map(({ observedAt }) => observedAt)).size, 1);
+		assert.ok(Date.parse(streamSamples[3].observedAt) > Date.parse(streamSamples[0].observedAt));
+
+		const incomplete = spawnSync(process.execPath, [
+			VALIDATOR, 'stream-samples', path.join(directory, 'incomplete.jsonl'), path.join(directory, 'missing-stop'),
+			'2', APP_ID, DATABASE_ID, REDIS_ID,
+		], { encoding: 'utf8', input: `${dockerRows[0]}\n` });
+		assert.notEqual(incomplete.status, 0);
+		assert.match(incomplete.stderr, /incomplete three-role snapshot|before the stop marker/);
+
+		const stalled = spawn(process.execPath, [
+			VALIDATOR, 'stream-samples', path.join(directory, 'stalled.jsonl'), path.join(directory, 'stalled-stop'),
+			'0.05', APP_ID, DATABASE_ID, REDIS_ID,
+		], { stdio: ['pipe', 'pipe', 'pipe'] });
+		let stalledError = '';
+		stalled.stderr.setEncoding('utf8');
+		stalled.stderr.on('data', (chunk) => { stalledError += chunk; });
+		assert.notEqual(await childExit(stalled), 0);
+		assert.match(stalledError, /exceeded maxGapSeconds/);
+	} finally {
+		fs.rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 function sample(observedAt, role, containerId) {
 	return { observedAt, role, containerId, cpuPercent: 1, memoryBytes: 1024 };
+}
+
+function readJsonLines(filePath) {
+	return fs.readFileSync(filePath, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+}
+
+async function waitFor(predicate) {
+	for (let attempt = 0; attempt < 100; attempt += 1) {
+		if (predicate()) return;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+	assert.fail('timed out waiting for resource sampler output');
+}
+
+function childExit(child) {
+	return new Promise((resolve, reject) => {
+		child.once('error', reject);
+		child.once('exit', (code) => resolve(code));
+	});
 }

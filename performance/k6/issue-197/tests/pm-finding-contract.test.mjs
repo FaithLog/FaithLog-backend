@@ -811,14 +811,14 @@ function resourceWindowConfig() {
 function validResourceSamples() {
 	return [
 		{ observedAt: '2026-07-14T00:00:00.900Z', role: 'app', containerId: APP_CONTAINER_ID, cpuPercent: 1.5, memoryBytes: 1024 },
-		{ observedAt: '2026-07-14T00:00:00.925Z', role: 'database', containerId: DB_CONTAINER_ID, cpuPercent: 2.5, memoryBytes: 2048 },
-		{ observedAt: '2026-07-14T00:00:00.950Z', role: 'redis', containerId: REDIS_CONTAINER_ID, cpuPercent: 0.5, memoryBytes: 512 },
+		{ observedAt: '2026-07-14T00:00:00.900Z', role: 'database', containerId: DB_CONTAINER_ID, cpuPercent: 2.5, memoryBytes: 2048 },
+		{ observedAt: '2026-07-14T00:00:00.900Z', role: 'redis', containerId: REDIS_CONTAINER_ID, cpuPercent: 0.5, memoryBytes: 512 },
 		{ observedAt: '2026-07-14T00:00:02.000Z', role: 'app', containerId: APP_CONTAINER_ID, cpuPercent: 3.5, memoryBytes: 3072 },
-		{ observedAt: '2026-07-14T00:00:02.025Z', role: 'database', containerId: DB_CONTAINER_ID, cpuPercent: 4.5, memoryBytes: 4096 },
-		{ observedAt: '2026-07-14T00:00:02.050Z', role: 'redis', containerId: REDIS_CONTAINER_ID, cpuPercent: 1.5, memoryBytes: 1536 },
+		{ observedAt: '2026-07-14T00:00:02.000Z', role: 'database', containerId: DB_CONTAINER_ID, cpuPercent: 4.5, memoryBytes: 4096 },
+		{ observedAt: '2026-07-14T00:00:02.000Z', role: 'redis', containerId: REDIS_CONTAINER_ID, cpuPercent: 1.5, memoryBytes: 1536 },
 		{ observedAt: '2026-07-14T00:00:03.100Z', role: 'app', containerId: APP_CONTAINER_ID, cpuPercent: 5.5, memoryBytes: 5120 },
-		{ observedAt: '2026-07-14T00:00:03.125Z', role: 'database', containerId: DB_CONTAINER_ID, cpuPercent: 6.5, memoryBytes: 6144 },
-		{ observedAt: '2026-07-14T00:00:03.150Z', role: 'redis', containerId: REDIS_CONTAINER_ID, cpuPercent: 2.5, memoryBytes: 2560 },
+		{ observedAt: '2026-07-14T00:00:03.100Z', role: 'database', containerId: DB_CONTAINER_ID, cpuPercent: 6.5, memoryBytes: 6144 },
+		{ observedAt: '2026-07-14T00:00:03.100Z', role: 'redis', containerId: REDIS_CONTAINER_ID, cpuPercent: 2.5, memoryBytes: 2560 },
 	];
 }
 

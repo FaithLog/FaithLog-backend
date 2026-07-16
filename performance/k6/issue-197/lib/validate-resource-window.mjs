@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const CONFIG_KEYS = [
@@ -23,16 +24,24 @@ export function validateResourceWindow(samples, config) {
 		validateConfig(config);
 		assert.ok(Array.isArray(samples), 'resource samples must be an array');
 		assert.ok(samples.length > 0, 'resource samples must not be empty');
-		let previousGlobalTime = Number.NEGATIVE_INFINITY;
+		assert.equal(samples.length % ROLES.length, 0, 'resource samples must contain complete three-role snapshots');
+		let previousSnapshotTime = Number.NEGATIVE_INFINITY;
 		const byRole = Object.fromEntries(ROLES.map((role) => [role, []]));
-		for (const [index, sample] of samples.entries()) {
-			validateSample(sample, `samples[${index}]`);
-			const observedTime = strictTimestamp(sample.observedAt, `samples[${index}].observedAt`);
-			assert.ok(observedTime > previousGlobalTime, 'resource sample timestamps must be globally monotonic and unique');
-			previousGlobalTime = observedTime;
-			const expectedContainerId = config[`${sample.role}ContainerId`];
-			assert.equal(sample.containerId, expectedContainerId, `${sample.role} sample must match the approved immutable container ID`);
-			byRole[sample.role].push({ ...sample, observedTime });
+		for (let offset = 0; offset < samples.length; offset += ROLES.length) {
+			const snapshot = samples.slice(offset, offset + ROLES.length);
+			assert.deepEqual(snapshot.map(({ role }) => role), ROLES, `snapshot ${offset / ROLES.length} must contain app, database, and redis exactly once`);
+			const observedAt = snapshot[0].observedAt;
+			const observedTime = strictTimestamp(observedAt, `samples[${offset}].observedAt`);
+			assert.ok(observedTime > previousSnapshotTime, 'resource snapshot timestamps must be strictly monotonic and unique');
+			previousSnapshotTime = observedTime;
+			for (const [roleIndex, sample] of snapshot.entries()) {
+				const index = offset + roleIndex;
+				validateSample(sample, `samples[${index}]`);
+				assert.equal(sample.observedAt, observedAt, `snapshot ${offset / ROLES.length} roles must share one capture timestamp`);
+				const expectedContainerId = config[`${sample.role}ContainerId`];
+				assert.equal(sample.containerId, expectedContainerId, `${sample.role} sample must match the approved immutable container ID`);
+				byRole[sample.role].push({ ...sample, observedTime });
+			}
 		}
 
 		const start = strictTimestamp(config.measuredStart, 'measuredStart');
@@ -114,6 +123,92 @@ function parseMemoryBytes(value) {
 	return parsed;
 }
 
+function parseDockerSnapshot(lines, observedAt, appContainerId, databaseContainerId, redisContainerId) {
+	strictTimestamp(observedAt, 'observedAt');
+	const bindings = [
+		{ role: 'app', containerId: appContainerId },
+		{ role: 'database', containerId: databaseContainerId },
+		{ role: 'redis', containerId: redisContainerId },
+	];
+	for (const { role, containerId } of bindings) fullContainerId(containerId, `${role}ContainerId`);
+	assert.equal(new Set(bindings.map(({ containerId }) => containerId)).size, ROLES.length, 'Docker snapshot container IDs must be distinct');
+	assert.equal(lines.length, ROLES.length, 'Docker stats snapshot must contain exactly three rows');
+	const parsedById = new Map();
+	for (const [index, line] of lines.entries()) {
+		assert.equal(typeof line, 'string', `Docker stats row ${index} must be a string`);
+		const fields = line.split('|');
+		assert.equal(fields.length, 3, `Docker stats row ${index} must have container, CPU, and memory fields`);
+		const [containerId, cpu, memory] = fields;
+		fullContainerId(containerId, `Docker stats row ${index} containerId`);
+		assert.equal(parsedById.has(containerId), false, `Docker stats container ${containerId} must appear exactly once`);
+		parsedById.set(containerId, { cpuPercent: parseCpuPercent(cpu), memoryBytes: parseMemoryBytes(memory) });
+	}
+	assert.deepEqual([...parsedById.keys()].sort(), bindings.map(({ containerId }) => containerId).sort(),
+		'Docker stats snapshot must match the exact approved three-container set');
+	return bindings.map(({ role, containerId }) => ({ observedAt, role, containerId, ...parsedById.get(containerId) }));
+}
+
+function appendDockerSnapshot(samplesPath, observedAt, lines, ...containerIds) {
+	const samples = parseDockerSnapshot(lines, observedAt, ...containerIds);
+	fs.appendFileSync(samplesPath, `${samples.map((sample) => JSON.stringify(sample)).join('\n')}\n`, { mode: 0o600 });
+}
+
+async function readStandardInputLines() {
+	const lines = [];
+	const reader = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+	for await (const line of reader) {
+		assert.ok(line.length > 0, 'Docker stats stream must not contain empty rows');
+		lines.push(line);
+	}
+	return lines;
+}
+
+async function streamDockerSnapshots(samplesPath, stopFile, maxGapSeconds, ...containerIds) {
+	nonEmptyString(stopFile, 'stopFile');
+	positiveFinite(maxGapSeconds, 'maxGapSeconds');
+	assert.equal(fs.existsSync(stopFile), false, 'resource sampler stop marker must not exist before streaming starts');
+	const reader = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+	const iterator = reader[Symbol.asyncIterator]();
+	let pending = [];
+	let stoppedAfterBoundarySnapshot = false;
+	let snapshotDeadline = Date.now() + (maxGapSeconds * 1000);
+	try {
+		while (!stoppedAfterBoundarySnapshot) {
+			const remainingMilliseconds = snapshotDeadline - Date.now();
+			assert.ok(remainingMilliseconds > 0, 'Docker stats stream exceeded maxGapSeconds before a complete snapshot');
+			const { value: line, done } = await nextWithDeadline(iterator, remainingMilliseconds);
+			if (done) break;
+			assert.ok(line.length > 0, 'Docker stats stream must not contain empty rows');
+			pending.push(line);
+			if (pending.length === ROLES.length) {
+				appendDockerSnapshot(samplesPath, new Date().toISOString(), pending, ...containerIds);
+				pending = [];
+				snapshotDeadline = Date.now() + (maxGapSeconds * 1000);
+				if (fs.existsSync(stopFile)) stoppedAfterBoundarySnapshot = true;
+			}
+		}
+	} finally {
+		reader.close();
+		if (!stoppedAfterBoundarySnapshot) process.stdin.destroy();
+	}
+	assert.equal(pending.length, 0, 'Docker stats stream ended with an incomplete three-role snapshot');
+	assert.equal(stoppedAfterBoundarySnapshot, true, 'Docker stats stream ended before the stop marker and final boundary snapshot');
+}
+
+async function nextWithDeadline(iterator, timeoutMilliseconds) {
+	let timeoutId;
+	try {
+		return await Promise.race([
+			iterator.next(),
+			new Promise((_, reject) => {
+				timeoutId = setTimeout(() => reject(new Error('Docker stats stream exceeded maxGapSeconds before a complete snapshot')), timeoutMilliseconds);
+			}),
+		]);
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
 function strictTimestamp(value, label) {
 	assert.equal(typeof value, 'string', `${label} must be an ISO timestamp string`);
 	const parsed = Date.parse(value);
@@ -157,11 +252,14 @@ async function main() {
 		validateResourceSettings(Number(args[0]), Number(args[1]));
 		return;
 	}
-	if (command === 'append-sample') {
-		const [samplesPath, observedAt, role, containerId, cpu, memory] = args;
-		const sample = { observedAt, role, containerId, cpuPercent: parseCpuPercent(cpu), memoryBytes: parseMemoryBytes(memory) };
-		validateSample(sample, 'sample');
-		fs.appendFileSync(samplesPath, `${JSON.stringify(sample)}\n`, { mode: 0o600 });
+	if (command === 'append-snapshot') {
+		const [samplesPath, observedAt, appContainerId, databaseContainerId, redisContainerId] = args;
+		appendDockerSnapshot(samplesPath, observedAt, await readStandardInputLines(), appContainerId, databaseContainerId, redisContainerId);
+		return;
+	}
+	if (command === 'stream-samples') {
+		const [samplesPath, stopFile, maxGap, appContainerId, databaseContainerId, redisContainerId] = args;
+		await streamDockerSnapshots(samplesPath, stopFile, Number(maxGap), appContainerId, databaseContainerId, redisContainerId);
 		return;
 	}
 	if (command === 'write-config') {

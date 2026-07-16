@@ -104,7 +104,7 @@ test('resource evidence requires the exact full-ID app, database, and Redis set 
 	const samples = [];
 	for (const [index, observedAt] of ['2026-07-16T00:00:00.900Z', '2026-07-16T00:00:02.000Z', '2026-07-16T00:00:03.100Z'].entries()) {
 		for (const [roleIndex, [role, containerId]] of [['app', id('a')], ['database', id('b')], ['redis', id('c')]].entries()) {
-			samples.push({ observedAt: new Date(Date.parse(observedAt) + roleIndex).toISOString(), role, containerId, cpuPercent: index + roleIndex, memoryBytes: 1024 + index + roleIndex });
+			samples.push({ observedAt, role, containerId, cpuPercent: index + roleIndex, memoryBytes: 1024 + index + roleIndex });
 		}
 	}
 	const evidence = validateResourceWindow(samples, config);
