@@ -550,8 +550,20 @@ test('manifest rejects archive false-greens without exact terminal status deltas
 test('documents scenario-only status, immutable baseline server, and the measurement approval gate', async () => {
 	const readme = await read('README.md');
 	assert.match(readme, /scenario and runner\/evidence contract-ready, fake\/static verified, not measured/i);
-	assert.match(readme, /355f79df5b2e47636b7d1a17dea029da6c93c62d/);
-	assert.match(readme, /901dbab3949fc669e7902e6c1471f4d60ffc80b049efa0f9a5203343710a7868/);
+	for (const immutableIdentity of [
+		'6796ed146244d8f3f5b5dd7048ebe16865084a97',
+		'a7df78b330f457a7fd60a9531362d0f1f063ae7aa6cae5f2d996eb8cb51fe79d',
+		'sha256:8e0f8d85d697a7d34aabf3703ddb27b4f1af326dec4f7c35556986303b0b816c',
+		'2026-07-16T04:23:10.082407837Z',
+		'/private/tmp/FaithLog-perf-206-deploy',
+		'81aa74ca1b491b45eb691b3d65de9e42eb47ef64a6bcb961d0b627b030139ae9',
+		'sha256:48d29282d2b43c402465c28f8572021b59aaf43574056faaad2fd7bb85ffdd4e',
+		'4109f6525948d12d1e5377fb6160c8955f6c3fcd7816e02786b2dd8031e23de9',
+		'sha256:80dd823f4d2bf93dd5e418a0ae2817319a1ba279953e234082e54a5a18306223',
+	]) {
+		assert.match(readme, new RegExp(immutableIdentity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+	}
+	assert.match(readme, /#206[\s\S]*createdAt,desc[\s\S]*id,desc/);
 	assert.match(readme, /사용자 승인.*before 측정.*production 최적화.*금지/s);
 	assert.match(readme, /Docker build.*restart.*prune.*금지/s);
 });

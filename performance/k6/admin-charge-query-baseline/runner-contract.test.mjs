@@ -45,7 +45,7 @@ test('runner requires every approved workload and immutable target value without
 		assert.match(runner, new RegExp(`:\\s+"\\$\\{${name}:\\?`), `${name} must be runtime-required`);
 		assert.doesNotMatch(runner, new RegExp(`\\$\\{${name}:-`), `${name} must not have a default`);
 	}
-	assert.match(runner, /355f79df5b2e47636b7d1a17dea029da6c93c62d/);
+	assert.match(runner, /6796ed146244d8f3f5b5dd7048ebe16865084a97/);
 });
 
 test('all target, workload, credential, and identity gates precede fresh fixture mutation', async () => {
