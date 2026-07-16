@@ -79,6 +79,10 @@ function read(name) {
 	return existsSync(path) ? readFileSync(path, 'utf8') : '';
 }
 
+function readRepository(relativePath) {
+	return readFileSync(join(ROOT, '../../..', relativePath), 'utf8');
+}
+
 test('issue #196 keeps every scenario artifact in one independent directory', () => {
 	for (const name of REQUIRED_FILES) {
 		assert.equal(existsSync(join(ROOT, name)), true, `missing ${name}`);
@@ -116,6 +120,83 @@ test('fixture contract separates stable dataset identity from one immutable fixt
 	assert.equal(FIXTURE_CONTRACT.existingRowsMayBeUpdatedOrDeleted, false);
 	assert.equal(currentMonday(new Date('2026-07-12T15:00:00Z')), '2026-07-13', 'Monday follows Asia/Seoul rather than UTC');
 	assert.throws(() => validateFixtureRunId('I196-UPPER'));
+});
+
+test('current develop Poll contracts are pinned without paginating the generic list', async () => {
+	const pollListResponse = readRepository('src/main/java/com/faithlog/poll/controller/dto/response/PollListResponse.java');
+	const pollController = readRepository('src/main/java/com/faithlog/poll/controller/PollController.java');
+	const mealController = readRepository('src/main/java/com/faithlog/poll/controller/MealPollController.java');
+	const pageResponse = readRepository('src/main/java/com/faithlog/global/response/PageResponse.java');
+	assert.match(pollListResponse, /boolean manageableByMe/);
+	assert.match(pollController, /ApiResponse<List<PollListResponse>>/);
+	assert.doesNotMatch(pollController, /PageResponse<PollListResponse>/);
+	assert.match(mealController, /ApiResponse<PageResponse<MealPollManagementListItemResponse>>/);
+	for (const marker of ['includeArchived', 'defaultValue = "0"', 'defaultValue = "10"', 'defaultValue = "createdAt,desc"']) {
+		assert.ok(mealController.includes(marker), `current MEAL list contract drifted: ${marker}`);
+	}
+	for (const field of ['content', 'page', 'size', 'totalElements', 'totalPages']) {
+		assert.match(pageResponse, new RegExp(`\\b${field}\\b`));
+	}
+
+	const { FIXTURE_CONTRACT, MODE_ENDPOINTS } = await import(`${pathToFileURL(join(ROOT, 'fixture-contract.mjs')).href}?develop=${Date.now()}`);
+	assert.equal(FIXTURE_CONTRACT.datasetId, 'issue-196-prayer-poll-list-v2');
+	assert.deepEqual(FIXTURE_CONTRACT.currentDevelop, {
+		flywayVersion: '11', publicApplicationTableCount: 27, genericPollListPaginated: false,
+		mealManagementMaxPageSize: 100, mealArchiveDays: 90, deterministicMealSort: 'id,desc',
+	});
+	assert.deepEqual(FIXTURE_CONTRACT.polls.manageableByMe, {
+		custom: { admin: true, member: false, coffeeCreator: false, otherCoffeeDuty: false, mealDuty: false },
+		coffee: { admin: false, member: false, coffeeCreator: true, otherCoffeeDuty: false, mealDuty: false },
+		meal: { admin: false, member: false, coffeeCreator: false, otherCoffeeDuty: false, mealDuty: true },
+	});
+	assert.deepEqual(MODE_ENDPOINTS['poll-duty'], [
+		'poll_coffee_creator_list', 'poll_other_coffee_duty_list', 'poll_meal_duty_list',
+		'poll_coffee_creator_detail', 'poll_meal_duty_detail', 'poll_meal_management_default',
+		'poll_meal_management_archive', 'poll_meal_management_forbidden',
+	]);
+
+	const seed = read('seed-fixture.mjs');
+	for (const endpoint of [
+		'/duty-assignments/coffee', '/duty-assignments/meal', '/api/v1/coffee-brands',
+		'/payment-accounts', '/meal/polls',
+	]) {
+		assert.ok(seed.includes(endpoint), `seed does not create current-develop duty fixture: ${endpoint}`);
+	}
+	const scenario = read('scenario.js');
+	assert.match(scenario, /mode:\s*'poll-duty'/);
+	assert.match(scenario, /manageableByMe/);
+	assert.match(scenario, /Object\.prototype\.hasOwnProperty\.call\([^\n]*'createdBy'\)/);
+	assert.match(scenario, /includeArchived=false&page=0&size=100&sort=id%2Cdesc/);
+	assert.match(scenario, /includeArchived=true&page=0&size=100&sort=id%2Cdesc/);
+	for (const field of ['content', 'page', 'size', 'totalElements', 'totalPages']) {
+		assert.match(scenario, new RegExp(`\\b${field}\\b`));
+	}
+	assert.match(scenario, /MEAL_DUTY_REQUIRED/);
+});
+
+test('current develop Flyway, RLS JDBC bypass, and immutable image identity are fail-closed contracts', () => {
+	const v11 = readRepository('src/main/resources/db/migration/V11__secure_supabase_data_api.sql');
+	assert.match(v11, /enable row level security/i);
+	assert.doesNotMatch(v11, /force row level security/i);
+	assert.doesNotMatch(v11, /create policy/i);
+
+	for (const entrypoint of ['seed-fixture.mjs', 'shape-fixture.sh', 'run-baseline.sh']) {
+		const source = read(entrypoint);
+		assert.match(source, /EXPECTED_APP_IMAGE_ID.*required/i, `${entrypoint} must require the approved immutable image ID`);
+		assert.match(source, /EXPECTED_FLYWAY_VERSION.*required/i, `${entrypoint} must require the approved Flyway version`);
+		for (const marker of ['latestFlywayVersion', 'rlsEnabledTableCount', 'forceRlsTableCount', 'policyCount', 'jdbcOwnedTableCount']) {
+			assert.match(source, new RegExp(marker), `${entrypoint} missing runtime schema identity ${marker}`);
+		}
+	}
+	const tableStats = read('db-table-stats.sql');
+	const summarizer = read('summarize-run.mjs');
+	for (const marker of ['latestFlywayVersion', 'rlsEnabledTableCount', 'forceRlsTableCount', 'policyCount', 'jdbcOwnedTableCount']) {
+		assert.match(tableStats, new RegExp(marker));
+		assert.match(summarizer, new RegExp(marker));
+	}
+	for (const reason of ['flyway-version-drift', 'rls-contract-drift', 'jdbc-owner-bypass-drift', 'immutable-app-image-mismatch']) {
+		assert.match(summarizer, new RegExp(reason));
+	}
 });
 
 test('k6 scenario exposes exact Prayer and member/admin Poll read modes', () => {
