@@ -15,6 +15,8 @@ public interface ChargeItemRepositoryPort {
 
 	ChargeItem save(ChargeItem chargeItem);
 
+	List<ChargeItem> saveAllCharges(List<ChargeItem> chargeItems);
+
 	void flush();
 
 	Optional<ChargeItem> findChargeItemById(Long chargeItemId);
@@ -61,5 +63,12 @@ public interface ChargeItemRepositoryPort {
 		PaymentCategory paymentCategory,
 		ChargeSourceType sourceType,
 		Long sourceId
+	);
+
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndSourceTypeAndSourceIdInForUpdate(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		List<Long> sourceIds
 	);
 }

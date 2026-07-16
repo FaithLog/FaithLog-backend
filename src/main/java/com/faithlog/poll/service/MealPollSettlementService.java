@@ -137,14 +137,12 @@ public class MealPollSettlementService {
 				group.actualTotalAmount(), group.roundingAdjustment()
 			))
 			.toList());
-		for (CalculatedGroup group : calculatedGroups) {
-			for (PollResponse response : group.responses()) {
-				chargeCreationService.createMealCharge(new CreateMealChargeCommand(
-					command.campusId(), response.userId(), command.requesterId(), account.id(), response.id(),
-					group.option().content(), group.amountPerMember()
-				));
-			}
-		}
+		chargeCreationService.createMealCharges(calculatedGroups.stream()
+			.flatMap(group -> group.responses().stream().map(response -> new CreateMealChargeCommand(
+				command.campusId(), response.userId(), command.requesterId(), account.id(), response.id(),
+				group.option().content(), group.amountPerMember()
+			)))
+			.toList());
 		try {
 			chargeItemRepository.flush();
 		} catch (DataIntegrityViolationException exception) {
