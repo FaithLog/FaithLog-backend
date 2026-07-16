@@ -9,8 +9,9 @@ export function parseDockerByteSize(input) {
 	const fraction = match[2] ?? '';
 	const scale = 10n ** BigInt(fraction.length);
 	const numerator = BigInt(`${match[1]}${fraction}`) * UNITS[match[3]];
-	if (numerator % scale !== 0n) throw new Error(`Docker byte size is not exact: ${input}`);
-	return numerator / scale;
+	const rounded = (numerator + scale / 2n) / scale;
+	if (rounded > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`Docker byte size exceeds safe integer range: ${input}`);
+	return rounded;
 }
 
 function finite(value, name) {
@@ -18,14 +19,14 @@ function finite(value, name) {
 	return value;
 }
 
-export function normalizeMetric(metric, kind) {
+export function normalizeMetric(metric, kind, expectedTotal) {
 	const value = metric?.values ?? metric;
 	if (!value || typeof value !== 'object') throw new Error(`${kind} metric is missing`);
 	if (kind === 'counter') return { count: finite(value.count, 'count') };
 	if (kind === 'rate') {
-		const result = { value: finite(value.value ?? value.rate, 'value'), passes: finite(value.passes, 'passes'), fails: finite(value.fails, 'fails'), count: finite(value.count, 'count') };
-		if (![result.passes, result.fails, result.count].every(Number.isSafeInteger) || result.passes + result.fails !== result.count || (result.count > 0 && result.value !== result.passes / result.count)) {
-			throw new Error('Rate exact math requires passes + fails = count and value = passes/count');
+		const result = { value: finite(value.value ?? value.rate, 'value'), passes: finite(value.passes, 'passes'), fails: finite(value.fails, 'fails'), expectedTotal: finite(expectedTotal, 'expectedTotal') };
+		if (![result.passes, result.fails, result.expectedTotal].every(Number.isSafeInteger) || result.passes + result.fails !== result.expectedTotal || (result.expectedTotal > 0 && result.value !== result.passes / result.expectedTotal)) {
+			throw new Error('Rate exact math requires passes + fails = expectedTotal and value = passes/expectedTotal');
 		}
 		return result;
 	}
@@ -50,19 +51,37 @@ function findLine(text, expression) {
 	return match ? { line: text.slice(0, match.index).split('\n').length, counterexample: text.split('\n')[text.slice(0, match.index).split('\n').length - 1].trim() } : null;
 }
 
-export function auditTarget({ issueNumber, worktree, cells }) {
+export function auditTarget({ issueNumber, worktree, cells, commandEvidence = {} }) {
 	if (!path.isAbsolute(worktree)) throw new Error('worktree must be absolute');
 	const root = fs.realpathSync(worktree);
 	return {
 		issueNumber,
 		worktree: root,
 		cells: cells.map((cell) => {
-			if (cell.mode === 'not-applicable') return { checkId: cell.checkId, status: 'N/A', reason: cell.reason, evidence: cell.evidence };
+			if (cell.mode === 'not-applicable') {
+				const evidenceFile = resolveRegularFile(root, cell.evidence?.file ?? '');
+				const lines = fs.readFileSync(evidenceFile, 'utf8').split('\n');
+				const cited = lines[(cell.evidence?.line ?? 0) - 1];
+				if (!cited?.trim() || !cited.includes(cell.evidence?.scopeMarker ?? '\0')) throw new Error(`Invalid N/A evidence line or scope marker for ${issueNumber}/${cell.checkId}`);
+				return { checkId: cell.checkId, status: 'N/A', reason: cell.reason, evidence: cell.evidence };
+			}
 			const findings = [];
 			for (const probe of cell.probes) {
+				if (probe.command) {
+					const evidence = commandEvidence[JSON.stringify(probe.command)];
+					if (!evidence?.ok) findings.push({ file: probe.command.at(-1), line: 1, counterexample: `focused command failed: ${probe.command.join(' ')}`, recommendation: cell.recommendation });
+					continue;
+				}
 				let text;
 				try { text = fs.readFileSync(resolveRegularFile(root, probe.file), 'utf8'); }
 				catch (error) { findings.push({ file: probe.file, line: 1, counterexample: error.message, recommendation: cell.recommendation }); continue; }
+				if (probe.capability === 'rate-exact-external-count') {
+					if (!/passes/.test(text) || !/fails/.test(text) || !/(expectedTotal|requestCount|expectedRequestCount)/.test(text)) {
+						const evidence = findLine(text, 'failureRate|failureValues|failures\\.rate') ?? { line: 1, counterexample: 'Rate validator lacks passes/fails and separate Counter total' };
+						findings.push({ file: probe.file, ...evidence, recommendation: cell.recommendation });
+					}
+					continue;
+				}
 				const required = probe.require ? findLine(text, probe.require) : null;
 				const forbidden = probe.forbid ? findLine(text, probe.forbid) : null;
 				if (probe.require && !required) findings.push({ file: probe.file, line: 1, counterexample: `missing required pattern: ${probe.require}`, recommendation: cell.recommendation });
@@ -81,4 +100,8 @@ export function createImmutableAuditReport(reportRoot, report) {
 	const descriptor = fs.openSync(file, 'wx', 0o600);
 	try { fs.writeFileSync(descriptor, `${JSON.stringify(complete, null, 2)}\n`); } finally { fs.closeSync(descriptor); }
 	return complete;
+}
+
+export function validateTargetContinuity(initial, final) {
+	return initial.head === final.head && initial.statusHash === final.statusHash && !initial.dirty && !final.dirty;
 }

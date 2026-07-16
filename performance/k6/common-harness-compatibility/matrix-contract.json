@@ -65,6 +65,13 @@
             {
               "file": "performance/k6/poll-settlement/settlement-baseline.js",
               "require": "JSON\\.parse\\(open\\("
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -75,7 +82,14 @@
           "probes": [
             {
               "file": "performance/k6/poll-settlement/evidence-contract.mjs",
-              "forbid": "metricValue\\.wrapped && !hasPasses"
+              "capability": "rate-exact-external-count"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -85,8 +99,11 @@
           "recommendation": "Patch issue #192 secret-serialization contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/poll-settlement/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -98,6 +115,13 @@
             {
               "file": "performance/k6/poll-settlement/prepare-measured-token.mjs",
               "require": "safety|Safety|SAFETY"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -107,8 +131,11 @@
           "recommendation": "Patch issue #192 docker-resource-identity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/poll-settlement/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -118,8 +145,11 @@
           "recommendation": "Patch issue #192 psql-machine-io contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/poll-settlement/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -129,8 +159,11 @@
           "recommendation": "Patch issue #192 fresh-report-root contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/poll-settlement/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -140,8 +173,11 @@
           "recommendation": "Patch issue #192 db-control-attribution contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/poll-settlement/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -151,8 +187,11 @@
           "recommendation": "Patch issue #192 runtime-continuity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/poll-settlement/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -162,8 +201,11 @@
           "recommendation": "Patch issue #192 macos-k6-v2 contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/poll-settlement/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/poll-settlement/evidence-contract.test.mjs"
+              ]
             }
           ]
         }
@@ -181,6 +223,13 @@
             {
               "file": "performance/k6/admin-charge-query-baseline/admin-charge-query-baseline.js",
               "require": "JSON\\.parse\\(open\\("
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -191,7 +240,14 @@
           "probes": [
             {
               "file": "performance/k6/admin-charge-query-baseline/validate-measured-summary.mjs",
-              "require": "passes"
+              "capability": "rate-exact-external-count"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -201,8 +257,11 @@
           "recommendation": "Patch issue #193 secret-serialization contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/admin-charge-query-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -214,6 +273,13 @@
             {
               "file": "performance/k6/admin-charge-query-baseline/auth-contract.mjs",
               "require": "safety|Safety|SAFETY"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -223,8 +289,11 @@
           "recommendation": "Patch issue #193 docker-resource-identity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/admin-charge-query-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -234,8 +303,11 @@
           "recommendation": "Patch issue #193 psql-machine-io contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/admin-charge-query-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -245,8 +317,11 @@
           "recommendation": "Patch issue #193 fresh-report-root contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/admin-charge-query-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -256,8 +331,11 @@
           "recommendation": "Patch issue #193 db-control-attribution contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/admin-charge-query-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -267,8 +345,11 @@
           "recommendation": "Patch issue #193 runtime-continuity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/admin-charge-query-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -278,8 +359,11 @@
           "recommendation": "Patch issue #193 macos-k6-v2 contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/admin-charge-query-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/admin-charge-query-baseline/runner-contract.test.mjs"
+              ]
             }
           ]
         }
@@ -295,7 +379,8 @@
           "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "Issue #194 PostgreSQL EXPLAIN"
           }
         },
         {
@@ -304,7 +389,8 @@
           "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "Issue #194 PostgreSQL EXPLAIN"
           }
         },
         {
@@ -313,7 +399,8 @@
           "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "Issue #194 PostgreSQL EXPLAIN"
           }
         },
         {
@@ -322,7 +409,8 @@
           "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "Issue #194 PostgreSQL EXPLAIN"
           }
         },
         {
@@ -331,8 +419,11 @@
           "recommendation": "Patch issue #194 docker-resource-identity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/postgresql-explain-index-baseline/test/current-develop-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -342,8 +433,11 @@
           "recommendation": "Patch issue #194 psql-machine-io contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/postgresql-explain-index-baseline/test/current-develop-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -353,8 +447,11 @@
           "recommendation": "Patch issue #194 fresh-report-root contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/postgresql-explain-index-baseline/test/current-develop-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -364,8 +461,11 @@
           "recommendation": "Patch issue #194 db-control-attribution contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/postgresql-explain-index-baseline/test/current-develop-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -375,8 +475,11 @@
           "recommendation": "Patch issue #194 runtime-continuity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/postgresql-explain-index-baseline/test/current-develop-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -386,7 +489,8 @@
           "reason": "EXPLAIN-only Node/PostgreSQL diagnostic; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/postgresql-explain-index-baseline/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "Issue #194 PostgreSQL EXPLAIN"
           }
         }
       ]
@@ -403,6 +507,13 @@
             {
               "file": "performance/k6/issue-195/member-list-baseline.js",
               "require": "JSON\\.parse\\(open\\("
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -413,7 +524,14 @@
           "probes": [
             {
               "file": "performance/k6/issue-195/validate-k6-summary.mjs",
-              "require": "passes"
+              "capability": "rate-exact-external-count"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -423,8 +541,11 @@
           "recommendation": "Patch issue #195 secret-serialization contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-195/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -436,6 +557,13 @@
             {
               "file": "performance/k6/issue-195/validate-token-lifetime.mjs",
               "require": "safety|Safety|SAFETY"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -445,8 +573,11 @@
           "recommendation": "Patch issue #195 docker-resource-identity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-195/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -456,8 +587,11 @@
           "recommendation": "Patch issue #195 psql-machine-io contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-195/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -467,8 +601,11 @@
           "recommendation": "Patch issue #195 fresh-report-root contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-195/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -478,8 +615,11 @@
           "recommendation": "Patch issue #195 db-control-attribution contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-195/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -489,8 +629,11 @@
           "recommendation": "Patch issue #195 runtime-continuity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-195/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -500,8 +643,11 @@
           "recommendation": "Patch issue #195 macos-k6-v2 contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-195/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-195/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         }
@@ -519,6 +665,13 @@
             {
               "file": "performance/k6/issue-196-prayer-poll-list-baseline/scenario.js",
               "require": "JSON\\.parse\\(open\\("
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -529,7 +682,14 @@
           "probes": [
             {
               "file": "performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs",
-              "forbid": "const failureRate = strictNumber\\(failureValues\\.rate\\)"
+              "capability": "rate-exact-external-count"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -539,8 +699,11 @@
           "recommendation": "Patch issue #196 secret-serialization contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -552,6 +715,13 @@
             {
               "file": "performance/k6/issue-196-prayer-poll-list-baseline/token-lifetime.mjs",
               "require": "safety|Safety|SAFETY"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -561,8 +731,11 @@
           "recommendation": "Patch issue #196 docker-resource-identity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -572,8 +745,11 @@
           "recommendation": "Patch issue #196 psql-machine-io contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -583,8 +759,11 @@
           "recommendation": "Patch issue #196 fresh-report-root contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -594,8 +773,11 @@
           "recommendation": "Patch issue #196 db-control-attribution contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -605,8 +787,11 @@
           "recommendation": "Patch issue #196 runtime-continuity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -616,8 +801,11 @@
           "recommendation": "Patch issue #196 macos-k6-v2 contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-196-prayer-poll-list-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-196-prayer-poll-list-baseline/scenario-contract.test.mjs"
+              ]
             }
           ]
         }
@@ -635,6 +823,13 @@
             {
               "file": "performance/k6/issue-197/devotion-write.js",
               "require": "JSON\\.parse\\(open\\("
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -645,7 +840,14 @@
           "probes": [
             {
               "file": "performance/k6/issue-197/lib/validate-k6-summary.mjs",
-              "forbid": "failureRate: numeric\\(failures\\.rate \\?\\? failures\\.value"
+              "capability": "rate-exact-external-count"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -655,8 +857,11 @@
           "recommendation": "Patch issue #197 secret-serialization contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-197/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -668,6 +873,13 @@
             {
               "file": "performance/k6/issue-197/lib/runtime-contract.mjs",
               "require": "safety|Safety|SAFETY"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -677,8 +889,11 @@
           "recommendation": "Patch issue #197 docker-resource-identity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-197/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -688,8 +903,11 @@
           "recommendation": "Patch issue #197 psql-machine-io contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-197/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -699,8 +917,11 @@
           "recommendation": "Patch issue #197 fresh-report-root contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-197/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -710,8 +931,11 @@
           "recommendation": "Patch issue #197 db-control-attribution contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-197/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -721,8 +945,11 @@
           "recommendation": "Patch issue #197 runtime-continuity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-197/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -732,8 +959,11 @@
           "recommendation": "Patch issue #197 macos-k6-v2 contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-197/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-197/tests/integrity-audit.test.mjs"
+              ]
             }
           ]
         }
@@ -749,7 +979,8 @@
           "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/notification-batch/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "notification"
           }
         },
         {
@@ -758,7 +989,8 @@
           "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/notification-batch/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "notification"
           }
         },
         {
@@ -767,7 +999,8 @@
           "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/notification-batch/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "notification"
           }
         },
         {
@@ -776,7 +1009,8 @@
           "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/notification-batch/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "notification"
           }
         },
         {
@@ -785,8 +1019,11 @@
           "recommendation": "Patch issue #198 docker-resource-identity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/notification-batch/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/notification-batch-integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -796,8 +1033,11 @@
           "recommendation": "Patch issue #198 psql-machine-io contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/notification-batch/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/notification-batch-integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -807,8 +1047,11 @@
           "recommendation": "Patch issue #198 fresh-report-root contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/notification-batch/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/notification-batch-integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -818,8 +1061,11 @@
           "recommendation": "Patch issue #198 db-control-attribution contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/notification-batch/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/notification-batch-integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -829,8 +1075,11 @@
           "recommendation": "Patch issue #198 runtime-continuity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/notification-batch/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/notification-batch-integrity-audit.test.mjs"
+              ]
             }
           ]
         },
@@ -840,7 +1089,8 @@
           "reason": "Local Gradle notification batch harness; no k6 HTTP workload.",
           "evidence": {
             "file": "performance/k6/notification-batch/README.md",
-            "line": 1
+            "line": 1,
+            "scopeMarker": "notification"
           }
         }
       ]
@@ -857,6 +1107,13 @@
             {
               "file": "performance/k6/issue-199-admin-dashboard-baseline/admin-dashboard-baseline.js",
               "require": "JSON\\.parse\\(open\\("
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -867,7 +1124,14 @@
           "probes": [
             {
               "file": "performance/k6/issue-199-admin-dashboard-baseline/validate-k6-summary.mjs",
-              "forbid": "Object\\.hasOwn\\(failures, 'passes'\\) \\|\\|"
+              "capability": "rate-exact-external-count"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -877,8 +1141,11 @@
           "recommendation": "Patch issue #199 secret-serialization contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -890,6 +1157,13 @@
             {
               "file": "performance/k6/issue-199-admin-dashboard-baseline/validate-token-lifetime.mjs",
               "require": "safety|Safety|SAFETY"
+            },
+            {
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -899,8 +1173,11 @@
           "recommendation": "Patch issue #199 docker-resource-identity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -910,8 +1187,11 @@
           "recommendation": "Patch issue #199 psql-machine-io contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -921,8 +1201,11 @@
           "recommendation": "Patch issue #199 fresh-report-root contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -932,8 +1215,11 @@
           "recommendation": "Patch issue #199 db-control-attribution contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -943,8 +1229,11 @@
           "recommendation": "Patch issue #199 runtime-continuity contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         },
@@ -954,8 +1243,11 @@
           "recommendation": "Patch issue #199 macos-k6-v2 contract to the #208 exact common contract.",
           "probes": [
             {
-              "file": "performance/k6/issue-199-admin-dashboard-baseline/README.md",
-              "require": "."
+              "command": [
+                "node",
+                "--test",
+                "performance/k6/issue-199-admin-dashboard-baseline/tests/scenario-contract.test.mjs"
+              ]
             }
           ]
         }

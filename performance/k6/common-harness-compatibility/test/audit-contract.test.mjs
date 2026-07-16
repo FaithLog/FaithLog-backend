@@ -10,6 +10,7 @@ import {
 	createImmutableAuditReport,
 	normalizeMetric,
 	parseDockerByteSize,
+	validateTargetContinuity,
 } from '../audit-core.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -44,7 +45,7 @@ test('matrix contract covers issues 192 through 199 and all ten compatibility ch
 				assert.equal(typeof cell.recommendation, 'string');
 				for (const probe of cell.probes) {
 					assert.notEqual(probe.require, '.', `${target.issueNumber}/${cell.checkId} cannot pass on README existence`);
-					assert.ok(probe.command || probe.require || probe.forbid);
+					assert.ok(probe.command || probe.require || probe.forbid || probe.capability);
 				}
 			} else {
 				assert.equal(typeof cell.reason, 'string');
@@ -53,6 +54,25 @@ test('matrix contract covers issues 192 through 199 and all ten compatibility ch
 			}
 		}
 	}
+});
+
+test('dirty targets and HEAD or status drift fail continuity', () => {
+	const clean = { head: 'abc', statusHash: 'empty', dirty: false };
+	assert.equal(validateTargetContinuity(clean, { ...clean }), true);
+	assert.equal(validateTargetContinuity({ ...clean, dirty: true }, clean), false);
+	assert.equal(validateTargetContinuity(clean, { ...clean, head: 'def' }), false);
+	assert.equal(validateTargetContinuity(clean, { ...clean, statusHash: 'changed' }), false);
+});
+
+test('installed-k6 fixture is no-HTTP and handleSummary excludes its token sentinel', () => {
+	const fixture = fs.readFileSync(path.join(root, 'test/k6-no-http-serialization.js'), 'utf8');
+	assert.doesNotMatch(fixture, /from ['"]k6\/http['"]|http\./);
+	assert.match(fixture, /accessToken: 'must-not-be-serialized'/);
+	const summary = fixture.slice(fixture.indexOf('export function handleSummary'));
+	assert.doesNotMatch(summary, /accessToken|must-not-be-serialized/);
+	const runner = fs.readFileSync(path.join(root, 'run-audit.mjs'), 'utf8');
+	assert.match(runner, /\['inspect', fixture\]/);
+	assert.match(runner, /\['run', '--quiet', fixture\]/);
 });
 
 test('EXPLAIN-only #194 and local Gradle #198 do not inherit irrelevant k6 HTTP gates', () => {
@@ -139,7 +159,11 @@ test('generic probes return machine-readable PASS, FAIL with line/counterexample
 					checkId: 'secret', mode: 'probe', recommendation: 'Keep the token outside setup data.',
 					probes: [{ file: 'performance/scenario.js', forbid: 'return \\{ accessToken:' }],
 				},
-				{ checkId: 'not-used', mode: 'not-applicable', reason: 'No PostgreSQL process exists.' },
+				{
+					checkId: 'rate', mode: 'probe', recommendation: 'Validate exact Rate math against the Counter.',
+					probes: [{ file: 'performance/scenario.js', capability: 'rate-exact-external-count' }],
+				},
+				{ checkId: 'not-used', mode: 'not-applicable', reason: 'No PostgreSQL process exists.', evidence: { file: 'performance/scenario.js', line: 1, scopeMarker: 'manifest' } },
 			],
 		});
 		assert.equal(result.cells[0].status, 'PASS');
@@ -147,7 +171,8 @@ test('generic probes return machine-readable PASS, FAIL with line/counterexample
 		assert.equal(result.cells[1].findings[0].line, 2);
 		assert.match(result.cells[1].findings[0].counterexample, /accessToken/);
 		assert.equal(result.cells[1].findings[0].recommendation, 'Keep the token outside setup data.');
-		assert.equal(result.cells[2].status, 'N/A');
+		assert.equal(result.cells[2].status, 'FAIL');
+		assert.equal(result.cells[3].status, 'N/A');
 	} finally {
 		fs.rmSync(temporary, { recursive: true, force: true });
 	}
