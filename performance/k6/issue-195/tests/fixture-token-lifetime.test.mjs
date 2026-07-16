@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -215,19 +216,28 @@ test('fixture Docker identity child receives no credential, password, token, or 
 		environment: {
 			PATH: '/runtime/bin',
 			HOME: '/runtime/home',
+			TMPDIR: '/runtime/tmp',
+			DOCKER_HOST: 'unix:///runtime/docker.sock',
 			PERF_ADMIN_EMAIL: 'admin@example.test',
 			PERF_ADMIN_PASSWORD: 'admin-password',
 			PERF_ACCESS_TOKEN: 'access-token',
 			POSTGRES_PASSWORD: 'db-password',
 			CUSTOM_SECRET: 'custom-secret',
 			CREDENTIAL_FILE: '/secret/path',
+			API_KEY: 'api-key',
+			AUTHORIZATION: 'Bearer secret',
+			SESSION: 'session-secret',
+			COOKIE: 'cookie-secret',
+			PGPASSFILE: '/secret/pgpass',
+			AWS_ACCESS_KEY_ID: 'access-key',
+			ARBITRARY_UNKNOWN: 'must-not-pass',
 		},
 		execFileSyncImpl(command, args, options) {
 			observed = { command, args, env: options.env };
 			return JSON.stringify([{
-				Id: 'sha256:container',
+				Id: 'a'.repeat(64),
 				Name: '/faithlog-app',
-				Image: 'sha256:image',
+				Image: `sha256:${'b'.repeat(64)}`,
 				State: { StartedAt: '2026-07-16T00:00:00Z' },
 				Config: { Labels: {
 					'com.docker.compose.project': 'faithlog',
@@ -237,10 +247,87 @@ test('fixture Docker identity child receives no credential, password, token, or 
 			}]);
 		},
 	});
-	assert.equal(identity.containerId, 'sha256:container');
+	assert.equal(identity.containerId, 'a'.repeat(64));
 	assert.equal(observed.command, 'docker');
 	assert.deepEqual(observed.args, ['inspect', 'sha256:container']);
-	assert.deepEqual(observed.env, { PATH: '/runtime/bin', HOME: '/runtime/home' });
+	assert.deepEqual(observed.env, {
+		PATH: '/runtime/bin',
+		HOME: '/runtime/home',
+		TMPDIR: '/runtime/tmp',
+		DOCKER_HOST: 'unix:///runtime/docker.sock',
+	});
+});
+
+test('fixture report root and numeric loopback are required before Docker or report mutation', () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-fixture-inputs-'));
+	try {
+		const bin = path.join(root, 'bin');
+		fs.mkdirSync(bin);
+		const trace = path.join(root, 'docker-trace');
+		const docker = path.join(bin, 'docker');
+		fs.writeFileSync(docker, `#!/usr/bin/env bash
+printf 'docker\\n' >> ${JSON.stringify(trace)}
+printf '[]\\n'
+`);
+		fs.chmodSync(docker, 0o755);
+		for (const [label, overrides, forbiddenReportPath] of [
+			['missing-root', {}, path.join(root, 'missing-root', 'performance')],
+			['relative-root', { PERF_REPORT_ROOT: 'relative-reports' }, path.join(root, 'relative-root', 'relative-reports')],
+			['localhost', {
+				BASE_URL: 'http://localhost:28080',
+				PERF_REPORT_ROOT: path.join(root, 'localhost-report'),
+			}, path.join(root, 'localhost-report')],
+		]) {
+			const cwd = path.join(root, label);
+			fs.mkdirSync(cwd);
+			fs.rmSync(trace, { force: true });
+			const result = spawnSync(process.execPath, [fixturePath], {
+				cwd,
+				encoding: 'utf8',
+				env: fixtureEnvironment(bin, overrides),
+			});
+			assert.notEqual(result.status, 0, label);
+			assert.equal(fs.existsSync(trace), false, `${label} must stop before Docker`);
+			assert.equal(fs.existsSync(forbiddenReportPath), false, `${label} must not mutate reports`);
+		}
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('fixture container capture rejects every malformed immutable identity field', async () => {
+	const { captureContainerIdentity } = await import(
+		`${pathToFileURL(runtimeIdentityPath).href}?strict=${Date.now()}-${Math.random()}`
+	);
+	const valid = {
+		Id: 'a'.repeat(64),
+		Name: '/faithlog-app',
+		Image: `sha256:${'b'.repeat(64)}`,
+		State: { StartedAt: '2026-07-16T00:00:00.000000000Z' },
+		Config: { Labels: {
+			'com.docker.compose.project': 'faithlog-current',
+			'com.docker.compose.service': 'app',
+		} },
+		NetworkSettings: { Ports: {
+			'8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '28080' }],
+		} },
+	};
+	const capture = (value) => captureContainerIdentity('faithlog-app', {
+		environment: { PATH: '/runtime/bin' },
+		execFileSyncImpl: () => JSON.stringify([value]),
+	});
+	assert.equal(capture(valid).containerId, valid.Id);
+	for (const malformed of [
+		{ ...valid, Id: 'short' },
+		{ ...valid, Image: 'sha256:short' },
+		{ ...valid, Name: '' },
+		{ ...valid, State: { StartedAt: 'not-a-date' } },
+		{ ...valid, Config: { Labels: { ...valid.Config.Labels, 'com.docker.compose.project': '' } } },
+		{ ...valid, Config: { Labels: { ...valid.Config.Labels, 'com.docker.compose.service': '' } } },
+		{ ...valid, NetworkSettings: { Ports: [] } },
+	]) {
+		assert.throws(() => capture(malformed), /container identity|docker inspect/i);
+	}
 });
 
 async function loadSession() {
@@ -251,4 +338,29 @@ async function loadSession() {
 function jwt(exp) {
 	const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
 	return `${encode({ alg: 'none' })}.${encode({ exp })}.signature`;
+}
+
+function fixtureEnvironment(bin, overrides = {}) {
+	return {
+		PATH: `${bin}:${process.env.PATH}`,
+		BASE_URL: 'http://127.0.0.1:28080',
+		PERF_ADMIN_EMAIL: 'runtime-admin@example.test',
+		PERF_ADMIN_PASSWORD: 'runtime-password',
+		PERF_DATASET_ID: 'PERF_INPUT_CONTRACT',
+		PERF_FIXTURE_RUN_ID: 'ISSUE195_INPUT_CONTRACT',
+		PERF_SOURCE_COMMIT: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
+		APP_CONTAINER_ID: 'fixture-app',
+		EXPECTED_APP_COMPOSE_SERVICE: 'app',
+		EXPECTED_APP_IMAGE_ID: `sha256:${'a'.repeat(64)}`,
+		POSTGRES_CONTAINER_ID: 'fixture-postgres',
+		EXPECTED_POSTGRES_COMPOSE_SERVICE: 'postgres',
+		EXPECTED_POSTGRES_IMAGE_ID: `sha256:${'b'.repeat(64)}`,
+		REDIS_CONTAINER_ID: 'fixture-redis',
+		EXPECTED_REDIS_COMPOSE_SERVICE: 'redis',
+		EXPECTED_REDIS_IMAGE_ID: `sha256:${'c'.repeat(64)}`,
+		EXPECTED_ACTIVE_MEMBERS: '1000',
+		EXPECTED_DUTY_ASSIGNMENTS: '101',
+		TOKEN_SAFETY_MARGIN_SECONDS: '120',
+		...overrides,
+	};
 }
