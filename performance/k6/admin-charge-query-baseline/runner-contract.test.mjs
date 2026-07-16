@@ -148,6 +148,52 @@ test('summary validation enforces exact count math, failure math, latency order,
 	}
 });
 
+test('k6 v2 Rate summary treats passes as true count and fails as false count in both phases', async () => {
+	const {validateMeasuredSummary} = await module('validate-measured-summary.mjs');
+	const {REQUEST_CASE_NAMES} = await module('scenario-definition.mjs');
+	const summary = (nested) => {
+		const metrics = {};
+		for (const name of REQUEST_CASE_NAMES) {
+			const values = {
+				failure: {value: 0, passes: 0, fails: 5},
+				requests: {count: 5, rate: 1},
+				duration: {avg: 5, med: 4, 'p(50)': 4, 'p(95)': 8, 'p(99)': 9, max: 10, count: 5},
+			};
+			metrics[`admin_charge_${name}_failure`] = nested ? {values: values.failure} : values.failure;
+			metrics[`admin_charge_${name}_requests`] = nested ? {values: values.requests} : values.requests;
+			metrics[`admin_charge_${name}_duration`] = nested ? {values: values.duration} : values.duration;
+		}
+		return {metrics};
+	};
+	for (const nested of [false, true]) {
+		assert.equal(validateMeasuredSummary(summary(nested), {expectedRequestCount: 5}), true, 'warmup');
+		assert.equal(validateMeasuredSummary(summary(nested)), true, 'measured');
+	}
+
+	const firstFailure = (value) => {
+		const metric = value.metrics[`admin_charge_${REQUEST_CASE_NAMES[0]}_failure`];
+		return metric.values ?? metric;
+	};
+	const firstRequests = (value) => {
+		const metric = value.metrics[`admin_charge_${REQUEST_CASE_NAMES[0]}_requests`];
+		return metric.values ?? metric;
+	};
+	for (const mutate of [
+		(value) => { firstFailure(value).value = 0.2; },
+		(value) => { firstFailure(value).passes = 1; },
+		(value) => { firstFailure(value).fails = 4; },
+		(value) => { firstRequests(value).count = 4; },
+		(value) => { delete firstFailure(value).value; },
+		(value) => { firstFailure(value).value = Number.POSITIVE_INFINITY; },
+		(value) => { firstFailure(value).value = '0'; },
+	]) {
+		const malformed = summary(true);
+		mutate(malformed);
+		assert.throws(() => validateMeasuredSummary(malformed, {expectedRequestCount: 5}));
+		assert.throws(() => validateMeasuredSummary(malformed));
+	}
+});
+
 test('PostgreSQL counter integrity preserves decimal strings across the JS safe boundary', async () => {
 	const {counterDelta} = await module('measurement-integrity.mjs');
 	assert.equal(counterDelta('9007199254740993', '9007199254741003'), '10');
