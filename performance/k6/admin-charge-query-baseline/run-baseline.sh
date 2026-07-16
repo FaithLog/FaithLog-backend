@@ -57,7 +57,7 @@ if [[ ! "$FIXTURE_RUN_ID" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; then
 	echo 'FIXTURE_RUN_ID must contain 1-32 letters, digits, underscore, or hyphen.' >&2
 	exit 2
 fi
-if [[ "$EXPECTED_SOURCE_COMMIT" != '355f79df5b2e47636b7d1a17dea029da6c93c62d' ]]; then
+if [[ "$EXPECTED_SOURCE_COMMIT" != '6796ed146244d8f3f5b5dd7048ebe16865084a97' ]]; then
 	echo 'EXPECTED_SOURCE_COMMIT does not match the approved immutable baseline provenance.' >&2
 	exit 2
 fi

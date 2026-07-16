@@ -2,18 +2,26 @@
 
 Status: **scenario and runner/evidence contract-ready, fake/static verified, not measured**.
 
-이 디렉터리는 Issue #193의 current-develop 호환 correctness와 before 측정 계약만 준비한다. 현재 wave에서는 #192가 measurement slot을 먼저 사용하므로 fixture SQL, DB 조회, preflight HTTP, k6를 실행하지 않는다.
+이 디렉터리는 Issue #193의 current-develop 호환 correctness와 before 측정 계약을 준비한다. B/C/D actual attempt는 각각 preflight에서 거부됐고 k6 warmup/measured는 모두 0건이므로 유효 baseline은 아직 없다.
 
-`run-baseline.sh`도 실제 실행되지 않았다. 현재 검증은 Node fake contract, JS/MJS 구문, shell 구문, SQL 정적 mutation 차단에 한정한다.
+최신 #206 서버 기준 runner는 Node fake contract, JS/MJS·shell 구문, SQL 정적 mutation 차단까지만 다시 검증한다. PM의 독립 리뷰 전에는 fresh fixture, preflight HTTP 또는 k6를 실행하지 않는다.
 
 ## Immutable baseline server
 
-- source commit: `355f79df5b2e47636b7d1a17dea029da6c93c62d`
+- source commit: `6796ed146244d8f3f5b5dd7048ebe16865084a97`
 - base URL: `http://127.0.0.1:28080`
-- app container: `901dbab3949fc669e7902e6c1471f4d60ffc80b049efa0f9a5203343710a7868`
-- image: `sha256:759dbf31b1a3ae2261ccc6e409af3a1c82f64c487b53bfe7f1af74d5bd2f4d07`
+- app container: `a7df78b330f457a7fd60a9531362d0f1f063ae7aa6cae5f2d996eb8cb51fe79d`
+- app image: `sha256:8e0f8d85d697a7d34aabf3703ddb27b4f1af326dec4f7c35556986303b0b816c`
+- app StartedAt: `2026-07-16T04:23:10.082407837Z`
 - Compose: `faithlog-frontend-latest/app`
+- app working directory: `/private/tmp/FaithLog-perf-206-deploy`
+- PostgreSQL container: `81aa74ca1b491b45eb691b3d65de9e42eb47ef64a6bcb961d0b627b030139ae9`
+- PostgreSQL image: `sha256:48d29282d2b43c402465c28f8572021b59aaf43574056faaad2fd7bb85ffdd4e`
+- Redis container: `4109f6525948d12d1e5377fb6160c8955f6c3fcd7816e02786b2dd8031e23de9`
+- Redis image: `sha256:80dd823f4d2bf93dd5e418a0ae2817319a1ba279953e234082e54a5a18306223`
 - migration: Flyway V11
+- health: `UP`
+- scheduler: `false`
 
 실행 시에는 위 source/API/container/image/Compose/Flyway/health identity가 모두 같아야 한다. 다른 성능 측정, frontend QA, fixture write, DB 조사와 동시에 실행하지 않고 공통 performance lock을 사용한다. Docker build, restart, prune은 금지한다.
 
@@ -55,13 +63,16 @@ Status: **scenario and runner/evidence contract-ready, fake/static verified, not
 - terminal 1개월 cutoff: `PAID`는 `paidAt`, `WAIVED`/`CANCELED`는 `updatedAt` 기준 최근 1개월만 포함한다.
 - `includeArchived=true`: 1개월 이전 terminal row를 포함한다.
 - #200 COFFEE duty: 일반 ACTIVE COFFEE 담당자는 filter 생략 시 본인의 ACTIVE·미삭제 계좌 전체 aggregate만 조회하고, 본인 계좌 filter는 성공하며, 다른 담당 계좌 filter는 403이다. 회원별 COFFEE 상세는 production의 historical read 계약과 동일하게 본인 소유 COFFEE 계좌 전체 item만 반환한다.
+- #206 stable charge-item ordering: 모든 charge-item pageable endpoint는 사용자가 지정한 primary sort와 같은 방향의 `id` secondary sort를 자동 적용한다. 이 scenario의 member-detail은 `createdAt,desc` 동률에서 `id,desc`를 exact 검증하며 validator를 완화하거나 fixture timestamp를 인위적으로 벌리지 않는다.
 - measured credential인 service ADMIN의 전체 read, cross-campus account 404, source unique duplicate 0을 검증한다. campus manager full-read는 current develop의 별도 production test를 정적으로 대조했으며, runtime manager credential을 승인받기 전에는 이 preflight의 실측 검증으로 주장하지 않는다.
 
 fixture는 승인된 service ADMIN과 일반 duty user를 포함해 기존 ACTIVE user row 정확히 1,000개만 선택하고, 각 execution의 exact `datasetId`로 새 campus를 create-only 생성한다. 그 campus에는 ACTIVE membership 1,000개, 계좌 5개, charge 35,000개만 만든다. 다른 `datasetId`의 before marker가 남아 있어도 새 namespace는 허용하며, 현재 `datasetId + fixtureRunId`의 중복만 INSERT 전에 거부한다. before와 integration after는 서로 다른 ID를 쓰되 위 shape는 같다. cleanup, DB restore, snapshot restore를 구현하거나 전제하지 않는다. SQL session timezone은 앱의 달력 기준과 같은 `Asia/Seoul`로 고정한다.
 
 ## Measurement approval gate
 
-사용자 승인 전 before 측정과 production 최적화는 금지한다. #192 종료와 measurement slot 인계, runtime admin/duty credential, 1,000 ACTIVE user pool, workload 값 승인을 모두 받은 뒤에만 runner/evidence를 별도 리뷰하고 실제 수집을 진행한다.
+사용자 승인 없는 before 측정과 production 최적화는 금지한다. 현재는 PM의 독립 measurement-ready 리뷰 전이며, 리뷰 후에도 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 실제 수집을 진행한다.
+
+fresh E 제안 식별자는 `I193_BEFORE_20260716_E / I193_FIXTURE_20260716_E / EXEC193_BEFORE_20260716_E`다. 아직 생성하거나 실행하지 않았으며 B/C/D namespace와 report는 절대 재사용하지 않는다.
 
 PM 승인 요청용 추천값은 다음과 같다.
 
