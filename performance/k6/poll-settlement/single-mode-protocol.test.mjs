@@ -22,6 +22,31 @@ test('selected readiness exact-binds only the approved mode write count', async 
 	]) { const value = structuredClone(target); mutate(value); assert.throws(() => expectedWritesForSelectedMode(value, 'coffee-sequential'), /expected|readiness|mode/i); }
 });
 
+test('runtime target source, Flyway, services, images, resources, and workload fail closed before mutable work', async () => {
+	const { validateTargetContract } = await import('./single-mode-contract.mjs');
+	assert.equal(typeof validateTargetContract, 'function');
+	const target = JSON.parse(readFileSync(new URL('target-contract.json', import.meta.url), 'utf8'));
+	assert.equal(validateTargetContract(target), target);
+	for (const mutate of [
+		(value) => { value.sourceCommit = 'not-a-commit'; },
+		(value) => { value.flywayVersion = 11; },
+		(value) => { value.containers.app.imageId = 'latest'; },
+		(value) => { value.containers.postgres.composeService = ''; },
+		(value) => { delete value.containers.redis.configHash; },
+		(value) => { value.resourceSampling.maxGapMs = 999; },
+		(value) => { value.maintenanceReadiness.expectedChargeWrites['meal-concurrent'] = 5999; },
+		(value) => { value.unapprovedFallback = true; },
+	]) {
+		const changed = structuredClone(target); mutate(changed);
+		assert.throws(() => validateTargetContract(changed), /target|source|flyway|runtime|resource|readiness|schema/i);
+	}
+	const runner = readFileSync(new URL('run-baseline.sh', import.meta.url), 'utf8');
+	const targetGate = runner.indexOf('validateTargetContract');
+	const firstRuntime = runner.indexOf('INITIAL_TEMP=');
+	const seed = runner.indexOf('seed-fixtures.mjs');
+	assert.ok(targetGate > 0 && targetGate < firstRuntime && firstRuntime < seed, 'full target gate must precede runtime and fixture work');
+});
+
 test('mode-specific correctness requires selected final cardinality and nonselected untouched state', async () => {
 	const { validateSelectedCorrectness } = await import('./single-mode-contract.mjs');
 	const expected = {

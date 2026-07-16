@@ -59,6 +59,20 @@ function metric(mode = 'coffee-sequential') {
 	};
 }
 
+function k6V2Metric() {
+	const value = metric();
+	const definitions = {
+		coffee_settlement_requests: ['counter', 'default'], iterations: ['counter', 'default'],
+		coffee_settlement_failure_rate: ['rate', 'default'], checks: ['rate', 'default'], http_req_failed: ['rate', 'default'],
+		coffee_settlement_duration: ['trend', 'time'], coffee_settlement_started_at: ['trend', 'default'], coffee_settlement_finished_at: ['trend', 'default'],
+	};
+	for (const [name, [type, contains]] of Object.entries(definitions)) Object.assign(value.metrics[name], { type, contains });
+	Object.assign(value.metrics.coffee_settlement_failure_rate, { values: { rate: 0, passes: 0, fails: 10 } });
+	Object.assign(value.metrics.http_req_failed.values, { passes: 0, fails: 10 });
+	Object.assign(value.metrics.checks.values, { passes: 20, fails: 0 });
+	return value;
+}
+
 function db() {
 	return {
 		case: { ...CASE, mode: 'coffee-sequential' }, statsReset: null,
@@ -138,6 +152,33 @@ test('metric validator rejects sparse, fractional, failed, nonfinite, zero-throu
 	validateMetricEvidence(valueRate, 'coffee-sequential', CASE);
 	const ignoredCounterRate = metric(); ignoredCounterRate.metrics.coffee_settlement_requests.values.rate = 0;
 	assert.equal(validateMetricEvidence(ignoredCounterRate, 'coffee-sequential', CASE).throughput, 5);
+});
+
+test('k6 v2 wrapped Counter, Rate, and Trend metadata cannot be confused with another metric type or mixed direct shape', () => {
+	const valid = k6V2Metric();
+	validateMetricEvidence(valid, 'coffee-sequential', CASE);
+	for (const mutate of [
+		(value) => { value.metrics.coffee_settlement_requests.type = 'rate'; },
+		(value) => { value.metrics.coffee_settlement_duration.contains = 'default'; },
+		(value) => { value.metrics.coffee_settlement_requests.count = 10; },
+	]) {
+		const changed = structuredClone(valid); mutate(changed);
+		expectReject(() => validateMetricEvidence(changed, 'coffee-sequential', CASE), /metric|counter|rate|trend|shape|type/i);
+	}
+});
+
+test('k6 v2 wrapped Counter and Rate values enforce finite counters and exact passes-fails math', () => {
+	const valid = k6V2Metric();
+	validateMetricEvidence(valid, 'coffee-sequential', CASE);
+	for (const mutate of [
+		(value) => { value.metrics.coffee_settlement_requests.values.rate = Number.NaN; },
+		(value) => { value.metrics.coffee_settlement_failure_rate.values.passes = 1; },
+		(value) => { value.metrics.checks.values.fails = 1; },
+		(value) => { value.metrics.http_req_failed.values.passes = 1; },
+	]) {
+		const changed = structuredClone(valid); mutate(changed);
+		expectReject(() => validateMetricEvidence(changed, 'coffee-sequential', CASE), /metric|counter|rate|passes|fails|failure|checks/i);
+	}
 });
 
 test('warmup evidence is a separate exact one-request phase', () => {
