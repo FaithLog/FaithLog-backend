@@ -1667,14 +1667,14 @@ printf '%s\\n' '{"snapshotCapturedAt":"2026-07-16T12:48:36.050Z"}'
 	}
 
 	const { before, after, measured } = validDbIntegritySnapshots(4_200);
-	after.databaseStats.xactCommit = (BigInt(before.databaseStats.xactCommit) + 8_400n).toString();
+	after.databaseStats.xactCommit = (BigInt(before.databaseStats.xactCommit) + 4_200n).toString();
 	withTempJsonFiles('faithlog-195-db-wide-missing-', [
 		before, after, measured, validDbControlAdoption(),
 	], (paths) => {
 		const result = runJsonTool(files.dbIntegrityValidator, [
 			...paths, '', 'admin_users-first_page', '2m', '10',
 		]);
-		assert.notEqual(result.status, 0, 'a missing expected commit must still fail closed');
+		assert.notEqual(result.status, 0, 'a missing observer commit below the request lower bound must fail closed');
 	});
 
 	const preservedReport = process.env.ISSUE195_EXECUTION_E_REPORT;
@@ -1762,7 +1762,7 @@ test('DB-wide commit evidence uses only the publication-safe request lower bound
 		assert.equal(output.status, 'supporting-only');
 		assert.equal(output.automaticAdoption, false);
 		assert.equal(output.minimumApplicationTransactionsPerRequest, 1);
-		assert.equal(output.sourceObservedApplicationTransactionsPerRequest, 2);
+		assert.equal(output.sourceTransactionBoundaryPerRequest, 2);
 		assert.equal(output.minimumCommitDelta, String(requestCount + 1));
 		assert.equal(output.sourceRequiredCommitDelta, String(requestCount * 2 + 1));
 		assert.equal(output.sourceCommitCoverage, 'not-proven-by-database-wide-snapshot');
@@ -1876,7 +1876,7 @@ test('preserved F actual evidence is a read-only fixture for the two-per-request
 		assert.equal(output.status, 'conditional-not-adoptable');
 		assert.equal(output.automaticAdoption, false);
 		assert.equal(output.minimumApplicationTransactionsPerRequest, 1);
-		assert.equal(output.sourceObservedApplicationTransactionsPerRequest, 2);
+		assert.equal(output.sourceTransactionBoundaryPerRequest, 2);
 		assert.equal(output.minimumCommitDelta, '12343');
 		assert.equal(output.sourceRequiredCommitDelta, '24685');
 		assert.equal(output.sourceCommitCoverage, 'not-proven-by-database-wide-snapshot');
@@ -2766,8 +2766,10 @@ test('README keeps reports ignored and records scenario-ready/not-measured statu
 	assert.match(readme, /rejected diagnostic evidence only/);
 	assert.match(readme, /EXEC195_BEFORE_20260716_E[\s\S]*non-reusable/);
 	assert.match(readme, /4,200 requests/);
-	assert.match(readme, /EXEC195_BEFORE_20260716_F/);
-	assert.match(readme, /Issue #208 common audit is complete/);
+	assert.match(readme, /EXEC195_BEFORE_20260716_F[\s\S]*non-reusable/);
+	assert.match(readme, /12,342 requests/);
+	assert.match(readme, /Issue #208 common audit gate was completed before F/);
+	assert.match(readme, /EXEC195_BEFORE_20260716_G/);
 	assert.equal(
 		(readme.match(/BASE_URL=http:\/\/127\.0\.0\.1:28080/g) || []).length,
 		3,

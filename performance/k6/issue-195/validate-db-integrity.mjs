@@ -83,24 +83,43 @@ if (isObject(control) && isObject(before)) {
 
 const commitDeltaValue = safeBigIntDelta(after?.databaseStats?.xactCommit, before?.databaseStats?.xactCommit, 'database commit');
 const rollbackDeltaValue = safeBigIntDelta(after?.databaseStats?.xactRollback, before?.databaseStats?.xactRollback, 'database rollback');
-const expectedApplicationTransactionsPerRequest = 2;
+// Current source has one authentication repository transaction and one endpoint
+// service transaction per request. pg_stat_database is nevertheless a cumulative,
+// database-wide snapshot whose cross-backend publication and source attribution
+// cannot prove that both transactions are visible for every completed request.
+// Keep the source boundary explicit, but gate only the conservative transaction
+// lower bound that this evidence can prove without a tolerance or subtraction.
+const minimumApplicationTransactionsPerRequest = 1;
+const sourceTransactionBoundaryPerRequest = 2;
 const requestCount = isPositiveSafeInteger(measured?.requestCount) ? measured.requestCount : null;
-const expectedCommitDeltaValue = requestCount === null
+const minimumCommitDeltaValue = requestCount === null
 	? null
-	: BigInt(requestCount) * BigInt(expectedApplicationTransactionsPerRequest) + 1n;
-if (expectedCommitDeltaValue !== null && commitDeltaValue !== null && commitDeltaValue < expectedCommitDeltaValue) {
-	failures.push(`database commit delta ${commitDeltaValue} is below (measured requests * ${expectedApplicationTransactionsPerRequest}) + observer ${expectedCommitDeltaValue}`);
+	: BigInt(requestCount) * BigInt(minimumApplicationTransactionsPerRequest) + 1n;
+const sourceRequiredCommitDeltaValue = requestCount === null
+	? null
+	: BigInt(requestCount) * BigInt(sourceTransactionBoundaryPerRequest) + 1n;
+if (minimumCommitDeltaValue !== null && commitDeltaValue !== null && commitDeltaValue < minimumCommitDeltaValue) {
+	failures.push(`database commit delta ${commitDeltaValue} is below measured requests + observer ${minimumCommitDeltaValue}`);
 }
 if (rollbackDeltaValue !== null && rollbackDeltaValue !== 0n) failures.push(`database rollback delta ${rollbackDeltaValue} != 0`);
 
 const commitDelta = serializeBigInt(commitDeltaValue);
 const rollbackDelta = serializeBigInt(rollbackDeltaValue);
-const expectedCommitDelta = serializeBigInt(expectedCommitDeltaValue);
-const unattributedCommitDeltaValue = commitDeltaValue !== null && expectedCommitDeltaValue !== null
-	&& commitDeltaValue >= expectedCommitDeltaValue
-	? commitDeltaValue - expectedCommitDeltaValue
+const minimumCommitDelta = serializeBigInt(minimumCommitDeltaValue);
+const sourceRequiredCommitDelta = serializeBigInt(sourceRequiredCommitDeltaValue);
+// Preserve the previous output fields as source-boundary diagnostics. They are
+// not the acceptance gate and do not make the DB-wide excess attributable.
+const expectedCommitDelta = sourceRequiredCommitDelta;
+const unattributedCommitDeltaValue = commitDeltaValue !== null && sourceRequiredCommitDeltaValue !== null
+	&& commitDeltaValue >= sourceRequiredCommitDeltaValue
+	? commitDeltaValue - sourceRequiredCommitDeltaValue
 	: null;
 const unattributedCommitDelta = serializeBigInt(unattributedCommitDeltaValue);
+const sourceUnattributedCommitDeltaValue = commitDeltaValue !== null && minimumCommitDeltaValue !== null
+	&& commitDeltaValue >= minimumCommitDeltaValue
+	? commitDeltaValue - minimumCommitDeltaValue
+	: null;
+const sourceUnattributedCommitDelta = serializeBigInt(sourceUnattributedCommitDeltaValue);
 
 if (failures.length > 0) {
 	writeResult({
@@ -109,22 +128,30 @@ if (failures.length > 0) {
 		failures,
 		commitDelta,
 		rollbackDelta,
+		minimumCommitDelta,
+		sourceRequiredCommitDelta,
 		expectedCommitDelta,
 		unattributedCommitDelta,
+		sourceUnattributedCommitDelta,
 	});
 	throw new Error(`DB integrity is non-adoptable: ${failures.join('; ')}`);
 }
 writeResult({
-	status: unattributedCommitDeltaValue > 0n ? 'conditional-not-adoptable' : 'supporting-only',
+	status: sourceUnattributedCommitDeltaValue > 0n ? 'conditional-not-adoptable' : 'supporting-only',
 	automaticAdoption: false,
 	evidenceUse: 'supporting-only',
 	transactionAttribution: 'database-wide-unattributed',
-	expectedApplicationTransactionsPerRequest,
+	minimumApplicationTransactionsPerRequest,
+	sourceTransactionBoundaryPerRequest,
+	sourceCommitCoverage: 'not-proven-by-database-wide-snapshot',
 	observerCommitOverhead: 1,
 	commitDelta,
 	rollbackDelta,
+	minimumCommitDelta,
+	sourceRequiredCommitDelta,
 	expectedCommitDelta,
 	unattributedCommitDelta,
+	sourceUnattributedCommitDelta,
 	controlBackgroundCommitDelta: control.backgroundCommitDelta,
 	backgroundSubtractionApplied: false,
 });
