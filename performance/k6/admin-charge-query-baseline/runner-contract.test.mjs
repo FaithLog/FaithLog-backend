@@ -28,6 +28,7 @@ function container(role, overrides = {}) {
 
 test('runner requires every approved workload and immutable target value without defaults', async () => {
 	const runner = await read('run-baseline.sh');
+	const readme = await read('README.md');
 	for (const name of [
 		'DATASET_ID', 'FIXTURE_RUN_ID', 'PERF_EXECUTION_RUN_ID', 'BASE_URL',
 		'APP_CONTAINER', 'POSTGRES_CONTAINER', 'REDIS_CONTAINER',
@@ -47,6 +48,8 @@ test('runner requires every approved workload and immutable target value without
 		assert.doesNotMatch(runner, new RegExp(`\\$\\{${name}:-`), `${name} must not have a default`);
 	}
 	assert.match(runner, /6796ed146244d8f3f5b5dd7048ebe16865084a97/);
+	assert.match(readme, /source commit[^\n]*6796ed146244d8f3f5b5dd7048ebe16865084a97/);
+	assert.match(readme, /Flyway V11/);
 });
 
 test('all target, workload, credential, and identity gates precede fresh fixture mutation', async () => {
@@ -135,7 +138,9 @@ test('k6 keeps the 16 frontend cases in one ordered loop and separates warmup fr
 	assert.match(script, /summaryTrendStats: \['avg', 'med', 'p\(50\)', 'p\(95\)', 'p\(99\)', 'max', 'count'\]/);
 	const runner = await read('run-baseline.sh');
 	assert.ok(runner.indexOf('PHASE=warmup') < runner.indexOf('PHASE=measured'));
-	assert.match(runner, /ADMIN_ACCESS_TOKEN="\$\([\s\S]*MEASURED_REQUIRED_TTL_SECONDS[\s\S]*authenticate\.mjs/);
+	assert.doesNotMatch(runner, /IDENTITY_LABEL=ADMIN_MEASURED/);
+	assert.equal([...runner.matchAll(/node "\$SCENARIO_DIR\/authenticate\.mjs"/g)].length, 2);
+	assert.match(runner, /INITIAL_ADMIN_REQUIRED_TTL_SECONDS/);
 });
 
 test('summary validation enforces exact count math, failure math, latency order, and throughput', async () => {
@@ -483,18 +488,18 @@ test('pre-boundary maintenance state requires two consecutive stable snapshots a
 	assert.doesNotMatch(runner, /:\s+"\$\{PRE_BOUNDARY_STABILIZATION_/);
 	assert.match(runner, /for \(\(attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt\+\+\)\)/);
 	assert.match(runner, /PRE_BOUNDARY_STABLE" != true[\s\S]*exit 7/);
-	const measuredLogin = runner.indexOf('IDENTITY_LABEL=ADMIN_MEASURED');
 	const stabilization = runner.indexOf('measurement-state-pre-boundary-attempt-');
 	const counterBefore = runner.indexOf('counter-before.json');
 	const measuredWindow = runner.indexOf('MEASURED_START=');
-	assert.ok(measuredLogin < stabilization && stabilization < counterBefore && counterBefore < measuredWindow);
+	const usersVacuum = runner.indexOf('vacuum-initial-login-users.sql');
+	assert.ok(usersVacuum < stabilization && stabilization < counterBefore && counterBefore < measuredWindow);
 	assert.match(runner, /sleep "\$PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS"/);
 	assert.match(runner, /pre-boundary-state\.mjs[\s\S]*mv "\$PRE_BOUNDARY_SECOND_STATE" "\$REPORT_DIR\/evidence\/measurement-state-before\.json"/);
 });
 
-test('fresh measured login clears a delayed users stats increment before the strict measured boundary', async () => {
+test('the two initial login updates are cleared before the strict measured boundary', async () => {
 	const runner = await read('run-baseline.sh');
-	const usersMaintenance = await read('vacuum-measured-login-user.sql');
+	const usersMaintenance = await read('vacuum-initial-login-users.sql');
 	const {validateStablePreBoundaryState} = await module('pre-boundary-state.mjs');
 	const {validateMeasurementIntegrity} = await module('measurement-integrity.mjs');
 
@@ -507,11 +512,11 @@ test('fresh measured login clears a delayed users stats increment before the str
 
 	const delayedFlush = integrityFixture();
 	delayedFlush.beforeState.tables.users.nModSinceAnalyze = 72;
-	delayedFlush.afterState.tables.users.nModSinceAnalyze = 73;
+	delayedFlush.afterState.tables.users.nModSinceAnalyze = 74;
 	assert.throws(
 		() => validateMeasurementIntegrity(delayedFlush),
 		/users\.nModSinceAnalyze/,
-		'a stable pair alone can miss the measured-login UPDATE when its stats flush is delayed',
+		'a stable pair alone can miss the two initial login updates when their stats flush is delayed',
 	);
 
 	assert.equal(usersMaintenance.trim(), 'VACUUM (ANALYZE) users;');
@@ -519,20 +524,21 @@ test('fresh measured login clears a delayed users stats increment before the str
 		usersMaintenance,
 		/\b(?:campus_members|payment_accounts|charge_items|FULL|FREEZE|pg_stat_reset|CREATE EXTENSION|ALTER SYSTEM)\b/i,
 	);
-	const measuredLogin = runner.indexOf('IDENTITY_LABEL=ADMIN_MEASURED');
-	const usersVacuum = runner.indexOf('vacuum-measured-login-user.sql');
+	const initialAdminLogin = runner.indexOf('IDENTITY_LABEL=ADMIN \\');
+	const initialDutyLogin = runner.indexOf('IDENTITY_LABEL=COFFEE_DUTY');
+	const usersVacuum = runner.indexOf('vacuum-initial-login-users.sql');
 	const postgresBefore = runner.indexOf('-v stage=before');
 	const stabilization = runner.indexOf('measurement-state-pre-boundary-attempt-');
 	const counterBefore = runner.indexOf('counter-before.json');
 	const measuredWindow = runner.indexOf('MEASURED_START=');
-	assert.ok(measuredLogin < usersVacuum);
+	assert.ok(initialAdminLogin < usersVacuum && initialDutyLogin < usersVacuum);
 	assert.ok(usersVacuum < postgresBefore && usersVacuum < stabilization);
 	assert.ok(usersVacuum < counterBefore && usersVacuum < measuredWindow);
-	assert.match(runner, /psql_exec -q -t -A < "\$SCENARIO_DIR\/vacuum-measured-login-user\.sql" \\\n\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze\.txt"/);
-	assert.match(runner, /'status=completed' \\\n\s*'tables=users' \\\n\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze-complete\.txt"/);
+	assert.match(runner, /psql_exec -q -t -A < "\$SCENARIO_DIR\/vacuum-initial-login-users\.sql" \\\n\s*> "\$REPORT_DIR\/evidence\/initial-logins-users-vacuum-analyze\.txt"/);
+	assert.match(runner, /'status=completed' \\\n\s*'tables=users' \\\n\s*> "\$REPORT_DIR\/evidence\/initial-logins-users-vacuum-analyze-complete\.txt"/);
 });
 
-test('users update counter requires an exact delayed plus-one ACK before measured-login vacuum', async () => {
+test('users update counter requires an exact delayed plus-two ACK before initial-login vacuum', async () => {
 	const runner = await read('run-baseline.sh');
 	const counterSql = await read('collect-users-update-counter.sql');
 	const {classifyUsersUpdateAck} = await module('users-update-ack.mjs');
@@ -542,45 +548,86 @@ test('users update counter requires an exact delayed plus-one ACK before measure
 		"SELECT n_tup_upd::text FROM pg_stat_user_tables WHERE relid = 'users'::regclass;",
 	);
 	assert.doesNotMatch(counterSql, /\b(?:INSERT|UPDATE|DELETE|TRUNCATE|VACUUM|ANALYZE|CREATE|ALTER|DROP|pg_stat_reset)\b/i);
-	assert.equal(classifyUsersUpdateAck('72\n', '72\n'), 'pending');
-	assert.equal(classifyUsersUpdateAck('72\n', '73\n'), 'acknowledged');
+	assert.equal(classifyUsersUpdateAck('72\n', '72\n', '2'), 'pending');
+	assert.equal(classifyUsersUpdateAck('72\n', '73\n', '2'), 'pending');
+	assert.equal(classifyUsersUpdateAck('72\n', '74\n', '2'), 'acknowledged');
 	assert.deepEqual(
-		['72\n', '72\n', '73\n'].map((current) => classifyUsersUpdateAck('72\n', current)),
+		['72\n', '73\n', '74\n'].map((current) => classifyUsersUpdateAck('72\n', current, '2')),
 		['pending', 'pending', 'acknowledged'],
-		'a delayed later poll must acknowledge exactly one measured-login update',
+		'a delayed later poll must acknowledge exactly two initial login updates',
 	);
 	assert.deepEqual(
-		Array.from({length: 5}, () => classifyUsersUpdateAck('72\n', '72\n')),
+		Array.from({length: 5}, () => classifyUsersUpdateAck('72\n', '72\n', '2')),
 		Array(5).fill('pending'),
 		'a never-flushed update stays pending until the runner timeout rejects it',
 	);
-	for (const current of ['71\n', '74\n', '01\n', '-1\n', 'NaN\n', '1e3\n', '9223372036854775808\n', '73\n74\n']) {
-		assert.throws(() => classifyUsersUpdateAck('72\n', current));
+	for (const current of ['71\n', '75\n', '01\n', '-1\n', 'NaN\n', '1e3\n', '9223372036854775808\n', '73\n74\n']) {
+		assert.throws(() => classifyUsersUpdateAck('72\n', current, '2'));
 	}
 	for (const before of [72, '', ' 72\n', '9223372036854775808\n']) {
-		assert.throws(() => classifyUsersUpdateAck(before, '73\n'));
+		assert.throws(() => classifyUsersUpdateAck(before, '74\n', '2'));
+	}
+	for (const expectedDelta of [2, '', '0', '01', '-1', '9223372036854775808']) {
+		assert.throws(() => classifyUsersUpdateAck('72\n', '74\n', expectedDelta));
 	}
 
 	const beforeCounter = runner.indexOf('users-update-counter-before.txt');
-	const measuredLogin = runner.indexOf('IDENTITY_LABEL=ADMIN_MEASURED');
+	const initialAdminLogin = runner.indexOf('IDENTITY_LABEL=ADMIN \\');
+	const initialDutyLogin = runner.indexOf('IDENTITY_LABEL=COFFEE_DUTY');
+	const warmup = runner.indexOf('PHASE=warmup');
 	const pollCounter = runner.indexOf('users-update-counter-attempt-');
 	const ackGate = runner.indexOf('USERS_UPDATE_ACKNOWLEDGED" != true');
-	const usersVacuum = runner.indexOf('vacuum-measured-login-user.sql');
+	const usersVacuum = runner.indexOf('vacuum-initial-login-users.sql');
 	const stabilization = runner.indexOf('measurement-state-pre-boundary-attempt-');
 	const counterBefore = runner.indexOf('counter-before.json');
 	const measuredWindow = runner.indexOf('MEASURED_START=');
-	assert.ok(beforeCounter < measuredLogin && measuredLogin < pollCounter);
+	assert.ok(beforeCounter < initialAdminLogin && beforeCounter < initialDutyLogin);
+	assert.ok(initialAdminLogin < warmup && initialDutyLogin < warmup && warmup < pollCounter);
 	assert.ok(pollCounter < ackGate && ackGate < usersVacuum);
 	assert.ok(usersVacuum < stabilization && usersVacuum < counterBefore && usersVacuum < measuredWindow);
-	assert.match(runner, /USERS_UPDATE_ACK_STATUS="\$\(node "\$SCENARIO_DIR\/users-update-ack\.mjs"[\s\S]*\)"/);
+	assert.match(runner, /USERS_UPDATE_ACK_STATUS="\$\(node "\$SCENARIO_DIR\/users-update-ack\.mjs"[\s\S]*"2"\)"/);
 	assert.match(runner, /USERS_UPDATE_ACK_STATUS" == acknowledged[\s\S]*USERS_UPDATE_ACKNOWLEDGED=true[\s\S]*break/);
 	assert.match(runner, /USERS_UPDATE_ACKNOWLEDGED" != true[\s\S]*exit 8/);
+	assert.match(runner, /'expectedDelta=2'/);
 	assert.equal(
 		[...runner.matchAll(/for \(\(attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt\+\+\)\)/g)].length,
 		2,
 		'counter ACK polling and maintenance stable-pair must reuse the same five-attempt bound',
 	);
 	assert.doesNotMatch(runner, /:\s+"\$\{USERS_UPDATE_ACK_/);
+	assert.doesNotMatch(runner, /IDENTITY_LABEL=ADMIN_MEASURED/);
+	assert.equal([...runner.matchAll(/node "\$SCENARIO_DIR\/authenticate\.mjs"/g)].length, 2);
+	assert.match(
+		runner,
+		/IDENTITY_LABEL=ADMIN \\\n\s*MIN_TOKEN_TTL_SECONDS="\$INITIAL_ADMIN_REQUIRED_TTL_SECONDS"/,
+	);
+	const finalTtlGate = runner.lastIndexOf('MIN_TOKEN_TTL_SECONDS="$MEASURED_REQUIRED_TTL_SECONDS"');
+	const measuredPhase = runner.indexOf('PHASE=measured');
+	assert.ok(warmup < finalTtlGate && finalTtlGate < measuredPhase);
+});
+
+test('the first post-report failure is preserved as a non-adoptable machine-readable rejection', async () => {
+	const runner = await read('run-baseline.sh');
+	const writerSource = await read('measurement-rejection.mjs');
+	const {buildMeasurementRejection} = await module('measurement-rejection.mjs');
+	assert.deepEqual(buildMeasurementRejection('warmup', 8), {
+		measurementStatus: 'rejected',
+		evidenceIntegrity: 'incomplete',
+		automaticAdoption: false,
+		stage: 'warmup',
+		exitStatus: 8,
+	});
+	for (const [stage, status] of [
+		['unknown', 8], ['warmup/secret', 8], ['warmup', 0], ['warmup', 256], ['warmup', '8'],
+	]) {
+		assert.throws(() => buildMeasurementRejection(stage, status));
+	}
+	assert.match(writerSource, /flag:\s*'wx'/, 'the first rejection file must never be overwritten');
+	assert.match(runner, /MEASUREMENT_STAGE=runtime-pre-lock/);
+	assert.match(runner, /measurement-rejection\.mjs[\s\S]*measurement-rejection\.json/);
+	assert.match(runner, /cleanup\(\)[\s\S]*local exit_status="\$\?"[\s\S]*write_measurement_rejection/);
+	assert.match(runner, /MEASUREMENT_STAGE=completed[\s\S]*measurement-classification\.json/);
+	assert.doesNotMatch(runner, /(?:EMAIL|PASSWORD|ACCESS_TOKEN).*measurement-rejection/i);
 });
 
 test('database evidence is exact, non-mutating, and keeps optional pgss continuity', async () => {
