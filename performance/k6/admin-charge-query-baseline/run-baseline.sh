@@ -291,10 +291,11 @@ psql_exec \
 	< "$SCENARIO_DIR/prepare-fixture.sql" \
 	> "$REPORT_DIR/evidence/fixture-prepare.txt"
 
-DATASET_BINDING_JSON="$(psql_exec -q -t -A -c "SELECT JSONB_BUILD_OBJECT(
-	'campusId', (SELECT id FROM campuses WHERE name = 'PERF_ISSUE_193:' || :'dataset_id'),
-	'crossCampusId', (SELECT id FROM campuses WHERE name = 'PERF_ISSUE_193:' || :'dataset_id' || ':CROSS')
-)" -v dataset_id="$DATASET_ID")"
+DATASET_BINDING_JSON="$(
+	psql_exec -q -t -A \
+		-v dataset_id="$DATASET_ID" \
+		< "$SCENARIO_DIR/select-dataset-binding.sql"
+)"
 CAMPUS_ID="$(node -e 'const value=JSON.parse(process.argv[1]); if(!Number.isSafeInteger(value.campusId)||value.campusId<=0)throw new Error("invalid campusId"); process.stdout.write(String(value.campusId))' "$DATASET_BINDING_JSON")"
 CROSS_CAMPUS_ID="$(node -e 'const value=JSON.parse(process.argv[1]); if(!Number.isSafeInteger(value.crossCampusId)||value.crossCampusId<=0||value.crossCampusId===value.campusId)throw new Error("invalid crossCampusId"); process.stdout.write(String(value.crossCampusId))' "$DATASET_BINDING_JSON")"
 

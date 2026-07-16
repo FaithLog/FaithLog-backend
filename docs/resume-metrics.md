@@ -1359,3 +1359,13 @@ Metric candidates:
 - Health check success rate: run `docker compose up -d postgres redis app` and repeat `curl /api/v1/health` against one approved runtime.
 - API response time: measure `GET /api/v1/health` or another user-approved endpoint with a fixed local or deployed target.
 <!-- daily-resume-monitor:end:resume-metrics:2026-06-17 -->
+
+### 2026-07-16 Issue #193 actual-before attempt B rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_B / I193_FIXTURE_20260716_B / EXEC193_BEFORE_20260716_B`.
+- 검증된 준비 범위: 사용자 승인 계정 2개, 임시 ADMIN 로그인, immutable app/PostgreSQL/Redis 및 DB/binding continuity, canonical lock, quiet boundary, fresh fixture prepare.
+- fixture 결과: campus ID 17, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- 거부 원인: `psql -c` SQL의 `:'dataset_id'`가 psql variable substitution을 거치지 않아 PostgreSQL `syntax error at or near ":"` 발생.
+- 측정 결과: k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
+- 복구/보존: 외부 cleanup trap이 임시 ADMIN을 USER로 복구했고 memory-only credential은 폐기됐다. B namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: dataset binding SQL을 issue-local read-only stdin 파일로 분리하고 `psql -v dataset_id=...`로만 치환한다. fake psql harness가 `-c` 실패와 stdin 성공을 고정한다.

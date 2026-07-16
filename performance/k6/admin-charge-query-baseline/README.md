@@ -87,3 +87,11 @@ k6는 16 cases를 frontend 순서로 한 iteration 안에서 실행한다. warmu
 공유 stack의 quiet snapshot은 경계 관찰일 뿐이다. 모든 DB/resource validator 뒤에는 app/PostgreSQL/Redis runtime, database, numeric loopback binding을 final snapshot으로 다시 비교하고, 이 final continuity를 통과한 뒤에만 classification을 기록한다. post-lock 이후 psql과 Docker stats는 mutable name이 아니라 승인된 full container ID를 사용한다. `measurementStatus`는 최대 `conditional-shared-stack`, `evidenceIntegrity`는 별도 검증 상태이며 `automaticAdoption=false`다. PM이 exclusive-use 전체 window와 evidence를 검토하기 전 baseline으로 채택할 수 없다.
 
 PM이 확인한 현재 shared PostgreSQL에서는 `pg_stat_statements`가 unavailable이다. runner는 extension/config를 변경하지 않고 unavailable reason과 availability continuity를 보존하며, PostgreSQL decimal-string counter는 독립 query-count가 아닌 supporting evidence로만 기록한다.
+
+## Rejected actual-before attempt B (2026-07-16)
+
+`I193_BEFORE_20260716_B / I193_FIXTURE_20260716_B / EXEC193_BEFORE_20260716_B` 실행은 partial rejected evidence로만 보존한다. 사용자 승인 계정 2개 생성, 임시 ADMIN 로그인 gate, immutable runtime/DB/lock/quiet gate와 fresh fixture prepare까지 통과해 campus ID 17에 ACTIVE membership 1,000개와 charge item 35,000개를 COMMIT했다.
+
+직후 dataset binding 조회가 `psql -c` 문자열 안의 `:'dataset_id'`를 치환할 것으로 잘못 가정해 PostgreSQL `syntax error at or near ":"`로 중단됐다. k6 warmup/measured 실행은 모두 0건이고 summary도 생성되지 않았으므로 baseline 또는 성능 수치로 사용할 수 없다. 외부 보안 cleanup trap이 임시 ADMIN을 USER로 복구했고 memory-only credential은 runner shell 종료와 함께 폐기됐다.
+
+B namespace, DB rows, report directory는 삭제하거나 복구하지 않고 그대로 보존하며 절대 재사용하지 않는다. dataset binding은 raw shell interpolation 없이 `select-dataset-binding.sql`을 stdin으로 전달하고 `psql -v dataset_id=...`가 치환하도록 보정했다. 후속 실제 측정은 새 dataset/fixture/execution ID와 별도 승인 credential만 사용한다.

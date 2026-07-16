@@ -302,7 +302,7 @@ test('dataset binding uses psql stdin variable substitution instead of -c', asyn
 	const runner = await read('run-baseline.sh');
 	const bindingSql = await read('select-dataset-binding.sql');
 	assert.doesNotMatch(runner, /DATASET_BINDING_JSON="\$\(psql_exec[^\n]*-c/);
-	assert.match(runner, /DATASET_BINDING_JSON="\$\(psql_exec -q -t -A[\s\S]*-v dataset_id="\$DATASET_ID"[\s\S]*< "\$SCENARIO_DIR\/select-dataset-binding\.sql"/);
+	assert.match(runner, /DATASET_BINDING_JSON="\$\(\s*psql_exec -q -t -A[\s\S]*-v dataset_id="\$DATASET_ID"[\s\S]*< "\$SCENARIO_DIR\/select-dataset-binding\.sql"/);
 	assert.match(bindingSql, /:'dataset_id'/);
 	assert.doesNotMatch(bindingSql, /\$\{?DATASET_ID\}?|I193_BEFORE_/);
 });
