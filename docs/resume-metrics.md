@@ -17,6 +17,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 최종 검증: `./gradlew test`는 88 suites / 555 tests / 0 failures / 0 errors / 3 skipped, `./gradlew build`와 `./gradlew asciidoctor`는 모두 성공했다. REST Docs 170 snippet groups와 최신 `build/docs/asciidoc/index.html` 생성을 확인했다.
 - 프론트 영향: path/query/response shape와 sort parameter 형식이 동일하므로 production API client/type/UI 수정은 필요 없다. 별도 frontend integration mock의 `getMockAdminMemberChargeState`, `getMockMemberChargeList`는 primary 방향과 무관하게 ID ASC tie-break를 사용해 DESC에서 backend와 불일치하므로 mock과 관련 테스트의 최소 수정은 필요하다. 이 backend 작업에서는 frontend 파일을 편집하지 않았다.
 
+## 2026-07-17 - Issue #195 G 조건부 actual-before 체크포인트
+
+- 상태: `EXEC195_BEFORE_20260716_G`는 `PERF_1000_20260716_195_A` / `ISSUE195_BEFORE_20260716_A`에서 11/11 measured adoption과 전 case `failureRate=0`을 완료했다. 중간 case rejection은 없고 유일한 first rejection은 예정된 `final-classification` exit `2`다. 최종은 `conditional-not-adoptable`, `automaticAdoption=false`이며, cooperative lock과 boundary evidence가 transient external shared-stack load 부재를 증명하지 못하기 때문이다.
+- 채택 경계: G는 명시적으로 리뷰되는 after 비교용 조건부 shared-stack before baseline일 뿐 자동 채택 baseline이나 성능 성과가 아니다. Resume 개선 수치로 집계하지 않고, G 실행/report를 재사용하거나 다시 실행하지 않는다. PM은 임시 계정 1건의 service role `USER` 원복과 lock/process 0을 확인했다.
+- 관측 후보: `admin_users/large_page`는 5,068 requests / 42.156241 req/s / p50 231.0955 ms / p95 339.36645 ms / p99 414.71317 ms / max 629.44 ms, `campus_members/full_list`는 5,160 / 42.909684 / 216.426 ms / 338.1192 ms / 435.98053 ms / 904.414 ms였다. 두 경로 모두 current source에 N+1 lookup이 정적으로 확인되므로 최소 최적화 조사 후보로만 선정한다. 인과 비율, 개선 목표, regression threshold는 승인되지 않았다.
+- 미승인 production 제안: admin user page는 page user ID 전체의 membership/campus projection을 한 번에 조회해 원 page order와 user별 membership ID ASC를 복원하고, campus member list는 기존 권한/ACTIVE membership ID ASC 뒤 `CampusAccessPolicy.getUsers(...)` bulk lookup 1회로 매핑한다. API/frontend/DTO/ErrorCode/transaction/lock/entity는 유지하고 이미 bulk인 duty assignment와 빠른 admin campus 목록은 건드리지 않는다. 첫 단계 Flyway/index는 불필요하며 `campus_members (user_id, id)` 후보는 승인된 after query plan이 필요성을 증명할 때만 별도 검토한다.
+- TDD/after: size 20/100 admin과 1,000-member list의 query-count RED, bulk 1회 GREEN, cardinality/order/status/missing-resource/authorization/REST Docs 회귀를 먼저 고정한다. 사용자 승인 후에만 fresh PM-assigned after ID로 같은 11-case workload를 비교하며, 별도 exclusive provenance 승인 없이는 after도 조건부다.
+- 검증: G의 11 measured adoption JSON과 final classification/first rejection을 read-only 대조해 PM 제공 수치와 상태가 일치함을 확인했다. 이 docs-only 기록은 Docker/DB/HTTP/k6 load를 실행하지 않았고 production/Flyway를 수정하지 않았다.
+
 ## 2026-07-16 - Issue #195 멤버 목록 current-develop 시나리오 보정
 
 - 상태: `scenario-ready/not-measured`. 성능 수치와 개선 성과는 없으며 resume 성과로 집계하지 않는다.
