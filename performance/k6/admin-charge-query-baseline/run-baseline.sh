@@ -41,6 +41,9 @@ SCENARIO_DIR="$ROOT_DIR/performance/k6/admin-charge-query-baseline"
 : "${DOCKER_STATS_SAMPLING_INTERVAL_SECONDS:?Choose the approved positive nominal Docker stats sampling interval.}"
 : "${DOCKER_STATS_MAX_GAP_SECONDS:?Choose the approved positive Docker stats maximum sample gap.}"
 
+readonly PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS=1
+readonly PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS=5
+
 ADMIN_EMAIL="$PERF_ADMIN_EMAIL"
 ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD"
 DUTY_EMAIL="$PERF_DUTY_EMAIL"
@@ -255,6 +258,8 @@ printf '%s\n' \
 	"tokenExpirySafetySeconds=$TOKEN_EXPIRY_SAFETY_SECONDS" \
 	"dockerStatsSamplingIntervalSeconds=$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS" \
 	"dockerStatsMaximumGapSeconds=$DOCKER_STATS_MAX_GAP_SECONDS" \
+	"preBoundaryStabilizationIntervalSeconds=$PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS" \
+	"preBoundaryStabilizationMaximumAttempts=$PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS" \
 	> "$REPORT_DIR/run-conditions.txt"
 
 # shared-stack-check: two quiet snapshots catch concurrent non-idle database use.
@@ -374,8 +379,27 @@ psql_exec -q -t -A \
 	< "$SCENARIO_DIR/collect-postgres-evidence.sql" \
 	> "$REPORT_DIR/evidence/postgres-before.jsonl"
 
-psql_exec -q -t -A < "$SCENARIO_DIR/collect-measurement-state.sql" \
-	> "$REPORT_DIR/evidence/measurement-state-before.json"
+# PostgreSQL cumulative stats can flush a fresh measured login after its HTTP
+# response. Adopt only the second of two exact maintenance snapshots captured
+# one second apart, before any measured counter/window boundary is opened.
+PRE_BOUNDARY_STABLE=false
+for ((attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt++)); do
+	PRE_BOUNDARY_FIRST_STATE="$REPORT_DIR/evidence/measurement-state-pre-boundary-attempt-${attempt}-first.json"
+	PRE_BOUNDARY_SECOND_STATE="$REPORT_DIR/evidence/measurement-state-pre-boundary-attempt-${attempt}-second.json"
+	psql_exec -q -t -A < "$SCENARIO_DIR/collect-measurement-state.sql" > "$PRE_BOUNDARY_FIRST_STATE"
+	sleep "$PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS"
+	psql_exec -q -t -A < "$SCENARIO_DIR/collect-measurement-state.sql" > "$PRE_BOUNDARY_SECOND_STATE"
+	if EXPECTED_DATABASE_NAME="$POSTGRES_DB" node "$SCENARIO_DIR/pre-boundary-state.mjs" \
+		"$PRE_BOUNDARY_FIRST_STATE" "$PRE_BOUNDARY_SECOND_STATE"; then
+		mv "$PRE_BOUNDARY_SECOND_STATE" "$REPORT_DIR/evidence/measurement-state-before.json"
+		PRE_BOUNDARY_STABLE=true
+		break
+	fi
+done
+if [[ "$PRE_BOUNDARY_STABLE" != true ]]; then
+	echo 'PostgreSQL pre-boundary maintenance state did not stabilize within five attempts.' >&2
+	exit 7
+fi
 psql_exec -q -t -A < "$SCENARIO_DIR/collect-counter-boundary.sql" \
 	> "$REPORT_DIR/evidence/counter-calibration.json"
 psql_exec -q -t -A < "$SCENARIO_DIR/collect-counter-boundary.sql" \
