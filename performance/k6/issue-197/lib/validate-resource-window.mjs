@@ -195,7 +195,7 @@ async function streamDockerSnapshots(samplesPath, stopFile, maxGapSeconds, ...co
 	assert.equal(fs.existsSync(stopFile), false, 'resource sampler stop marker must not exist before streaming starts');
 	const reader = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 	const iterator = reader[Symbol.asyncIterator]();
-	let pending = [];
+	const displayState = { snapshotIndex: 0, pending: [], expectsSeparator: false };
 	let stoppedAfterBoundarySnapshot = false;
 	let snapshotDeadline = Date.now() + (maxGapSeconds * 1000);
 	try {
@@ -205,10 +205,9 @@ async function streamDockerSnapshots(samplesPath, stopFile, maxGapSeconds, ...co
 			const { value: line, done } = await nextWithDeadline(iterator, remainingMilliseconds);
 			if (done) break;
 			assert.ok(line.length > 0, 'Docker stats stream must not contain empty rows');
-			pending.push(line);
-			if (pending.length === ROLES.length) {
-				appendDockerSnapshot(samplesPath, new Date().toISOString(), pending, ...containerIds);
-				pending = [];
+			const snapshot = consumeDockerDisplayLine(displayState, line);
+			if (snapshot) {
+				appendDockerSnapshot(samplesPath, new Date().toISOString(), snapshot, ...containerIds);
 				snapshotDeadline = Date.now() + (maxGapSeconds * 1000);
 				if (fs.existsSync(stopFile)) stoppedAfterBoundarySnapshot = true;
 			}
@@ -217,8 +216,36 @@ async function streamDockerSnapshots(samplesPath, stopFile, maxGapSeconds, ...co
 		reader.close();
 		if (!stoppedAfterBoundarySnapshot) process.stdin.destroy();
 	}
-	assert.equal(pending.length, 0, 'Docker stats stream ended with an incomplete three-role snapshot');
+	assert.equal(displayState.pending.length, 0, 'Docker stats stream ended with an incomplete three-role snapshot');
 	assert.equal(stoppedAfterBoundarySnapshot, true, 'Docker stats stream ended before the stop marker and final boundary snapshot');
+}
+
+function consumeDockerDisplayLine(state, line) {
+	const cursorHome = '\u001b[H';
+	const eraseDisplay = '\u001b[J';
+	const eraseToEndOfLine = '\u001b[K';
+	if (state.expectsSeparator) {
+		assert.equal(line, eraseToEndOfLine,
+			'Docker stats display protocol requires exactly one standalone CSI erase-to-EOL separator between snapshots');
+		state.expectsSeparator = false;
+		return null;
+	}
+	const rowIndex = state.pending.length;
+	if (rowIndex === 0) {
+		const expectedPrefix = state.snapshotIndex === 0 ? cursorHome : `${eraseDisplay}${cursorHome}`;
+		assert.ok(line.startsWith(expectedPrefix),
+			`Docker stats display protocol requires ${state.snapshotIndex === 0 ? 'initial CSI cursor-home' : 'recurring CSI erase-display plus cursor-home'} at snapshot row 0`);
+	}
+	assert.ok(line.endsWith(eraseToEndOfLine),
+		'Docker stats display protocol requires CSI erase-to-EOL at every data row suffix');
+	state.pending.push(line);
+	if (state.pending.length !== ROLES.length) return null;
+	const snapshot = state.pending;
+	state.pending = [];
+	state.expectsSeparator = true;
+	if (state.snapshotIndex > 0) snapshot[0] = snapshot[0].slice(eraseDisplay.length);
+	state.snapshotIndex += 1;
+	return snapshot;
 }
 
 async function nextWithDeadline(iterator, timeoutMilliseconds) {

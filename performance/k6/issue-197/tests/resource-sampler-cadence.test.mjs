@@ -84,11 +84,11 @@ test('three-role snapshot and stream keep exact identity, shared timestamps, mar
 		let stderr = '';
 		stream.stderr.setEncoding('utf8');
 		stream.stderr.on('data', (chunk) => { stderr += chunk; });
-		stream.stdin.write(`${dockerRows.join('\n')}\n`);
+		stream.stdin.write(`${initialDisplaySnapshot().join('\n')}\n`);
 		await waitFor(() => fs.existsSync(streamPath) && readJsonLines(streamPath).length === 3);
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		fs.writeFileSync(stopPath, 'stop\n');
-		stream.stdin.write(`${dockerRows.join('\n')}\n`);
+		stream.stdin.write(`${recurringDisplaySnapshot().join('\n')}\n`);
 		stream.stdin.end();
 		assert.equal(await childExit(stream), 0, stderr);
 		const streamSamples = readJsonLines(streamPath);
@@ -102,7 +102,7 @@ test('three-role snapshot and stream keep exact identity, shared timestamps, mar
 		const incomplete = spawnSync(process.execPath, [
 			VALIDATOR, 'stream-samples', path.join(directory, 'incomplete.jsonl'), path.join(directory, 'missing-stop'),
 			'2', APP_ID, DATABASE_ID, REDIS_ID,
-		], { encoding: 'utf8', input: `${dockerRows[0]}\n` });
+		], { encoding: 'utf8', input: `${initialDisplaySnapshot()[0]}\n` });
 		assert.notEqual(incomplete.status, 0);
 		assert.match(incomplete.stderr, /incomplete three-role snapshot|before the stop marker/);
 
@@ -181,6 +181,22 @@ test('G-shaped recurring Docker display protocol yields three complete snapshots
 		}
 		assert.ok(Date.parse(samples[3].observedAt) > Date.parse(samples[0].observedAt));
 		assert.ok(Date.parse(samples[6].observedAt) > Date.parse(samples[3].observedAt));
+
+		for (const [name, lines] of [
+			['missing-separator', [...initialDisplaySnapshot(), ...recurringDisplaySnapshot().slice(1)]],
+			['extra-separator', [...initialDisplaySnapshot(), '\u001b[K', '\u001b[K']],
+			['initial-prefix-reused', [...initialDisplaySnapshot(), '\u001b[K', ...initialDisplaySnapshot()]],
+			['erase-entire-display', [...initialDisplaySnapshot(), '\u001b[K', ...recurringDisplaySnapshot().slice(1).map((line, index) => index === 0 ? line.replace('\u001b[J', '\u001b[2J') : line)]],
+			['mid-field-control', [...initialDisplaySnapshot(), '\u001b[K', ...recurringDisplaySnapshot().slice(1).map((line, index) => index === 0 ? line.replace('1.75%', '1.75%\u001b[1A') : line)]],
+			['unknown-separator-csi', [...initialDisplaySnapshot(), '\u001b[1A']],
+		]) {
+			const rejected = spawnSync(process.execPath, [
+				VALIDATOR, 'stream-samples', path.join(directory, `${name}.jsonl`), path.join(directory, `${name}.stop`),
+				'2', APP_ID, DATABASE_ID, REDIS_ID,
+			], { encoding: 'utf8', input: `${lines.join('\n')}\n` });
+			assert.notEqual(rejected.status, 0, `${name} must be rejected`);
+			assert.match(rejected.stderr, /display protocol|separator|prefix|ANSI|control/i, `${name} must fail closed at framing validation`);
+		}
 	} finally {
 		if (child.exitCode === null) child.kill();
 		fs.rmSync(directory, { recursive: true, force: true });
