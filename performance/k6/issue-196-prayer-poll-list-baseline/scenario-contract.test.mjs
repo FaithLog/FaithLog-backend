@@ -151,6 +151,7 @@ function integritySample(overrides = {}) {
 }
 
 function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = '' } = {}) {
+	const startedAt = Date.now();
 	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-adoption-sequence-'));
 	const project = `faithlog-adoption-${process.pid}`;
 	const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -236,7 +237,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			env: {
 				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`,
 				FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId, FIXTURE_MANIFEST: manifest,
-				REPORT_ROOT: reportRoot,
+				PERF_REPORT_ROOT: reportRoot,
 				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
 				MEASURED_VUS: '1', MEASURED_DURATION: '1s', SAMPLING_INTERVAL_SECONDS: '0.05', SAMPLING_MAX_GAP_SECONDS: '0.1',
 				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
@@ -248,6 +249,8 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 		return {
 			result,
 			calls: existsSync(calls) ? readFileSync(calls, 'utf8').trim().split(/\r?\n/).filter(Boolean) : [],
+			reportRoot,
+			elapsedMs: Date.now() - startedAt,
 		};
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
@@ -586,22 +589,32 @@ test('conditional evidence continues the explicit mode sequence but the complete
 
 test('fake runner preserves conditional sequencing and fails closed on report or operational errors', () => {
 	const completed = runFakeAdoptionSequence();
+	assert.equal(completed.result.error, undefined, `conditional sequence must not time out: ${completed.result.error}`);
+	assert.equal(completed.result.signal, null, 'conditional sequence must exit normally rather than by signal');
 	assert.equal(completed.result.status, 2, completed.result.stderr);
+	assert.ok(completed.elapsedMs < 15000, `conditional fake sequence took ${completed.elapsedMs}ms`);
 	assert.equal(completed.calls.filter((line) => line.startsWith('summarize:')).length, 5);
 	assert.ok(completed.calls.includes('k6:prayer_groups:warmup'), 'conditional first endpoint must advance to the next endpoint');
 	assert.match(completed.result.stderr, /baseline evidence collection finished requested mode=prayer/);
+	assert.ok(completed.result.stderr.includes(completed.reportRoot), 'fake reports must stay under the isolated temporary artifact root');
 
-	for (const summaryBehavior of ['rejected', 'malformed', 'missing']) {
+	for (const [summaryBehavior, expectedStatus] of [['rejected', 2], ['malformed', 1], ['missing', 1]]) {
 		const failed = runFakeAdoptionSequence({ summaryBehavior });
-		assert.notEqual(failed.result.status, 0, `${summaryBehavior} report must fail closed`);
+		assert.equal(failed.result.error, undefined, `${summaryBehavior} report must not time out: ${failed.result.error}`);
+		assert.equal(failed.result.signal, null, `${summaryBehavior} report must exit normally rather than by signal`);
+		assert.equal(failed.result.status, expectedStatus, `${summaryBehavior} report must return the exact fail-closed status`);
+		assert.ok(failed.elapsedMs < 15000, `${summaryBehavior} fake case took ${failed.elapsedMs}ms`);
 		assert.deepEqual(failed.calls.filter((line) => line.startsWith('summarize:')), ['summarize:prayer_current_season']);
 		assert.equal(failed.calls.some((line) => line.startsWith('k6:prayer_groups:')), false,
 			`${summaryBehavior} report must block the next endpoint`);
 	}
 
-	for (const failure of ['k6', 'sampler', 'integrity', 'runtime']) {
+	for (const [failure, expectedStatus] of [['k6', 42], ['sampler', 43], ['integrity', 44], ['runtime', 1]]) {
 		const failed = runFakeAdoptionSequence({ failure });
-		assert.notEqual(failed.result.status, 0, `${failure} failure must not be swallowed by conditional evidence`);
+		assert.equal(failed.result.error, undefined, `${failure} failure must not time out: ${failed.result.error}`);
+		assert.equal(failed.result.signal, null, `${failure} failure must exit normally rather than by signal`);
+		assert.equal(failed.result.status, expectedStatus, `${failure} failure must preserve its exact runner status`);
+		assert.ok(failed.elapsedMs < 15000, `${failure} fake case took ${failed.elapsedMs}ms`);
 		assert.deepEqual(failed.calls.filter((line) => line.startsWith('summarize:')), ['summarize:prayer_current_season']);
 		assert.equal(failed.calls.some((line) => line.startsWith('k6:prayer_groups:')), false,
 			`${failure} failure must block the next endpoint`);
