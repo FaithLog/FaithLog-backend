@@ -292,12 +292,9 @@ environment_attestation="$(PREVIOUS_APP_ENV_JSON="${previous_app_environment_jso
 	node "${ENV_ATTESTATION}")" || fail "Instrumented app has unrelated environment drift."
 APP_ENVIRONMENT_JSON="${app_environment_json}" node -e '
 	const actual = new Set(JSON.parse(process.env.APP_ENVIRONMENT_JSON));
+	const springApplicationJson = "{\"logging\":{\"level\":{\"org.hibernate.SQL\":\"DEBUG\",\"org.hibernate.orm.jdbc.bind\":\"OFF\",\"org.hibernate.orm.jdbc.extract\":\"OFF\"}},\"spring\":{\"jpa\":{\"show-sql\":false,\"properties\":{\"hibernate\":{\"format_sql\":false}}}}}";
 	const required = [
-		"LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG",
-		"SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false",
-		"SPRING_JPA_SHOW_SQL=false",
-		"LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF",
-		"LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF",
+		`SPRING_APPLICATION_JSON=${springApplicationJson}`,
 		"FAITHLOG_SCHEDULER_ENABLED=false",
 	];
 	if (!required.every((value) => actual.has(value))) process.exit(1);

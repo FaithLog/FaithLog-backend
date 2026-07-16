@@ -6,6 +6,8 @@ REPO_ROOT="$(cd "${ROOT_DIR}/../../.." && pwd)"
 SCENARIO_FILE="${ROOT_DIR}/scenario.js"
 DB_STATS_SQL="${ROOT_DIR}/db-table-stats.sql"
 DB_ACTIVITY_SQL="${ROOT_DIR}/db-activity.sql"
+DB_QUIESCENCE_SQL="${ROOT_DIR}/db-quiescence.sql"
+VALIDATE_DB_QUIESCENCE="${ROOT_DIR}/db-quiescence.mjs"
 VALIDATE_TARGET="${ROOT_DIR}/validate-published-target.mjs"
 DB_RUNTIME_IDENTITY_SQL="${ROOT_DIR}/db-runtime-identity.sql"
 VALIDATE_RUNTIME_IDENTITY="${ROOT_DIR}/validate-runtime-identity.mjs"
@@ -27,6 +29,7 @@ MEASURED_VUS="${MEASURED_VUS:?MEASURED_VUS must be explicitly approved and suppl
 MEASURED_DURATION="${MEASURED_DURATION:?MEASURED_DURATION must be explicitly approved and supplied}"
 SAMPLING_INTERVAL_SECONDS="${SAMPLING_INTERVAL_SECONDS:?SAMPLING_INTERVAL_SECONDS requires explicit user approval}"
 SAMPLING_MAX_GAP_SECONDS="${SAMPLING_MAX_GAP_SECONDS:?SAMPLING_MAX_GAP_SECONDS requires explicit user approval}"
+PERF_QUIESCENCE_TIMEOUT_SECONDS="${PERF_QUIESCENCE_TIMEOUT_SECONDS:?PERF_QUIESCENCE_TIMEOUT_SECONDS is required at runtime}"
 PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL:?PERF_ADMIN_EMAIL is required at runtime}"
 PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?PERF_ADMIN_PASSWORD is required at runtime}"
 PERF_MEMBER_PASSWORD="${PERF_MEMBER_PASSWORD:?PERF_MEMBER_PASSWORD is required at runtime}"
@@ -70,10 +73,13 @@ fi
 for command in node k6 docker lsof; do
 	command -v "${command}" >/dev/null || { echo "Missing command: ${command}" >&2; exit 1; }
 done
-SAMPLING_INTERVAL_VALUE="${SAMPLING_INTERVAL_SECONDS}" SAMPLING_MAX_GAP_VALUE="${SAMPLING_MAX_GAP_SECONDS}" node -e '
+SAMPLING_INTERVAL_VALUE="${SAMPLING_INTERVAL_SECONDS}" SAMPLING_MAX_GAP_VALUE="${SAMPLING_MAX_GAP_SECONDS}" \
+	QUIESCENCE_TIMEOUT_VALUE="${PERF_QUIESCENCE_TIMEOUT_SECONDS}" node -e '
 	const interval = Number(process.env.SAMPLING_INTERVAL_VALUE);
 	const maxGap = Number(process.env.SAMPLING_MAX_GAP_VALUE);
-	if (!Number.isFinite(interval) || interval <= 0 || !Number.isFinite(maxGap) || maxGap < interval) process.exit(1);
+	const timeout = Number(process.env.QUIESCENCE_TIMEOUT_VALUE);
+	if (!Number.isFinite(interval) || interval <= 0 || !Number.isFinite(maxGap) || maxGap < interval
+		|| !Number.isFinite(timeout) || timeout < maxGap) process.exit(1);
 ' || { echo "Sampling values must be positive and max gap must be at least the interval." >&2; exit 1; }
 [[ -f "${FIXTURE_MANIFEST}" ]] || { echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2; exit 1; }
 node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
@@ -300,16 +306,21 @@ fi
 mkdir "${REPORT_ROOT}"
 
 app_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${APP_CONTAINER}")"
-grep -q '^LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG$' <<<"${app_environment}" \
-	|| { echo "Start the existing app container externally with LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG." >&2; exit 1; }
-grep -q '^SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false$' <<<"${app_environment}" \
-	|| { echo "Start the existing app container externally with SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false." >&2; exit 1; }
-grep -q '^SPRING_JPA_SHOW_SQL=false$' <<<"${app_environment}" \
-	|| { echo "Start the existing app container externally with SPRING_JPA_SHOW_SQL=false." >&2; exit 1; }
-grep -q '^LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF$' <<<"${app_environment}" \
-	|| { echo "Hibernate bind parameter logging must be OFF." >&2; exit 1; }
-grep -q '^LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF$' <<<"${app_environment}" \
-	|| { echo "Hibernate extract value logging must be OFF." >&2; exit 1; }
+spring_application_assignment="$(grep '^SPRING_APPLICATION_JSON=' <<<"${app_environment}")"
+[[ "$(grep -c '^SPRING_APPLICATION_JSON=' <<<"${app_environment}")" == 1 ]] \
+	|| { echo "Instrumented app must contain one exact Spring application JSON assignment." >&2; exit 1; }
+SPRING_APPLICATION_JSON_VALUE="${spring_application_assignment#SPRING_APPLICATION_JSON=}" node -e '
+	const parsed = JSON.parse(process.env.SPRING_APPLICATION_JSON_VALUE || "null");
+	const expected = {
+		logging: { level: {
+			"org.hibernate.SQL": "DEBUG",
+			"org.hibernate.orm.jdbc.bind": "OFF",
+			"org.hibernate.orm.jdbc.extract": "OFF",
+		} },
+		spring: { jpa: { "show-sql": false, properties: { hibernate: { format_sql: false } } } },
+	};
+	if (JSON.stringify(parsed) !== JSON.stringify(expected)) process.exit(1);
+' || { echo "Instrumented app exact-case statement-only SQL logger configuration is missing." >&2; exit 1; }
 grep -q '^FAITHLOG_SCHEDULER_ENABLED=false$' <<<"${app_environment}" \
 	|| { echo "Start the existing app container externally with FAITHLOG_SCHEDULER_ENABLED=false for isolated query evidence." >&2; exit 1; }
 
@@ -331,6 +342,54 @@ snapshot_db_tables() {
 	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -i -e PGPASSWORD "${DB_CONTAINER}" \
 		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At -f - \
 		< "${DB_STATS_SQL}" > "${output}"
+}
+
+capture_database_quiescence() {
+	local output="$1"
+	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -i -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_quiescence "${DB_CONTAINER}" \
+		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At -f - \
+		< "${DB_QUIESCENCE_SQL}" >> "${output}"
+}
+
+wait_for_database_quiescence() {
+	local output="$1"
+	local status_file="$2"
+	local status
+	: > "${output}"
+	while true; do
+		capture_database_quiescence "${output}"
+		set +e
+		node "${VALIDATE_DB_QUIESCENCE}" "${output}" \
+			"${SAMPLING_INTERVAL_SECONDS}" "${SAMPLING_MAX_GAP_SECONDS}" "${PERF_QUIESCENCE_TIMEOUT_SECONDS}" \
+			> "${status_file}"
+		status=$?
+		set -e
+		if (( status == 0 )); then
+			return 0
+		fi
+		if (( status != 2 )); then
+			echo "Database write/maintenance state did not reach the approved quiet window." >&2
+			return "${status}"
+		fi
+		sleep "${SAMPLING_INTERVAL_SECONDS}"
+	done
+}
+
+capture_logger_probe() {
+	local since="$1"
+	local output="$2"
+	local until
+	local -a pipeline_status
+	until="$(rfc3339_now)"
+	set +e
+	docker logs --since "${since}" --until "${until}" "${APP_CONTAINER}" 2>&1 \
+		| node "${FILTER_SQL_LOG}" > "${output}"
+	pipeline_status=("${PIPESTATUS[@]}")
+	set -e
+	if (( pipeline_status[0] != 0 || pipeline_status[1] != 0 )) || [[ ! -s "${output}" ]]; then
+		echo "Exact-case Hibernate statement logger probe failed before the measured window." >&2
+		return 1
+	fi
 }
 
 validate_token_lifetime() {
@@ -366,6 +425,8 @@ sample_resources() {
 sample_runtime_integrity() {
 	local k6_pid="$1"
 	local output="$2"
+	local next_tick_ms
+	next_tick_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
 	while kill -0 "${k6_pid}" 2>/dev/null; do
 		local lsof_text
 		local lsof_status
@@ -382,8 +443,18 @@ sample_runtime_integrity() {
 			-v app_client_addrs="${app_client_addrs}" -f - < "${DB_ACTIVITY_SQL}")"
 		LSOF_TEXT="${lsof_text}" DB_ACTIVITY_JSON="${db_activity}" K6_PID="${k6_pid}" \
 			node "${ROOT_DIR}/activity-sample.mjs" >> "${output}"
-		sleep "${SAMPLING_INTERVAL_SECONDS}"
+		next_tick_ms="$(CURRENT_TICK_MS="${next_tick_ms}" INTERVAL_SECONDS="${SAMPLING_INTERVAL_SECONDS}" node -e '
+			process.stdout.write(String(Number(process.env.CURRENT_TICK_MS) + Number(process.env.INTERVAL_SECONDS) * 1000));
+		')"
+		sleep_until_tick "${next_tick_ms}"
 	done
+}
+
+sleep_until_tick() {
+	TARGET_TICK_MS="$1" node -e '
+		const remaining = Math.max(0, Number(process.env.TARGET_TICK_MS) - Date.now());
+		setTimeout(() => {}, remaining);
+	'
 }
 
 rfc3339_now() {
@@ -420,6 +491,9 @@ run_endpoint() {
 	local summary_file="${endpoint_dir}/k6-summary.json"
 	local before_file="${endpoint_dir}/db-before.json"
 	local after_file="${endpoint_dir}/db-after.json"
+	local quiescence_file="${endpoint_dir}/pre-measured-quiescence.jsonl"
+	local quiescence_status_file="${endpoint_dir}/pre-measured-quiescence-status.json"
+	local logger_probe_file="${endpoint_dir}/logger-probe.sql"
 	local sql_log_file="${endpoint_dir}/hibernate-sql.log"
 	local resource_file="${endpoint_dir}/resource-samples.tsv"
 	local resource_stop_file="${endpoint_dir}/resource-sampler.stop"
@@ -434,6 +508,7 @@ run_endpoint() {
 	local warmup_status
 	local log_since
 	local log_until
+	local logger_probe_since
 	local k6_pid
 	local sampler_pid
 	local integrity_pid
@@ -495,6 +570,7 @@ run_endpoint() {
 	assert_fixture_windows
 	assert_runtime_continuity
 
+	logger_probe_since="$(rfc3339_now)"
 	admin_token="$(login_token "${PERF_ADMIN_EMAIL}" "${PERF_ADMIN_PASSWORD}")"
 	member_token="$(login_token "${member_email}" "${PERF_MEMBER_PASSWORD}")"
 	coffee_creator_token="$(login_token "${coffee_creator_email}" "${PERF_MEMBER_PASSWORD}")"
@@ -505,6 +581,8 @@ run_endpoint() {
 	validate_token_lifetime "${coffee_creator_token}" "${MEASURED_DURATION}"
 	validate_token_lifetime "${other_coffee_duty_token}" "${MEASURED_DURATION}"
 	validate_token_lifetime "${meal_duty_token}" "${MEASURED_DURATION}"
+	capture_logger_probe "${logger_probe_since}" "${logger_probe_file}"
+	wait_for_database_quiescence "${quiescence_file}" "${quiescence_status_file}"
 	snapshot_db_tables "${before_file}"
 	: > "${resource_file}"
 	: > "${integrity_file}"

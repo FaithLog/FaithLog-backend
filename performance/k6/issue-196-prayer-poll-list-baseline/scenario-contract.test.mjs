@@ -21,6 +21,8 @@ const REQUIRED_FILES = [
 	'redis-runtime-identity.mjs',
 	'resource-window-sampler.mjs',
 	'db-activity.sql',
+	'db-quiescence.mjs',
+	'db-quiescence.sql',
 	'activity-sample.mjs',
 	'token-lifetime.mjs',
 	'validate-published-target.mjs',
@@ -58,6 +60,7 @@ const FAKE_APP_CONTAINER_ID = 'a'.repeat(64);
 const FAKE_DB_CONTAINER_ID = 'b'.repeat(64);
 const FAKE_REDIS_CONTAINER_ID = 'c'.repeat(64);
 const FAKE_REPLACED_APP_CONTAINER_ID = 'd'.repeat(64);
+const SPRING_APPLICATION_JSON = '{"logging":{"level":{"org.hibernate.SQL":"DEBUG","org.hibernate.orm.jdbc.bind":"OFF","org.hibernate.orm.jdbc.extract":"OFF"}},"spring":{"jpa":{"show-sql":false,"properties":{"hibernate":{"format_sql":false}}}}}';
 
 function fakeToolingEnv(worktree) {
 	return { PERF_SCENARIO_WORKTREE: worktree, EXPECTED_SCENARIO_HEAD: 'a'.repeat(40) };
@@ -108,6 +111,7 @@ function manifestRuntime(project = 'approved', overrides = {}) {
 function faithlogTargetEnv() {
 	return {
 		...approvedTargetEnv(), APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', REDIS_CONTAINER: 'faithlog-redis',
+		PERF_QUIESCENCE_TIMEOUT_SECONDS: '180',
 		EXPECTED_APP_IMAGE: 'faithlog-latest', EXPECTED_APP_IMAGE_ID: 'sha256:contract',
 		EXPECTED_DB_IMAGE: 'postgres:17', EXPECTED_DB_IMAGE_ID: 'sha256:db',
 		EXPECTED_REDIS_IMAGE: 'redis:7-alpine', EXPECTED_REDIS_IMAGE_ID: 'sha256:redis',
@@ -203,13 +207,7 @@ function runtimePrepManifest(overrides = {}) {
 		preservedRedis,
 		environmentAttestation: {
 			previousSanitizedSha256: 'd'.repeat(64), newSanitizedSha256: 'd'.repeat(64),
-			allowedDelta: [
-				'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF',
-				'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF',
-				'LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG',
-				'SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false',
-				'SPRING_JPA_SHOW_SQL=false',
-			],
+			allowedDelta: [`SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}`],
 		},
 		evidenceLogging: {
 			sqlLogger: 'DEBUG', formatSql: false, showSql: false,
@@ -320,7 +318,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
-			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false SPRING_JPA_SHOW_SQL=false LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			`*"range .Config.Env"*) printf "%s\\n" 'SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}' FAITHLOG_SCHEDULER_ENABLED=false ;;`,
 			`*"stats --no-stream"*) printf "${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\n" ;;`,
 			`*"stats --no-trunc"*) if [[ "${'${FAKE_FAILURE:-}'}" == sampler ]]; then exit 0; fi; printf "\\033[H${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\033[K\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\033[K\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\033[K\\n"; while :; do printf "\\033[K\\n\\033[J\\033[H${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\033[K\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\033[K\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\033[K\\n"; sleep 0.02; done ;;`,
 			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
@@ -330,6 +328,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 		writeFileSync(join(bin, 'node'), [
 			'#!/usr/bin/env bash',
 			'if [[ "$1" == *tooling-provenance.mjs ]]; then exit 0; fi',
+			'if [[ "$1" == *db-quiescence.mjs ]]; then exit 0; fi',
 			`if [[ "$*" == *"await fetch"* ]]; then echo "login:${'${LOGIN_EMAIL}'}" >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
 			`if [[ "$1" == *summarize-run.mjs ]]; then endpoint="$2"; report="${'${10}'}"; echo "summarize:$endpoint" >> "${calls}"; case "${'${FAKE_SUMMARY_BEHAVIOR}'}" in conditional) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"conditional-not-adoptable"}' > "$report" ;; rejected) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"rejected"}' > "$report" ;; malformed) printf '{' > "$report" ;; missing) : ;; esac; exit 2; fi`,
 			'if [[ "$1" == *validate-runtime-identity.mjs ]]; then printf "%s" "$DB_RUNTIME_IDENTITY_JSON"; exit 0; fi',
@@ -612,13 +611,7 @@ test('runtime instrumentation prep is app-only, statement-only, and binds the fr
 	}
 
 	const override = read('runtime-evidence.override.yml');
-	for (const marker of [
-		'LOGGING_LEVEL_ORG_HIBERNATE_SQL: DEBUG',
-		'SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL: "false"',
-		'SPRING_JPA_SHOW_SQL: "false"',
-		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND: "OFF"',
-		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT: "OFF"',
-	]) assert.ok(override.includes(marker), `missing evidence override ${marker}`);
+	assert.ok(override.includes(`SPRING_APPLICATION_JSON: '${SPRING_APPLICATION_JSON}'`), 'missing exact-case Spring JSON evidence override');
 	assert.doesNotMatch(override, /ports:|container_name:|password|secret|token|postgres:|redis:/i);
 
 	const prep = read('prepare-runtime.sh');
@@ -677,9 +670,9 @@ test('runtime instrumentation prep is app-only, statement-only, and binds the fr
 	}
 	const runner = read('run-baseline.sh');
 	for (const marker of [
-		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF',
-		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF',
-		'SPRING_JPA_SHOW_SQL=false',
+		'SPRING_APPLICATION_JSON=',
+		'org.hibernate.SQL',
+		'org.hibernate.orm.jdbc.bind',
 		'filter-sql-log.mjs',
 	]) assert.ok(runner.includes(marker), `runner missing statement-only log gate ${marker}`);
 });
@@ -944,6 +937,7 @@ test('runner rejects every missing target identity before inspect or login', () 
 			PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
 			PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'secret',
 			SAMPLING_INTERVAL_SECONDS: '1', SAMPLING_MAX_GAP_SECONDS: '2',
+			PERF_QUIESCENCE_TIMEOUT_SECONDS: '180',
 		};
 		for (const missing of Object.keys(approvedTargetEnv())) {
 			const env = { ...process.env, ...required, PATH: `${bin}:${process.env.PATH}` };
@@ -1306,7 +1300,7 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
-			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false SPRING_JPA_SHOW_SQL=false LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			`*"range .Config.Env"*) printf "%s\\n" 'SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}' FAITHLOG_SCHEDULER_ENABLED=false ;;`,
 			`*"redis-cli --raw INFO server"*) printf '%b' ${JSON.stringify(fakeRedisInfo())} ;;`,
 			`*"psql -X"*) printf '%s\\n' '${JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity)}' ;;`,
 			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
@@ -1314,6 +1308,7 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		writeFileSync(join(bin, 'node'), [
 			'#!/usr/bin/env bash',
 			'if [[ "$1" == *tooling-provenance.mjs ]]; then exit 0; fi',
+			'if [[ "$1" == *db-quiescence.mjs ]]; then exit 0; fi',
 			'if [[ -n "${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}" ]]; then echo node-credential-leak >> "' + calls + '"; fi',
 			`if [[ "$*" == *"await fetch"* ]]; then echo login >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
 			`exec "${process.execPath}" "$@"`, '',
@@ -1419,7 +1414,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			`*"port faithlog-backend 8080/tcp"*) [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 ]] && touch "${postLockMarker}"; echo 0.0.0.0:18080 ;;`,
-			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false SPRING_JPA_SHOW_SQL=false LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			`*"range .Config.Env"*) printf "%s\\n" 'SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}' FAITHLOG_SCHEDULER_ENABLED=false ;;`,
 			`*"stats --no-stream"*) printf "${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\n" ;;`,
 			`*"stats --no-trunc"*) printf "\\033[H${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\033[K\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\033[K\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\033[K\\n"; while :; do printf "\\033[K\\n\\033[J\\033[H${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\033[K\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\033[K\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\033[K\\n"; sleep 0.1; done ;;`,
 			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
@@ -1428,6 +1423,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		writeFileSync(join(bin, 'node'), [
 			'#!/usr/bin/env bash',
 			'if [[ "$1" == *tooling-provenance.mjs ]]; then exit 0; fi',
+			'if [[ "$1" == *db-quiescence.mjs ]]; then exit 0; fi',
 			`if [[ -n "${'${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}'}" ]]; then echo node-scope-bad >> "${calls}"; fi`,
 			`if [[ "$*" == *"await fetch"* ]]; then echo login >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
 			`if [[ "$*" == *"const metadata"* ]]; then [[ -n "${'${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]] && echo metadata-scope-bad >> "${calls}"; echo metadata-child >> "${calls}"; fi`,

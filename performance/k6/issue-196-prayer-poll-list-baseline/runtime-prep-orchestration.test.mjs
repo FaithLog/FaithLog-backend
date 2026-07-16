@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { validateRuntimePrepManifest, validateRuntimePrepRejection } from './runtime-prep-contract.mjs';
+import { SPRING_APPLICATION_JSON } from './runtime-env-attestation.mjs';
 import { RUNTIME_TOOLING_FILES } from './tooling-provenance.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -141,8 +142,7 @@ function fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, 
 	const newEnv = JSON.stringify([
 		`SPRING_PROFILES_ACTIVE=${unrelatedEnvDrift ? 'prod' : 'local'}`, 'SPRING_DATASOURCE_PASSWORD=db-super-secret',
 		'JWT_SECRET=jwt-super-secret', 'FIREBASE_CONFIG_BASE64=firebase-super-secret', 'FAITHLOG_SCHEDULER_ENABLED=false',
-		'LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG', 'SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false', 'SPRING_JPA_SHOW_SQL=false',
-		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF', 'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF',
+		`SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}`,
 	]);
 	return `#!/usr/bin/env bash
 set -euo pipefail

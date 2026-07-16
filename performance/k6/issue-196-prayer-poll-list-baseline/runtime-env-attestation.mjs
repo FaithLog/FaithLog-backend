@@ -1,12 +1,9 @@
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
+export const SPRING_APPLICATION_JSON = '{"logging":{"level":{"org.hibernate.SQL":"DEBUG","org.hibernate.orm.jdbc.bind":"OFF","org.hibernate.orm.jdbc.extract":"OFF"}},"spring":{"jpa":{"show-sql":false,"properties":{"hibernate":{"format_sql":false}}}}}';
 export const APPROVED_INSTRUMENTATION_ENV = Object.freeze([
-	'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF',
-	'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF',
-	'LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG',
-	'SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false',
-	'SPRING_JPA_SHOW_SQL=false',
+	'SPRING_APPLICATION_JSON={"logging":{"level":{"org.hibernate.SQL":"DEBUG","org.hibernate.orm.jdbc.bind":"OFF","org.hibernate.orm.jdbc.extract":"OFF"}},"spring":{"jpa":{"show-sql":false,"properties":{"hibernate":{"format_sql":false}}}}}',
 ]);
 
 export function attestRuntimeEnvironment(previousRaw, currentRaw) {

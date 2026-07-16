@@ -70,5 +70,5 @@ from (
     vacuum_count::text as vacuum_count,
     autovacuum_count::text as autovacuum_count
   from pg_stat_user_tables
-  where schemaname = 'public'
+  where schemaname = 'public' and relname <> 'flyway_schema_history'
 ) stats;

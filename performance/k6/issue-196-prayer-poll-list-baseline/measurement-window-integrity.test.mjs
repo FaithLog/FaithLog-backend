@@ -36,15 +36,15 @@ test('DB evidence excludes Flyway metadata and gates exact write/maintenance sta
 		'runtime sampler cadence must subtract capture cost instead of sleeping after it');
 });
 
-test('quiescence requires exact application-table schema, no pending maintenance, and stable counters for the approved quiet window', () => {
+test('quiescence requires exact application-table schema, no active maintenance, and stable counters for the approved quiet window', () => {
 	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-quiescence-'));
 	try {
 		const evidence = join(temporary, 'quiescence.jsonl');
 		writeFileSync(evidence, `${JSON.stringify(snapshot('2026-07-17T00:00:00.000Z'))}\n`);
 		assert.equal(runQuiescence(evidence).status, 2, 'one snapshot cannot prove a quiet window');
 
-		writeFileSync(evidence, `${JSON.stringify(snapshot('2026-07-17T00:00:01.000Z', { pendingMaintenanceTables: ['poll_template_options'] }))}\n`, { flag: 'a' });
-		assert.equal(runQuiescence(evidence).status, 2, 'pending autoanalyze must remain non-quiescent');
+		writeFileSync(evidence, `${JSON.stringify(snapshot('2026-07-17T00:00:01.000Z', { activeWorkers: 1 }))}\n`, { flag: 'a' });
+		assert.equal(runQuiescence(evidence).status, 2, 'active autoanalyze or vacuum must reset the quiet window');
 
 		writeFileSync(evidence, `${JSON.stringify(snapshot('2026-07-17T00:00:02.000Z', { usersUpdate: '5' }))}\n`, { flag: 'a' });
 		assert.equal(runQuiescence(evidence).status, 2, 'published login writes must restart the exact quiet window');
@@ -52,7 +52,7 @@ test('quiescence requires exact application-table schema, no pending maintenance
 		writeFileSync(evidence, [3, 4, 5, 6].map((second) => JSON.stringify(snapshot(`2026-07-17T00:00:0${second}.000Z`, { usersUpdate: '5' }))).join('\n') + '\n', { flag: 'a' });
 		const stable = runQuiescence(evidence);
 		assert.equal(stable.status, 0, stable.stderr);
-		assert.match(stable.stdout, /"status":"quiescent"/);
+		assert.match(stable.stdout, /"finalStatus":"passed"/);
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
 	}
@@ -99,19 +99,17 @@ function read(name) {
 }
 
 function runQuiescence(path) {
-	return spawnSync(process.execPath, [QUIESCENCE, path, '1', '3'], { encoding: 'utf8' });
+	return spawnSync(process.execPath, [QUIESCENCE, path, '1', '3', '180'], { encoding: 'utf8' });
 }
 
-function snapshot(capturedAt, { pendingMaintenanceTables = [], usersUpdate = '0' } = {}) {
+function snapshot(capturedAt, { activeWorkers = 0, usersUpdate = '0' } = {}) {
 	return {
 		capturedAt,
-		activeMaintenanceCount: '0',
-		pendingMaintenanceTables,
-		tables: APP_TABLES.map((relname) => ({
-			relname,
-			n_tup_ins: '0', n_tup_upd: relname === 'users' ? usersUpdate : '0', n_tup_del: '0',
-			analyze_count: '0', autoanalyze_count: '0', vacuum_count: '0', autovacuum_count: '0',
-			last_analyze: null, last_autoanalyze: null, last_vacuum: null, last_autovacuum: null,
-		})),
+		activeAutovacuumWorkers: activeWorkers,
+		tables: Object.fromEntries(APP_TABLES.map((relname) => [relname, {
+			lastAnalyze: null, lastAutoanalyze: null, lastVacuum: null, lastAutovacuum: null,
+			analyzeCount: '0', autoanalyzeCount: '0', vacuumCount: '0', autovacuumCount: '0',
+			nTupIns: '0', nTupUpd: relname === 'users' ? usersUpdate : '0', nTupDel: '0',
+		}])),
 	};
 }

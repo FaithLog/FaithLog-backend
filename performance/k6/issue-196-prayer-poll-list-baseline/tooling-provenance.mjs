@@ -7,6 +7,8 @@ import { pathToFileURL } from 'node:url';
 export const RUNTIME_TOOLING_FILES = Object.freeze([
 	'performance/k6/issue-196-prayer-poll-list-baseline/activity-sample.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/db-activity.sql',
+	'performance/k6/issue-196-prayer-poll-list-baseline/db-quiescence.mjs',
+	'performance/k6/issue-196-prayer-poll-list-baseline/db-quiescence.sql',
 	'performance/k6/issue-196-prayer-poll-list-baseline/docker-db-identity.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/db-runtime-identity.sql',
 	'performance/k6/issue-196-prayer-poll-list-baseline/db-table-stats.sql',

@@ -82,8 +82,8 @@ test('every issue-local docker collector that consumes SQL stdin attaches contai
 	assert.match(seed, /captureDockerDbIdentity\(/);
 	assert.equal((shape.match(/docker exec -i /g) || []).length, 2,
 		'shape DB identity and fixture-owned mutation paths must attach stdin');
-	assert.equal((runner.match(/docker exec -i /g) || []).length, 3,
-		'runner identity, table-stat, and activity collectors must attach stdin');
+	assert.equal((runner.match(/docker exec -i /g) || []).length, 4,
+		'runner identity, table-stat, quiescence, and activity collectors must attach stdin');
 });
 
 test('DB identity collector sanitizes child-process stderr on failure', async () => {
