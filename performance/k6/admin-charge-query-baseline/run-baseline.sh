@@ -302,6 +302,15 @@ psql_exec \
 	< "$SCENARIO_DIR/prepare-fixture.sql" \
 	> "$REPORT_DIR/evidence/fixture-prepare.txt"
 
+# The approved fixture bulk-writes only these measured tables. Stabilize their
+# planner statistics after COMMIT and before expectations, preflight, or warmup.
+psql_exec -q -t -A < "$SCENARIO_DIR/analyze-fixture-tables.sql" \
+	> "$REPORT_DIR/evidence/fixture-analyze.txt"
+printf '%s\n' \
+	'status=completed' \
+	'tables=campus_members,payment_accounts,charge_items' \
+	> "$REPORT_DIR/evidence/fixture-analyze-complete.txt"
+
 DATASET_BINDING_JSON="$(
 	psql_exec -q -t -A \
 		-v dataset_id="$DATASET_ID" \
