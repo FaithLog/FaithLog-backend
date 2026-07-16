@@ -1406,4 +1406,16 @@ Metric candidates:
 - 미실행 범위: measured k6 0건, measured DB/resource boundary 0건, measured summary/classification 없음. `accepted=false`와 `automaticAdoption=false` 경계를 유지한다.
 - 복구/보존: 측정 계정 15016/15017은 모두 USER로 복구됐고 canonical lock 제거를 확인했다. E namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 재발 방지: direct metric과 `metric.values` wrapper를 모두 지원하되 `value=0`, `passes=0`, `fails=expected count`만 무오류로 허용한다. positive value, passes 증가, fails/count mismatch, malformed/nonfinite field는 warmup/measured 양 phase에서 fail-closed다.
-- 다음 제안: `I193_BEFORE_20260716_F / I193_FIXTURE_20260716_F / EXEC193_BEFORE_20260716_F`. PM 독립 리뷰 전에는 생성하거나 실행하지 않는다.
+- 후속 F는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 resource validator 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt F rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_F / I193_FIXTURE_20260716_F / EXEC193_BEFORE_20260716_F`.
+- report: `build/reports/k6/issue-193/I193_BEFORE_20260716_F/I193_FIXTURE_20260716_F/EXEC193_BEFORE_20260716_F`.
+- fixture 결과: campus ID 25, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- warmup 결과: 5 iterations, HTTP request 80개, failure 0. 이 warmup은 성능 baseline이나 성과 수치로 채택하지 않는다.
+- 거부 원인: measured load 전 첫 resource normalization에서 Docker Desktop의 정상 반올림 표기 `501.7MiB`를 exact integer bytes 한 점으로 환산하려 해 `Docker memory size must resolve to an integer byte value`로 중단됐다.
+- 미실행 범위: measured k6 summary 0건, adoption/classification 없음. baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
+- 복구/보존: 측정 계정 15018/15019는 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. F namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: scalar byte 수치를 제거하고 `MemUsage` used/limit를 표시 정밀도의 inclusive integer-byte min/max decimal-string으로, `MemPerc`를 exact rational rounding interval로 보존한다. 가능한 used/limit ratio와 MemPerc 구간 교집합, full ID/role/set, positive limit, used≤limit, CPU, percent 0..100, safe magnitude와 unit schema를 `BigInt` 기반으로 fail-closed 검증한다.
+- 다음 제안: `I193_BEFORE_20260716_G / I193_FIXTURE_20260716_G / EXEC193_BEFORE_20260716_G`. PM 독립 리뷰 전에는 생성하거나 실행하지 않는다.
