@@ -291,7 +291,8 @@ test('common integrity audit marks only #194-relevant evidence applicable and fo
 
 test('PostgreSQL cumulative counters stay decimal strings/BigInt and pg_stat_statements availability is continuous', async () => {
 	const {
-		parsePgCumulativeCounter, validatePgStatStatementsContinuity,
+		parsePgCumulativeCounter, REQUIRED_PLANNER_SETTINGS,
+		validateMeasurementIntegrity, validatePgStatStatementsContinuity,
 	} = await import(moduleUrl('runtime-contract.mjs'));
 	assert.equal(parsePgCumulativeCounter('9007199254740993', 'counter'), 9007199254740993n);
 	assert.equal(parsePgCumulativeCounter('0', 'counter'), 0n);
@@ -306,6 +307,37 @@ test('PostgreSQL cumulative counters stay decimal strings/BigInt and pg_stat_sta
 		{ available: false, extensionVersion: null, viewAvailable: false },
 		{ available: true, extensionVersion: '1.11', viewAvailable: true },
 	).stable, false);
+	const counters = {
+		nModSinceAnalyze: '0', vacuumCount: '0', autovacuumCount: '0',
+		liveTuples: '1000', deadTuples: '0', allVisiblePages: '10',
+	};
+	const snapshot = {
+		capturedAt: '2026-07-16T00:00:00Z', database: 'faithlog', serverVersion: '17',
+		postmasterStartedAt: '2026-07-16T00:00:00Z',
+		settings: Object.fromEntries(REQUIRED_PLANNER_SETTINGS.map((name) => [name, 'same'])),
+		tableStatistics: [{
+			table: 'polls', lastAnalyze: null, lastAutoanalyze: null,
+			lastVacuum: null, lastAutovacuum: null, ...counters,
+		}],
+		pgStatStatements: { available: false, extensionVersion: null, viewAvailable: false },
+		externalActivity: { activeSessionCount: 0, sessions: [] },
+	};
+	const expectedReasons = {
+		nModSinceAnalyze: 'n-mod-since-analyze-changed:polls',
+		vacuumCount: 'vacuum-count-changed:polls',
+		autovacuumCount: 'autovacuum-count-changed:polls',
+		liveTuples: 'live-tuples-changed:polls',
+		deadTuples: 'dead-tuples-changed:polls',
+		allVisiblePages: 'all-visible-pages-changed:polls',
+	};
+	for (const field of Object.keys(counters)) {
+		const changed = structuredClone(snapshot);
+		changed.tableStatistics[0][field] = (parsePgCumulativeCounter(counters[field], field) + 1n).toString();
+		const integrity = validateMeasurementIntegrity(snapshot, changed, { expectedTables: ['polls'] });
+		assert.equal(integrity.adoptable, false, `${field} change must invalidate the measurement`);
+		assert.equal(integrity.reasons.filter((reason) => reason === expectedReasons[field]).length, 1,
+			`${field} must produce one machine-readable continuity reason`);
+	}
 	const runner = readScenario('run-baseline.mjs');
 	for (const field of ['nModSinceAnalyze', 'vacuumCount', 'autovacuumCount', 'liveTuples', 'deadTuples', 'allVisiblePages']) {
 		assert.match(runner, new RegExp(`'${field}'[\\s\\S]*::text`));
