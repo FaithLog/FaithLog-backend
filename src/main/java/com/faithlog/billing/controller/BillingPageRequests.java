@@ -4,7 +4,9 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.global.controller.PageSortRequestValidator;
 import com.faithlog.global.controller.PageSortRequestValidator.SortValidationRule;
 import java.util.List;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 final class BillingPageRequests {
 
@@ -22,7 +24,10 @@ final class BillingPageRequests {
 	}
 
 	static Pageable chargeItems(int page, int size, String sort) {
-		return PageSortRequestValidator.pageable(page, size, sort, CHARGE_ITEM_SORT_RULE);
+		Pageable primary = PageSortRequestValidator.pageable(page, size, sort, CHARGE_ITEM_SORT_RULE);
+		Sort.Order primaryOrder = primary.getSort().iterator().next();
+		Sort stableSort = primary.getSort().and(Sort.by(primaryOrder.getDirection(), "id"));
+		return PageRequest.of(primary.getPageNumber(), primary.getPageSize(), stableSort);
 	}
 
 	static Pageable adminMembers(int page, int size, String sort) {
