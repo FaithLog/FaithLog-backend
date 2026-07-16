@@ -30,7 +30,7 @@ capture_table_counters() {
 	PGPASSWORD="$POSTGRES_PASSWORD" docker exec -i \
 		-e PGPASSWORD \
 		"$POSTGRES_CONTAINER_ID" \
-		psql -X -v ON_ERROR_STOP=1 \
+		psql -X -q -v ON_ERROR_STOP=1 \
 			-U "$POSTGRES_USER" \
 			-d "$POSTGRES_DB" \
 			-v dataset_id="$PERF_DATASET_ID" \
@@ -46,7 +46,7 @@ capture_runtime_integrity() {
 		-e PGPASSWORD \
 		-e PGAPPNAME="faithlog-issue195-observer-${case_name}-${PHASE}" \
 		"$POSTGRES_CONTAINER_ID" \
-		psql -X -v ON_ERROR_STOP=1 \
+		psql -X -q -v ON_ERROR_STOP=1 \
 			-U "$POSTGRES_USER" \
 			-d "$POSTGRES_DB" \
 		< "$SCRIPT_DIR/db-runtime-integrity.sql" \
@@ -56,7 +56,7 @@ capture_runtime_integrity() {
 PG_STAT_RELATION=$(PGPASSWORD="$POSTGRES_PASSWORD" docker exec \
 	-e PGPASSWORD \
 	"$POSTGRES_CONTAINER_ID" \
-	psql -X -At -v ON_ERROR_STOP=1 \
+	psql -X -q -At -v ON_ERROR_STOP=1 \
 		-U "$POSTGRES_USER" \
 		-d "$POSTGRES_DB" \
 		-c "select coalesce(to_regclass('public.pg_stat_statements')::text, '');")
@@ -69,7 +69,7 @@ capture_query_evidence() {
 		PGPASSWORD="$POSTGRES_PASSWORD" docker exec \
 			-e PGPASSWORD \
 			"$POSTGRES_CONTAINER_ID" \
-			psql -X -At -v ON_ERROR_STOP=1 \
+			psql -X -q -At -v ON_ERROR_STOP=1 \
 				-U "$POSTGRES_USER" \
 				-d "$POSTGRES_DB" \
 				-c "select json_build_object('userId', userid::text, 'dbId', dbid::text, 'queryId', queryid::text, 'topLevel', toplevel, 'calls', calls::text, 'rows', rows::text, 'totalExecTime', total_exec_time, 'query', query)::text from pg_stat_statements where dbid = (select oid from pg_database where datname = current_database()) and query not ilike '%pg_stat_statements%' and query not ilike '%faithlog_issue195_runtime_integrity_observer%' and (query ilike '%users%' or query ilike '%campuses%' or query ilike '%campus_members%' or query ilike '%campus_duty_assignments%') order by userid, dbid, queryid, toplevel;" \
