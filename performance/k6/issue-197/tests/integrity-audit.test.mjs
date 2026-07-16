@@ -269,7 +269,7 @@ test('API contract digest requires every current devotion, notification, batch, 
 	}
 	const digest = crypto.createHash('sha256').update(`${inventory}\n`).digest('hex');
 	assert.equal(inventory.split('\n').length, 154);
-	assert.equal(digest, '625bc9e8f83561c67f8f8d5bc26c68bdf172c191d57fec01aca4423e7c2b2a9d');
+	assert.equal(digest, 'ce0393dc632abba1e1e629785d5305fbbbbc638e80e1cc461d3ba600831be626');
 	assert.match(issueFile('README.md'), new RegExp(digest));
 });
 
