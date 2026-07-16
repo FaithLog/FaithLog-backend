@@ -305,7 +305,7 @@ test('devotion credentials are child-scoped and every fixture report namespace i
 	const devotionRunner = issueFile('run-devotion-baseline.sh');
 	const retentionRunner = issueFile('run-retention-dry-verify.sh');
 	assert.match(devotionRunner, /credentials_file="\$CREDENTIALS_FILE"[\s\S]*unset CREDENTIALS_FILE/);
-	assert.match(devotionRunner, /CREDENTIALS_FILE="\$credentials_file"[\s\\]*\n[\t ]*PHASE="?\$phase"?/);
+	assert.match(devotionRunner, /-e "CREDENTIALS_FILE=\$credentials_file"[\s\S]*-e "PHASE=\$phase"/);
 	for (const runner of [devotionRunner, retentionRunner]) {
 		assert.match(runner, /report_base="\$\{PERF_REPORT_ROOT:-build\/reports\/k6\/issue-197\}"/);
 		assert.match(runner, /fixture_report_root="\$report_base\/\$fixture_run_id"/);

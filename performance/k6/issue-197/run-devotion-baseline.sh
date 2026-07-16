@@ -339,9 +339,15 @@ run_phase() {
 	local vus="$2"
 	local max_duration="$3"
 	local summary_file="$4"
-	BASE_URL="$BASE_URL" FIXTURE_MANIFEST="$FIXTURE_MANIFEST" CREDENTIALS_FILE="$credentials_file" \
-		PHASE="$phase" VUS="$vus" MAX_DURATION="$max_duration" \
-		k6 run --summary-export "$summary_file" "$SCRIPT_DIR/devotion-write.js"
+	k6 run \
+		-e "BASE_URL=$BASE_URL" \
+		-e "FIXTURE_MANIFEST=$FIXTURE_MANIFEST" \
+		-e "CREDENTIALS_FILE=$credentials_file" \
+		-e "PHASE=$phase" \
+		-e "VUS=$vus" \
+		-e "MAX_DURATION=$max_duration" \
+		--summary-export "$summary_file" \
+		"$SCRIPT_DIR/devotion-write.js"
 }
 
 collect_db_counters() {

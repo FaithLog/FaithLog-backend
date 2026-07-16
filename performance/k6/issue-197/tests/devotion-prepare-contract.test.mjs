@@ -91,7 +91,7 @@ test('prepare wrapper is fail-closed, read-only before reservation, and never pe
 	assert.match(runner, /preflight-devotion-namespace\.sql/);
 	assert.match(runner, /-X\s+-qAt\s+-v\s+ON_ERROR_STOP=1/);
 	assert.match(runner, /validate-resource-window\.mjs" validate-settings/);
-	assert.match(runner, /CREDENTIALS_FILE="\$credentials_file"[\s\\]+PHASE=warmup[\s\S]+k6 inspect/);
+	assert.match(runner, /k6 inspect[\s\S]+-e "CREDENTIALS_FILE=\$credentials_file"[\s\S]+-e "PHASE=warmup"/);
 	assert.ok(runner.indexOf('preflight-devotion-namespace.sql') < runner.indexOf('reserve'));
 	assert.doesNotMatch(runner, /docker\s+compose\s+(up|down|build)|docker\s+(run|rm)|prune|k6\s+run/);
 	assert.doesNotMatch(runner, /rm\s+-rf\s+[^\n]*(?:PREPARE_REPORT_ROOT|RUNTIME_SECRET_ROOT|report_directory|secret_directory)/);

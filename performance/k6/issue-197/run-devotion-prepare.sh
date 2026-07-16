@@ -270,9 +270,14 @@ docker exec -i "$DB_CONTAINER" psql -h "$DB_HOST" -X -qAt -v ON_ERROR_STOP=1 -U 
 node "$SCRIPT_DIR/lib/validate-devotion-preflight.mjs" "$fixture_manifest" "$report_directory/preflight.json" >/dev/null
 
 CURRENT_STAGE='installed-k6-inspect'
-BASE_URL="$BASE_URL" FIXTURE_MANIFEST="$fixture_manifest" CREDENTIALS_FILE="$credentials_file" \
-	PHASE=warmup VUS="$WARMUP_VUS" MAX_DURATION="$WARMUP_MAX_DURATION" \
-	k6 inspect "$SCRIPT_DIR/devotion-write.js" >"$report_directory/k6-inspect.json"
+k6 inspect \
+	-e "BASE_URL=$BASE_URL" \
+	-e "FIXTURE_MANIFEST=$fixture_manifest" \
+	-e "CREDENTIALS_FILE=$credentials_file" \
+	-e "PHASE=warmup" \
+	-e "VUS=$WARMUP_VUS" \
+	-e "MAX_DURATION=$WARMUP_MAX_DURATION" \
+	"$SCRIPT_DIR/devotion-write.js" >"$report_directory/k6-inspect.json"
 
 CURRENT_STAGE='final-runtime'
 capture_runtime_identity "$report_directory/runtime-identity-final.json"

@@ -822,6 +822,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Keep runtime `DB_HOST` restricted to explicit numeric `127.0.0.1` or `::1`. Preserve PostgreSQL evidence exactly as observed, but compare through a lossless host-address canonical form that accepts only optional `/32` for IPv4 and `/128` for IPv6 and normalizes IPv6 spelling. Different IPs, different loopbacks, external addresses, non-host CIDR prefixes, and CIDR-bearing runtime inputs remain fail-closed.
 - Impact: C is permanently rejected and fresh D is the next devotion namespace. This is scenario/runtime-evidence validation only; production, Flyway, DB state, API behavior, Docker, HTTP, k6, and performance status are unchanged.
 
+### 2026-07-17 - Issue #197 Installed k6 v2 Explicit Environment Forwarding
+
+- Context: Fresh D completed runtime and namespace checks, 3,014 create-only API calls, token manifest creation, and exact DB preflight. Its preparation receipt recorded `prepared`, campus 2, account 1, rules 4, users/memberships/tokens 1,002 each, and expected penalty amount 2,250. The final installed k6 v2 inspect then exited 107 because OS environment assignments were not exposed through k6 `__ENV`, leaving the manifest filename empty. No measured k6 load ran, the temporary ADMIN USER was restored, and D evidence/fixture must be preserved without cleanup or reuse.
+- Decision: Pass the six approved init inputs (`BASE_URL`, `FIXTURE_MANIFEST`, `CREDENTIALS_FILE`, `PHASE`, `VUS`, `MAX_DURATION`) with explicit k6 `-e` arguments in both preparation inspect and every baseline phase. Only runtime file paths may be passed for fixture/credential inputs; raw passwords and tokens remain prohibited from argv and output. Keep all workload, correctness, rollback, threshold, and adoption gates unchanged.
+- Impact: D is permanently rejected and fresh E (`PERFORMANCE_1000_20260717_DEVOTION_197_E` / `ISSUE197_20260717_DEVOTION_BEFORE_E`) is the next candidate. The development validation uses only installed-k6 inspect and a no-HTTP synthetic run; production, Flyway, Docker, DB, API, actual load, retention, and measured status remain unchanged.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope
