@@ -858,6 +858,11 @@ test('verifier requires exact PostgreSQL Redis and two-container lifecycle evide
 		const verification = JSON.parse(readFileSync(join(runDir, 'verification-report.json'), 'utf8'));
 		assert.equal(verification.accepted, false);
 		assert.equal(verification.automaticAdoption, false);
+		const freshPostgres = structuredClone(artifacts);
+		freshPostgres.postgresBefore.statsReset = null;
+		freshPostgres.postgresAfter.statsReset = null;
+		writeEvidenceArtifacts(runDir, freshPostgres);
+		assert.equal(verify().status, 0, 'coherent fresh PostgreSQL null/null stats_reset must verify');
 
 		const cases = [
 			['missing PostgreSQL counter', (value) => { delete value.postgresAfter.database.xact_rollback; }],
@@ -867,6 +872,9 @@ test('verifier requires exact PostgreSQL Redis and two-container lifecycle evide
 			['wrong PostgreSQL current database', (value) => { value.postgresAfter.currentDatabase = 'other'; }],
 			['changed PostgreSQL stats_reset', (value) => {
 				value.postgresAfter.statsReset = '2026-07-14T00:00:01.000Z';
+			}],
+			['null/timestamp PostgreSQL stats_reset mismatch', (value) => {
+				value.postgresBefore.statsReset = null;
 			}],
 			['reversed PostgreSQL capturedAt', (value) => {
 				value.postgresAfter.capturedAt = '2026-07-14T00:00:59.000Z';

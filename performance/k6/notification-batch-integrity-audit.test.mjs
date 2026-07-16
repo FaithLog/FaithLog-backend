@@ -99,6 +99,17 @@ test('pg_stat_statements available and unavailable evidence is continuous and fa
 	assert.deepEqual(available.deltas, [{
 		key: '10:20:30:true', calls: '2', totalExecTimeMicros: '5',
 	}]);
+	const freshAvailable = validatePgStatStatements(
+		{ available: true, databaseId: '20', statsReset: null, rows: [row] },
+		{ available: true, databaseId: '20', statsReset: null, rows: [{
+			...row, calls: '9007199254740995', totalExecTimeMicros: '9007199254741000',
+		}] },
+	);
+	assert.deepEqual(freshAvailable.deltas, available.deltas);
+	assert.throws(() => validatePgStatStatements(
+		{ available: true, databaseId: '20', statsReset: null, rows: [row] },
+		{ available: true, databaseId: '20', statsReset: '2026-07-16T00:00:00.000Z', rows: [row] },
+	), /stats reset|statsReset/i);
 	assert.throws(() => validatePgStatStatements(
 		{ available: false, reason: 'extension-not-installed', rows: [] },
 		{ available: true, databaseId: '20', statsReset: '2026-07-16T00:00:00.000Z', rows: [row] },
