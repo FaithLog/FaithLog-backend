@@ -460,6 +460,8 @@ test('pre-boundary maintenance state requires two consecutive stable snapshots a
 	assert.match(runner, /PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS=1/);
 	assert.match(runner, /PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS=5/);
 	assert.doesNotMatch(runner, /:\s+"\$\{PRE_BOUNDARY_STABILIZATION_/);
+	assert.match(runner, /for \(\(attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt\+\+\)\)/);
+	assert.match(runner, /PRE_BOUNDARY_STABLE" != true[\s\S]*exit 7/);
 	const measuredLogin = runner.indexOf('IDENTITY_LABEL=ADMIN_MEASURED');
 	const stabilization = runner.indexOf('measurement-state-pre-boundary-attempt-');
 	const counterBefore = runner.indexOf('counter-before.json');
