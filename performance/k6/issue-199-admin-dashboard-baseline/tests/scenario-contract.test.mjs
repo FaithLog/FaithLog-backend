@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const issueRoot = path.resolve(here, '..');
@@ -34,6 +34,7 @@ const files = {
 	redisIdentityParser: path.join(issueRoot, 'parse-redis-server-identity.mjs'),
 	prePostLockValidator: path.join(issueRoot, 'validate-pre-post-lock-target.mjs'),
 	appConnectionValidator: path.join(issueRoot, 'validate-app-runtime-connections.mjs'),
+	sourceImageProvenance: path.join(issueRoot, 'validate-source-image-provenance.mjs'),
 	dbCorrectness: path.join(issueRoot, 'collect-correctness-evidence.sql'),
 	readme: path.join(issueRoot, 'README.md'),
 	reportsIgnore: path.join(issueRoot, 'reports/.gitignore'),
@@ -1093,6 +1094,43 @@ test('runner validates approved image identity across pre-lock, post-lock, and f
 	assert.match(source, /validate-pre-post-lock-target\.mjs/);
 	assert.match(source, /runtime-identity-final/);
 	assert.match(source, /parse-redis-server-identity\.mjs/);
+});
+
+test('runner accepts approved clean detached source provenance when OCI revision labels are unavailable', async () => {
+	assert.equal(fs.existsSync(files.sourceImageProvenance), true, 'source/image provenance validator must exist');
+	const {validateSourceImageProvenance} = await import(pathToFileURL(files.sourceImageProvenance));
+	const sourceWorktree = '/private/tmp/FaithLog-perf-206-deploy';
+	const facts = {
+		schemaVersion: 1,
+		proofMode: 'clean-detached-checkout-image-created-after-checkout',
+		sourceWorktree,
+		composeWorkingDir: sourceWorktree,
+		revision: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
+		detached: true,
+		clean: true,
+		checkoutAt: '2026-07-16T13:20:28+09:00',
+		imageId: `sha256:${'1'.repeat(64)}`,
+		imageCreatedAt: '2026-07-16T04:22:48.810414883Z',
+		apiContractSha256: '2'.repeat(64),
+		limitation: 'image-alone-revision-label-unavailable',
+	};
+	const expected = {
+		sourceWorktree,
+		revision: facts.revision,
+		imageId: facts.imageId,
+		apiContractSha256: facts.apiContractSha256,
+	};
+	assert.equal(validateSourceImageProvenance(facts, expected), facts);
+	assert.throws(() => validateSourceImageProvenance({...facts, clean: false}, expected), /clean/i);
+	assert.throws(() => validateSourceImageProvenance({...facts, imageCreatedAt: facts.checkoutAt}, expected), /after checkout/i);
+
+	const runner = read(files.runner);
+	const inputValidator = read(files.runInputValidator);
+	assert.match(inputValidator, /sourceProvenance/);
+	assert.match(runner, /validate-source-image-provenance\.mjs/);
+	assert.match(runner, /com\.docker\.compose\.project\.working_dir/);
+	assert.match(runner, /docker image inspect[^\n]*\.Created/);
+	assert.doesNotMatch(runner, /org\.opencontainers\.image\.(?:revision|api-contract-sha256)/);
 });
 
 test('pre/post-lock target gate rejects same-label replacement and app connections bind approved DB and Redis', () => {
