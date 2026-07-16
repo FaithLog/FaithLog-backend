@@ -22,6 +22,7 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ### 2026-07-16 - Issue #198 current-develop scenario 보정
 
 - 상태는 `scenario-ready / not-measured`다. latest develop의 #200 request-wide delivery token snapshot, permanent-token same-request 제거, 90일 stale cutoff와 Flyway V1-V11/#202 direct owner JDBC 경계를 scenario identity로 고정했다.
+- 실제 workload가 local Gradle test-profile harness임을 반영해 deployed app image는 N/A로 유지하고, runtime 승인 worktree HEAD/source-contract와 build된 main/test classpath artifact digest의 pre/post/final 연속성만 측정 provenance로 준비했다. optional report root도 fresh exclusive namespace를 강제한다. actual load는 0이며 baseline·개선 수치 claim은 없다.
 - 여러 performance issue의 test-code는 병렬 보정하지만 actual load는 PM exclusive window에서 순차 실행한다. 이 세션에서는 Docker/DB/HTTP/k6/fixture/seed/cleanup을 실행하지 않았고 baseline 수치나 개선 성과를 만들지 않았다.
 - warmup/measured exact count와 cumulative-state strategy는 사용자 결정 전 fail-closed pending이며 실제 측정값으로 이력서에 사용할 수 없다.
 

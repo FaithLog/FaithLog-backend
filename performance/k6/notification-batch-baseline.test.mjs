@@ -52,7 +52,9 @@ test('fixture contract separates datasetId and fixtureRunId and permits dummy no
 	assert.match(guard, /faithlog-performance-\$\{PERF_COMPOSE_PROJECT\}\.lock/);
 	assert.match(prepare, /mixedTokenUserCount/);
 	assert.match(prepare, /manifest\.json/);
-	assert.match(prepare, /build\/reports\/k6\/notification-batch\/fixtures/);
+	assert.match(prepare, /PERF_REPORT_ROOT/);
+	assert.match(prepare, /build\/reports\/k6\/notification-batch/);
+	assert.match(prepare, /FIXTURE_ROOT="\$\{REPORT_ROOT\}\/fixtures"/);
 	assert.match(sql, /user_fcm_tokens/);
 	assert.match(sql, /campus\.name[\s\S]*dataset_id/);
 	assert.match(sql, /:'campus_id'::bigint/);

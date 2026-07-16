@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { mkdtempSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
@@ -18,7 +21,7 @@ test('runner binds the source and compiled harness it executes without an unused
 	assert.match(runner, /PERF_EXPECTED_HARNESS_HEAD/);
 	assert.match(runner, /PERF_EXPECTED_HARNESS_CONTRACT_DIGEST/);
 	assert.ok(runner.indexOf('PERF_EXPECTED_HARNESS_HEAD') < runner.indexOf('acquire_notification_batch_locks'));
-	assert.ok(runner.indexOf('harness-source-prelock.json') < runner.indexOf('cleanTest testClasses'));
+	assert.ok(runner.indexOf('PRELOCK_HARNESS_SOURCE_PATH') < runner.indexOf('acquire_notification_batch_locks'));
 	assert.ok(runner.indexOf('cleanTest testClasses') < runner.indexOf('harness-artifact-provenance.mjs'));
 	assert.ok(runner.indexOf('harness-artifact-provenance.mjs') < runner.indexOf('--tests com.faithlog.performance.notification.NotificationBatchBeforeScenarioTest'));
 	for (const phase of ['prelock', 'locked', 'preworkload', 'postworkload', 'final']) {
@@ -71,6 +74,37 @@ test('runner binds the source and compiled harness it executes without an unused
 	assert.match(continuity, /unique.*source|source.*unique/is);
 	assert.match(continuity, /unique.*artifact|artifact.*unique/is);
 	assert.match(continuity, /source-only/);
+	const { validateHarnessPhaseContract } = await import(new URL(
+		'assert-harness-provenance-continuity.mjs', SCENARIO_ROOT));
+	assert.doesNotThrow(() => validateHarnessPhaseContract(['prelock', 'locked'], [], 'source-only'));
+	assert.doesNotThrow(() => validateHarnessPhaseContract(
+		['prelock', 'final'], ['preworkload', 'final'], 'full'));
+	assert.throws(() => validateHarnessPhaseContract(['prelock', 'prelock'], [], 'source-only'), /unique/i);
+	assert.throws(() => validateHarnessPhaseContract(['prelock', 'final'], ['preworkload'], 'full'), /two.*artifact/i);
+	assert.throws(() => validateHarnessPhaseContract(
+		['prelock', 'final'], ['preworkload', 'preworkload'], 'full'), /unique/i);
+
+	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-artifact-'));
+	try {
+		const roots = [
+			'build/classes/java/main', 'build/resources/main',
+			'build/classes/java/test/com/faithlog/performance/notification',
+			'build/classes/java/test/com/faithlog/support', 'build/resources/test',
+		];
+		for (const directory of roots) mkdirSync(join(root, directory), { recursive: true });
+		writeFileSync(join(root,
+			'build/classes/java/test/com/faithlog/performance/notification/NotificationBatchBeforeScenarioTest.class'), 'test');
+		for (const [index, directory] of roots.entries()) writeFileSync(join(root, directory, `artifact-${index}`), `${index}`);
+		const { collectHarnessArtifactEvidence } = await import(artifactContractUrl);
+		assert.equal(collectHarnessArtifactEvidence(root).fileCount, 6);
+		symlinkSync(join(root, 'build.gradle'), join(root, 'build/resources/test/forbidden-link'));
+		assert.throws(() => collectHarnessArtifactEvidence(root), /symbolic link/i);
+		rmSync(join(root, 'build/resources/test/forbidden-link'));
+		rmSync(join(root, 'build/resources/main'), { recursive: true });
+		assert.throws(() => collectHarnessArtifactEvidence(root));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 test('optional report root keeps every fixture and run namespace exclusive', () => {

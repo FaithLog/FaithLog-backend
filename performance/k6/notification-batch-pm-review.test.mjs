@@ -558,7 +558,8 @@ test('runtime continuity rejects same-name container replacement before verifica
 			'runtime continuity must execute before result verification',
 		);
 		assert.ok(
-			runner.indexOf('RUNTIME_IDENTITY_PHASES=locked,initial,before') < runner.indexOf('./gradlew'),
+			runner.indexOf('RUNTIME_IDENTITY_PHASES=locked,initial,before')
+				< runner.indexOf('--tests com.faithlog.performance.notification.NotificationBatchBeforeScenarioTest'),
 			'locked/initial/before continuity must execute before the mutating Gradle workload',
 		);
 		assert.match(runner,

@@ -246,6 +246,32 @@ test('entrypoint preflight rejects missing runtime inputs before Docker and pres
 		), 'utf8'));
 		assert.equal(runnerRejection.stage, 'preflight');
 		assert.equal(runnerRejection.automaticAdoption, false);
+		const harnessEnv = {
+			...baseEnv, POSTGRES_USER: 'owner', POSTGRES_PASSWORD: 'runtime-secret',
+			POSTGRES_DB: 'faithlog_perf', PERF_EXPECTED_POSTGRES_ROLE: 'owner',
+			PERF_EXPECTED_HARNESS_CONTRACT_DIGEST: 'a'.repeat(64),
+		};
+		const missingHead = spawnSync('bash', [join(scenario, 'run-before.sh')], {
+			env: { ...harnessEnv, RUN_ID: 'missing-harness-head' }, encoding: 'utf8',
+		});
+		assert.notEqual(missingHead.status, 0);
+		assert.match(missingHead.stderr, /PERF_EXPECTED_HARNESS_HEAD/);
+		const wrongHead = spawnSync('bash', [join(scenario, 'run-before.sh')], {
+			env: { ...harnessEnv, RUN_ID: 'wrong-harness-head', PERF_EXPECTED_HARNESS_HEAD: 'wrong' },
+			encoding: 'utf8',
+		});
+		assert.notEqual(wrongHead.status, 0);
+		assert.match(wrongHead.stderr, /HEAD.*digest/i);
+		const wrongDigest = spawnSync('bash', [join(scenario, 'run-before.sh')], {
+			env: {
+				...harnessEnv, RUN_ID: 'wrong-harness-digest',
+				PERF_EXPECTED_HARNESS_HEAD: 'a'.repeat(40),
+				PERF_EXPECTED_HARNESS_CONTRACT_DIGEST: 'wrong',
+			},
+			encoding: 'utf8',
+		});
+		assert.notEqual(wrongDigest.status, 0);
+		assert.match(wrongDigest.stderr, /HEAD.*digest/i);
 
 		const fixtureRunId = 'missing-runtime-fixture';
 		const fixture = spawnSync('bash', [join(scenario, 'prepare-fixtures.sh')], {

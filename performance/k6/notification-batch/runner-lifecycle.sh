@@ -27,6 +27,9 @@ notification_batch_runner_cleanup() {
 	if [[ -n "${SAMPLER_MARKER:-}" ]]; then
 		rm -f "${SAMPLER_MARKER}"
 	fi
+	if [[ -n "${PRELOCK_HARNESS_SOURCE_PATH:-}" ]]; then
+		rm -f "${PRELOCK_HARNESS_SOURCE_PATH}"
+	fi
 	if [[ -n "${SAMPLER_PID:-}" ]]; then
 		kill "${SAMPLER_PID}" 2>/dev/null || true
 		wait "${SAMPLER_PID}" 2>/dev/null || true

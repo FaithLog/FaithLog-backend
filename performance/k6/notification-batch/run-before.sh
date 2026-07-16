@@ -8,7 +8,7 @@ source "${SCRIPT_DIR}/runner-lifecycle.sh"
 
 CURRENT_DEVELOP_CONTRACT_PATH="${SCRIPT_DIR}/current-develop-contract.json"
 export CURRENT_DEVELOP_CONTRACT_PATH
-REPORT_ROOT="${REPOSITORY_ROOT}/build/reports/k6/notification-batch"
+REPORT_ROOT="${PERF_REPORT_ROOT:-${REPOSITORY_ROOT}/build/reports/k6/notification-batch}"
 MANIFEST_PATH="${MANIFEST_PATH:-}"
 RUN_ID="${RUN_ID:-}"
 RUN_DIR="${REPORT_ROOT}/runs/${RUN_ID}"
@@ -27,6 +27,7 @@ if [[ -e "${REJECTION_PATH}" ]]; then
 fi
 SAMPLER_MARKER=""
 SAMPLER_PID=""
+PRELOCK_HARNESS_SOURCE_PATH=""
 PERF_GLOBAL_LOCK_DIR=""
 PERF_PROJECT_LOCK_DIR=""
 PERF_GLOBAL_LOCK_HELD=false
@@ -34,7 +35,8 @@ PERF_PROJECT_LOCK_HELD=false
 install_notification_batch_runner_traps
 
 if ! notification_batch_require_runtime_inputs \
-	POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB PERF_EXPECTED_POSTGRES_ROLE; then
+	POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB PERF_EXPECTED_POSTGRES_ROLE \
+	PERF_EXPECTED_HARNESS_HEAD PERF_EXPECTED_HARNESS_CONTRACT_DIGEST; then
 	exit 2
 fi
 : "${POSTGRES_USER:?Set the runtime-approved direct owner JDBC role.}"
@@ -42,6 +44,12 @@ fi
 : "${POSTGRES_DB:?Set the runtime-approved dedicated PostgreSQL database.}"
 : "${PERF_EXPECTED_POSTGRES_ROLE:?Set the runtime-approved direct owner JDBC role for #202 continuity.}"
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB PERF_EXPECTED_POSTGRES_ROLE
+if [[ ! "${PERF_EXPECTED_HARNESS_HEAD}" =~ ^[a-f0-9]{40}$ \
+	|| ! "${PERF_EXPECTED_HARNESS_CONTRACT_DIGEST}" =~ ^[a-f0-9]{64}$ ]]; then
+	echo "Approved harness HEAD and contract digest must be exact lowercase hex." >&2
+	exit 2
+fi
+export PERF_EXPECTED_HARNESS_HEAD PERF_EXPECTED_HARNESS_CONTRACT_DIGEST
 
 REJECTION_REASON="current-develop-source-identity-failed"
 node "${SCRIPT_DIR}/verify-current-develop-contract.mjs" >/dev/null
@@ -155,6 +163,10 @@ if [[ -n "$(git -C "${REPOSITORY_ROOT}" status --porcelain --untracked-files=all
 	echo "The Issue #198 runner requires a clean index and worktree so gitCommit identifies executed code." >&2
 	exit 2
 fi
+PRELOCK_HARNESS_SOURCE_PATH="$(mktemp /tmp/faithlog-198-harness-source.XXXXXX)"
+rm -f "${PRELOCK_HARNESS_SOURCE_PATH}"
+node "${SCRIPT_DIR}/harness-provenance.mjs" capture \
+	"${REPOSITORY_ROOT}" "${PRELOCK_HARNESS_SOURCE_PATH}"
 
 REJECTION_STAGE="lock"
 REJECTION_REASON="performance-lock-unavailable"
@@ -165,9 +177,17 @@ if ! mkdir "${RUN_DIR}" 2>/dev/null; then
 	echo "RUN_ID already exists; use a fresh run ID instead of merging evidence." >&2
 	exit 2
 fi
+mv "${PRELOCK_HARNESS_SOURCE_PATH}" "${RUN_DIR}/harness-source-prelock.json"
+PRELOCK_HARNESS_SOURCE_PATH=""
 REJECTION_STAGE="post-lock-runtime"
 REJECTION_REASON="post-lock-runtime-identity-mismatch"
 verify_notification_batch_runtime_after_lock "${RUN_DIR}/runtime-identity-locked.json"
+node "${SCRIPT_DIR}/harness-provenance.mjs" capture \
+	"${REPOSITORY_ROOT}" "${RUN_DIR}/harness-source-locked.json"
+HARNESS_PROVENANCE_REPORT_PATH="${RUN_DIR}/harness-provenance-post-lock.json" \
+	HARNESS_SOURCE_PHASES=prelock,locked HARNESS_ARTIFACT_PHASES= RUN_DIR="${RUN_DIR}" \
+	HARNESS_PROVENANCE_MODE=source-only \
+	node "${SCRIPT_DIR}/assert-harness-provenance-continuity.mjs"
 cp "${MANIFEST_PATH}" "${RUN_DIR}/manifest.json"
 printf '%s\n' "${RUN_DIR}" > "${REPORT_ROOT}/latest-run.txt"
 GIT_COMMIT="$(git -C "${REPOSITORY_ROOT}" rev-parse HEAD)"
@@ -288,6 +308,29 @@ sample_docker_stats() {
 	done
 }
 
+REJECTION_STAGE="gradle-harness-build"
+REJECTION_REASON="harness-build-failed"
+set +e
+(
+	cd "${REPOSITORY_ROOT}"
+	./gradlew --no-daemon cleanTest testClasses
+) > "${RUN_DIR}/gradle-harness-build.log" 2>&1
+HARNESS_BUILD_STATUS=$?
+set -e
+if [[ ${HARNESS_BUILD_STATUS} -ne 0 ]]; then
+	printf '{"status":"failed","accepted":false,"automaticAdoption":false,"phase":"gradle-harness-build","exitCode":%s}\n' \
+		"${HARNESS_BUILD_STATUS}" > "${RUN_DIR}/run-status.json"
+	exit "${HARNESS_BUILD_STATUS}"
+fi
+node "${SCRIPT_DIR}/harness-provenance.mjs" capture \
+	"${REPOSITORY_ROOT}" "${RUN_DIR}/harness-source-preworkload.json"
+node "${SCRIPT_DIR}/harness-artifact-provenance.mjs" capture \
+	"${REPOSITORY_ROOT}" "${RUN_DIR}/harness-artifact-preworkload.json"
+HARNESS_PROVENANCE_REPORT_PATH="${RUN_DIR}/harness-provenance-pre-workload.json" \
+	HARNESS_SOURCE_PHASES=prelock,locked,preworkload HARNESS_ARTIFACT_PHASES= RUN_DIR="${RUN_DIR}" \
+	HARNESS_PROVENANCE_MODE=source-only \
+	node "${SCRIPT_DIR}/assert-harness-provenance-continuity.mjs"
+
 snapshot_postgres "${RUN_DIR}/postgres-before.json"
 PGSS_PHASE=before bash "${SCRIPT_DIR}/capture-pgss.sh" "${RUN_DIR}/pgss-before.json"
 snapshot_redis "${RUN_DIR}/redis-before.json"
@@ -330,7 +373,7 @@ REJECTION_REASON="scenario-contract-failed"
 	export SPRING_DATA_REDIS_PORT="${PERF_REDIS_HOST_PORT}"
 	export SPRING_JPA_HIBERNATE_DDL_AUTO="validate"
 	export SPRING_FLYWAY_ENABLED="false"
-	./gradlew --no-daemon --rerun-tasks test \
+	./gradlew --no-daemon test \
 		--tests com.faithlog.performance.notification.NotificationBatchBeforeScenarioTest
 ) > "${RUN_DIR}/gradle-scenario.log" 2>&1
 GRADLE_STATUS=$?
@@ -339,6 +382,10 @@ WORKLOAD_FINISHED_AT="$(timestamp_now)"
 REJECTION_STAGE="post-workload-evidence"
 REJECTION_REASON="post-workload-evidence-capture-failed"
 bash "${SCRIPT_DIR}/capture-runtime-identity.sh" "${RUN_DIR}/runtime-identity-after.json"
+node "${SCRIPT_DIR}/harness-provenance.mjs" capture \
+	"${REPOSITORY_ROOT}" "${RUN_DIR}/harness-source-postworkload.json"
+node "${SCRIPT_DIR}/harness-artifact-provenance.mjs" capture \
+	"${REPOSITORY_ROOT}" "${RUN_DIR}/harness-artifact-postworkload.json"
 
 rm -f "${SAMPLER_MARKER}"
 wait "${SAMPLER_PID}"
@@ -354,6 +401,10 @@ snapshot_postgres "${RUN_DIR}/postgres-after.json"
 PGSS_PHASE=after bash "${SCRIPT_DIR}/capture-pgss.sh" "${RUN_DIR}/pgss-after.json"
 snapshot_redis "${RUN_DIR}/redis-after.json"
 bash "${SCRIPT_DIR}/capture-runtime-identity.sh" "${RUN_DIR}/runtime-identity-final.json"
+node "${SCRIPT_DIR}/harness-provenance.mjs" capture \
+	"${REPOSITORY_ROOT}" "${RUN_DIR}/harness-source-final.json"
+node "${SCRIPT_DIR}/harness-artifact-provenance.mjs" capture \
+	"${REPOSITORY_ROOT}" "${RUN_DIR}/harness-artifact-final.json"
 
 set +e
 RUNTIME_CONTINUITY_REPORT_PATH="${RUN_DIR}/runtime-continuity-report.json" \
@@ -367,6 +418,21 @@ if [[ ${CONTINUITY_STATUS} -ne 0 ]]; then
 	printf '{"status":"failed","accepted":false,"automaticAdoption":false,"phase":"runtime-continuity","exitCode":%s}\n' \
 		"${CONTINUITY_STATUS}" > "${RUN_DIR}/run-status.json"
 	exit "${CONTINUITY_STATUS}"
+fi
+set +e
+HARNESS_PROVENANCE_REPORT_PATH="${RUN_DIR}/harness-provenance-report.json" \
+	HARNESS_SOURCE_PHASES=prelock,locked,preworkload,postworkload,final \
+	HARNESS_ARTIFACT_PHASES=preworkload,postworkload,final RUN_DIR="${RUN_DIR}" \
+	HARNESS_PROVENANCE_MODE=full \
+	node "${SCRIPT_DIR}/assert-harness-provenance-continuity.mjs"
+HARNESS_PROVENANCE_STATUS=$?
+set -e
+if [[ ${HARNESS_PROVENANCE_STATUS} -ne 0 ]]; then
+	REJECTION_STAGE="harness-provenance-continuity"
+	REJECTION_REASON="executed-harness-provenance-changed"
+	printf '{"status":"failed","accepted":false,"automaticAdoption":false,"phase":"harness-provenance-continuity","exitCode":%s}\n' \
+		"${HARNESS_PROVENANCE_STATUS}" > "${RUN_DIR}/run-status.json"
+	exit "${HARNESS_PROVENANCE_STATUS}"
 fi
 
 if [[ ${GRADLE_STATUS} -ne 0 ]]; then

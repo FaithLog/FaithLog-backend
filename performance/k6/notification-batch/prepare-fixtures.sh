@@ -14,7 +14,8 @@ if [[ ! "${PERF_FIXTURE_RUN_ID}" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; then
 	echo "PERF_FIXTURE_RUN_ID must be 1-40 safe identifier characters." >&2
 	exit 2
 fi
-FIXTURE_ROOT="${REPOSITORY_ROOT}/build/reports/k6/notification-batch/fixtures"
+REPORT_ROOT="${PERF_REPORT_ROOT:-${REPOSITORY_ROOT}/build/reports/k6/notification-batch}"
+FIXTURE_ROOT="${REPORT_ROOT}/fixtures"
 REPORT_DIR="${FIXTURE_ROOT}/${PERF_FIXTURE_RUN_ID}"
 MANIFEST_PATH="${REPORT_DIR}/manifest.json"
 TEMP_MANIFEST_PATH="${REPORT_DIR}/.manifest.json.tmp.$$"
