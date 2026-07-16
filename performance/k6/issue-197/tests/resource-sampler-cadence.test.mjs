@@ -154,6 +154,39 @@ test('F-shaped Docker stats stream accepts only exact CSI screen framing around 
 	}
 });
 
+test('G-shaped recurring Docker display protocol yields three complete snapshots and a marker-bound final boundary', async () => {
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-197-resource-recurring-'));
+	const streamPath = path.join(directory, 'stream.jsonl');
+	const stopPath = path.join(directory, 'stop');
+	const child = spawn(process.execPath, [
+		VALIDATOR, 'stream-samples', streamPath, stopPath, '2', APP_ID, DATABASE_ID, REDIS_ID,
+	], { stdio: ['pipe', 'pipe', 'pipe'] });
+	let stderr = '';
+	child.stderr.setEncoding('utf8');
+	child.stderr.on('data', (chunk) => { stderr += chunk; });
+	try {
+		child.stdin.write(`${initialDisplaySnapshot().join('\n')}\n`);
+		await waitForLiveRows(child, streamPath, 3, () => stderr);
+		child.stdin.write(`${recurringDisplaySnapshot().join('\n')}\n`);
+		await waitForLiveRows(child, streamPath, 6, () => stderr);
+		fs.writeFileSync(stopPath, 'stop\n');
+		child.stdin.write(`${recurringDisplaySnapshot().join('\n')}\n`);
+		child.stdin.end();
+		assert.equal(await childExit(child), 0, stderr);
+		const samples = readJsonLines(streamPath);
+		assert.equal(samples.length, 9);
+		for (let offset = 0; offset < samples.length; offset += 3) {
+			assert.deepEqual(samples.slice(offset, offset + 3).map(({ role }) => role), ['app', 'database', 'redis']);
+			assert.equal(new Set(samples.slice(offset, offset + 3).map(({ observedAt }) => observedAt)).size, 1);
+		}
+		assert.ok(Date.parse(samples[3].observedAt) > Date.parse(samples[0].observedAt));
+		assert.ok(Date.parse(samples[6].observedAt) > Date.parse(samples[3].observedAt));
+	} finally {
+		if (child.exitCode === null) child.kill();
+		fs.rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 function sample(observedAt, role, containerId) {
 	return { observedAt, role, containerId, cpuPercent: 1, memoryBytes: 1024 };
 }
@@ -168,12 +201,36 @@ function appendSnapshot(outputPath, rows, observedAt) {
 	], { encoding: 'utf8', input: `${rows.join('\n')}\n` });
 }
 
+function initialDisplaySnapshot() {
+	return [
+		`\u001b[H${APP_ID}|1.50%|1MiB / 1GiB\u001b[K`,
+		`${DATABASE_ID}|2.50%|2MiB / 1GiB\u001b[K`,
+		`${REDIS_ID}|0.50%|512KiB / 1GiB\u001b[K`,
+	];
+}
+
+function recurringDisplaySnapshot() {
+	return [
+		'\u001b[K',
+		`\u001b[J\u001b[H${APP_ID}|1.75%|1.5MiB / 1GiB\u001b[K`,
+		`${DATABASE_ID}|2.75%|2.5MiB / 1GiB\u001b[K`,
+		`${REDIS_ID}|0.75%|768KiB / 1GiB\u001b[K`,
+	];
+}
+
 async function waitFor(predicate) {
 	for (let attempt = 0; attempt < 100; attempt += 1) {
 		if (predicate()) return;
 		await new Promise((resolve) => setTimeout(resolve, 5));
 	}
 	assert.fail('timed out waiting for resource sampler output');
+}
+
+async function waitForLiveRows(child, filePath, expectedRows, errorText) {
+	await waitFor(() => {
+		assert.equal(child.exitCode, null, `resource stream exited early: ${errorText()}`);
+		return fs.existsSync(filePath) && readJsonLines(filePath).length === expectedRows;
+	});
 }
 
 function childExit(child) {
