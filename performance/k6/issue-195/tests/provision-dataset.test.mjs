@@ -17,7 +17,7 @@ test('provisioner creates exactly 1,000 fresh ACTIVE USER rows and a secret-free
 		const result = await provisionDataset(harness.options());
 		assert.equal(result.createdUserCount, 1000);
 		assert.equal(harness.api.signupCalls, 1000);
-		assert.equal(harness.api.loginCalls, 1);
+		assert.equal(harness.api.loginCalls, 2);
 		assert.equal(harness.lock.acquireCalls, 1);
 		assert.equal(harness.lock.releaseCalls, 1);
 		const manifest = JSON.parse(fs.readFileSync(result.manifestPath, 'utf8'));
@@ -25,6 +25,7 @@ test('provisioner creates exactly 1,000 fresh ACTIVE USER rows and a secret-free
 		assert.equal(manifest.datasetId, harness.env.PERF_DATASET_ID);
 		assert.equal(manifest.createdUserCount, 1000);
 		assert.equal(manifest.expectedActiveMembers, 1000);
+		assert.equal(manifest.verificationTokenRefreshCount, 1);
 		assert.equal(manifest.userIds.length, 1000);
 		assert.equal(new Set(manifest.userIds).size, 1000);
 		assert.equal(manifest.mutationPolicy, 'additive signup only; no existing row update/delete');
@@ -33,7 +34,7 @@ test('provisioner creates exactly 1,000 fresh ACTIVE USER rows and a secret-free
 			harness.env.PERF_ADMIN_EMAIL,
 			harness.env.PERF_ADMIN_PASSWORD,
 			harness.env.PERF_DATASET_MEMBER_PASSWORD,
-			'runtime-admin-token',
+			...harness.api.issuedTokens,
 		]) assert.doesNotMatch(persisted, new RegExp(escapeRegExp(secret)));
 		assert.deepEqual(harness.logs, [{
 			status: 'provisioned/not-measured',
@@ -113,8 +114,52 @@ test('post-lock and final runtime replacement stop provisioning at the first bou
 	});
 });
 
+test('post-signup and each 100-detail boundary use a fresh-enough runtime-only admin JWT', async (t) => {
+	const { provisionDataset } = await loadProvisioner();
+	await t.test('an initial token may expire during signup because verification logs in again', async () => {
+		await withHarness(async (harness) => {
+			harness.api.tokenExpByLogin.set(1, 1100);
+			harness.api.tokenExpByLogin.set(2, 10_000);
+			harness.api.advanceAfterSignupTo = 2000;
+			const result = await provisionDataset(harness.options());
+			assert.equal(result.createdUserCount, 1000);
+			assert.equal(harness.api.loginCalls, 2);
+			assert.equal(JSON.parse(fs.readFileSync(result.manifestPath, 'utf8')).verificationTokenRefreshCount, 1);
+		});
+	});
+	await t.test('a token approaching the margin is refreshed before the next 100-user chunk', async () => {
+		await withHarness(async (harness) => {
+			harness.api.tokenExpByLogin.set(2, 1210);
+			harness.api.tokenExpByLogin.set(3, 10_000);
+			harness.api.advanceAfterDetailAt = 100;
+			harness.api.advanceAfterDetailTo = 1100;
+			const result = await provisionDataset(harness.options());
+			assert.equal(harness.api.loginCalls, 3);
+			assert.equal(JSON.parse(fs.readFileSync(result.manifestPath, 'utf8')).verificationTokenRefreshCount, 2);
+		});
+	});
+	await t.test('post-signup login failure preserves the additive rows and first rejection', async () => {
+		await withHarness(async (harness) => {
+			harness.api.failLoginAt = 2;
+			await assert.rejects(provisionDataset(harness.options()), /verification admin login failed/i);
+			assert.equal(harness.api.users.length, 1000);
+			assert.equal(harness.api.deleteCalls, 0);
+			assert.equal(readRejection(harness.reportDirectory).stage, 'verification-login');
+		});
+	});
+	await t.test('a newly issued token below the runtime margin fails before verification reads', async () => {
+		await withHarness(async (harness) => {
+			harness.api.tokenExpByLogin.set(2, 1119);
+			await assert.rejects(provisionDataset(harness.options()), /verification token lifetime is below.*120/i);
+			assert.equal(harness.api.users.length, 1000);
+			assert.equal(harness.api.adminReadCalls, 2);
+			assert.equal(readRejection(harness.reportDirectory).stage, 'verification-token');
+		});
+	});
+});
+
 test('runtime inputs have no credential/count fallback and provisioning never patches or deletes', async () => {
-	await loadProvisioner();
+	const { sanitizedChildEnvironment } = await loadProvisioner();
 	const source = fs.readFileSync(provisionerPath, 'utf8');
 	for (const name of [
 		'BASE_URL',
@@ -133,12 +178,21 @@ test('runtime inputs have no credential/count fallback and provisioning never pa
 		'EXPECTED_REDIS_COMPOSE_SERVICE',
 		'EXPECTED_REDIS_IMAGE_ID',
 		'EXPECTED_ACTIVE_MEMBERS',
+		'TOKEN_SAFETY_MARGIN_SECONDS',
 	]) assert.match(source, new RegExp(`process\\.env\\.${name}`), `${name} must be runtime-required`);
-	assert.doesNotMatch(source, /PERF_DATASET_MEMBER_PASSWORD\s*\|\||PERF_ADMIN_PASSWORD\s*\|\|/);
+	assert.doesNotMatch(source, /PERF_DATASET_MEMBER_PASSWORD\s*\|\||PERF_ADMIN_PASSWORD\s*\|\||TOKEN_SAFETY_MARGIN_SECONDS\s*\|\|/);
 	assert.doesNotMatch(source, /method:\s*['"](?:PATCH|PUT|DELETE)['"]/);
 	assert.match(source, /POST.*\/api\/v1\/auth\/signup/s);
 	assert.match(source, /sanitizedChildEnvironment/);
 	assert.doesNotMatch(source, /console\.(?:log|error)\([^)]*(?:PASSWORD|token)/i);
+	assert.deepEqual(sanitizedChildEnvironment({
+		PATH: '/runtime/bin',
+		PERF_ADMIN_EMAIL: 'admin@example.test',
+		PERF_ADMIN_PASSWORD: 'admin-secret',
+		PERF_DATASET_MEMBER_PASSWORD: 'member-secret',
+		PERF_ACCESS_TOKEN: 'access-secret',
+		POSTGRES_PASSWORD: 'db-secret',
+	}), { PATH: '/runtime/bin' });
 });
 
 async function loadProvisioner() {
@@ -150,7 +204,12 @@ async function withHarness(callback) {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-provision-'));
 	try {
 		const env = validEnvironment(directory);
-		const api = fakeApi(env.PERF_DATASET_ID, env.PERF_ADMIN_EMAIL);
+		const clock = {
+			now: 1000,
+			nowEpochSeconds() { return this.now; },
+		};
+		clock.nowEpochSeconds = clock.nowEpochSeconds.bind(clock);
+		const api = fakeApi(env.PERF_DATASET_ID, env.PERF_ADMIN_EMAIL, clock);
 		const identity = fakeIdentity();
 		const lock = {
 			acquireCalls: 0,
@@ -163,6 +222,7 @@ async function withHarness(callback) {
 		await callback({
 			env,
 			api,
+			clock,
 			identity,
 			lock,
 			logs,
@@ -174,6 +234,7 @@ async function withHarness(callback) {
 				acquireLock: () => lock.acquire(),
 				releaseLock: () => lock.release(),
 				log: (value) => logs.push(value),
+				nowEpochSeconds: clock.nowEpochSeconds,
 			}),
 		});
 	} finally {
@@ -190,16 +251,17 @@ function validEnvironment(reportRoot) {
 		PERF_DATASET_ID: 'PERF_1000_20260716_195_A',
 		PERF_SOURCE_COMMIT: sourceCommit,
 		PERF_REPORT_ROOT: reportRoot,
-		APP_CONTAINER_ID: 'app-input',
+		APP_CONTAINER_ID: 'sha256:app-container',
 		EXPECTED_APP_COMPOSE_SERVICE: 'app',
 		EXPECTED_APP_IMAGE_ID: 'sha256:app-image',
-		POSTGRES_CONTAINER_ID: 'postgres-input',
+		POSTGRES_CONTAINER_ID: 'sha256:postgres-container',
 		EXPECTED_POSTGRES_COMPOSE_SERVICE: 'postgres',
 		EXPECTED_POSTGRES_IMAGE_ID: 'sha256:postgres-image',
-		REDIS_CONTAINER_ID: 'redis-input',
+		REDIS_CONTAINER_ID: 'sha256:redis-container',
 		EXPECTED_REDIS_COMPOSE_SERVICE: 'redis',
 		EXPECTED_REDIS_IMAGE_ID: 'sha256:redis-image',
 		EXPECTED_ACTIVE_MEMBERS: '1000',
+		TOKEN_SAFETY_MARGIN_SECONDS: '120',
 	};
 }
 
@@ -237,16 +299,24 @@ function container(service, imageId) {
 	};
 }
 
-function fakeApi(datasetId, adminEmail) {
+function fakeApi(datasetId, adminEmail, clock) {
 	const state = {
 		users: [],
 		calls: [],
 		loginCalls: 0,
 		signupCalls: 0,
+		adminReadCalls: 0,
+		deleteCalls: 0,
+		issuedTokens: [],
+		tokenExpByLogin: new Map(),
+		failLoginAt: 0,
 		failSignupAt: 0,
 		signupRoleAt: 0,
 		signupInactiveAt: 0,
 		duplicateIdAt: 0,
+		advanceAfterSignupTo: 0,
+		advanceAfterDetailAt: 0,
+		advanceAfterDetailTo: 0,
 		seedCollision() {
 			this.users.push(user(9000, `${datasetId} COLLISION`, `${datasetId.toLowerCase()}_collision@example.test`));
 		},
@@ -258,7 +328,10 @@ function fakeApi(datasetId, adminEmail) {
 		if (parsed.pathname === '/api/v1/auth/login') {
 			state.loginCalls += 1;
 			assert.deepEqual(body, { email: adminEmail, password: 'runtime-admin-secret' });
-			return response(200, { accessToken: 'runtime-admin-token' });
+			if (state.loginCalls === state.failLoginAt) return response(401, null, false, 'synthetic login failure');
+			const token = jwt(state.tokenExpByLogin.get(state.loginCalls) ?? 100_000, state.loginCalls);
+			state.issuedTokens.push(token);
+			return response(200, { accessToken: token });
 		}
 		if (parsed.pathname === '/api/v1/users/me') return response(200, { userId: 7000, email: adminEmail });
 		if (parsed.pathname === '/api/v1/auth/signup') {
@@ -270,6 +343,7 @@ function fakeApi(datasetId, adminEmail) {
 				isActive: state.signupCalls !== state.signupInactiveAt,
 			});
 			state.users.push(created);
+			if (state.signupCalls === 1000 && state.advanceAfterSignupTo) clock.now = state.advanceAfterSignupTo;
 			return response(201, {
 				id: created.userId,
 				name: created.name,
@@ -279,6 +353,8 @@ function fakeApi(datasetId, adminEmail) {
 			});
 		}
 		if (parsed.pathname === '/api/v1/admin/users') {
+			state.adminReadCalls += 1;
+			if (!authorized(options.headers?.Authorization, clock.now)) return response(401, null, false, 'expired token');
 			const name = parsed.searchParams.get('name')?.toLowerCase();
 			const email = parsed.searchParams.get('email')?.toLowerCase();
 			const filtered = state.users.filter((entry) => (!name || entry.name.toLowerCase().includes(name))
@@ -294,10 +370,33 @@ function fakeApi(datasetId, adminEmail) {
 			});
 		}
 		const detail = parsed.pathname.match(/^\/api\/v1\/admin\/users\/(\d+)$/);
-		if (detail) return response(200, state.users.find(({ userId }) => userId === Number(detail[1])));
+		if (detail) {
+			state.adminReadCalls += 1;
+			if (!authorized(options.headers?.Authorization, clock.now)) return response(401, null, false, 'expired token');
+			const detailCall = state.adminReadCalls - 2;
+			const result = response(200, state.users.find(({ userId }) => userId === Number(detail[1])));
+			if (detailCall === state.advanceAfterDetailAt) clock.now = state.advanceAfterDetailTo;
+			return result;
+		}
+		if (options.method === 'DELETE') state.deleteCalls += 1;
 		return response(404, null, false, 'unexpected fake request');
 	};
 	return state;
+}
+
+function jwt(exp, sequence) {
+	const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+	return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ exp, sequence })}.signature`;
+}
+
+function authorized(header, now) {
+	if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
+	try {
+		const payload = JSON.parse(Buffer.from(header.slice(7).split('.')[1], 'base64url').toString('utf8'));
+		return Number.isSafeInteger(payload.exp) && payload.exp > now;
+	} catch {
+		return false;
+	}
 }
 
 function user(userId, name, email, overrides = {}) {
