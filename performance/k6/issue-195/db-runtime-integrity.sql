@@ -44,6 +44,7 @@ with database_stats as (
     where relname in ('users', 'campuses', 'campus_members', 'campus_duty_assignments')
 )
 select jsonb_build_object(
+    'snapshotCapturedAt', clock_timestamp(),
     'database', current_database(),
     'observerApplicationName', current_setting('application_name'),
     'externalActiveSessions', external_activity.active_sessions,

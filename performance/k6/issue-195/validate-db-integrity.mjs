@@ -1,15 +1,27 @@
 import fs from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
-const [beforePath, afterPath, measuredSummaryPath, outputPath, expectedEvidenceCase] = process.argv.slice(2);
-if (!beforePath || !afterPath || !measuredSummaryPath || !expectedEvidenceCase) {
-	throw new Error('beforePath, afterPath, measuredSummaryPath, and expectedEvidenceCase are required.');
+const [
+	beforePath,
+	afterPath,
+	measuredSummaryPath,
+	controlAdoptionPath,
+	outputPath,
+	expectedEvidenceCase,
+	expectedControlDuration,
+	maximumControlGapSecondsInput,
+] = process.argv.slice(2);
+if (!beforePath || !afterPath || !measuredSummaryPath || !controlAdoptionPath
+	|| !expectedEvidenceCase || !expectedControlDuration || !maximumControlGapSecondsInput) {
+	throw new Error('beforePath, afterPath, measuredSummaryPath, controlAdoptionPath, expectedEvidenceCase, expectedControlDuration, and maximumControlGapSeconds are required.');
 }
 
 const before = readJson(beforePath);
 const after = readJson(afterPath);
 const measured = readJson(measuredSummaryPath);
+const control = readJson(controlAdoptionPath);
 const failures = [];
+const maximumControlGapSeconds = parsePositiveInteger(maximumControlGapSecondsInput, 'maximumControlGapSeconds');
 const requiredPlannerKeys = [
 	'effective_cache_size',
 	'enable_hashjoin',
@@ -28,6 +40,7 @@ const maintenanceTimestampKeys = ['lastAnalyze', 'lastAutoanalyze', 'lastVacuum'
 validateSnapshot(before, 'before', 'before');
 validateSnapshot(after, 'after', 'after');
 validateMeasuredAdoption(measured);
+validateControlAdoption(control);
 if (!/^[a-z0-9_]+-[a-z0-9_]+$/.test(expectedEvidenceCase)) {
 	failures.push('expected evidence case has an invalid format');
 }
@@ -54,6 +67,19 @@ if (isObject(measured)) {
 	const expectedMetricName = `issue195_${sanitize(measured.scenario)}_${sanitize(measured.case)}`;
 	if (measured.metricName !== expectedMetricName) failures.push('measured metricName does not match scenario/case');
 }
+if (isObject(control) && isObject(before)) {
+	if (control.evidenceCase !== expectedEvidenceCase) failures.push('control evidence case does not match runner evidence case');
+	if (control.configuredDuration !== expectedControlDuration) failures.push('control duration does not match runner measured duration');
+	const controlCompletedAt = parseTimestamp(control.afterCaptureCompletedAt, 'control.afterCaptureCompletedAt');
+	const measuredBeforeCapturedAt = parseTimestamp(before.snapshotCapturedAt, 'before.snapshotCapturedAt');
+	if (controlCompletedAt !== null && measuredBeforeCapturedAt !== null) {
+		if (controlCompletedAt > measuredBeforeCapturedAt) {
+			failures.push('control completed after the measured before snapshot');
+		} else if (measuredBeforeCapturedAt - controlCompletedAt > maximumControlGapSeconds * 1_000) {
+			failures.push('control evidence is not immediately bound to the measured before snapshot');
+		}
+	}
+}
 
 const commitDeltaValue = safeBigIntDelta(after?.databaseStats?.xactCommit, before?.databaseStats?.xactCommit, 'database commit');
 const rollbackDeltaValue = safeBigIntDelta(after?.databaseStats?.xactRollback, before?.databaseStats?.xactRollback, 'database rollback');
@@ -62,25 +88,45 @@ const requestCount = isPositiveSafeInteger(measured?.requestCount) ? measured.re
 const expectedCommitDeltaValue = requestCount === null
 	? null
 	: BigInt(requestCount) * BigInt(expectedApplicationTransactionsPerRequest) + 1n;
-if (expectedCommitDeltaValue !== null && commitDeltaValue !== null && commitDeltaValue !== expectedCommitDeltaValue) {
-	failures.push(`database commit delta ${commitDeltaValue} != (measured requests * ${expectedApplicationTransactionsPerRequest}) + observer ${expectedCommitDeltaValue}`);
+if (expectedCommitDeltaValue !== null && commitDeltaValue !== null && commitDeltaValue < expectedCommitDeltaValue) {
+	failures.push(`database commit delta ${commitDeltaValue} is below (measured requests * ${expectedApplicationTransactionsPerRequest}) + observer ${expectedCommitDeltaValue}`);
 }
 if (rollbackDeltaValue !== null && rollbackDeltaValue !== 0n) failures.push(`database rollback delta ${rollbackDeltaValue} != 0`);
 
 const commitDelta = serializeBigInt(commitDeltaValue);
 const rollbackDelta = serializeBigInt(rollbackDeltaValue);
 const expectedCommitDelta = serializeBigInt(expectedCommitDeltaValue);
+const unattributedCommitDeltaValue = commitDeltaValue !== null && expectedCommitDeltaValue !== null
+	&& commitDeltaValue >= expectedCommitDeltaValue
+	? commitDeltaValue - expectedCommitDeltaValue
+	: null;
+const unattributedCommitDelta = serializeBigInt(unattributedCommitDeltaValue);
 
 if (failures.length > 0) {
-	writeResult({ status: 'non-adoptable', failures, commitDelta, rollbackDelta, expectedCommitDelta });
+	writeResult({
+		status: 'non-adoptable',
+		automaticAdoption: false,
+		failures,
+		commitDelta,
+		rollbackDelta,
+		expectedCommitDelta,
+		unattributedCommitDelta,
+	});
 	throw new Error(`DB integrity is non-adoptable: ${failures.join('; ')}`);
 }
 writeResult({
-	status: 'adoptable',
+	status: unattributedCommitDeltaValue > 0n ? 'conditional-not-adoptable' : 'supporting-only',
+	automaticAdoption: false,
+	evidenceUse: 'supporting-only',
+	transactionAttribution: 'database-wide-unattributed',
 	expectedApplicationTransactionsPerRequest,
 	observerCommitOverhead: 1,
 	commitDelta,
 	rollbackDelta,
+	expectedCommitDelta,
+	unattributedCommitDelta,
+	controlBackgroundCommitDelta: control.backgroundCommitDelta,
+	backgroundSubtractionApplied: false,
 });
 
 function validateSnapshot(snapshot, label, expectedPhase) {
@@ -89,6 +135,7 @@ function validateSnapshot(snapshot, label, expectedPhase) {
 		return;
 	}
 	requireNonEmptyString(snapshot.database, `${label}.database`);
+	parseTimestamp(snapshot.snapshotCapturedAt, `${label}.snapshotCapturedAt`);
 	validateObserverName(snapshot.observerApplicationName, label, expectedPhase);
 	requireNonNegativeFiniteNumber(snapshot.externalActiveSessions, `${label}.externalActiveSessions`);
 	if (!isObject(snapshot.databaseStats)) {
@@ -121,6 +168,84 @@ function validateSnapshot(snapshot, label, expectedPhase) {
 		if (snapshot.observerOverhead.expectedCommitCount !== 1) {
 			failures.push(`${label}.observerOverhead.expectedCommitCount must be 1`);
 		}
+	}
+}
+
+function validateControlAdoption(value) {
+	if (!isObject(value)) {
+		failures.push('control adoption must be an object');
+		return;
+	}
+	requireExactKeys(value, [
+		'schemaVersion', 'status', 'automaticAdoption', 'evidenceUse', 'evidenceCase',
+		'configuredDuration', 'beforeCaptureStartedAt', 'beforeCapturedAt',
+		'beforeCaptureCompletedAt', 'afterCaptureStartedAt', 'afterCapturedAt',
+		'afterCaptureCompletedAt', 'observedElapsedMilliseconds',
+		'beforeCaptureOverheadMilliseconds', 'afterCaptureOverheadMilliseconds',
+		'controlCommitDelta', 'observerCommitOverhead', 'backgroundCommitDelta',
+		'rollbackDelta', 'backgroundSubtractionApplied',
+	], 'control adoption');
+	if (value.schemaVersion !== 1) failures.push('control adoption.schemaVersion must be 1');
+	if (value.status !== 'supporting-only') failures.push('control adoption status must be supporting-only');
+	if (value.automaticAdoption !== false) failures.push('control adoption automaticAdoption must be false');
+	if (value.evidenceUse !== 'supporting-only') failures.push('control adoption evidenceUse must be supporting-only');
+	requireNonEmptyString(value.evidenceCase, 'control adoption.evidenceCase');
+	requireNonEmptyString(value.configuredDuration, 'control adoption.configuredDuration');
+	const timestamps = {};
+	for (const key of [
+		'beforeCaptureStartedAt', 'beforeCapturedAt', 'beforeCaptureCompletedAt',
+		'afterCaptureStartedAt', 'afterCapturedAt', 'afterCaptureCompletedAt',
+	]) timestamps[key] = parseTimestamp(value[key], `control adoption.${key}`);
+	for (const key of [
+		'observedElapsedMilliseconds', 'beforeCaptureOverheadMilliseconds', 'afterCaptureOverheadMilliseconds',
+	]) requireNonNegativeFiniteNumber(value[key], `control adoption.${key}`);
+	for (const key of ['controlCommitDelta', 'backgroundCommitDelta', 'rollbackDelta']) {
+		requireCanonicalNonNegativeIntegerString(value[key], `control adoption.${key}`);
+	}
+	if (value.observerCommitOverhead !== 1) failures.push('control adoption observerCommitOverhead must be 1');
+	if (value.rollbackDelta !== '0') failures.push('control adoption rollbackDelta must be 0');
+	if (value.backgroundSubtractionApplied !== false) failures.push('control adoption must not subtract background commits');
+	validateControlTimestampArithmetic(value, timestamps);
+	if (isCanonicalNonNegativeIntegerString(value.controlCommitDelta)
+		&& isCanonicalNonNegativeIntegerString(value.backgroundCommitDelta)
+		&& value.observerCommitOverhead === 1
+		&& BigInt(value.controlCommitDelta) !== BigInt(value.backgroundCommitDelta) + 1n) {
+		failures.push('control adoption commit arithmetic is inconsistent');
+	}
+}
+
+function validateControlTimestampArithmetic(value, timestamps) {
+	const before = [
+		timestamps.beforeCaptureStartedAt,
+		timestamps.beforeCapturedAt,
+		timestamps.beforeCaptureCompletedAt,
+	];
+	const after = [
+		timestamps.afterCaptureStartedAt,
+		timestamps.afterCapturedAt,
+		timestamps.afterCaptureCompletedAt,
+	];
+	if (before.every((entry) => entry !== null)
+		&& !(before[0] <= before[1] && before[1] <= before[2])) {
+		failures.push('control adoption before timestamps are not ordered');
+	}
+	if (after.every((entry) => entry !== null)
+		&& !(after[0] <= after[1] && after[1] <= after[2])) {
+		failures.push('control adoption after timestamps are not ordered');
+	}
+	if (before[2] !== null && after[0] !== null) {
+		const elapsed = after[0] - before[2];
+		if (elapsed < 0 || value.observedElapsedMilliseconds !== elapsed) {
+			failures.push('control adoption elapsed time is inconsistent');
+		}
+	}
+	if (before[0] !== null && before[2] !== null
+		&& value.beforeCaptureOverheadMilliseconds !== before[2] - before[0]) {
+		failures.push('control adoption before capture overhead is inconsistent');
+	}
+	if (after[0] !== null && after[2] !== null
+		&& value.afterCaptureOverheadMilliseconds !== after[2] - after[0]) {
+		failures.push('control adoption after capture overhead is inconsistent');
 	}
 }
 
@@ -246,6 +371,21 @@ function isPositiveFiniteNumber(value) {
 
 function isPositiveSafeInteger(value) {
 	return Number.isSafeInteger(value) && value > 0;
+}
+
+function parsePositiveInteger(value, label) {
+	if (!/^[1-9]\d*$/.test(value || '') || !Number.isSafeInteger(Number(value))) {
+		throw new Error(`${label} must be a positive safe integer.`);
+	}
+	return Number(value);
+}
+
+function parseTimestamp(value, label) {
+	if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
+		failures.push(`${label} must be an ISO timestamp`);
+		return null;
+	}
+	return Date.parse(value);
 }
 
 function isObject(value) {

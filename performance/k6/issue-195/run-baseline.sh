@@ -397,6 +397,37 @@ for entry in "${CASES[@]}"; do
 		exit 1
 	fi
 
+	CONTROL_BEFORE="$REPORT_DIR/db-evidence/$EVIDENCE_CASE/control-before-runtime-integrity.json"
+	CONTROL_AFTER="$REPORT_DIR/db-evidence/$EVIDENCE_CASE/control-after-runtime-integrity.json"
+	CONTROL_ADOPTION="$REPORT_DIR/db-evidence/$EVIDENCE_CASE/control-window-adoption.json"
+	mkdir -p "$REPORT_DIR/db-evidence/$EVIDENCE_CASE"
+	CURRENT_STAGE=measured-control-before
+	POSTGRES_CONTAINER_ID="$POSTGRES_CONTAINER_ID" \
+	POSTGRES_USER="$POSTGRES_USER" \
+	POSTGRES_DB="$POSTGRES_DB" \
+	POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+		"$SCRIPT_DIR/capture-db-control-snapshot.sh" "$EVIDENCE_CASE" before "$CONTROL_BEFORE"
+	CURRENT_STAGE=measured-control-idle
+	sleep "$MEASURED_DURATION"
+	CURRENT_STAGE=measured-control-after
+	POSTGRES_CONTAINER_ID="$POSTGRES_CONTAINER_ID" \
+	POSTGRES_USER="$POSTGRES_USER" \
+	POSTGRES_DB="$POSTGRES_DB" \
+	POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+		"$SCRIPT_DIR/capture-db-control-snapshot.sh" "$EVIDENCE_CASE" after "$CONTROL_AFTER"
+	CURRENT_STAGE=measured-control-validation
+	if ! node "$SCRIPT_DIR/validate-db-control-window.mjs" \
+		"$CONTROL_BEFORE" \
+		"$CONTROL_AFTER" \
+		"$EVIDENCE_CASE" \
+		"$MEASURED_DURATION" \
+		"$CONTROL_ADOPTION"; then
+		unset PERF_ACCESS_TOKEN
+		printf 'DB idle control is not valid supporting evidence: %s/%s\n' "$SCENARIO" "$CASE" >&2
+		exit 1
+	fi
+
+	CURRENT_STAGE=measured-evidence-before
 	POSTGRES_CONTAINER_ID="$POSTGRES_CONTAINER_ID" \
 	POSTGRES_USER="$POSTGRES_USER" \
 	POSTGRES_DB="$POSTGRES_DB" \
@@ -492,8 +523,11 @@ for entry in "${CASES[@]}"; do
 		"$REPORT_DIR/db-evidence/$EVIDENCE_CASE/before-runtime-integrity.json" \
 		"$REPORT_DIR/db-evidence/$EVIDENCE_CASE/after-runtime-integrity.json" \
 		"$MEASURED_ADOPTION" \
+		"$CONTROL_ADOPTION" \
 		"$REPORT_DIR/db-evidence/$EVIDENCE_CASE/db-integrity-adoption.json" \
-		"$EVIDENCE_CASE"; then
+		"$EVIDENCE_CASE" \
+		"$MEASURED_DURATION" \
+		"$RESOURCE_BOUNDARY_MAX_GAP_SECONDS"; then
 		unset PERF_ACCESS_TOKEN
 		printf 'DB activity/analyze/planner evidence is not adoptable: %s/%s\n' "$SCENARIO" "$CASE" >&2
 		exit 1

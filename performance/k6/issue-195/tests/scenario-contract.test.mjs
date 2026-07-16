@@ -1488,7 +1488,11 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 
 	const runtimeSql = read(files.dbRuntimeIntegrity);
 	assert.match(runtimeSql, /from\s+pg_stat_database/i);
-	assert.doesNotMatch(runtimeSql, /database_stats[\s\S]*application_name/i);
+	const databaseStatsCte = runtimeSql.slice(
+		runtimeSql.indexOf('with database_stats as ('),
+		runtimeSql.indexOf('), external_activity as ('),
+	);
+	assert.doesNotMatch(databaseStatsCte, /application_name/i);
 	const runner = read(files.runner);
 	const loop = runner.slice(runner.indexOf('for entry in'));
 	const controlBeforeIndex = loop.indexOf('capture-db-control-snapshot.sh" "$EVIDENCE_CASE" before');
@@ -2583,7 +2587,10 @@ test('README keeps reports ignored and records scenario-ready/not-measured statu
 	assert.match(readme, /EXEC195_BEFORE_20260716_D[\s\S]*non-reusable/);
 	assert.match(readme, /7,197 requests/);
 	assert.match(readme, /rejected diagnostic evidence only/);
-	assert.match(readme, /EXEC195_BEFORE_20260716_E/);
+	assert.match(readme, /EXEC195_BEFORE_20260716_E[\s\S]*non-reusable/);
+	assert.match(readme, /4,200 requests/);
+	assert.match(readme, /EXEC195_BEFORE_20260716_F/);
+	assert.match(readme, /Issue #208 common audit is complete/);
 	assert.equal(
 		(readme.match(/BASE_URL=http:\/\/127\.0\.0\.1:28080/g) || []).length,
 		3,

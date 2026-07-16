@@ -12,7 +12,10 @@ const token = await readStdin();
 const payload = decodePayload(token);
 const now = resolveNow();
 const remaining = payload.exp - now;
-const required = (phase === 'case' ? warmupSeconds + measuredSeconds : measuredSeconds) + safetySeconds;
+const idleControlSeconds = measuredSeconds;
+const required = (phase === 'case'
+	? warmupSeconds + idleControlSeconds + measuredSeconds
+	: measuredSeconds) + safetySeconds;
 const sufficient = phase === 'case' ? remaining >= required : remaining > required;
 if (!Number.isInteger(payload.exp) || !sufficient) {
 	throw new Error(`Access token remaining lifetime is insufficient: remaining=${remaining}s required=${required}s.`);
