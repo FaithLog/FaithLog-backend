@@ -528,8 +528,8 @@ test('fresh measured login clears a delayed users stats increment before the str
 	assert.ok(measuredLogin < usersVacuum);
 	assert.ok(usersVacuum < postgresBefore && usersVacuum < stabilization);
 	assert.ok(usersVacuum < counterBefore && usersVacuum < measuredWindow);
-	assert.match(runner, /psql_exec -q -t -A < "\$SCENARIO_DIR\/vacuum-measured-login-user\.sql" \\\n+\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze\.txt"/);
-	assert.match(runner, /'status=completed' \\\n+\s*'tables=users' \\\n+\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze-complete\.txt"/);
+	assert.match(runner, /psql_exec -q -t -A < "\$SCENARIO_DIR\/vacuum-measured-login-user\.sql" \\\n\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze\.txt"/);
+	assert.match(runner, /'status=completed' \\\n\s*'tables=users' \\\n\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze-complete\.txt"/);
 });
 
 test('database evidence is exact, non-mutating, and keeps optional pgss continuity', async () => {
