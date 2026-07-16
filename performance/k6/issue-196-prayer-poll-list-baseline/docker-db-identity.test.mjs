@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -68,4 +68,14 @@ test('DB identity collector rejects empty stdout without exposing SQL or credent
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
 	}
+});
+
+test('every issue-local docker collector that consumes SQL stdin attaches container stdin', () => {
+	const seed = readFileSync(new URL('./seed-fixture.mjs', import.meta.url), 'utf8');
+	const shape = readFileSync(new URL('./shape-fixture.sh', import.meta.url), 'utf8');
+	const runner = readFileSync(new URL('./run-baseline.sh', import.meta.url), 'utf8');
+	assert.match(seed, /captureDockerDbIdentity\(/);
+	assert.equal((shape.match(/docker exec -i /g) || []).length, 1, 'shape DB identity collector must attach stdin');
+	assert.equal((runner.match(/docker exec -i /g) || []).length, 3,
+		'runner identity, table-stat, and activity collectors must attach stdin');
 });
