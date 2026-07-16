@@ -197,6 +197,23 @@ test('approved clean detached checkout and later image creation replace unavaila
 	);
 });
 
+test('detached checkout time comes from the newest HEAD reflog selector even when its subject is empty', async () => {
+	const contractPath = path.join(ISSUE_DIR, 'lib/source-image-provenance.mjs');
+	const { parseNewestHeadReflogCheckoutAt } = await import(`${pathToFileURL(contractPath).href}?reflog=${Date.now()}`);
+	const actualCheckoutAt = '2026-07-16T13:20:28+09:00';
+	const reflog = [
+		`2026-07-16T13:19:29+09:00\tHEAD@{${actualCheckoutAt}}\t`,
+		'2026-07-15T10:00:00+09:00\tHEAD@{2026-07-15T10:00:01+09:00}\tcheckout: moving from develop to HEAD',
+	].join('\n');
+	assert.equal(typeof parseNewestHeadReflogCheckoutAt, 'function');
+	assert.equal(parseNewestHeadReflogCheckoutAt(reflog), actualCheckoutAt);
+	assert.notEqual(parseNewestHeadReflogCheckoutAt(reflog), '2026-07-16T13:19:29+09:00', 'committer time is not worktree checkout time');
+	assert.throws(
+		() => parseNewestHeadReflogCheckoutAt('2026-07-16T13:19:29+09:00\tHEAD@{not-a-time}\t'),
+		/reflog selector.*timestamp/i,
+	);
+});
+
 test('both runners use source/image provenance without requiring unavailable OCI revision labels', () => {
 	for (const runnerName of ['run-devotion-baseline.sh', 'run-retention-dry-verify.sh']) {
 		const runner = issueFile(runnerName);
