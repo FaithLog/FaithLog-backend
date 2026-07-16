@@ -19,7 +19,7 @@ test('runner uses one exact-ID three-role snapshot, continuous stream, stop mark
 	assert.match(runner, /docker stats --no-trunc[\s\S]*"\$\{app_container_id\}" "\$\{db_container_id\}" "\$\{redis_container_id\}"[\s\S]*stream-samples/);
 	assert.match(runner, /resource-sampler\.stop[\s\S]*kill -0 "\$\{sampler_pid\}"[\s\S]*wait "\$\{sampler_pid\}"/);
 	assert.match(runner, /append-snapshot[\s\S]*log_since=.*rfc3339_now/);
-	assert.match(runner, /log_until=.*rfc3339_now[\s\S]*resource-sampler\.stop/);
+	assert.match(runner, /log_until=.*rfc3339_now[\s\S]*: > "\$\{resource_stop_file\}"/);
 });
 
 test('streaming sampler preserves ANSI-framed exact three-role ticks and one complete final tick after stop', async () => {

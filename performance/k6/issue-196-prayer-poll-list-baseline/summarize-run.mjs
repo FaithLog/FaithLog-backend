@@ -493,7 +493,8 @@ function validateResourceEvidence(tsv, runtime) {
 		if (samples.some((sample) => sample.resourceContainerId !== expectedContainerIds?.[container])) {
 			rejectionReasons.push(`resource-container-id-mismatch:${container || 'undefined'}`);
 		}
-		for (const reason of validateSampleTimeline(samples.map((sample) => sample.capturedAt), runtime, `resource:${container || 'undefined'}`)) {
+		for (const reason of validateSampleTimeline(samples.map((sample) => sample.capturedAt), runtime,
+			`resource:${container || 'undefined'}`, true)) {
 			rejectionReasons.push(reason);
 		}
 	}
@@ -514,7 +515,7 @@ function validateResourceEvidence(tsv, runtime) {
 	return { resources, rejectionReasons: [...new Set(rejectionReasons)] };
 }
 
-function validateSampleTimeline(timestamps, runtime, evidenceName) {
+function validateSampleTimeline(timestamps, runtime, evidenceName, requireBoundaryCoverage = false) {
 	const reasons = [];
 	const started = Date.parse(runtime?.measurementStartedAt);
 	const ended = Date.parse(runtime?.measurementEndedAt);
@@ -532,8 +533,10 @@ function validateSampleTimeline(timestamps, runtime, evidenceName) {
 	const intervalMs = intervalSeconds * 1000;
 	const expectedMinimum = Math.max(2, Math.floor((ended - started) / intervalMs));
 	if (times.length < expectedMinimum) reasons.push(`insufficient-samples:${evidenceName}`);
-	if (times[0] < started || times[0] - started > maxGapMs
-		|| times.at(-1) > ended || ended - times.at(-1) > maxGapMs) {
+	const boundaryInvalid = requireBoundaryCoverage
+		? times[0] > started || started - times[0] > maxGapMs || times.at(-1) < ended || times.at(-1) - ended > maxGapMs
+		: times[0] < started || times[0] - started > maxGapMs || times.at(-1) > ended || ended - times.at(-1) > maxGapMs;
+	if (boundaryInvalid) {
 		reasons.push(`sample-window-coverage:${evidenceName}`);
 	}
 	for (let index = 1; index < times.length; index += 1) {

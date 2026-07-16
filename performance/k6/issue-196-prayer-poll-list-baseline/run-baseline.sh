@@ -12,6 +12,7 @@ VALIDATE_RUNTIME_IDENTITY="${ROOT_DIR}/validate-runtime-identity.mjs"
 PARSE_REDIS_IDENTITY="${ROOT_DIR}/redis-runtime-identity.mjs"
 FILTER_SQL_LOG="${ROOT_DIR}/filter-sql-log.mjs"
 TOOLING_PROVENANCE="${ROOT_DIR}/tooling-provenance.mjs"
+RESOURCE_WINDOW_SAMPLER="${ROOT_DIR}/resource-window-sampler.mjs"
 PERF_SCENARIO_WORKTREE="${PERF_SCENARIO_WORKTREE:?PERF_SCENARIO_WORKTREE is required at runtime}"
 EXPECTED_SCENARIO_HEAD="${EXPECTED_SCENARIO_HEAD:?EXPECTED_SCENARIO_HEAD is required at runtime}"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
@@ -336,27 +337,30 @@ validate_token_lifetime() {
 	PERF_ACCESS_TOKEN="$1" PHASE_DURATION="$2" node "${ROOT_DIR}/token-lifetime.mjs"
 }
 
+sample_resources_snapshot() {
+	local output="$1"
+	local raw captured_at
+	raw="$(docker stats --no-stream --no-trunc --format '{{.ID}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}' \
+		"${app_container_id}" "${db_container_id}" "${redis_container_id}")"
+	captured_at="$(rfc3339_now)"
+	printf '%s\n' "${raw}" | node "${RESOURCE_WINDOW_SAMPLER}" append-snapshot \
+		"${output}" "${captured_at}" \
+		"${APP_CONTAINER}" "${app_container_id}" \
+		"${DB_CONTAINER}" "${db_container_id}" \
+		"${REDIS_CONTAINER}" "${redis_container_id}"
+}
+
 sample_resources() {
-	local k6_pid="$1"
-	local output="$2"
-	while kill -0 "${k6_pid}" 2>/dev/null; do
-		local captured_at
-		captured_at="$(rfc3339_now)"
-		docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' \
-			"${APP_CONTAINER}" "${DB_CONTAINER}" "${REDIS_CONTAINER}" \
-			| while IFS=$'\t' read -r container cpu memory memory_percent; do
-				resource_container_id=''
-				case "${container}" in
-					"${APP_CONTAINER}") resource_container_id="${app_container_id}" ;;
-					"${DB_CONTAINER}") resource_container_id="${db_container_id}" ;;
-					"${REDIS_CONTAINER}") resource_container_id="${redis_container_id}" ;;
-					*) resource_container_id="UNEXPECTED" ;;
-				esac
-				printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${captured_at}" "${container}" "${resource_container_id}" "${cpu}" "${memory}" "${memory_percent}"
-			done \
-			>> "${output}"
-		sleep "${SAMPLING_INTERVAL_SECONDS}"
-	done
+	local output="$1"
+	local stop_file="$2"
+	set +o pipefail
+	docker stats --no-trunc --format '{{.ID}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}' \
+		"${app_container_id}" "${db_container_id}" "${redis_container_id}" | \
+		node "${RESOURCE_WINDOW_SAMPLER}" stream-samples \
+			"${output}" "${stop_file}" "${SAMPLING_MAX_GAP_SECONDS}" \
+			"${APP_CONTAINER}" "${app_container_id}" \
+			"${DB_CONTAINER}" "${db_container_id}" \
+			"${REDIS_CONTAINER}" "${redis_container_id}"
 }
 
 sample_runtime_integrity() {
@@ -418,6 +422,7 @@ run_endpoint() {
 	local after_file="${endpoint_dir}/db-after.json"
 	local sql_log_file="${endpoint_dir}/hibernate-sql.log"
 	local resource_file="${endpoint_dir}/resource-samples.tsv"
+	local resource_stop_file="${endpoint_dir}/resource-sampler.stop"
 	local integrity_file="${endpoint_dir}/runtime-integrity.jsonl"
 	local metadata_file="${endpoint_dir}/runtime-metadata.json"
 	local report_file="${endpoint_dir}/report.json"
@@ -501,9 +506,13 @@ run_endpoint() {
 	validate_token_lifetime "${other_coffee_duty_token}" "${MEASURED_DURATION}"
 	validate_token_lifetime "${meal_duty_token}" "${MEASURED_DURATION}"
 	snapshot_db_tables "${before_file}"
-	log_since="$(rfc3339_now)"
 	: > "${resource_file}"
 	: > "${integrity_file}"
+	[[ ! -e "${resource_stop_file}" ]] || { echo "Resource sampler stop marker already exists." >&2; return 1; }
+	sample_resources_snapshot "${resource_file}"
+	log_since="$(rfc3339_now)"
+	sample_resources "${resource_file}" "${resource_stop_file}" &
+	sampler_pid=$!
 
 	# measured phase: only this k6 process is inside the DB/log/resource evidence window.
 	env -u PERF_ADMIN_EMAIL -u PERF_ADMIN_PASSWORD -u PERF_MEMBER_PASSWORD \
@@ -526,23 +535,32 @@ run_endpoint() {
 	PERF_MEAL_DUTY_ACCESS_TOKEN="${meal_duty_token}" \
 		k6 run --summary-export "${summary_file}" "${SCENARIO_FILE}" &
 	k6_pid=$!
-	sample_resources "${k6_pid}" "${resource_file}" &
-	sampler_pid=$!
 	sample_runtime_integrity "${k6_pid}" "${integrity_file}" &
 	integrity_pid=$!
 	set +e
 	wait "${k6_pid}"
 	k6_status=$?
 	set -e
-	set +e
-	wait "${sampler_pid}"
-	sampler_status=$?
-	set -e
+	log_until="$(rfc3339_now)"
+	if ! kill -0 "${sampler_pid}" 2>/dev/null; then
+		set +e
+		wait "${sampler_pid}"
+		sampler_status=$?
+		set -e
+		if (( sampler_status == 0 )); then
+			sampler_status=1
+		fi
+	else
+		: > "${resource_stop_file}"
+		set +e
+		wait "${sampler_pid}"
+		sampler_status=$?
+		set -e
+	fi
 	set +e
 	wait "${integrity_pid}"
 	integrity_status=$?
 	set -e
-	log_until="$(rfc3339_now)"
 	set +e
 	assert_runtime_continuity
 	runtime_continuity_status=$?

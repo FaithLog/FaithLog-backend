@@ -15,6 +15,7 @@ export const RUNTIME_TOOLING_FILES = Object.freeze([
 	'performance/k6/issue-196-prayer-poll-list-baseline/k6-rate-contract.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/prepare-runtime.sh',
 	'performance/k6/issue-196-prayer-poll-list-baseline/redis-runtime-identity.mjs',
+	'performance/k6/issue-196-prayer-poll-list-baseline/resource-window-sampler.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh',
 	'performance/k6/issue-196-prayer-poll-list-baseline/runtime-evidence.override.yml',
 	'performance/k6/issue-196-prayer-poll-list-baseline/runtime-env-attestation.mjs',
@@ -26,6 +27,7 @@ export const RUNTIME_TOOLING_FILES = Object.freeze([
 	'performance/k6/issue-196-prayer-poll-list-baseline/token-lifetime.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/tooling-provenance.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/validate-published-target.mjs',
+	'performance/k6/issue-196-prayer-poll-list-baseline/validate-run-completion.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/validate-runtime-identity.mjs',
 ]);
 

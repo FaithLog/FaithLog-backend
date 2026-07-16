@@ -19,10 +19,12 @@ const REQUIRED_FILES = [
 	'db-runtime-identity.sql',
 	'validate-runtime-identity.mjs',
 	'redis-runtime-identity.mjs',
+	'resource-window-sampler.mjs',
 	'db-activity.sql',
 	'activity-sample.mjs',
 	'token-lifetime.mjs',
 	'validate-published-target.mjs',
+	'validate-run-completion.mjs',
 	'k6-rate-contract.mjs',
 	'summarize-run.mjs',
 	'prepare-runtime.sh',
@@ -52,6 +54,10 @@ const COUNTER_FIELDS = new Set([
 ]);
 const SOURCE_REVISION = '6796ed146244d8f3f5b5dd7048ebe16865084a97';
 const FAKE_REDIS_RUN_ID = 'a'.repeat(40);
+const FAKE_APP_CONTAINER_ID = 'a'.repeat(64);
+const FAKE_DB_CONTAINER_ID = 'b'.repeat(64);
+const FAKE_REDIS_CONTAINER_ID = 'c'.repeat(64);
+const FAKE_REPLACED_APP_CONTAINER_ID = 'd'.repeat(64);
 
 function fakeToolingEnv(worktree) {
 	return { PERF_SCENARIO_WORKTREE: worktree, EXPECTED_SCENARIO_HEAD: 'a'.repeat(40) };
@@ -288,7 +294,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 		}));
 		writeFileSync(join(bin, 'docker'), [
 			'#!/usr/bin/env bash',
-			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_FAILURE:-}'}" == runtime && "$count" -ge 5 ]]; then echo app-container-replaced; else echo app-container-id; fi; exit 0; fi`,
+			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_FAILURE:-}'}" == runtime && "$count" -ge 5 ]]; then echo ${FAKE_REPLACED_APP_CONTAINER_ID}; else echo ${FAKE_APP_CONTAINER_ID}; fi; exit 0; fi`,
 			`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
 			'if [[ "$1" == exec ]]; then',
 			`  if [[ "$*" == *app_client_addrs* ]]; then printf '%s\\n' '{"capturedAt":"2026-07-14T00:00:00Z","unexpectedSessions":[]}'; exit 0; fi`,
@@ -304,8 +310,8 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
 			'*com.docker.compose.config-hash*faithlog-redis*) echo redis-hash ;;',
 			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
-			'*"{{.Id}}"*faithlog-postgres*) echo db-container-id ;;',
-			'*"{{.Id}}"*faithlog-redis*) echo redis-container-id ;;',
+			`*"{{.Id}}"*faithlog-postgres*) echo ${FAKE_DB_CONTAINER_ID} ;;`,
+			`*"{{.Id}}"*faithlog-redis*) echo ${FAKE_REDIS_CONTAINER_ID} ;;`,
 			'*"{{.State.StartedAt}}"*) echo 2026-07-14T00:00:00.000Z ;;',
 			'*"{{.Config.Image}}"*faithlog-backend*) echo faithlog-latest ;;',
 			'*"{{.Config.Image}}"*faithlog-postgres*) echo postgres:17 ;;',
@@ -315,7 +321,8 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
 			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false SPRING_JPA_SHOW_SQL=false LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF FAITHLOG_SCHEDULER_ENABLED=false ;;',
-			`*"stats --no-stream"*) if [[ "${'${FAKE_FAILURE:-}'}" == sampler ]]; then exit 43; fi; printf "faithlog-backend\\t10.0%%%%\\t100MiB / 1GiB\\t9.8%%%%\\nfaithlog-postgres\\t20.0%%%%\\t200MiB / 1GiB\\t19.5%%%%\\nfaithlog-redis\\t5.0%%%%\\t50MiB / 1GiB\\t4.9%%%%\\n" ;;`,
+			`*"stats --no-stream"*) printf "${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\n" ;;`,
+			`*"stats --no-trunc"*) if [[ "${'${FAKE_FAILURE:-}'}" == sampler ]]; then exit 0; fi; printf "\\033[H${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\033[K\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\033[K\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\033[K\\n"; while :; do printf "\\033[K\\n\\033[J\\033[H${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\033[K\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\033[K\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\033[K\\n"; sleep 0.02; done ;;`,
 			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
 			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`,
 			'esac', '',
@@ -348,11 +355,11 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'      composeRuntime.appImageId) printf sha256:contract ;;',
 			'      composeRuntime.dbImageId) printf sha256:db ;;',
 			'      composeRuntime.redisImageId) printf sha256:redis ;;',
-			'      composeRuntime.appContainerId) printf app-container-id ;;',
+			`      composeRuntime.appContainerId) printf ${FAKE_APP_CONTAINER_ID} ;;`,
 			'      composeRuntime.appContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
-			'      composeRuntime.dbContainerId) printf db-container-id ;;',
+			`      composeRuntime.dbContainerId) printf ${FAKE_DB_CONTAINER_ID} ;;`,
 			'      composeRuntime.dbContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
-			'      composeRuntime.redisContainerId) printf redis-container-id ;;',
+			`      composeRuntime.redisContainerId) printf ${FAKE_REDIS_CONTAINER_ID} ;;`,
 			'      composeRuntime.redisContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
 			'      composeRuntime.sourceRevision) printf "%s" "$EXPECTED_SOURCE_REVISION" ;;',
 			'      composeRuntime.targetPort) printf 18080 ;;',
@@ -905,7 +912,7 @@ test('fake runner preserves conditional sequencing and fails closed on report or
 			`${summaryBehavior} report must block the next endpoint`);
 	}
 
-	for (const [failure, expectedStatus] of [['k6', 42], ['sampler', 43], ['integrity', 44], ['runtime', 1]]) {
+	for (const [failure, expectedStatus] of [['k6', 42], ['sampler', 1], ['integrity', 44], ['runtime', 1]]) {
 		const failed = runFakeAdoptionSequence({ failure });
 		assert.equal(failed.result.error, undefined, `${failure} failure must not time out: ${failed.result.error}`);
 		assert.equal(failed.result.signal, null, `${failure} failure must exit normally rather than by signal`);
@@ -1367,7 +1374,11 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		writeFileSync(manifest, JSON.stringify({
 			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: new Date(now).toISOString(),
 			primaryCampus: actorManifest(),
-			composeRuntime: manifestRuntime(project, { appImage: 'faithlog-latest', appImageId: 'sha256:contract' }),
+			composeRuntime: manifestRuntime(project, {
+				appImage: 'faithlog-latest', appImageId: 'sha256:contract',
+				appContainerId: FAKE_APP_CONTAINER_ID, dbContainerId: FAKE_DB_CONTAINER_ID,
+				redisContainerId: FAKE_REDIS_CONTAINER_ID,
+			}),
 			polls: { byKey: {
 				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
 				closed_member_visible: { endsAt: new Date(now - 2 * 86400000).toISOString() },
@@ -1378,7 +1389,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		}));
 		writeFileSync(join(bin, 'docker'), [
 			'#!/usr/bin/env bash',
-			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 && -f "${postLockMarker}" ]]; then echo app-container-post-lock-replaced; elif [[ "${'${FAKE_REPLACE_RUNTIME:-0}'}" == 1 && "$count" -gt 1 ]]; then echo app-container-replaced; else echo app-container-id; fi; exit 0; fi`,
+			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 && -f "${postLockMarker}" ]]; then echo ${FAKE_REPLACED_APP_CONTAINER_ID}; elif [[ "${'${FAKE_REPLACE_RUNTIME:-0}'}" == 1 && "$count" -gt 1 ]]; then echo ${FAKE_REPLACED_APP_CONTAINER_ID}; else echo ${FAKE_APP_CONTAINER_ID}; fi; exit 0; fi`,
 			`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
 			'if [[ "$1" == exec ]]; then',
 			`  if [[ -z "${'${PGPASSWORD+x}'}" || -n "${'${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_PASSWORD+x}${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]]; then echo db-scope-bad >> "${calls}"; fi`,
@@ -1398,8 +1409,8 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
 			'*com.docker.compose.config-hash*faithlog-redis*) echo redis-hash ;;',
 			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
-			'*"{{.Id}}"*faithlog-postgres*) echo db-container-id ;;',
-			'*"{{.Id}}"*faithlog-redis*) echo redis-container-id ;;',
+			`*"{{.Id}}"*faithlog-postgres*) echo ${FAKE_DB_CONTAINER_ID} ;;`,
+			`*"{{.Id}}"*faithlog-redis*) echo ${FAKE_REDIS_CONTAINER_ID} ;;`,
 			'*"{{.State.StartedAt}}"*) echo 2026-07-14T00:00:00.000Z ;;',
 			'*"{{.Config.Image}}"*faithlog-backend*) echo faithlog-latest ;;',
 			'*"{{.Config.Image}}"*faithlog-postgres*) echo postgres:17 ;;',
@@ -1409,7 +1420,8 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			`*"port faithlog-backend 8080/tcp"*) [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 ]] && touch "${postLockMarker}"; echo 0.0.0.0:18080 ;;`,
 			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false SPRING_JPA_SHOW_SQL=false LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF FAITHLOG_SCHEDULER_ENABLED=false ;;',
-			'*"stats --no-stream"*) printf "faithlog-backend\\t10.0%%\\t100MiB / 1GiB\\t9.8%%\\nfaithlog-postgres\\t20.0%%\\t200MiB / 1GiB\\t19.5%%\\nfaithlog-redis\\t5.0%%\\t50MiB / 1GiB\\t4.9%%\\n" ;;',
+			`*"stats --no-stream"*) printf "${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\n" ;;`,
+			`*"stats --no-trunc"*) printf "\\033[H${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\033[K\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\033[K\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\033[K\\n"; while :; do printf "\\033[K\\n\\033[J\\033[H${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\033[K\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\033[K\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\033[K\\n"; sleep 0.1; done ;;`,
 			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
 			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
 		].join('\n'));
