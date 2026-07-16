@@ -175,6 +175,32 @@ test('#201 post-check uses page size 10 and proves UNPAID settlement rows surviv
 	assert.match(billingController, /defaultValue = "10"\) int size/);
 });
 
+test('#206 post-check mirrors the production same-direction id tie-break for stable pages', () => {
+	const verifier = read('verify-baseline.mjs');
+	const pageRequests = readProject('src/main/java/com/faithlog/billing/controller/BillingPageRequests.java');
+
+	assert.match(pageRequests, /primary\.getSort\(\)\.and\(Sort\.by\(primaryOrder\.getDirection\(\), "id"\)\)/);
+	assert.match(verifier, /ORDER BY created_at DESC,\s*id DESC LIMIT 10/);
+	assert.match(verifier, /json_agg\([\s\S]*ORDER BY created_at DESC,\s*id DESC\)/);
+});
+
+test('#202 direct JDBC observer and current target identity remain runtime-bound', () => {
+	const runner = read('run-baseline.sh');
+	const verifier = read('verify-baseline.mjs');
+	const collector = read('capture-db-evidence.mjs');
+
+	assert.match(runner, /for name in[^\n]*TARGET_CONTRACT/);
+	assert.doesNotMatch(runner, /TARGET_CONTRACT="\$\{SCRIPT_DIR\}\/target-contract\.json"/);
+	assert.match(runner, /POSTGRES_USER="\$\(read_target database\.user\)"/);
+	assert.match(runner, /POSTGRES_DB="\$\(read_target database\.name\)"/);
+	assert.doesNotMatch(runner, /psql -U faithlog -d faithlog/);
+	assert.match(verifier, /target\.database\.user/);
+	assert.match(verifier, /target\.database\.name/);
+	assert.match(collector, /target\.database\.user/);
+	assert.match(collector, /target\.database\.name/);
+	assert.doesNotMatch(`${runner}\n${verifier}\n${collector}`, /SUPABASE|service_role|anon_key|postgrest/i);
+});
+
 test('approved load remains 1,000 ACTIVE members, warmup 1, sequential 10, and VUS 5 concurrent', () => {
 	const seed = read('seed-fixtures.mjs');
 	const scenario = read('settlement-baseline.js');
