@@ -32,7 +32,7 @@ test('Issue #198 scenario pins the current develop Flyway and notification runti
 		assert.equal(sha256(`src/main/resources/db/migration/${name}`), expectedHash, `${name} identity drifted`);
 	}
 	assert.deepEqual(contract.notificationFlow, {
-		creationTokenLookup: 'per-target-user',
+		creationTokenLookup: 'request-wide-bulk',
 		deliveryTokenSnapshot: 'request-wide-bulk',
 		permanentFailurePolicy: 'deactivate-and-remove-from-later-request-logs',
 		staleTokenCutoffDays: 90,
@@ -63,7 +63,8 @@ test('current production sources still match the characterized #200 notification
 	);
 
 	assert.match(requestService, /requestAutomaticNotification/);
-	assert.match(requestService, /findActiveSendableTokens\(targetUserId\)/);
+	assert.match(requestService, /findActiveSendableTokensByUserIdIn/);
+	assert.doesNotMatch(requestService, /findActiveSendableTokens\(targetUserId\)/);
 	assert.match(deliveryWorker, /findActiveSendableTokensByUserIdIn\(pendingUserIds\)/);
 	assert.match(deliveryWorker, /findByRequestIdAndSendStatusOrderByIdAsc/);
 	assert.match(deliveryWorker, /if \(permanent\)[\s\S]*iterator\.remove\(\)/);

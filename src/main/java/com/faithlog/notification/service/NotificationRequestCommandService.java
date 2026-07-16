@@ -93,6 +93,7 @@ public class NotificationRequestCommandService {
 		UUID requestId = UUID.randomUUID();
 		int queuedCount = 0;
 		int createdCount = 0;
+		Set<Long> activeTokenUserIds = findActiveTokenUserIds(command.targetUserIds());
 		for (Long targetUserId : command.targetUserIds()) {
 			boolean reserved = notificationDeduplicationService.reserveDailyAutomaticNotification(
 				new NotificationDeduplicationCommand(
@@ -106,7 +107,7 @@ public class NotificationRequestCommandService {
 			if (!reserved) {
 				continue;
 			}
-			if (userFcmTokenRepository.findActiveSendableTokens(targetUserId).isEmpty()) {
+			if (!activeTokenUserIds.contains(targetUserId)) {
 				notificationLogRepository.save(NotificationLog.skipped(
 					requestId,
 					targetUserId,
@@ -145,9 +146,10 @@ public class NotificationRequestCommandService {
 		UUID requestId = UUID.randomUUID();
 		int queuedCount = 0;
 		int skippedCount = 0;
+		Set<Long> activeTokenUserIds = findActiveTokenUserIds(targetUserIds);
 
 		for (Long targetUserId : targetUserIds) {
-			if (userFcmTokenRepository.findActiveSendableTokens(targetUserId).isEmpty()) {
+			if (!activeTokenUserIds.contains(targetUserId)) {
 				notificationLogRepository.save(NotificationLog.skipped(
 					requestId,
 					targetUserId,
@@ -179,6 +181,16 @@ public class NotificationRequestCommandService {
 			notificationDispatchPort.dispatch(requestId);
 		}
 		return new SendNotificationResult(requestId, queuedCount, skippedCount);
+	}
+
+	private Set<Long> findActiveTokenUserIds(List<Long> targetUserIds) {
+		if (targetUserIds.isEmpty()) {
+			return Set.of();
+		}
+		return userFcmTokenRepository.findActiveSendableTokensByUserIdIn(new LinkedHashSet<>(targetUserIds))
+			.stream()
+			.map(token -> token.userId())
+			.collect(Collectors.toSet());
 	}
 
 	private List<Long> resolveTargets(SendNotificationCommand command) {

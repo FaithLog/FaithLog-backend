@@ -47,7 +47,7 @@ class NotificationRequestCommandServiceBatchTest {
 	@Mock NotificationLockService notificationLockService;
 
 	@Test
-	void automatic_request_bulk_loads_tokens_after_dedupe_and_preserves_log_semantics() {
+	void automatic_request_bulk_loads_tokens_and_preserves_dedupe_and_log_semantics() {
 		NotificationRequestCommandService service = new NotificationRequestCommandService(
 			notificationLogRepository, userFcmTokenRepository, userRepository, campusMemberRepository,
 			weeklyDevotionRecordRepository, pollRepository, pollResponseRepository, chargeItemRepository,
@@ -55,7 +55,7 @@ class NotificationRequestCommandServiceBatchTest {
 		);
 		when(notificationDeduplicationService.reserveDailyAutomaticNotification(any(
 			NotificationDeduplicationCommand.class))).thenReturn(true, false, true);
-		when(userFcmTokenRepository.findActiveSendableTokensByUserIdIn(Set.of(11L, 13L)))
+		when(userFcmTokenRepository.findActiveSendableTokensByUserIdIn(Set.of(11L, 12L, 13L)))
 			.thenReturn(List.of(UserFcmToken.create(11L, "token-11", "client-11", DeviceType.IOS, "1.0")));
 		when(notificationLogRepository.save(any(NotificationLog.class)))
 			.thenAnswer(invocation -> invocation.getArgument(0));
@@ -66,7 +66,7 @@ class NotificationRequestCommandServiceBatchTest {
 		));
 
 		assertThat(created).isEqualTo(2);
-		verify(userFcmTokenRepository).findActiveSendableTokensByUserIdIn(Set.of(11L, 13L));
+		verify(userFcmTokenRepository).findActiveSendableTokensByUserIdIn(Set.of(11L, 12L, 13L));
 		verify(userFcmTokenRepository, never()).findActiveSendableTokens(any(Long.class));
 		ArgumentCaptor<NotificationLog> logs = ArgumentCaptor.forClass(NotificationLog.class);
 		verify(notificationLogRepository, org.mockito.Mockito.times(2)).save(logs.capture());

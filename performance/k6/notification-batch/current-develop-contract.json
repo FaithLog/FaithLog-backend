@@ -15,7 +15,7 @@
     "V11__secure_supabase_data_api.sql": "67fcbfd6e6ab4912d12eb40caaed898b27bec8c97595487b74d01c409757323b"
   },
   "productionSources": {
-    "src/main/java/com/faithlog/notification/service/NotificationRequestCommandService.java": "b929fb85589da80ee5e8010538e824f48642b2e88d1613b70268e91aa2539e0c",
+    "src/main/java/com/faithlog/notification/service/NotificationRequestCommandService.java": "8193715d39a889960519ec19eaf438f444286fc994951064b314590d2b91770d",
     "src/main/java/com/faithlog/notification/service/NotificationDeliveryWorker.java": "f272c4cba2026aec80ed82ed7cde865af49aef4c28943ac4f4a77dbc879f27b1",
     "src/main/java/com/faithlog/notification/infrastructure/repository/UserFcmTokenRepository.java": "858e4ef0a391aa8a0151d979efcac99e1777bd3ac5084936a881ef5e9cd4b516",
     "src/main/java/com/faithlog/notification/service/ChargeReminderService.java": "ba4921979c67b2f4f00d04b189d86c23272e52dbadc5117510e32145585bc8f5",
@@ -33,7 +33,7 @@
     "src/main/java/com/faithlog/notification/service/NotificationDeduplicationKey.java": "56da93769ac5c6c7dd98703721dee626c073a37b60996ccff79c17b9d83f2eda"
   },
   "notificationFlow": {
-    "creationTokenLookup": "per-target-user",
+    "creationTokenLookup": "request-wide-bulk",
     "deliveryTokenSnapshot": "request-wide-bulk",
     "permanentFailurePolicy": "deactivate-and-remove-from-later-request-logs",
     "staleTokenCutoffDays": 90,

@@ -224,6 +224,17 @@ PostgreSQL/Redis counter와 Docker stats의 window는 Gradle 실행, Spring star
 
 모든 verified/failed/prepared 결과는 `accepted=false`, `automaticAdoption=false`다. 실패 시 ignored `rejections/` 아래 first machine-readable rejection을 exclusive-create로 한 번만 기록해 뒤의 cleanup/verification 실패가 최초 stage와 reason을 덮어쓰지 않는다. credential/token 원문은 rejection에 포함하지 않는다.
 
+## Fresh-05 conditional isolated before
+
+`faithlog-perf-198-20260717-05` / `before-20260717-05`는 snapshot restore 11회, warmup 1회, measured 10회를 exit 0으로 완료했다. 상태는 `conditional-isolated-snapshot-restored`, `accepted=false`, `automaticAdoption=false`, fake/local, cold-JVM이며 external FCM은 사용하지 않았다. report 467개 파일은 `/private/tmp/faithlog-perf-198-reports/20260717-05`에 보존했다. read-only inventory의 SHA-256은 size/mtime 목록 `943cacc98f80c2c1cb8db45427f7fbc473d9ed10143706337862d8e8c17d6036`, per-file SHA 목록 `254ab5f3130278fac876323c96e9bd2478ea4134456e583e5e87e90e22e60597`다.
+
+- Creation duration p50/p95/p99/max: `4374.0778125 / 4587.04813545 / 4616.35986069 / 4623.687792 ms`; throughput: `228.62278901445 / 235.99378014695 / 238.75170402809 / 239.44118499837 /s`; prepared statements `2000`, per-user `2`.
+- Delivery duration: `104736.676979 / 105108.45254375 / 105224.59380875 / 105253.629125 ms`; throughput: `7.63820300717 / 7.64814053088 / 7.64826889765 / 7.64830098934 /s`; prepared statements `1805`, per-user `1.805`.
+- End-to-end duration: `109151.666791 / 109580.61548765 / 109694.45399753 / 109722.913625 ms`; throughput: `9.16156855108 / 9.18092293976 / 9.18241306935 / 9.18278560175 /s`.
+- Totals: targets/log inserts `10000`, SENT `7000`, FAILED `1000`, SKIPPED `2000`, creation-stage PENDING `8000`, log updates `8000`, token updates `1010`, fake attempts `9010`, permanent failures `1010`; provider fake failure rate `0.1120976692563818`, final log failure rate `0.125`.
+
+이 수치는 conditional isolated before이며 자동 resume claim이나 운영 SLO가 아니다. Call graph상 creation `2000`은 사용자별 token select `1000` + identity log insert `1000`이다. production 변경은 manual/automatic request 모두 target user ID를 한 번의 bulk token query로 조회한다. dedupe, 대상 순서, PENDING/SKIPPED와 dispatch 의미, log identity insert는 유지되므로 예상 creation prepared statements는 약 `1001`이다. Delivery `1805`는 request token bulk query 이후 log 상태 800건과 token failure 101건을 독립 transaction으로 select/update하는 partial-durability 비용이며 이번 최소 변경에서 유지한다. 실제 after 수치와 개선율은 PM의 fresh after load 전까지 미측정이다.
+
 ## p50/p95/p99/max 집계와 snapshot restore
 
 승인된 정책은 `EXPECTED_WARMUP_SAMPLES=1`, `EXPECTED_MEASURED_SAMPLES=10`, `CUMULATIVE_STATE_STRATEGY=snapshot-restore`다. runner는 sample마다 `--no-daemon` test JVM을 새로 시작하므로 실행 모델은 `cold-jvm-per-sample`이며 warmup은 percentile에서 제외한다.
