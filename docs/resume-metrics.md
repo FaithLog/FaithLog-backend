@@ -1296,7 +1296,8 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - OCI revision label이 없는 runtime을 clean detached source/Compose working directory/newest HEAD reflog selector/image creation/API tree digest로 결속하고, app/DB/Redis image·full container identity, app JAR, Flyway/Redis run identity, numeric loopback, workload/JWT, three-role resource window, DB session/maintenance, BigInt 및 `pg_stat_statements` continuity를 fail-closed 조건으로 보강.
   - 최초 실패를 fresh mode-600 JSON에 한 번만 보존하고 `automaticAdoption=false`를 고정해 이후 실패가 최초 원인을 덮어쓰지 않도록 구성.
   - 공통 무결성 감사와 self-review에서 DB/Redis CLI의 암묵 host/socket, devotion lock 전후 service/port continuity, retention SQL read-only transaction, `%cI` checkout 시각 오판, fake suite report namespace 재사용을 RED로 재현하고 최소 보정. issue-local Node 계약 62/62를 통과했으며 현재 성능 상태는 계속 not-measured.
-  - 상태는 `scenario-ready / not-measured`. preparation과 measurement를 분리하는 two-session/one-load 정책에 따라 Docker/DB/HTTP/k6/cleanup/scheduler는 실행하지 않았고 성능 개선 수치도 주장하지 않음.
+  - #208 공통 harness 감사에서 installed k6 v2 failure Rate의 `passes`/`fails`와 별도 phase transaction Counter가 결속되지 않은 gap을 RED로 재현했다. direct/values export와 rate/value one-of를 지원하면서 Counter exact total, safe-integer Rate inventory, `passes + fails` 수학과 zero-failure 방향을 fail-closed로 고정했고 issue-local Node 계약 62/62를 재통과했다. no-HTTP synthetic shape 확인 외 실제 부하나 성능 수치 측정은 하지 않았다.
+  - 상태는 `scenario-ready / not-measured`. preparation과 measurement를 분리하는 two-session/one-load 정책에 따라 installed k6 v2 shape 확인용 no-HTTP synthetic 외 Docker/DB/HTTP/actual load/cleanup/scheduler는 실행하지 않았고 성능 개선 수치도 주장하지 않음.
 
 - 2026-07-15 #201 목록 페이징 메타데이터·이전 기록 조회
   - 청구 조회 5개 응답의 기존 `members`/`items`를 유지하면서 `page`, `size`, `totalElements`, `totalPages`를 추가해 클라이언트가 다음 페이지를 정확히 판단하도록 보강.

@@ -151,8 +151,19 @@ test('k6 v2 direct and values Counter/Rate/Trend math is exact and fail-closed',
 		}
 		const wrongRateTotal = metrics(shape, { passes: 0, fails: 999, value: 0 });
 		assert.throws(() => validateSummary(wrongRateTotal, 'measured', 1000), /failure.*total|passes.*fails/i);
+		for (const malformedCount of [undefined, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+			const malformedCounter = metrics(shape);
+			const counter = shape
+				? malformedCounter.metrics.devotion_weekly_measured_transactions.values
+				: malformedCounter.metrics.devotion_weekly_measured_transactions;
+			if (malformedCount === undefined) delete counter.count;
+			else counter.count = malformedCount;
+			assert.throws(() => validateSummary(malformedCounter, 'measured', 1000), /transaction|safe integer|numeric/i);
+		}
 	}
-	assert.throws(() => validateSummary(metrics(false), 'measured', Number.MAX_SAFE_INTEGER + 1), /safe integer|transaction/i);
+	const unsafeExactTotal = metrics(false, { passes: 0, fails: Number.MAX_SAFE_INTEGER + 1, value: 0 });
+	unsafeExactTotal.metrics.devotion_weekly_measured_transactions.count = Number.MAX_SAFE_INTEGER + 1;
+	assert.throws(() => validateSummary(unsafeExactTotal, 'measured', Number.MAX_SAFE_INTEGER + 1), /safe integer|transaction/i);
 	const unordered = metrics(false);
 	unordered.metrics.devotion_weekly_measured['p(95)'] = 0;
 	assert.throws(() => validateSummary(unordered, 'measured', 1000), /latency percentiles/);

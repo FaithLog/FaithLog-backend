@@ -797,6 +797,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Treat missing image-alone revision labels as a disclosed limitation, not a blocker. Both runners require `APP_SOURCE_WORKTREE` and fail closed unless its realpath equals the Compose working directory, HEAD is clean/detached/exact, the newest `%gD` `HEAD@{<iso-strict>}` selector is valid even with an empty subject, the exact app image was created after that actual reflog time, and the issue-relevant API tree digest matches the user-approved digest. `%cI` commit time is not checkout evidence. Runtime credentials are removed from the parent environment and passed only to explicit validators/k6 children. Every fixture report namespace remains exclusive-create; optional `PERF_REPORT_ROOT` only separates test or approved report bases and does not add target/workload defaults.
 - Impact: Current observed provenance is eligible for later user approval, but no measurement was run. Devotion and retention keep separate fresh fixture IDs and reports; retention remains isolated-only read verification and the shared `faithlog-frontend-latest` project remains an immediate retention rejection target.
 
+### 2026-07-16 - Issue #197 Installed k6 v2 Rate/Counter Adoption Contract
+
+- Context: The #208 common performance harness audit found that the #197 summary validator accepted a numeric failure rate without proving the installed k6 v2 Rate `passes`/`fails` inventory against the scenario transaction Counter.
+- Decision: For warmup, measured, and rollback, bind the custom failure Rate to the phase-specific transaction Counter. Counter total, Rate passes, and Rate fails must be non-negative safe integers; the Counter must be the exact positive runtime expected total and `passes + fails` must equal it. Accept installed k6 v2 direct or `metric.values` exports and either `rate` or `value`, requiring exact agreement when both are present. Because the scenario adds the failure predicate to the Rate, a zero-failure run requires rate/value 0, passes 0, and fails equal to the expected total. Missing, malformed, fractional, negative, unsafe, or contradictory evidence is non-adoptable.
+- Impact: This is scenario evidence validation only. No production/API/Flyway/dependency behavior or workload is changed, no actual load is run, and Issue #197 remains `scenario-ready / not-measured`.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope

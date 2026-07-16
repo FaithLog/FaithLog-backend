@@ -772,7 +772,7 @@ function preflightEvidence(manifest) {
 function summary(phase, transactions) {
 	return { metrics: {
 		[`devotion_weekly_${phase}`]: { 'p(50)': 10, 'p(95)': 20, 'p(99)': 30, max: 40 },
-		[`devotion_weekly_${phase}_failure`]: { rate: 0 },
+		[`devotion_weekly_${phase}_failure`]: { passes: 0, fails: transactions, value: 0 },
 		[`devotion_weekly_${phase}_transactions`]: { count: transactions, rate: 10 },
 		iterations: { count: transactions, rate: 10 },
 	} };
