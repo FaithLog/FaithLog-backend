@@ -699,6 +699,8 @@ test('scenario manifest separates endpoints, page depths, filters, and correctne
 test('k6 scenario is one-endpoint-per-run and emits endpoint metrics', () => {
 	const source = read(files.scenario);
 
+	assert.match(source, /JSON\.parse\(open\(['"]\.\/scenario-contract\.json['"]\)\)/);
+	assert.doesNotMatch(source, /import\s+\w+\s+from\s+['"]\.\/scenario-contract\.json['"]/);
 	for (const environmentName of [
 		'SCENARIO',
 		'CASE',
@@ -1758,6 +1760,9 @@ test('README keeps reports ignored and records scenario-ready/not-measured statu
 	assert.match(readme, /다른 부하.*병렬.*금지/);
 	assert.match(readme, /production.*변경.*금지/i);
 	assert.doesNotMatch(readme, /BASE_URL=http:\/\/localhost:8080/);
+	assert.match(readme, /EXEC195_BEFORE_20260716_A[\s\S]*non-reusable/);
+	assert.match(readme, /warmup and measured HTTP request counts were both exactly `0`/i);
+	assert.match(readme, /EXEC195_BEFORE_20260716_B/);
 	assert.equal(
 		(readme.match(/BASE_URL=http:\/\/127\.0\.0\.1:28080/g) || []).length,
 		3,
@@ -1777,7 +1782,6 @@ test('installed k6 can inspect the scenario contract without treating JSON as a 
 		const contract = JSON.parse(read(files.contract));
 		const result = spawnSync(k6Bin, [
 			'inspect',
-			'--no-thresholds',
 			'-e', 'BASE_URL=http://127.0.0.1:28080',
 			'-e', 'SCENARIO=admin_users',
 			'-e', 'CASE=first_page',
@@ -1795,7 +1799,7 @@ test('installed k6 can inspect the scenario contract without treating JSON as a 
 			'-e', 'PERF_ACCESS_TOKEN=inspect-only-placeholder',
 			files.scenario,
 		], {
-			cwd: issueRoot,
+			cwd: repositoryRoot,
 			encoding: 'utf8',
 			env: {
 				PATH: process.env.PATH,

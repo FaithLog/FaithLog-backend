@@ -1,7 +1,8 @@
 import http from 'k6/http';
 import { check, fail } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
-import contract from './scenario-contract.json';
+
+const contract = JSON.parse(open('./scenario-contract.json'));
 
 const BASE_URL = __ENV.BASE_URL?.replace(/\/$/, '');
 const SCENARIO = __ENV.SCENARIO;
