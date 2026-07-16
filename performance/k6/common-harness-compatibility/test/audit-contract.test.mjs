@@ -178,6 +178,35 @@ test('generic probes return machine-readable PASS, FAIL with line/counterexample
 	}
 });
 
+test('#197 helper-based Rate evidence is accepted but keyword-only text is rejected', () => {
+	const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-208-rate-capability-'));
+	try {
+		fs.writeFileSync(path.join(temporary, 'valid.mjs'), `
+function extractPhaseEvidence(summary) {
+  const failures = metricValues(summary, 'failure');
+  const transactions = metricValues(summary, 'transactions');
+  return { transactions: transactions.count, failurePasses: failures.passes, failureFails: failures.fails };
+}
+function failureRate(failures) {
+  const rate = failures.rate;
+  const value = failures.value;
+  if (rate !== undefined && value !== undefined) assert.equal(rate, value);
+  return rate ?? value;
+}
+export function validateSummary(summary, expectedTransactions) {
+  const evidence = extractPhaseEvidence(summary);
+  const failureTotal = evidence.failurePasses + evidence.failureFails;
+  assert.equal(failureTotal, evidence.transactions);
+  assert.equal(failureTotal, expectedTransactions);
+}
+`);
+		fs.writeFileSync(path.join(temporary, 'keywords.mjs'), '// transactions.count passes fails expectedTransactions rate value assert.equal\n');
+		const cell = (file) => ({ checkId: 'rate', mode: 'probe', recommendation: 'exact Rate math', probes: [{ file, capability: 'rate-exact-external-count' }] });
+		assert.equal(auditTarget({ issueNumber: 197, worktree: temporary, cells: [cell('valid.mjs')] }).cells[0].status, 'PASS');
+		assert.equal(auditTarget({ issueNumber: 999, worktree: temporary, cells: [cell('keywords.mjs')] }).cells[0].status, 'FAIL');
+	} finally { fs.rmSync(temporary, { recursive: true, force: true }); }
+});
+
 test('audit report root is absolute, fresh, exclusive, and preserves the first rejection', () => {
 	const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-208-report-'));
 	const reportRoot = path.join(temporary, 'fresh-report');
