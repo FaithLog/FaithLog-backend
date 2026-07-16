@@ -492,6 +492,46 @@ test('pre-boundary maintenance state requires two consecutive stable snapshots a
 	assert.match(runner, /pre-boundary-state\.mjs[\s\S]*mv "\$PRE_BOUNDARY_SECOND_STATE" "\$REPORT_DIR\/evidence\/measurement-state-before\.json"/);
 });
 
+test('fresh measured login clears a delayed users stats increment before the strict measured boundary', async () => {
+	const runner = await read('run-baseline.sh');
+	const usersMaintenance = await read('vacuum-measured-login-user.sql');
+	const {validateStablePreBoundaryState} = await module('pre-boundary-state.mjs');
+	const {validateMeasurementIntegrity} = await module('measurement-integrity.mjs');
+
+	const stableFirst = integrityFixture().beforeState;
+	stableFirst.capturedAt = '2026-07-16T05:48:48.000Z';
+	stableFirst.tables.users.nModSinceAnalyze = 72;
+	const stableSecond = structuredClone(stableFirst);
+	stableSecond.capturedAt = '2026-07-16T05:48:49.000Z';
+	assert.deepEqual(validateStablePreBoundaryState(stableFirst, stableSecond, 'faithlog'), stableSecond);
+
+	const delayedFlush = integrityFixture();
+	delayedFlush.beforeState.tables.users.nModSinceAnalyze = 72;
+	delayedFlush.afterState.tables.users.nModSinceAnalyze = 73;
+	assert.throws(
+		() => validateMeasurementIntegrity(delayedFlush),
+		/users\.nModSinceAnalyze/,
+		'a stable pair alone can miss the measured-login UPDATE when its stats flush is delayed',
+	);
+
+	assert.equal(usersMaintenance.trim(), 'VACUUM (ANALYZE) users;');
+	assert.doesNotMatch(
+		usersMaintenance,
+		/\b(?:campus_members|payment_accounts|charge_items|FULL|FREEZE|pg_stat_reset|CREATE EXTENSION|ALTER SYSTEM)\b/i,
+	);
+	const measuredLogin = runner.indexOf('IDENTITY_LABEL=ADMIN_MEASURED');
+	const usersVacuum = runner.indexOf('vacuum-measured-login-user.sql');
+	const postgresBefore = runner.indexOf('-v stage=before');
+	const stabilization = runner.indexOf('measurement-state-pre-boundary-attempt-');
+	const counterBefore = runner.indexOf('counter-before.json');
+	const measuredWindow = runner.indexOf('MEASURED_START=');
+	assert.ok(measuredLogin < usersVacuum);
+	assert.ok(usersVacuum < postgresBefore && usersVacuum < stabilization);
+	assert.ok(usersVacuum < counterBefore && usersVacuum < measuredWindow);
+	assert.match(runner, /psql_exec -q -t -A < "\$SCENARIO_DIR\/vacuum-measured-login-user\.sql" \\\n+\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze\.txt"/);
+	assert.match(runner, /'status=completed' \\\n+\s*'tables=users' \\\n+\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze-complete\.txt"/);
+});
+
 test('database evidence is exact, non-mutating, and keeps optional pgss continuity', async () => {
 	const state = await read('collect-measurement-state.sql');
 	const counters = await read('collect-counter-boundary.sql');
