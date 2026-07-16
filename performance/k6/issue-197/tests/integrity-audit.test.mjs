@@ -116,19 +116,43 @@ test('the first machine-readable rejection is immutable and disables automatic a
 });
 
 test('k6 v2 direct and values Counter/Rate/Trend math is exact and fail-closed', () => {
-	const metrics = (valuesShape) => {
+	const actualK6V2 = JSON.parse(issueFile('tests/fixtures/k6-v2-rate-counter-summary.json'));
+	assert.deepEqual(actualK6V2.metrics.devotion_weekly_measured_failure, { passes: 0, fails: 2, value: 0 });
+	assert.equal(validateSummary(actualK6V2, 'measured', 2).transactions, 2);
+
+	const metrics = (valuesShape, failureValues = { passes: 0, fails: 1000, value: 0 }) => {
 		const wrap = (value) => valuesShape ? { values: value } : value;
 		return { metrics: {
 			devotion_weekly_measured: wrap({ 'p(50)': 1, 'p(95)': 2, 'p(99)': 3, max: 4 }),
-			devotion_weekly_measured_failure: wrap({ rate: 0 }),
+			devotion_weekly_measured_failure: wrap(failureValues),
 			devotion_weekly_measured_transactions: wrap({ count: 1000 }),
-			iterations: wrap({ rate: 125.5 }),
+			iterations: wrap({ count: 1000, rate: 125.5 }),
 		} };
 	};
-	for (const shape of [false, true]) assert.equal(validateSummary(metrics(shape), 'measured', 1000).transactions, 1000);
-	const failed = metrics(true);
-	failed.metrics.devotion_weekly_measured_failure.values.rate = Number.MIN_VALUE;
-	assert.throws(() => validateSummary(failed, 'measured', 1000), /failure rate must be zero/);
+	for (const shape of [false, true]) {
+		for (const failureValues of [
+			{ passes: 0, fails: 1000, value: 0 },
+			{ passes: 0, fails: 1000, rate: 0 },
+			{ passes: 0, fails: 1000, rate: 0, value: 0 },
+		]) {
+			assert.equal(validateSummary(metrics(shape, failureValues), 'measured', 1000).transactions, 1000);
+		}
+		for (const malformed of [
+			{ fails: 1000, value: 0 },
+			{ passes: 0, value: 0 },
+			{ passes: 0, fails: 1000 },
+			{ passes: 0, fails: 1000, rate: 0, value: 0.01 },
+			{ passes: 1, fails: 999, value: 0 },
+			{ passes: -1, fails: 1001, value: 0 },
+			{ passes: 0.5, fails: 999.5, value: 0 },
+			{ passes: Number.MAX_SAFE_INTEGER + 1, fails: 0, value: 0 },
+		]) {
+			assert.throws(() => validateSummary(metrics(shape, malformed), 'measured', 1000), /failure|passes|fails|rate|value|safe integer|total/i);
+		}
+		const wrongRateTotal = metrics(shape, { passes: 0, fails: 999, value: 0 });
+		assert.throws(() => validateSummary(wrongRateTotal, 'measured', 1000), /failure.*total|passes.*fails/i);
+	}
+	assert.throws(() => validateSummary(metrics(false), 'measured', Number.MAX_SAFE_INTEGER + 1), /safe integer|transaction/i);
 	const unordered = metrics(false);
 	unordered.metrics.devotion_weekly_measured['p(95)'] = 0;
 	assert.throws(() => validateSummary(unordered, 'measured', 1000), /latency percentiles/);
