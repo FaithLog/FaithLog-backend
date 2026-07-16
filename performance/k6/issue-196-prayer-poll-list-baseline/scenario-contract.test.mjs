@@ -22,6 +22,10 @@ const REQUIRED_FILES = [
 	'token-lifetime.mjs',
 	'validate-published-target.mjs',
 	'summarize-run.mjs',
+	'prepare-runtime.sh',
+	'runtime-evidence.override.yml',
+	'runtime-prep-contract.mjs',
+	'filter-sql-log.mjs',
 	'README.md',
 ];
 
@@ -108,6 +112,51 @@ function reportRuntime(overrides = {}) {
 		k6ExitStatus: 0, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
 		warmupExitStatus: 0, integritySamplerExitStatus: 0, runtimeContinuityExitStatus: 0,
 		logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
+		...overrides,
+	};
+}
+
+function runtimeContainer(service, overrides = {}) {
+	return {
+		containerName: `approved-${service}`,
+		service,
+		configuredImage: service === 'app' ? 'approved-image' : `${service}:approved`,
+		imageId: `sha256:${service}`,
+		containerId: `${service}-container-id`,
+		startedAt: '2026-07-16T00:00:00.000Z',
+		configHash: `${service}-config-hash`,
+		...overrides,
+	};
+}
+
+function runtimePrepManifest(overrides = {}) {
+	return {
+		contractVersion: 1,
+		issue: 196,
+		createdAt: '2026-07-16T00:01:00.000Z',
+		source: {
+			revision: SOURCE_REVISION,
+			deployDirectory: '/private/tmp/FaithLog-perf-206-deploy',
+			clean: true,
+			detached: true,
+			imageCreatedAt: '2026-07-16T00:00:30.000Z',
+			operationalProvenance: 'clean-detached-checkout-image-created-after-source',
+			imageAloneCryptographicProof: false,
+		},
+		compose: {
+			project: 'approved',
+			workingDirectory: '/private/tmp/FaithLog-perf-206-deploy',
+			configFiles: ['/private/tmp/FaithLog-perf-206-deploy/docker-compose.yml', '/private/tmp/runtime.override.yml', join(ROOT, 'runtime-evidence.override.yml')],
+			targetPort: '18080',
+		},
+		previousApp: runtimeContainer('app', { containerId: 'previous-app-id', startedAt: '2026-07-15T00:00:00.000Z', configHash: 'previous-app-hash' }),
+		instrumentedApp: runtimeContainer('app'),
+		preservedDatabase: runtimeContainer('postgres'),
+		preservedRedis: runtimeContainer('redis'),
+		evidenceLogging: {
+			sqlLogger: 'DEBUG', formatSql: false, showSql: false,
+			bindLogger: 'OFF', extractLogger: 'OFF', statementOnlyArtifact: true,
+		},
 		...overrides,
 	};
 }
@@ -480,6 +529,84 @@ test('common integrity audit pins pgss state, full resource identity, and primar
 	assert.match(runner, /APP_CONTAINER_ID_VALUE/);
 	assert.match(runner, /DB_CONTAINER_ID_VALUE/);
 	assert.match(runner, /REDIS_CONTAINER_ID_VALUE/);
+});
+
+test('runtime instrumentation prep is app-only, statement-only, and binds the fresh immutable app identity', async () => {
+	for (const name of ['prepare-runtime.sh', 'runtime-evidence.override.yml', 'runtime-prep-contract.mjs', 'filter-sql-log.mjs']) {
+		assert.equal(existsSync(join(ROOT, name)), true, `missing ${name}`);
+	}
+
+	const override = read('runtime-evidence.override.yml');
+	for (const marker of [
+		'LOGGING_LEVEL_ORG_HIBERNATE_SQL: DEBUG',
+		'SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL: "false"',
+		'SPRING_JPA_SHOW_SQL: "false"',
+		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND: "OFF"',
+		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT: "OFF"',
+	]) assert.ok(override.includes(marker), `missing evidence override ${marker}`);
+	assert.doesNotMatch(override, /ports:|container_name:|password|secret|token|postgres:|redis:/i);
+
+	const prep = read('prepare-runtime.sh');
+	for (const name of [
+		'PERF_DEPLOY_DIR', 'PERF_BASE_COMPOSE_FILE', 'PERF_BASE_OVERRIDE_FILE', 'PERF_RUNTIME_PREP_MANIFEST',
+		'BASE_URL', 'APP_CONTAINER', 'DB_CONTAINER', 'REDIS_CONTAINER', 'EXPECTED_COMPOSE_PROJECT',
+		'EXPECTED_CURRENT_APP_CONTAINER_ID', 'EXPECTED_CURRENT_APP_IMAGE_ID', 'EXPECTED_CURRENT_APP_STARTED_AT',
+		'EXPECTED_DB_CONTAINER_ID', 'EXPECTED_DB_IMAGE_ID', 'EXPECTED_DB_STARTED_AT',
+		'EXPECTED_REDIS_CONTAINER_ID', 'EXPECTED_REDIS_IMAGE_ID', 'EXPECTED_REDIS_STARTED_AT',
+	]) assert.match(prep, new RegExp(`${name}=.*:\?`), `${name} must be runtime-required`);
+	assert.match(prep, /faithlog-performance-\$\{compose_project\}\.lock/);
+	assert.match(prep, /up\s+-d\s+--build\s+--no-deps\s+--force-recreate\s+app/);
+	assert.doesNotMatch(prep, /\b(?:down|restart|prune|rm)\b|up[^\n]*(?:postgres|redis)/);
+	for (const marker of ['previousApp', 'instrumentedApp', 'preservedDatabase', 'preservedRedis', 'flag: "wx"', 'mode: 0o600']) {
+		assert.ok(prep.includes(marker) || read('runtime-prep-contract.mjs').includes(marker), `missing prep manifest marker ${marker}`);
+	}
+
+	const modulePath = join(ROOT, 'runtime-prep-contract.mjs');
+	const { validateRuntimePrepManifest } = await import(`${pathToFileURL(modulePath).href}?test=${Date.now()}`);
+	assert.doesNotThrow(() => validateRuntimePrepManifest(runtimePrepManifest(), {
+		sourceRevision: SOURCE_REVISION, composeProject: 'approved', targetPort: '18080',
+	}));
+	assert.throws(() => validateRuntimePrepManifest(runtimePrepManifest({
+		instrumentedApp: runtimeContainer('app', { containerId: 'previous-app-id' }),
+	})), /previous app identity/i);
+	assert.throws(() => validateRuntimePrepManifest(runtimePrepManifest({
+		preservedDatabase: runtimeContainer('postgres', { containerId: 'changed-db' }),
+	}), { expectedDatabase: runtimeContainer('postgres') }), /database continuity/i);
+	assert.throws(() => validateRuntimePrepManifest(runtimePrepManifest({
+		evidenceLogging: { sqlLogger: 'DEBUG', formatSql: false, showSql: false, bindLogger: 'TRACE', extractLogger: 'OFF', statementOnlyArtifact: true },
+	})), /bind logger/i);
+
+	const filter = join(ROOT, 'filter-sql-log.mjs');
+	const cleanLog = spawnSync(process.execPath, [filter], {
+		input: 'INFO request Authorization: Bearer synthetic-token\nDEBUG org.hibernate.SQL: select * from users where id=?\n', encoding: 'utf8',
+	});
+	assert.equal(cleanLog.status, 0);
+	assert.equal(cleanLog.stdout, 'DEBUG org.hibernate.SQL: select * from users where id=?\n');
+	assert.doesNotMatch(cleanLog.stdout, /Authorization|synthetic-token/);
+	const bindLog = spawnSync(process.execPath, [filter], {
+		input: 'TRACE org.hibernate.orm.jdbc.bind: binding parameter (1:VARCHAR) <- [person@example.test]\n', encoding: 'utf8',
+	});
+	assert.notEqual(bindLog.status, 0);
+	assert.equal(bindLog.stdout, '');
+	assert.doesNotMatch(bindLog.stderr, /person@example\.test/);
+
+	const seed = read('seed-fixture.mjs');
+	assert.match(seed, /RUNTIME_PREP_MANIFEST.*required/i);
+	assert.match(seed, /validateRuntimePrepManifest/);
+	assert.match(seed, /runtimePreparation/);
+	for (const entrypoint of ['shape-fixture.sh', 'run-baseline.sh']) {
+		const source = read(entrypoint);
+		for (const field of ['appContainerId', 'appContainerStartedAt', 'dbContainerId', 'dbContainerStartedAt', 'redisContainerId', 'redisContainerStartedAt']) {
+			assert.ok(source.includes(`composeRuntime.${field}`), `${entrypoint} must bind ${field} from the fixture manifest`);
+		}
+	}
+	const runner = read('run-baseline.sh');
+	for (const marker of [
+		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND=OFF',
+		'LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF',
+		'SPRING_JPA_SHOW_SQL=false',
+		'filter-sql-log.mjs',
+	]) assert.ok(runner.includes(marker), `runner missing statement-only log gate ${marker}`);
 });
 
 test('shared DB and Redis identity validators reject source/runtime drift without side effects', async () => {
