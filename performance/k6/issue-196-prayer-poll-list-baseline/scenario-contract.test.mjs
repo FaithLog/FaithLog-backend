@@ -199,6 +199,56 @@ test('current develop Flyway, RLS JDBC bypass, and immutable image identity are 
 	}
 });
 
+test('common integrity audit pins fallback-free workload and app DB Redis continuity', () => {
+	const compose = readRepository('docker-compose.yml');
+	assert.match(compose, /^\s{2}redis:/m, 'Redis is part of the current app runtime and continuity is therefore relevant');
+	for (const entrypoint of ['seed-fixture.mjs', 'shape-fixture.sh', 'run-baseline.sh']) {
+		const source = read(entrypoint);
+		for (const requiredName of [
+			'EXPECTED_SOURCE_REVISION', 'EXPECTED_APP_IMAGE_ID', 'EXPECTED_DB_IMAGE', 'EXPECTED_DB_IMAGE_ID',
+			'REDIS_CONTAINER', 'EXPECTED_REDIS_SERVICE', 'EXPECTED_REDIS_IMAGE', 'EXPECTED_REDIS_IMAGE_ID',
+			'EXPECTED_FLYWAY_VERSION',
+		]) {
+			assert.match(source, new RegExp(`${requiredName}.*required`, 'i'), `${entrypoint} must require ${requiredName}`);
+			assert.doesNotMatch(source, new RegExp(`${requiredName}[^\\n]*(?::-|\\|\\|)`), `${entrypoint} must not default ${requiredName}`);
+		}
+		for (const marker of ['redisContainerId', 'redisImageId', 'redisContainerStartedAt', 'redisRunId']) {
+			assert.match(source, new RegExp(marker), `${entrypoint} missing ${marker} continuity`);
+		}
+	}
+	assert.match(read('seed-fixture.mjs'), /PERF_WEEK_START_DATE.*required/i);
+	assert.doesNotMatch(read('seed-fixture.mjs'), /PERF_WEEK_START_DATE\s*\|\|/);
+	const runner = read('run-baseline.sh');
+	assert.ok((runner.match(/assert_runtime_continuity/g) || []).length >= 5,
+		'app, DB, and Redis identity must be checked before warmup, around measured, and before final reporting');
+	assert.match(runner, /docker stats[^\n]*|sample_resources/);
+	assert.match(runner, /redis_container_id/);
+	assert.match(runner, /APP_CONTAINER_ID_VALUE/);
+	assert.match(runner, /DB_CONTAINER_ID_VALUE/);
+	assert.match(runner, /REDIS_CONTAINER_ID_VALUE/);
+});
+
+test('common integrity audit pins pgss state, full resource identity, and primary machine rejection', () => {
+	const tableStats = read('db-table-stats.sql');
+	const summarizer = read('summarize-run.mjs');
+	for (const marker of ['pgStatStatementsExtensionInstalled', 'pgStatStatementsPreloaded', 'pgStatStatementsViewAvailable']) {
+		assert.match(tableStats, new RegExp(marker));
+		assert.match(summarizer, new RegExp(marker));
+	}
+	assert.match(summarizer, /pgss-state-changed/);
+	assert.match(summarizer, /invalid-pgss-state/);
+	assert.match(summarizer, /resourceContainerId/);
+	assert.match(summarizer, /primaryRejectionReason/);
+	assert.match(summarizer, /automaticAdoption:\s*false/);
+
+	const runner = read('run-baseline.sh');
+	assert.match(runner, /resourceContainerId/);
+	assert.match(runner, /"?\$\{REDIS_CONTAINER\}"?/);
+	assert.match(runner, /APP_CONTAINER_ID_VALUE/);
+	assert.match(runner, /DB_CONTAINER_ID_VALUE/);
+	assert.match(runner, /REDIS_CONTAINER_ID_VALUE/);
+});
+
 test('k6 scenario exposes exact Prayer and member/admin Poll read modes', () => {
 	const scenario = read('scenario.js');
 	for (const mode of ['prayer', 'poll-member', 'poll-admin']) {
