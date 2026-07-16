@@ -24,7 +24,7 @@ current-develop correctness drift는 다음처럼 분리 고정한다.
 - `preflight-devotion.sql`: 어떤 write보다 먼저 전체 cohort의 활성 user/membership/campus, 전용 week의 fresh weekly/daily/charge 0행, 계좌와 활성 penalty rule 계산 금액을 읽기 전용으로 확인한다.
 - `collect-db-counters.sql`, `lib/validate-db-window.mjs`: warmup 뒤 measured 직전/직후의 DB 인스턴스 전체 database counter, 대상 DB table/query counter와 외부 session, analyze/autoanalyze/vacuum/autovacuum/planner 상태를 strict schema로 비교하고 오염된 run의 baseline 채택을 거부한다.
 - `lib/runtime-contract.mjs`: 승인 workload와 JWT exp/sub/user coverage, inspected app published port와 `BASE_URL` 동일성을 어떤 write보다 먼저 확인한다.
-- `lib/source-image-provenance.mjs`: OCI revision label이 없는 app의 clean detached source/Compose working directory/exact HEAD/newest reflog selector/image creation/API tree digest를 fail-closed로 결속한다.
+- `lib/source-image-provenance.mjs`: OCI revision label이 없는 app의 clean detached source/Compose working directory/exact HEAD/newest reflog selector/image creation/API tree digest를 fail-closed로 결속한다. digest inventory는 current revision의 `com/faithlog/devotion`, `com/faithlog/notification`, `com/faithlog/batch/infrastructure/scheduler`, `com/faithlog/batch/service`, `db/migration` 다섯 tree가 각각 실제로 존재해야 하며 하나라도 비면 capture를 거부한다.
 - `lib/rejection-contract.mjs`: runtime 필수 fresh rejection path에 최초 실패 stage를 mode 600 JSON으로 한 번만 기록하고 `automaticAdoption=false`를 고정한다.
 - `lib/validate-k6-summary.mjs`: k6 direct metric과 `metric.values` shape 모두에서 필수 metric, 양의 정수 transaction, 양의 throughput, non-negative·ordered p50/p95/p99/max와 failure gate를 검증한다.
 - `runtime-identity.sql`, `lib/validate-runtime-identity.mjs`: app/DB/Redis full container ID, image ID, StartedAt, Compose project/service, app published port, PostgreSQL database/address/port/postmaster/Flyway identity, Redis run ID/version/port를 initial/warmup 직전/measured 직전·직후/final에 exact 비교한다.
@@ -250,7 +250,7 @@ retention report 경로는 `build/reports/k6/issue-197/<fixtureRunId>/retention/
 
 ## Current-develop handoff
 
-read-only audit에서 확인한 실행 stack은 Compose project `faithlog-frontend-latest`, services `app`/`postgres`/`redis`, app published port `28080`이다. 승인 source는 `/private/tmp/FaithLog-perf-206-deploy`의 clean detached `6796ed146244d8f3f5b5dd7048ebe16865084a97`, newest HEAD reflog selector `2026-07-16T13:20:28+09:00`이고 app image `sha256:8e0f8d85d697a7d34aabf3703ddb27b4f1af326dec4f7c35556986303b0b816c`는 `2026-07-16T04:22:48.810414883Z`에 생성됐다. source API tree digest는 `2ccb072bd3d5be1c65acd43b99d3a36c27a810c93e86dbe64b19fd89841562bd`다. image-alone revision label 부재는 명시 limitation이며 이 결합 근거를 대체하지 않는다.
+read-only audit에서 확인한 실행 stack은 Compose project `faithlog-frontend-latest`, services `app`/`postgres`/`redis`, app published port `28080`이다. 승인 source는 `/private/tmp/FaithLog-perf-206-deploy`의 clean detached `6796ed146244d8f3f5b5dd7048ebe16865084a97`, newest HEAD reflog selector `2026-07-16T13:20:28+09:00`이고 app image `sha256:8e0f8d85d697a7d34aabf3703ddb27b4f1af326dec4f7c35556986303b0b816c`는 `2026-07-16T04:22:48.810414883Z`에 생성됐다. corrected source API tree inventory는 위 다섯 current path의 154개 revision entry이며 SHA-256은 `625bc9e8f83561c67f8f8d5bc26c68bdf172c191d57fec01aca4423e7c2b2a9d`다. 이전 `2ccb072b...` 값은 존재하지 않는 구 Java 경로 세 개가 비어 migration tree만 해시한 값이므로 승인 입력으로 사용하지 않는다. image-alone revision label 부재는 명시 limitation이며 이 결합 근거를 대체하지 않는다.
 
 fresh namespace 추천값은 아직 예약값이 아니다. 기존 `A`가 DB와 filesystem에서 비어 있다는 read-only 근거 없이 `A`를 예약하지 않는다.
 

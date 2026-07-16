@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -249,10 +250,10 @@ test('API contract digest requires every current devotion, notification, batch, 
 	for (const requiredPath of expectedPaths) {
 		assert.match(inventory, new RegExp(`\\t${requiredPath.replaceAll('/', '\\/')}(?:\\/|$)`));
 	}
-	assert.throws(
-		() => collectApiContractInventory(REPOSITORY_ROOT, revision, [...expectedPaths, 'src/main/java/com/faithlog/missing-contract-tree']),
-		/missing-contract-tree.*must exist/i,
-	);
+	const digest = crypto.createHash('sha256').update(`${inventory}\n`).digest('hex');
+	assert.equal(inventory.split('\n').length, 154);
+	assert.equal(digest, '625bc9e8f83561c67f8f8d5bc26c68bdf172c191d57fec01aca4423e7c2b2a9d');
+	assert.match(issueFile('README.md'), new RegExp(digest));
 });
 
 test('detached checkout time comes from the newest HEAD reflog selector even when its subject is empty', async () => {

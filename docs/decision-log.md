@@ -810,6 +810,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Keep HTTP/custom Counter/failure/correctness and business rows exact: measured weekly 1,000, daily 7,000, charge 1,000, rollback persisted 0. Treat `pg_stat_database`, `pg_stat_user_tables`, and optional `pg_stat_statements` as runtime-observed supporting evidence: lossless BigInt monotonic counters, exact target-table inserts, zero unexpected table writes, DB-wide inserts/commits at least the business minimum, rollback 0, external active sessions 0, and planner/maintenance/runtime continuity. Do not require a pre-run exact activity signature. A clean shared-stack result is always `conditional-not-adoptable` with `automaticAdoption=false`.
 - Impact: Issue #197 now has a reproducible prepare-to-inspect handoff without production/Flyway/dependency changes. No Docker, DB, HTTP, k6 load, scheduler, cleanup, or performance measurement ran in the development session; status remains `scenario-ready / not-measured`.
 
+### 2026-07-17 - Issue #197 Current API Contract Digest Inventory Correction
+
+- Context: The source/image provenance digest still named three pre-refactor Java package paths. Because the migration path alone existed, the combined `git ls-tree` inventory stayed non-empty while devotion, notification, and scheduler/service drift was not covered.
+- Decision: Require every digest path to exist independently in the approved revision tree, then hash the combined inventory of `src/main/java/com/faithlog/devotion`, `src/main/java/com/faithlog/notification`, `src/main/java/com/faithlog/batch/infrastructure/scheduler`, `src/main/java/com/faithlog/batch/service`, and `src/main/resources/db/migration`. For revision `6796ed146244d8f3f5b5dd7048ebe16865084a97`, the corrected 154-entry digest is `625bc9e8f83561c67f8f8d5bc26c68bdf172c191d57fec01aca4423e7c2b2a9d`; the earlier migration-only digest must not be approved.
+- Impact: This changes only Issue #197 provenance evidence and runtime handoff documentation. Production, Flyway, dependency, API behavior, Docker, DB, HTTP, k6, and measured status remain unchanged.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope

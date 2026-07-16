@@ -7,12 +7,13 @@ import { fileURLToPath } from 'node:url';
 
 const PROOF_MODE = 'clean-detached-checkout-image-created-after-checkout';
 const LIMITATION = 'image-alone-revision-label-unavailable';
-const API_CONTRACT_PATHS = [
-	'src/main/java/com/faithlog/faithlog/domain/devotion',
-	'src/main/java/com/faithlog/faithlog/domain/notification',
-	'src/main/java/com/faithlog/faithlog/global/scheduler',
+export const API_CONTRACT_PATHS = Object.freeze([
+	'src/main/java/com/faithlog/devotion',
+	'src/main/java/com/faithlog/notification',
+	'src/main/java/com/faithlog/batch/infrastructure/scheduler',
+	'src/main/java/com/faithlog/batch/service',
 	'src/main/resources/db/migration',
-];
+]);
 
 function exactObject(value, keys, label) {
 	assert.ok(value && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
@@ -81,6 +82,17 @@ function git(sourceWorktree, args, options = {}) {
 	return execFileSync('git', ['-C', sourceWorktree, ...args], { encoding: 'utf8', ...options }).trimEnd();
 }
 
+export function collectApiContractInventory(sourceWorktree, revision) {
+	for (const contractPath of API_CONTRACT_PATHS) {
+		nonEmptyString(contractPath, 'source API contract path');
+		const pathInventory = git(sourceWorktree, ['ls-tree', '-r', revision, '--', contractPath]);
+		assert.ok(pathInventory.length > 0, `source API contract path ${contractPath} must exist in revision tree`);
+	}
+	const treeInventory = git(sourceWorktree, ['ls-tree', '-r', revision, '--', ...API_CONTRACT_PATHS]);
+	assert.ok(treeInventory.length > 0, 'source API contract inventory must not be empty');
+	return treeInventory;
+}
+
 function collectFacts(sourceWorktreeInput, composeWorkingDirInput, expectedRevision, imageId, imageCreatedAt) {
 	const sourceWorktree = fs.realpathSync(sourceWorktreeInput);
 	const composeWorkingDir = fs.realpathSync(composeWorkingDirInput);
@@ -95,8 +107,7 @@ function collectFacts(sourceWorktreeInput, composeWorkingDirInput, expectedRevis
 	}
 	const reflog = git(sourceWorktree, ['reflog', '--date=iso-strict', '--format=%cI%x09%gD%x09%gs', 'HEAD']);
 	const checkoutAt = parseNewestHeadReflogCheckoutAt(reflog);
-	const treeInventory = git(sourceWorktree, ['ls-tree', '-r', expectedRevision, '--', ...API_CONTRACT_PATHS]);
-	assert.ok(treeInventory.length > 0, 'source API contract inventory must not be empty');
+	const treeInventory = collectApiContractInventory(sourceWorktree, expectedRevision);
 	const apiContractSha256 = crypto.createHash('sha256').update(`${treeInventory}\n`).digest('hex');
 	const cleanAfter = git(sourceWorktree, ['status', '--porcelain=v1', '--untracked-files=all']) === '';
 	assert.equal(git(sourceWorktree, ['rev-parse', 'HEAD']), revision, 'source revision changed during provenance capture');
