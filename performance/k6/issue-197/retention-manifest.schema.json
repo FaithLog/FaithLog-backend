@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://faithlog.local/performance/issue-197/retention-fixture-manifest.schema.json",
+  "title": "FaithLog Issue #197 isolated retention dry-verification manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenarioType",
+    "datasetId",
+    "fixtureRunId",
+    "datasetPrefix",
+    "referenceInstant",
+    "expectedDeleteCounts"
+  ],
+  "properties": {
+    "scenarioType": { "const": "retention-dry-verify-only" },
+    "datasetId": { "type": "string", "pattern": "^PERFORMANCE_" },
+    "fixtureRunId": { "type": "string", "pattern": "^ISSUE197_[A-Z0-9_-]+$" },
+    "datasetPrefix": { "type": "string", "pattern": "^PERFORMANCE_.*ISSUE197_" },
+    "referenceInstant": { "type": "string", "format": "date-time" },
+    "expectedDeleteCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notificationLogs",
+        "pollResponseOptions",
+        "pollResponses",
+        "pollComments",
+        "pollOptions",
+        "polls",
+        "softDeletedPollComments",
+        "prayerSubmissions",
+        "devotionDailyChecks",
+        "weeklyDevotionRecords",
+        "chargeItems"
+      ],
+      "properties": {
+        "notificationLogs": { "$ref": "#/$defs/count" },
+        "pollResponseOptions": { "$ref": "#/$defs/count" },
+        "pollResponses": { "$ref": "#/$defs/count" },
+        "pollComments": { "$ref": "#/$defs/count" },
+        "pollOptions": { "$ref": "#/$defs/count" },
+        "polls": { "$ref": "#/$defs/count" },
+        "softDeletedPollComments": { "$ref": "#/$defs/count" },
+        "prayerSubmissions": { "$ref": "#/$defs/count" },
+        "devotionDailyChecks": { "$ref": "#/$defs/count" },
+        "weeklyDevotionRecords": { "$ref": "#/$defs/count" },
+        "chargeItems": { "$ref": "#/$defs/count" }
+      }
+    }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 }
+  }
+}

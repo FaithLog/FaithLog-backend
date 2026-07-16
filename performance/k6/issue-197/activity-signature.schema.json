@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://faithlog.local/performance/issue-197/activity-signature.schema.json",
+  "title": "FaithLog Issue #197 user-approved DB activity signature",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "datasetId", "fixtureRunId", "databaseName",
+    "warmupUsers", "measuredUsers", "windows"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "datasetId": { "type": "string", "pattern": "^PERFORMANCE_" },
+    "fixtureRunId": { "type": "string", "pattern": "^ISSUE197_" },
+    "databaseName": { "type": "string", "minLength": 1 },
+    "warmupUsers": { "type": "integer", "minimum": 1 },
+    "measuredUsers": { "const": 1000 },
+    "windows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warmup", "measured"],
+      "properties": {
+        "warmup": { "$ref": "#/$defs/window" },
+        "measured": { "$ref": "#/$defs/window" }
+      }
+    }
+  },
+  "$defs": {
+    "counter": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "tableCounters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seq_scan", "seq_tup_read", "idx_scan", "idx_tup_fetch",
+        "n_tup_ins", "n_tup_upd", "n_tup_del", "n_mod_since_analyze"
+      ],
+      "properties": {
+        "seq_scan": { "$ref": "#/$defs/counter" },
+        "seq_tup_read": { "$ref": "#/$defs/counter" },
+        "idx_scan": { "$ref": "#/$defs/counter" },
+        "idx_tup_fetch": { "$ref": "#/$defs/counter" },
+        "n_tup_ins": { "$ref": "#/$defs/counter" },
+        "n_tup_upd": { "$ref": "#/$defs/counter" },
+        "n_tup_del": { "$ref": "#/$defs/counter" },
+        "n_mod_since_analyze": { "$ref": "#/$defs/counter" }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "calls", "rows"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1 },
+        "calls": { "$ref": "#/$defs/counter" },
+        "rows": { "$ref": "#/$defs/counter" }
+      }
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicationCommits", "rollbacks", "tableDeltas", "pgStatStatements"],
+      "properties": {
+        "applicationCommits": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+        "rollbacks": { "const": "0" },
+        "tableDeltas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "users", "campuses", "campus_members", "penalty_rules", "payment_accounts",
+            "weekly_devotion_records", "devotion_daily_checks", "charge_items"
+          ],
+          "properties": {
+            "users": { "$ref": "#/$defs/tableCounters" },
+            "campuses": { "$ref": "#/$defs/tableCounters" },
+            "campus_members": { "$ref": "#/$defs/tableCounters" },
+            "penalty_rules": { "$ref": "#/$defs/tableCounters" },
+            "payment_accounts": { "$ref": "#/$defs/tableCounters" },
+            "weekly_devotion_records": { "$ref": "#/$defs/tableCounters" },
+            "devotion_daily_checks": { "$ref": "#/$defs/tableCounters" },
+            "charge_items": { "$ref": "#/$defs/tableCounters" }
+          }
+        },
+        "pgStatStatements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available", "statements"],
+          "properties": {
+            "available": { "type": "boolean" },
+            "statements": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/statement" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

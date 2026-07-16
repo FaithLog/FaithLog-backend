@@ -1290,6 +1290,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ## Resume Bullet Candidates
 
+- 2026-07-16 #197 current-develop 성능 기준선 준비
+  - `origin/develop` exact HEAD `6796ed146244d8f3f5b5dd7048ebe16865084a97`의 #200/#201/#202/#206 drift를 경건 제출과 retention 분리 시나리오의 실행형 fake/static correctness 계약으로 고정.
+  - #201 최근 1개월 archive visibility와 전년도 terminal retention 후보를 분리하고, #200 stale duty·soft-deleted account의 UNPAID가 retention 후보가 아님을 검증하도록 구성.
+  - runtime 승인 revision, app/DB/Redis image·full container identity, app JAR/API-contract SHA-256, Compose project/service, Flyway/Redis run identity, numeric loopback, workload/JWT, three-role resource window, DB session/maintenance, BigInt 및 `pg_stat_statements` continuity를 fail-closed 조건으로 보강.
+  - 최초 실패를 fresh mode-600 JSON에 한 번만 보존하고 `automaticAdoption=false`를 고정해 이후 실패가 최초 원인을 덮어쓰지 않도록 구성.
+  - 공통 무결성 감사와 self-review에서 DB/Redis CLI의 암묵 host/socket, devotion lock 전후 service/port continuity, retention SQL read-only transaction 누락을 RED로 재현하고 최소 보정. 최종 issue-local Node 58 tests / 58 pass, Node syntax 19 files, Bash 2 files, JSON schema 3 files, diff 검증을 통과.
+  - 상태는 `scenario-ready / not-measured`. preparation과 measurement를 분리하는 two-session/one-load 정책에 따라 Docker/DB/HTTP/k6/cleanup/scheduler는 실행하지 않았고 성능 개선 수치도 주장하지 않음.
+
 - 2026-07-15 #201 목록 페이징 메타데이터·이전 기록 조회
   - 청구 조회 5개 응답의 기존 `members`/`items`를 유지하면서 `page`, `size`, `totalElements`, `totalPages`를 추가해 클라이언트가 다음 페이지를 정확히 판단하도록 보강.
   - 미납은 기간 제한 없이 유지하고, `includeArchived=false`에서 PAID는 `paidAt`, WAIVED/CANCELED는 `updatedAt` 기준 최근 1개월만 노출하며 `includeArchived=true`로 과거 완료 기록을 조회하도록 DB 조건을 적용.
