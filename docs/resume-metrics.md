@@ -1450,4 +1450,14 @@ Metric candidates:
 - 채택 경계: I의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
 - 복구/보존: 측정 계정 15024/15025는 모두 USER로 복구됐고 canonical lock free가 확인됐다. I namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
 - 승인된 재발 방지: fixture COMMIT 직후, expectations/preflight/warmup 전에 별도 stdin SQL로 exact `ANALYZE campus_members, payment_accounts, charge_items;`를 실행하고 completion marker를 남긴다. users, 다른 table, VACUUM, reset/config/extension, schema/index/Flyway는 변경하지 않는다. Measured before/after analyze/autoanalyze continuity는 완화하지 않는다.
-- 다음 제안: `I193_BEFORE_20260716_J / I193_FIXTURE_20260716_J / EXEC193_BEFORE_20260716_J`. PM 독립 리뷰와 사용자 승인 전에는 생성하거나 실행하지 않는다.
+- 후속 J는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 measured-window insert-triggered autovacuum 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt J rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_J / I193_FIXTURE_20260716_J / EXEC193_BEFORE_20260716_J`.
+- 실행 범위: 승인된 exact 3-table ANALYZE를 warmup 전에 완료했고 measured 16 cases를 failure 0으로 완료했다. `charge_items` analyzeCount/autoanalyzeCount/lastAnalyze는 안정적이어서 I의 autoanalyze 문제는 해소됐다.
+- 거부 원인: `campus_members` before는 `lastAnalyze=2026-07-16T05:31:18.323492Z`, `autovacuumCount=5`, `lastAutovacuum=2026-07-16T02:50:09.214337Z`, `nModSinceAnalyze=0`이었지만 after는 `autovacuumCount=6`, `lastAutovacuum=2026-07-16T05:32:16.798376Z`, `nModSinceAnalyze=0`이었다. Measurement-state before `2026-07-16T05:31:31.009787Z`, after `2026-07-16T05:34:40.811198Z` 사이에서 insert-triggered autovacuum이 measured 시작 약 45초 뒤 실행돼 strict integrity가 거부했다.
+- read-only 근거: `autovacuum_naptime=60s`, `autovacuum_vacuum_insert_threshold=1000`, `autovacuum_vacuum_insert_scale_factor=0.2`. J autovacuum 완료 뒤 `campus_members.n_ins_since_vacuum=0`; 현재 `charge_items.n_ins_since_vacuum=105000`, live row 534011이므로 다음 fresh 35,000-row fixture도 insert-triggered vacuum을 유발할 수 있다.
+- 채택 경계: J의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15026/15027은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. J namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 사용자 결정 대기: 추천 후보는 existing ANALYZE를 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체하는 것이다. 아직 미승인·미구현이며 scenario/code/test, 데이터/schema/index/Flyway/config/reset을 변경하지 않았다. 다음 fresh ID도 제안하지 않는다.
