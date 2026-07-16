@@ -826,3 +826,11 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Recommendation: Provide one stable local transcript source path or leave transcript analysis disabled.
 - Current action: No transcript source was provided, so conversation transcripts were not inspected.
 <!-- daily-resume-monitor:end:decision-log:2026-06-16 -->
+
+### 2026-07-16 - Issue #192 Latest-develop Scenario Compatibility
+
+- User decision: Performance issues may correct k6/fixture/validator/test/docs code in parallel, while all actual fixture/DB/HTTP/k6 loads remain PM-owned and execute sequentially on one server.
+- Issue #192 scope: Preserve the valid before bundle and completed production optimization; update only latest-develop scenario and comparison contracts. Do not rerun before/after in the issue branch.
+- Current-develop drift: `origin/develop` `6796ed1` adds #206 stable charge paging. The settlement verifier must use the same `created_at DESC, id DESC` ordering. #202 RLS does not change the direct JDBC observer; DB identity remains runtime target-bound and no Supabase Data API credential is used.
+- Target/comparison decision: `TARGET_CONTRACT` is runtime-required with no runner default. Before/after comparison requires exact workload and target-role continuity, distinct source/immutable target identities, and preserves four mode metrics separately.
+- Status: scenario-ready / not measured. Actual Docker/DB/HTTP/fixture/k6 and production/Flyway/dependency changes were zero in this compatibility pass.

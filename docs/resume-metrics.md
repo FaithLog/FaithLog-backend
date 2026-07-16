@@ -1367,3 +1367,12 @@ Metric candidates:
 - Health check success rate: run `docker compose up -d postgres redis app` and repeat `curl /api/v1/health` against one approved runtime.
 - API response time: measure `GET /api/v1/health` or another user-approved endpoint with a fixed local or deployed target.
 <!-- daily-resume-monitor:end:resume-metrics:2026-06-17 -->
+
+### 2026-07-16 Issue #192 Latest-develop Scenario Verification
+
+- Base: `origin/develop` `6796ed146244d8f3f5b5dd7048ebe16865084a97` (#206 stable charge paging ordering).
+- TDD: latest-develop drift RED `10/13`, focused GREEN `15/15`, full issue-local static/fake `82/82`.
+- Static verification: 31 issue-local JavaScript files passed `node --check`; runner passed `bash -n`; target JSON parsing and `git diff --check` passed.
+- Correctness compatibility: verifier mirrors #206 `created_at DESC, id DESC`; #200 ownership/duty and #201 archive/page-size contracts remain covered; #202 direct JDBC observation remains target-bound without Supabase Data API credentials.
+- Measurement status: scenario-ready / not measured on latest develop. Existing valid before numbers and production optimization were not changed, and no new performance improvement is claimed.
+- Execution scope: Docker/DB/HTTP/fixture/k6/EXPLAIN and production/Flyway/dependency changes were zero. Test-code correction is parallel-safe; actual loads remain PM-only and sequential.
