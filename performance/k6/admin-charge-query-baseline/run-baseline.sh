@@ -361,6 +361,11 @@ k6 run --summary-export "$REPORT_DIR/warmup/summary.json" \
 	> "$REPORT_DIR/warmup/k6-console.txt"
 node "$SCENARIO_DIR/validate-measured-summary.mjs" "$REPORT_DIR/warmup/summary.json" "$WARMUP_ITERATIONS"
 
+# Capture the canonical cumulative users update counter before the one approved
+# measured login write. This query is read-only and precedes the login commit.
+psql_exec -q -t -A < "$SCENARIO_DIR/collect-users-update-counter.sql" \
+	> "$REPORT_DIR/evidence/users-update-counter-before.txt"
+
 # Refresh authentication after warmup. No measured-window HTTP setup request is
 # needed, and the fresh token must cover the full approved measured duration.
 ADMIN_ACCESS_TOKEN="$(
@@ -378,9 +383,37 @@ DUTY_EMAIL=''
 DUTY_PASSWORD=''
 DUTY_ACCESS_TOKEN=''
 
-# The fresh measured login updates users.last_login_at. Clear that one known
-# pre-window write from cumulative maintenance state before any before evidence,
-# counter, resource sampler, or measured window is opened.
+# Wait until PostgreSQL acknowledges exactly the one users.last_login_at update
+# from the fresh measured login. A pending zero delta may be polled for the same
+# bounded one-second/five-attempt contract used by pre-boundary stabilization.
+USERS_UPDATE_ACKNOWLEDGED=false
+for ((attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt++)); do
+	USERS_UPDATE_COUNTER_CURRENT="$REPORT_DIR/evidence/users-update-counter-attempt-${attempt}.txt"
+	psql_exec -q -t -A < "$SCENARIO_DIR/collect-users-update-counter.sql" \
+		> "$USERS_UPDATE_COUNTER_CURRENT"
+	USERS_UPDATE_ACK_STATUS="$(node "$SCENARIO_DIR/users-update-ack.mjs" \
+		"$REPORT_DIR/evidence/users-update-counter-before.txt" \
+		"$USERS_UPDATE_COUNTER_CURRENT")"
+	if [[ "$USERS_UPDATE_ACK_STATUS" == acknowledged ]]; then
+		USERS_UPDATE_ACKNOWLEDGED=true
+		printf '%s\n' \
+			'status=acknowledged' \
+			'expectedDelta=1' \
+			"attempt=$attempt" \
+			> "$REPORT_DIR/evidence/measured-login-user-update-ack-complete.txt"
+		break
+	fi
+	if (( attempt < PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS )); then
+		sleep "$PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS"
+	fi
+done
+if [[ "$USERS_UPDATE_ACKNOWLEDGED" != true ]]; then
+	echo 'users.n_tup_upd did not acknowledge exactly one measured-login update within five attempts.' >&2
+	exit 8
+fi
+
+# The login write is now visible. Clear it from pre-window maintenance state
+# before any before evidence, counter, resource sampler, or measured window.
 psql_exec -q -t -A < "$SCENARIO_DIR/vacuum-measured-login-user.sql" \
 	> "$REPORT_DIR/evidence/measured-login-user-vacuum-analyze.txt"
 printf '%s\n' \
