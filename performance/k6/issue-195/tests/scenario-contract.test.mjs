@@ -151,7 +151,7 @@ while [[ "$#" -gt 0 ]]; do
 	shift
 done
 metric="issue195_\${SCENARIO}_\${CASE}"
-printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_requests":{"count":10,"rate":2},"%s_failures":{"rate":0,"passes":10,"fails":0}}}\\n' \\
+printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_requests":{"count":10,"rate":2},"%s_failures":{"value":0,"passes":0,"fails":10}}}\\n' \\
 	"$metric" "$metric" "$metric" > "$summary"
 `);
 	const fakeCollector = path.join(tempDirectory, 'collect-db-evidence.sh');
@@ -1484,7 +1484,7 @@ test('k6 summary validator accepts direct/v2 shapes and rejects invalid counts o
 	const validValues = {
 		[`${metricName}_duration`]: { 'p(50)': 1, 'p(95)': 2, 'p(99)': 3, max: 4 },
 		[`${metricName}_requests`]: { count: 10, rate: 2 },
-		[`${metricName}_failures`]: { rate: 0, passes: 10, fails: 0 },
+		[`${metricName}_failures`]: { value: 0, passes: 0, fails: 10 },
 	};
 	for (const [label, metrics] of [
 		['direct', validValues],
@@ -1539,6 +1539,152 @@ test('k6 summary validator accepts direct/v2 shapes and rejects invalid counts o
 	withTempJsonFiles('faithlog-195-db-fractional-request-', [before, after, measured], (paths) => {
 		assert.notEqual(runDbIntegrity(paths).status, 0);
 	});
+});
+
+test('actual k6 v2 Trend, Counter, and Rate shapes normalize losslessly through DB integrity', () => {
+	const metricName = 'issue195_admin_users_first_page';
+	const actualValues = {
+		[`${metricName}_duration`]: {
+			max: 1222.103,
+			'p(50)': 173.60399999999998,
+			'p(95)': 435.8418499999999,
+			'p(99)': 667.8575499999997,
+		},
+		[`${metricName}_requests`]: { count: 142, rate: 4.648273187788043 },
+		[`${metricName}_failures`]: {
+			passes: 0,
+			fails: 142,
+			thresholds: { 'rate<=0': false },
+			value: 0,
+		},
+	};
+	const shapeMetrics = (shape, values) => shape === 'values'
+		? Object.fromEntries(Object.entries(values).map(([key, metricValues]) => [key, { values: metricValues }]))
+		: values;
+
+	const preservedSummaryPath = process.env.ISSUE195_EXECUTION_B_SUMMARY;
+	if (preservedSummaryPath) {
+		assert.ok(path.isAbsolute(preservedSummaryPath), 'preserved B summary path must be absolute');
+		assert.ok(fs.existsSync(preservedSummaryPath), 'preserved B summary must exist');
+		const beforeContent = fs.readFileSync(preservedSummaryPath, 'utf8');
+		const beforeStats = fs.statSync(preservedSummaryPath);
+		const preserved = JSON.parse(beforeContent);
+		assert.deepEqual(preserved.metrics[`${metricName}_duration`], actualValues[`${metricName}_duration`]);
+		assert.deepEqual(preserved.metrics[`${metricName}_requests`], actualValues[`${metricName}_requests`]);
+		assert.deepEqual(preserved.metrics[`${metricName}_failures`], actualValues[`${metricName}_failures`]);
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-execution-b-readonly-'));
+		try {
+			const result = runJsonTool(files.summaryValidator, [
+				preservedSummaryPath,
+				'admin_users',
+				'first_page',
+				'warmup',
+				path.join(directory, 'normalized.json'),
+			]);
+			assert.equal(fs.readFileSync(preservedSummaryPath, 'utf8'), beforeContent);
+			const afterStats = fs.statSync(preservedSummaryPath);
+			assert.equal(afterStats.size, beforeStats.size);
+			assert.equal(afterStats.mtimeMs, beforeStats.mtimeMs);
+			assert.equal(result.status, 0, result.stderr);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	}
+
+	for (const phase of ['warmup', 'measured']) {
+		for (const shape of ['direct', 'values']) {
+			withTempJsonFiles(
+				`faithlog-195-k6-v2-${phase}-${shape}-`,
+				[{ metrics: shapeMetrics(shape, actualValues) }],
+				([summaryPath], directory) => {
+					const normalizedPath = path.join(directory, 'normalized.json');
+					const result = runJsonTool(files.summaryValidator, [
+						summaryPath, 'admin_users', 'first_page', phase, normalizedPath,
+					]);
+					assert.equal(result.status, 0, `${phase}/${shape}: ${result.stderr}`);
+					const normalized = JSON.parse(fs.readFileSync(normalizedPath, 'utf8'));
+					assert.equal(normalized.requestCount, 142);
+					assert.equal(normalized.throughput, 4.648273187788043);
+					assert.equal(normalized.failureRate, 0);
+					assert.deepEqual(normalized.latency, {
+						p50: 173.60399999999998,
+						p95: 435.8418499999999,
+						p99: 667.8575499999997,
+						max: 1222.103,
+					});
+					if (phase === 'measured') {
+						const { before, after } = validDbIntegritySnapshots(142);
+						withTempJsonFiles(
+							`faithlog-195-k6-v2-db-${shape}-`,
+							[before, after, normalized],
+							(paths, dbDirectory) => {
+								const dbResult = runJsonTool(files.dbIntegrityValidator, [
+									...paths,
+									path.join(dbDirectory, 'db-adoption.json'),
+									'admin_users-first_page',
+								]);
+								assert.equal(dbResult.status, 0, `${shape}: ${dbResult.stderr}`);
+							},
+						);
+					}
+				},
+			);
+		}
+	}
+
+	for (const [label, mutate] of [
+		['positive-value', (values) => { values[`${metricName}_failures`].value = 0.01; }],
+		['positive-passes', (values) => {
+			values[`${metricName}_failures`].passes = 1;
+			values[`${metricName}_failures`].fails = 141;
+		}],
+		['fails-count-mismatch', (values) => { values[`${metricName}_failures`].fails = 141; }],
+		['missing-value', (values) => { delete values[`${metricName}_failures`].value; }],
+		['null-value', (values) => { values[`${metricName}_failures`].value = null; }],
+		['string-value', (values) => { values[`${metricName}_failures`].value = '0'; }],
+	]) {
+		for (const phase of ['warmup', 'measured']) {
+			for (const shape of ['direct', 'values']) {
+				const malformed = structuredClone(actualValues);
+				mutate(malformed);
+				withTempJsonFiles(
+					`faithlog-195-k6-v2-${label}-${phase}-${shape}-`,
+					[{ metrics: shapeMetrics(shape, malformed) }],
+					([summaryPath], directory) => {
+						assert.notEqual(runJsonTool(files.summaryValidator, [
+							summaryPath,
+							'admin_users',
+							'first_page',
+							phase,
+							path.join(directory, 'normalized.json'),
+						]).status, 0, `${label}/${phase}/${shape}`);
+					},
+				);
+			}
+		}
+	}
+
+	for (const shape of ['direct', 'values']) {
+		const serialized = JSON.stringify({ metrics: shapeMetrics(shape, actualValues) });
+		const raw = serialized.replace('"value":0', '"value":1e400');
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), `faithlog-195-k6-v2-nonfinite-${shape}-`));
+		try {
+			const summaryPath = path.join(directory, 'summary.json');
+			fs.writeFileSync(summaryPath, raw);
+			assert.notEqual(runJsonTool(files.summaryValidator, [
+				summaryPath,
+				'admin_users',
+				'first_page',
+				'warmup',
+				path.join(directory, 'normalized.json'),
+			]).status, 0, `nonfinite/warmup/${shape}`);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	}
+
+	assert.doesNotMatch(read(files.dbIntegrityValidator), /\.metrics\?\.|metric\.values/);
+	assert.match(read(files.runner), /validate-k6-summary\.mjs[\s\S]*MEASURED_ADOPTION[\s\S]*validate-db-integrity\.mjs/);
 });
 
 test('resource boundary validator binds exact case, identities, metrics, and event ordering', () => {
@@ -1922,7 +2068,7 @@ test('common integrity audit - Counter and Rate observations agree for direct an
 	const validValues = {
 		[`${metricName}_duration`]: { 'p(50)': 1, 'p(95)': 2, 'p(99)': 3, max: 4 },
 		[`${metricName}_requests`]: { count: 10, rate: 2 },
-		[`${metricName}_failures`]: { rate: 0, passes: 10, fails: 0 },
+		[`${metricName}_failures`]: { value: 0, passes: 0, fails: 10 },
 	};
 	for (const shape of ['direct', 'values']) {
 		const shapeMetrics = (metrics) => shape === 'values'
@@ -1934,10 +2080,11 @@ test('common integrity audit - Counter and Rate observations agree for direct an
 			]).status, 0);
 		});
 		for (const [label, mutate] of [
-			['observation-count-mismatch', (values) => { values[`${metricName}_failures`].passes = 9; }],
+			['observation-count-mismatch', (values) => { values[`${metricName}_failures`].fails = 9; }],
 			['hidden-failure', (values) => {
-				values[`${metricName}_failures`].passes = 9;
-				values[`${metricName}_failures`].fails = 1;
+				values[`${metricName}_failures`].value = 0.1;
+				values[`${metricName}_failures`].passes = 1;
+				values[`${metricName}_failures`].fails = 9;
 			}],
 		]) {
 			const malformed = structuredClone(validValues);
