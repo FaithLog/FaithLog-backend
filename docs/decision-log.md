@@ -815,6 +815,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Once an execution report exists, the first non-zero exit is preserved in an exclusive-create machine-readable rejection containing only an approved stage, exit status, `measurementStatus=rejected`, `evidenceIntegrity=incomplete`, and `automaticAdoption=false`. Credentials, tokens, raw commands, and host paths are excluded. Existing source/API/Flyway/runtime, k6 math, PostgreSQL/pgss, resource, fixture, correctness, final continuity, and non-adoption gates remain strict.
 - Impact: N is partial rejected evidence with measured k6 0 and no performance metric. Fresh O is the only next proposal. This changes only Issue #193 test/measurement tooling; `src/main`, Flyway, dependencies, schema, index, Docker lifecycle, and production behavior are unchanged.
 
+### 2026-07-16 - Issue #193 Fresh O Before Baseline Manual Adoption
+
+- Context: Fresh O completed the exact Issue #193 fixture, correctness, workload, metric, PostgreSQL, resource, and immutable runtime continuity gates. The runner correctly emitted `conditional-shared-stack` with `automaticAdoption=false`, so adoption required an independent PM exclusive-window review.
+- Decision: PM manually adopts `I193_BEFORE_20260716_O / I193_FIXTURE_20260716_O / EXEC193_BEFORE_20260716_O` on source `6796ed146244d8f3f5b5dd7048ebe16865084a97` as the valid before baseline. The adopted workload is 16 cases × 484 requests, 7,744 HTTP total, failure 0, and `42.483669 req/s`; latency and resource values remain tied to this immutable evidence set.
+- Decision: Production optimization may proceed only through test-only RED first. `src/main` and Flyway remain unchanged until the user approves the proposed production files and query design. Index/Flyway work stays in #194 and is proposal-only in #193. API paths, query parameters, response DTOs, authorization, archive cutoff, pagination, and ordering remain compatible.
+- Impact: O is the sole adopted Issue #193 before baseline. B~N and M remain rejected or conditional evidence. Individual after measurement and attribution remain deferred to the PM integration branch under identical fixture/workload/runtime conditions.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope

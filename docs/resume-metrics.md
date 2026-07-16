@@ -1501,3 +1501,13 @@ Metric candidates:
 - 복구/보존: 측정 계정 15034/15035는 모두 USER로 복구됐다. N namespace/DB rows/report를 보존하며 재사용하지 않는다.
 - 재발 방지: 두 번째 ADMIN authenticate를 제거하고 최초 ADMIN token을 preflight/warmup/measured까지 재사용한다. 최초 ADMIN·DUTY login 전에 users counter를 캡처하고 두 login, fixture, preflight, warmup 뒤 exact `before+2`를 ACK한 경우에만 users VACUUM(ANALYZE), stable-pair, strict measured boundary를 진행한다. `+0/+1` pending, 감소/`>+2`/malformed/timeout은 fail-closed한다. Report 생성 뒤 실패는 최초 `measurement-rejection.json`을 `automaticAdoption=false`로 exclusive-create한다.
 - Fresh O 제안: `I193_BEFORE_20260716_O / I193_FIXTURE_20260716_O / EXEC193_BEFORE_20260716_O`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_O/I193_FIXTURE_20260716_O/EXEC193_BEFORE_20260716_O`. 개발 세션 actual 실행은 금지한다.
+
+### 2026-07-16 Issue #193 actual-before baseline O manually adopted
+
+- 실행 식별자: `I193_BEFORE_20260716_O / I193_FIXTURE_20260716_O / EXEC193_BEFORE_20260716_O`, source `origin/develop 6796ed146244d8f3f5b5dd7048ebe16865084a97`.
+- workload: measured 16 cases 각각 484건, 총 HTTP 7,744건, checks 23,232건, failure 0. Window `2026-07-16T07:27:07.498Z~07:30:10.197Z`.
+- before 성능: 전체 throughput `42.483669 req/s`; case별 p50 `109.60~251.62ms`, p95 `208.54~423.45ms`, worst max `1293.83ms`.
+- resource: 93 samples valid. App peak CPU `286.51%`, RAM displayed `756MiB`; PostgreSQL peak CPU `241.69%`, RAM displayed `277MiB`; Redis peak CPU `21.93%`, RAM displayed `19.56MiB`.
+- DB/runtime integrity: externalActiveCount before/after 0, shared-stack activeQueries 0/0, planner와 table vacuum/analyze/auto-maintenance exact stable, pgss unavailable continuity, app/PostgreSQL/Redis runtime·DB·postmaster·numeric loopback binding exact stable.
+- correctness/security: ACTIVE member 1,000명, account 5개, charge 35,000개 exact fixture; pagination/archive/#200 duty ownership/#206 ordering gate 통과; users delta exact `+2`; 임시 ADMIN USER 복구; rejection artifact와 credential-pattern report hit 없음.
+- 채택 해석: runner classification은 `conditional-shared-stack`, `automaticAdoption=false`를 유지한다. PM이 exclusive window를 독립 검증해 O를 유효 before baseline으로 수동 채택했으며, 이는 자동 채택 경계를 완화하지 않는다. After는 PM integration branch에서 동일 조건으로만 비교한다.
