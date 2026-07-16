@@ -40,7 +40,8 @@ test('runner requires every approved workload and immutable target value without
 		'PERF_ADMIN_EMAIL', 'PERF_ADMIN_PASSWORD', 'PERF_DUTY_EMAIL', 'PERF_DUTY_PASSWORD',
 		'WARMUP_ITERATIONS', 'WARMUP_VUS', 'WARMUP_MAX_DURATION',
 		'MEASURED_VUS', 'MEASURED_DURATION', 'TOKEN_EXPIRY_SAFETY_SECONDS',
-		'DOCKER_STATS_SAMPLING_INTERVAL_SECONDS', 'EXTERNAL_ACTIVITY',
+		'DOCKER_STATS_SAMPLING_INTERVAL_SECONDS', 'DOCKER_STATS_MAX_GAP_SECONDS',
+		'EXTERNAL_ACTIVITY',
 	]) {
 		assert.match(runner, new RegExp(`:\\s+"\\$\\{${name}:\\?`), `${name} must be runtime-required`);
 		assert.doesNotMatch(runner, new RegExp(`\\$\\{${name}:-`), `${name} must not have a default`);
@@ -243,6 +244,57 @@ test('resource evidence covers app, PostgreSQL, and Redis with exact immutable I
 		measuredEnd: '2026-07-15T00:00:01.000Z',
 		samplingIntervalSeconds: 1,
 	}));
+});
+
+test('resource sampler separates nominal cadence from an approved maximum gap', async () => {
+	const {normalizeDockerStats, validateDockerResourceEvidence} = await module('docker-resource-evidence.mjs');
+	const ids = {app: 'a'.repeat(64), postgres: 'b'.repeat(64), redis: 'c'.repeat(64)};
+	const sampleAt = (capturedAt) => normalizeDockerStats({
+		capturedAt,
+		expectedContainerIds: ids,
+		rawStats: Object.values(ids).map((id) => ({
+			ID: id, CPUPerc: '1%', MemUsage: '100B / 1000B', MemPerc: '10%',
+		})),
+	});
+	const gObservedSamples = [
+		sampleAt('2026-07-16T04:54:06.025Z'),
+		sampleAt('2026-07-16T04:54:07.894Z'),
+		sampleAt('2026-07-16T04:54:12.701Z'),
+	];
+	const valid = validateDockerResourceEvidence({
+		samples: gObservedSamples,
+		expectedContainerIds: ids,
+		measuredStart: '2026-07-16T04:54:06.025Z',
+		measuredEnd: '2026-07-16T04:54:12.701Z',
+		samplingIntervalSeconds: 1,
+		maximumGapSeconds: 5,
+	});
+	assert.equal(valid.samplingIntervalSeconds, 1);
+	assert.equal(valid.maximumGapSeconds, 5);
+
+	const base = {
+		samples: gObservedSamples.slice(0, 2),
+		expectedContainerIds: ids,
+		measuredStart: '2026-07-16T04:54:06.025Z',
+		measuredEnd: '2026-07-16T04:54:07.894Z',
+		samplingIntervalSeconds: 1,
+		maximumGapSeconds: 5,
+	};
+	for (const maximumGapSeconds of [undefined, 0, Number.NaN, 0.5]) {
+		assert.throws(() => validateDockerResourceEvidence({...base, maximumGapSeconds}));
+	}
+	assert.throws(() => validateDockerResourceEvidence({
+		...base,
+		samples: [gObservedSamples[0], sampleAt('2026-07-16T04:54:11.026Z')],
+		measuredEnd: '2026-07-16T04:54:11.026Z',
+	}));
+
+	const runner = await read('run-baseline.sh');
+	assert.doesNotMatch(runner, /DOCKER_STATS_COLLECTION_SLEEP_SECONDS/);
+	assert.doesNotMatch(runner, /sleep "\$DOCKER_STATS_[A-Z_]+"/);
+	assert.match(runner, /dockerStatsSamplingIntervalSeconds=\$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS/);
+	assert.match(runner, /dockerStatsMaximumGapSeconds=\$DOCKER_STATS_MAX_GAP_SECONDS/);
+	assert.match(runner, /docker-resource-evidence\.mjs" validate[\s\S]*"\$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS"[\s\S]*"\$DOCKER_STATS_MAX_GAP_SECONDS"/);
 });
 
 test('Docker decimal binary-unit displays preserve rounding ranges without false byte precision', async () => {
