@@ -225,6 +225,9 @@ function validateInputs(env) {
 	if (!Number.isSafeInteger(tokenSafetyMarginSeconds) || tokenSafetyMarginSeconds <= 0) {
 		throw new Error('TOKEN_SAFETY_MARGIN_SECONDS must be a positive safe integer runtime input.');
 	}
+	if (!path.isAbsolute(env.PERF_REPORT_ROOT)) {
+		throw new Error('PERF_REPORT_ROOT must be an absolute runtime path.');
+	}
 	if (!/^PERF_[A-Za-z0-9_]+$/.test(datasetId)) {
 		throw new Error('PERF_DATASET_ID must be a fresh PERF_ identifier.');
 	}
@@ -235,7 +238,7 @@ function validateInputs(env) {
 		memberPassword: env.PERF_DATASET_MEMBER_PASSWORD,
 		datasetId,
 		sourceCommit,
-		reportRoot: path.resolve(env.PERF_REPORT_ROOT),
+		reportRoot: env.PERF_REPORT_ROOT,
 		expectedActiveMembers,
 		tokenSafetyMarginSeconds,
 		appContainerId: env.APP_CONTAINER_ID,
