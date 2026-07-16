@@ -38,7 +38,8 @@ SCENARIO_DIR="$ROOT_DIR/performance/k6/admin-charge-query-baseline"
 : "${MEASURED_VUS:?Choose the approved measured VUS.}"
 : "${MEASURED_DURATION:?Choose the approved measured duration.}"
 : "${TOKEN_EXPIRY_SAFETY_SECONDS:?Choose the approved positive token expiry safety seconds.}"
-: "${DOCKER_STATS_SAMPLING_INTERVAL_SECONDS:?Choose the approved positive Docker stats maximum sample gap.}"
+: "${DOCKER_STATS_SAMPLING_INTERVAL_SECONDS:?Choose the approved positive nominal Docker stats sampling interval.}"
+: "${DOCKER_STATS_MAX_GAP_SECONDS:?Choose the approved positive Docker stats maximum sample gap.}"
 
 ADMIN_EMAIL="$PERF_ADMIN_EMAIL"
 ADMIN_PASSWORD="$PERF_ADMIN_PASSWORD"
@@ -87,11 +88,15 @@ WARMUP_REQUIRED_TTL_SECONDS="$(
 MEASURED_REQUIRED_TTL_SECONDS="$(
 	node "$SCENARIO_DIR/auth-contract.mjs" coverage "$MEASURED_SECONDS" "$TOKEN_EXPIRY_SAFETY_SECONDS"
 )"
-DOCKER_STATS_SAMPLING_INTERVAL_SECONDS="$(
-	node "$SCENARIO_DIR/docker-resource-evidence.mjs" interval "$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS"
+DOCKER_STATS_CADENCE_CONTRACT="$(
+	node "$SCENARIO_DIR/docker-resource-evidence.mjs" cadence \
+		"$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS" "$DOCKER_STATS_MAX_GAP_SECONDS"
 )"
-DOCKER_STATS_COLLECTION_SLEEP_SECONDS="$(
-	node -e 'process.stdout.write(String(Number(process.argv[1]) / 2))' "$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS"
+DOCKER_STATS_SAMPLING_INTERVAL_SECONDS="$(
+	node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).samplingIntervalSeconds))' "$DOCKER_STATS_CADENCE_CONTRACT"
+)"
+DOCKER_STATS_MAX_GAP_SECONDS="$(
+	node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).maximumGapSeconds))' "$DOCKER_STATS_CADENCE_CONTRACT"
 )"
 
 command -v docker >/dev/null
@@ -249,6 +254,7 @@ printf '%s\n' \
 	"measuredDuration=$MEASURED_DURATION" \
 	"tokenExpirySafetySeconds=$TOKEN_EXPIRY_SAFETY_SECONDS" \
 	"dockerStatsSamplingIntervalSeconds=$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS" \
+	"dockerStatsMaximumGapSeconds=$DOCKER_STATS_MAX_GAP_SECONDS" \
 	> "$REPORT_DIR/run-conditions.txt"
 
 # shared-stack-check: two quiet snapshots catch concurrent non-idle database use.
@@ -396,9 +402,8 @@ collect_docker_stats() {
 		if [[ ! -f "$STATS_READY_FILE" ]]; then
 			: > "$STATS_READY_FILE"
 		fi
-		# Poll at half the approved maximum gap so docker-stats command overhead
-		# can remain inside the fail-closed coverage interval.
-		sleep "$DOCKER_STATS_COLLECTION_SLEEP_SECONDS"
+		# docker stats --no-stream is blocking. Start the next capture immediately;
+		# its overhead is bounded separately by the approved maximum gap.
 	done
 }
 collect_docker_stats &
@@ -468,6 +473,7 @@ node "$SCENARIO_DIR/docker-resource-evidence.mjs" validate \
 	"$REPORT_DIR/evidence/runtime-identity-before.json" \
 	"$REPORT_DIR/measured/measured-window.json" \
 	"$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS" \
+	"$DOCKER_STATS_MAX_GAP_SECONDS" \
 	> "$REPORT_DIR/evidence/docker-resource-validation.json"
 EXPECTED_DATABASE_NAME="$POSTGRES_DB" node "$SCENARIO_DIR/measurement-integrity.mjs" \
 	"$REPORT_DIR/evidence/measurement-state-before.json" \

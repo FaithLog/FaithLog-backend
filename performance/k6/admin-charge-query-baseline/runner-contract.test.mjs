@@ -223,6 +223,7 @@ test('resource evidence covers app, PostgreSQL, and Redis with exact immutable I
 		measuredStart: '2026-07-15T00:00:00.000Z',
 		measuredEnd: '2026-07-15T00:00:01.000Z',
 		samplingIntervalSeconds: 1,
+		maximumGapSeconds: 1,
 	});
 	assert.equal(result.sampleCount, 2);
 	assert.deepEqual(normalized.containers.map(({role}) => role), ['app', 'postgres', 'redis']);
@@ -243,6 +244,7 @@ test('resource evidence covers app, PostgreSQL, and Redis with exact immutable I
 		measuredStart: '2026-07-15T00:00:00.000Z',
 		measuredEnd: '2026-07-15T00:00:01.000Z',
 		samplingIntervalSeconds: 1,
+		maximumGapSeconds: 1,
 	}));
 });
 
@@ -295,6 +297,8 @@ test('resource sampler separates nominal cadence from an approved maximum gap', 
 	assert.match(runner, /dockerStatsSamplingIntervalSeconds=\$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS/);
 	assert.match(runner, /dockerStatsMaximumGapSeconds=\$DOCKER_STATS_MAX_GAP_SECONDS/);
 	assert.match(runner, /docker-resource-evidence\.mjs" validate[\s\S]*"\$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS"[\s\S]*"\$DOCKER_STATS_MAX_GAP_SECONDS"/);
+	assert.match(runner, /collect_docker_stats &[\s\S]*STATS_PID="\$!"[\s\S]*kill -0 "\$STATS_PID"[\s\S]*wait "\$STATS_PID"/);
+	assert.match(runner, /: > "\$STATS_STOP_FILE"[\s\S]*wait "\$STATS_PID"[\s\S]*STATS_PID=''[\s\S]*collect_docker_stats_sample/);
 });
 
 test('Docker decimal binary-unit displays preserve rounding ranges without false byte precision', async () => {
@@ -359,6 +363,7 @@ test('Docker decimal binary-unit displays preserve rounding ranges without false
 		measuredStart: '2026-07-16T00:00:00.000Z',
 		measuredEnd: '2026-07-16T00:00:01.000Z',
 		samplingIntervalSeconds: 1,
+		maximumGapSeconds: 1,
 	}).sampleCount, 2);
 	assert.doesNotThrow(() => normalizeDockerStats({
 		capturedAt: '2026-07-16T00:00:00.000Z',

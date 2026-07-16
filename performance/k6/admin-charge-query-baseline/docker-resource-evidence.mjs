@@ -18,10 +18,14 @@ export function validateDockerResourceEvidence({
 	measuredStart,
 	measuredEnd,
 	samplingIntervalSeconds,
+	maximumGapSeconds,
 }) {
 	const startMs = timestampMs(measuredStart, 'measuredStart');
 	const endMs = timestampMs(measuredEnd, 'measuredEnd');
-	const interval = positiveFinite(samplingIntervalSeconds, 'Docker stats sampling interval');
+	const {samplingIntervalSeconds: interval, maximumGapSeconds: maximumGap} = validateSamplingCadence({
+		samplingIntervalSeconds,
+		maximumGapSeconds,
+	});
 	if (startMs > endMs) {
 		throw new Error('Docker resource measured window is reversed.');
 	}
@@ -41,8 +45,8 @@ export function validateDockerResourceEvidence({
 			if (currentMs <= previousMs) {
 				throw new Error('Docker resource sample timestamps must be strictly monotonic without duplicates.');
 			}
-			if ((currentMs - previousMs) / 1000 > interval) {
-				throw new Error('Docker resource sample gap exceeds the approved sampling interval.');
+			if ((currentMs - previousMs) / 1000 > maximumGap) {
+				throw new Error('Docker resource sample gap exceeds the approved maximum gap.');
 			}
 		}
 		previousMs = currentMs;
@@ -63,7 +67,17 @@ export function validateDockerResourceEvidence({
 		measuredStart,
 		measuredEnd,
 		samplingIntervalSeconds: interval,
+		maximumGapSeconds: maximumGap,
 	};
+}
+
+export function validateSamplingCadence({samplingIntervalSeconds, maximumGapSeconds}) {
+	const interval = positiveFinite(samplingIntervalSeconds, 'Docker stats nominal sampling interval');
+	const maximumGap = positiveFinite(maximumGapSeconds, 'Docker stats maximum sample gap');
+	if (maximumGap < interval) {
+		throw new Error('Docker stats maximum sample gap cannot be less than the nominal sampling interval.');
+	}
+	return {samplingIntervalSeconds: interval, maximumGapSeconds: maximumGap};
 }
 
 export function normalizeDockerStats({capturedAt, expectedContainerIds, rawStats}) {
@@ -304,8 +318,11 @@ function assertExactKeys(value, expected, label) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	const mode = process.argv[2];
-	if (mode === 'interval') {
-		process.stdout.write(String(positiveFinite(process.argv[3], 'Docker stats sampling interval')));
+	if (mode === 'cadence') {
+		process.stdout.write(JSON.stringify(validateSamplingCadence({
+			samplingIntervalSeconds: process.argv[3],
+			maximumGapSeconds: process.argv[4],
+		})));
 	} else if (mode === 'normalize') {
 		const identity = JSON.parse(await readFile(process.argv[3], 'utf8'));
 		const rawStats = (process.env.RAW_DOCKER_STATS_JSONL ?? '')
@@ -319,7 +336,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 		});
 		process.stdout.write(`${JSON.stringify(sample)}\n`);
 	} else if (mode === 'validate') {
-		const [evidencePath, identityPath, windowPath, interval] = process.argv.slice(3);
+		const [evidencePath, identityPath, windowPath, interval, maximumGap] = process.argv.slice(3);
 		const [evidenceText, identity, window] = await Promise.all([
 			readFile(evidencePath, 'utf8'),
 			readFile(identityPath, 'utf8').then((text) => JSON.parse(text)),
@@ -332,9 +349,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 			measuredStart: window.measuredStart,
 			measuredEnd: window.measuredEnd,
 			samplingIntervalSeconds: interval,
+			maximumGapSeconds: maximumGap,
 		});
 		process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 	} else {
-		throw new Error('Usage: docker-resource-evidence.mjs interval|normalize|validate');
+		throw new Error('Usage: docker-resource-evidence.mjs cadence|normalize|validate');
 	}
 }
