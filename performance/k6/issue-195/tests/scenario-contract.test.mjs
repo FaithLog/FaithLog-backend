@@ -59,6 +59,7 @@ function runFakeBaseline({ swapAfterPreLock = false, preflightSourceMismatch = f
 		files.targetIdentity,
 		files.tokenLifetime,
 		files.summaryValidator,
+		files.dbControlValidator,
 		files.runtimeContinuityValidator,
 		files.approvedRuntimeTarget,
 		files.resourceSnapshotValidator,
@@ -68,6 +69,9 @@ function runFakeBaseline({ swapAfterPreLock = false, preflightSourceMismatch = f
 	]) {
 		fs.copyFileSync(validator, path.join(tempDirectory, path.basename(validator)));
 	}
+	fs.copyFileSync(files.dbControlCapture, path.join(tempDirectory, path.basename(files.dbControlCapture)));
+	fs.chmodSync(path.join(tempDirectory, path.basename(files.dbControlCapture)), 0o755);
+	fs.copyFileSync(files.dbRuntimeIntegrity, path.join(tempDirectory, path.basename(files.dbRuntimeIntegrity)));
 
 	const writeExecutable = (name, contents) => {
 		const executable = path.join(binaryDirectory, name);
@@ -113,6 +117,9 @@ case "\${1-}" in
 	exec)
 		if [[ "$*" == *pg_postmaster_start_time* ]]; then
 			printf '%s\\n' '{"name":"runtime-db","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:00Z"}'
+		elif [[ "$*" == *faithlog-issue195-control* ]]; then
+			while IFS= read -r _; do :; done
+			printf '%s\\n' '{"snapshotCapturedAt":"2026-07-16T12:48:36.050Z"}'
 		fi
 		;;
 	logs) ;;
@@ -138,10 +145,18 @@ if [[ "\${1-}" == *validate-k6-summary.mjs ]]; then
 	printf '%s\\n' '{"status":"adoptable","requestCount":10}' > "$6"
 	exit 0
 fi
+if [[ "\${1-}" == *validate-db-control-window.mjs ]]; then
+	printf '%s\\n' '{"schemaVersion":1,"status":"supporting-only","automaticAdoption":false,"evidenceUse":"supporting-only","evidenceCase":"'"$4"'","configuredDuration":"'"$5"'","beforeCaptureStartedAt":"2026-07-16T12:46:35.900Z","beforeCapturedAt":"2026-07-16T12:46:35.950Z","beforeCaptureCompletedAt":"2026-07-16T12:46:36.000Z","afterCaptureStartedAt":"2026-07-16T12:48:36.000Z","afterCapturedAt":"2026-07-16T12:48:36.050Z","afterCaptureCompletedAt":"2026-07-16T12:48:36.100Z","observedElapsedMilliseconds":120000,"beforeCaptureOverheadMilliseconds":100,"afterCaptureOverheadMilliseconds":100,"controlCommitDelta":"18","observerCommitOverhead":1,"backgroundCommitDelta":"17","rollbackDelta":"0","backgroundSubtractionApplied":false}' > "$6"
+	exit 0
+fi
 if [[ "\${1-}" == *validate-db-integrity.mjs || "\${1-}" == *validate-table-counters.mjs ]]; then
 	exit 0
 fi
-exec "$REAL_NODE" "$@"
+exec ${JSON.stringify(process.execPath)} "$@"
+`);
+	writeExecutable('sleep', `#!/usr/bin/env bash
+set -euo pipefail
+printf 'sleep|%s\\n' "\${1-}" >> "$TRACE"
 `);
 	const fakeK6 = writeExecutable('k6', `#!/usr/bin/env bash
 set -euo pipefail
@@ -408,8 +423,12 @@ function runJsonTool(script, args, environment = {}) {
 	});
 }
 
-function runDbIntegrity(paths, expectedEvidenceCase = 'admin_users-first_page') {
-	return runJsonTool(files.dbIntegrityValidator, [...paths, '', expectedEvidenceCase]);
+function runDbIntegrity(paths, expectedEvidenceCase = 'admin_users-first_page', outputPath = '') {
+	const controlPath = path.join(path.dirname(paths[0]), 'control-adoption.json');
+	fs.writeFileSync(controlPath, `${JSON.stringify(validDbControlAdoption())}\n`);
+	return runJsonTool(files.dbIntegrityValidator, [
+		...paths, controlPath, outputPath, expectedEvidenceCase, '2m', '10',
+	]);
 }
 
 function withTempJsonFiles(prefix, values, callback) {
@@ -467,9 +486,15 @@ function validDbControlAdoption(overrides = {}) {
 		evidenceUse: 'supporting-only',
 		evidenceCase: 'admin_users-first_page',
 		configuredDuration: '2m',
-		beforeCapturedAt: '2026-07-16T12:46:36.000Z',
-		afterCapturedAt: '2026-07-16T12:48:37.000Z',
-		observedElapsedMilliseconds: 121_000,
+		beforeCaptureStartedAt: '2026-07-16T12:46:35.900Z',
+		beforeCapturedAt: '2026-07-16T12:46:35.950Z',
+		beforeCaptureCompletedAt: '2026-07-16T12:46:36.000Z',
+		afterCaptureStartedAt: '2026-07-16T12:48:36.000Z',
+		afterCapturedAt: '2026-07-16T12:48:36.050Z',
+		afterCaptureCompletedAt: '2026-07-16T12:48:36.100Z',
+		observedElapsedMilliseconds: 120_000,
+		beforeCaptureOverheadMilliseconds: 100,
+		afterCaptureOverheadMilliseconds: 100,
 		controlCommitDelta: '18',
 		observerCommitOverhead: 1,
 		backgroundCommitDelta: '17',
@@ -496,6 +521,7 @@ function validDbIntegritySnapshots(requestCount = 10) {
 		lastAutovacuum: '2026-07-14T00:00:00Z',
 	}]));
 	const before = {
+		snapshotCapturedAt: '2026-07-16T12:48:36.500Z',
 		database: 'faithlog',
 		observerApplicationName: 'faithlog-issue195-observer-admin_users-first_page-before',
 		externalActiveSessions: 0,
@@ -518,6 +544,7 @@ function validDbIntegritySnapshots(requestCount = 10) {
 		},
 	};
 	const after = structuredClone(before);
+	after.snapshotCapturedAt = '2026-07-16T12:50:37.500Z';
 	after.observerApplicationName = 'faithlog-issue195-observer-admin_users-first_page-after';
 	after.databaseStats.xactCommit = (
 		BigInt(after.databaseStats.xactCommit) + BigInt(requestCount * 2 + 1)
@@ -1318,23 +1345,31 @@ test('token lifetime validator fails closed against a fake clock before a long c
 	const environment = {
 		PERF_CONTRACT_TEST: '1',
 		TOKEN_CLOCK_EPOCH_SECONDS: String(now),
-		WARMUP_DURATION: '20m',
-		MEASURED_DURATION: '9m',
-		TOKEN_SAFETY_MARGIN_SECONDS: '60',
+		WARMUP_DURATION: '30s',
+		MEASURED_DURATION: '2m',
+		TOKEN_SAFETY_MARGIN_SECONDS: '120',
+		TOKEN_LIFETIME_PHASE: 'case',
 	};
 	const valid = spawnSync(process.execPath, [files.tokenLifetime], {
 		encoding: 'utf8',
-		input: unsignedJwt(now + 1800),
+		input: unsignedJwt(now + 390),
 		env: { ...process.env, ...environment },
 	});
 	assert.equal(valid.status, 0, valid.stderr);
 	const shortLived = spawnSync(process.execPath, [files.tokenLifetime], {
 		encoding: 'utf8',
-		input: unsignedJwt(now + 1799),
+		input: unsignedJwt(now + 389),
 		env: { ...process.env, ...environment },
 	});
 	assert.notEqual(shortLived.status, 0);
 	assert.match(shortLived.stderr, /remaining lifetime/i);
+	const runnerLoop = read(files.runner).slice(read(files.runner).indexOf('for entry in'));
+	const caseLifetimeIndex = runnerLoop.indexOf('TOKEN_LIFETIME_PHASE=case');
+	const warmupIndex = runnerLoop.indexOf('CURRENT_STAGE=warmup-k6');
+	const controlIndex = runnerLoop.indexOf('CURRENT_STAGE=measured-control-before');
+	const measuredLifetimeIndex = runnerLoop.indexOf('TOKEN_LIFETIME_PHASE=measured');
+	assert.ok(caseLifetimeIndex >= 0 && caseLifetimeIndex < warmupIndex);
+	assert.ok(warmupIndex < controlIndex && controlIndex < measuredLifetimeIndex);
 	const measuredBoundary = {
 		...environment,
 		WARMUP_DURATION: '1s',
@@ -1441,8 +1476,11 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 	assert.equal(fs.existsSync(files.dbControlCapture), true, 'idle control capture must exist');
 	assert.equal(fs.existsSync(files.dbControlValidator), true, 'idle control validator must exist');
 	const collector = read(files.dbCollector);
-	const beforeBranch = collector.slice(collector.indexOf('if [[ "$PHASE" == "before" ]]'), collector.indexOf('else'));
-	const afterBranch = collector.slice(collector.indexOf('else'), collector.indexOf('fi', collector.indexOf('else')));
+	const branchStart = collector.indexOf('if [[ "$PHASE" == "before" ]]');
+	const elseIndex = collector.indexOf('\nelse', branchStart);
+	const fiIndex = collector.indexOf('\nfi', elseIndex);
+	const beforeBranch = collector.slice(branchStart, elseIndex);
+	const afterBranch = collector.slice(elseIndex, fiIndex);
 	assert.ok(beforeBranch.indexOf('capture_table_counters') < beforeBranch.indexOf('capture_query_evidence'));
 	assert.ok(beforeBranch.indexOf('capture_query_evidence') < beforeBranch.indexOf('capture_runtime_integrity'));
 	assert.ok(afterBranch.indexOf('capture_runtime_integrity') < afterBranch.indexOf('capture_query_evidence'));
@@ -1459,6 +1497,8 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 	const measuredBeforeIndex = loop.indexOf('collect-db-evidence.sh" "$EVIDENCE_CASE" before');
 	assert.ok(controlBeforeIndex >= 0 && controlBeforeIndex < controlSleepIndex);
 	assert.ok(controlSleepIndex < controlAfterIndex && controlAfterIndex < measuredBeforeIndex);
+	assert.match(loop, /validate-db-integrity\.mjs[\s\S]*"\$EVIDENCE_CASE"[\s\S]*"\$MEASURED_DURATION"[\s\S]*"\$RESOURCE_BOUNDARY_MAX_GAP_SECONDS"/);
+	assert.match(read(files.dbControlCapture), /\|\s*env -i PATH="\$PATH"[\s\S]*node -e/);
 
 	const controlDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-db-control-'));
 	try {
@@ -1471,7 +1511,9 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 			schemaVersion: 1,
 			phase: 'before',
 			observerApplicationName: 'faithlog-issue195-control-admin_users-first_page-before',
-			capturedAt: '2026-07-16T12:46:36.000Z',
+			captureStartedAt: '2026-07-16T12:46:35.900Z',
+			snapshotCapturedAt: '2026-07-16T12:46:35.950Z',
+			captureCompletedAt: '2026-07-16T12:46:36.000Z',
 			databaseStats: { xactCommit: '1000', xactRollback: '34' },
 		};
 		const controlAfter = {
@@ -1479,7 +1521,9 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 			schemaVersion: 1,
 			phase: 'after',
 			observerApplicationName: 'faithlog-issue195-control-admin_users-first_page-after',
-			capturedAt: '2026-07-16T12:48:37.000Z',
+			captureStartedAt: '2026-07-16T12:48:36.000Z',
+			snapshotCapturedAt: '2026-07-16T12:48:36.050Z',
+			captureCompletedAt: '2026-07-16T12:48:36.100Z',
 			databaseStats: { xactCommit: '1018', xactRollback: '34' },
 		};
 		const writeControl = (beforeValue, afterValue) => {
@@ -1498,11 +1542,12 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 			['rollback', (value) => { value.after.databaseStats.xactRollback = '35'; }],
 			['maintenance', (value) => { value.after.tableMaintenance.users.autoanalyzeCount += 1; }],
 			['external-session', (value) => { value.before.externalActiveSessions = 1; }],
-			['short-window', (value) => { value.after.capturedAt = '2026-07-16T12:48:35.000Z'; }],
+			['short-window', (value) => { value.after.captureStartedAt = '2026-07-16T12:48:35.999Z'; }],
 		]) {
 			const value = { before: structuredClone(controlBefore), after: structuredClone(controlAfter) };
 			mutate(value);
 			writeControl(value.before, value.after);
+			fs.rmSync(outputPath, { force: true });
 			const invalid = runJsonTool(files.dbControlValidator, [
 				beforePath, afterPath, 'admin_users-first_page', '2m', outputPath,
 			]);
@@ -1510,6 +1555,56 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 		}
 	} finally {
 		fs.rmSync(controlDirectory, { recursive: true, force: true });
+	}
+
+	const childEnvironmentDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-control-child-env-'));
+	try {
+		const binaryDirectory = path.join(childEnvironmentDirectory, 'bin');
+		const tracePath = path.join(childEnvironmentDirectory, 'node-env.txt');
+		const outputPath = path.join(childEnvironmentDirectory, 'control.json');
+		fs.mkdirSync(binaryDirectory);
+		const fakeNode = path.join(binaryDirectory, 'node');
+		fs.writeFileSync(fakeNode, `#!/usr/bin/env bash
+set -euo pipefail
+env | LC_ALL=C sort >> ${JSON.stringify(tracePath)}
+printf '%s\\n' __child_boundary__ >> ${JSON.stringify(tracePath)}
+exec ${JSON.stringify(process.execPath)} "$@"
+`);
+		fs.chmodSync(fakeNode, 0o755);
+		const fakeDocker = path.join(binaryDirectory, 'docker');
+		fs.writeFileSync(fakeDocker, `#!/usr/bin/env bash
+set -euo pipefail
+while IFS= read -r _; do :; done
+printf '%s\\n' '{"snapshotCapturedAt":"2026-07-16T12:48:36.050Z"}'
+`);
+		fs.chmodSync(fakeDocker, 0o755);
+		const secretValues = [
+			'postgres-secret-value', 'admin-secret-value', 'api-secret-value', 'authorization-secret-value',
+		];
+		const result = spawnSync('bash', [
+			files.dbControlCapture, 'admin_users-first_page', 'before', outputPath,
+		], {
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				PATH: `${binaryDirectory}:${process.env.PATH}`,
+				POSTGRES_CONTAINER_ID: 'fake-postgres',
+				POSTGRES_USER: 'runtime-user',
+				POSTGRES_DB: 'runtime-db',
+				POSTGRES_PASSWORD: secretValues[0],
+				PERF_ADMIN_PASSWORD: secretValues[1],
+				API_KEY: secretValues[2],
+				AUTHORIZATION: secretValues[3],
+				ARBITRARY_PRIVATE_VALUE: 'arbitrary-private-value',
+			},
+		});
+		assert.equal(result.status, 0, 'control JSON conversion must work with a minimal child environment');
+		const trace = fs.readFileSync(tracePath, 'utf8');
+		assert.doesNotMatch(trace, /POSTGRES_|PERF_ADMIN_|PASSWORD|TOKEN|SECRET|CREDENTIAL|API_KEY|AUTHORIZATION|SESSION|COOKIE|ARBITRARY_PRIVATE_VALUE/i);
+		for (const secret of [...secretValues, 'arbitrary-private-value']) assert.equal(trace.includes(secret), false);
+		assert.equal(JSON.parse(fs.readFileSync(outputPath, 'utf8')).phase, 'before');
+	} finally {
+		fs.rmSync(childEnvironmentDirectory, { recursive: true, force: true });
 	}
 
 	for (const unattributedCommitDelta of [1n, 26n]) {
@@ -1522,7 +1617,7 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 		], (paths, directory) => {
 			const outputPath = path.join(directory, 'adoption.json');
 			const result = runJsonTool(files.dbIntegrityValidator, [
-				...paths, outputPath, 'admin_users-first_page',
+				...paths, outputPath, 'admin_users-first_page', '2m', '10',
 			]);
 			assert.equal(result.status, 0, 'unattributed DB-wide commits must preserve supporting evidence collection');
 			const output = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
@@ -1536,12 +1631,45 @@ test('DB-wide background commits stay exact, unattributed, and conditional inste
 		});
 	}
 
+	for (const [label, mutate] of [
+		['commit-arithmetic', (control) => { control.backgroundCommitDelta = '16'; }],
+		['duration', (control) => { control.configuredDuration = '1m'; }],
+		['stale-control', (control) => {
+			control.beforeCaptureStartedAt = '2026-07-16T12:46:19.900Z';
+			control.beforeCapturedAt = '2026-07-16T12:46:19.950Z';
+			control.beforeCaptureCompletedAt = '2026-07-16T12:46:20.000Z';
+			control.afterCaptureStartedAt = '2026-07-16T12:48:20.000Z';
+			control.afterCapturedAt = '2026-07-16T12:48:20.050Z';
+			control.afterCaptureCompletedAt = '2026-07-16T12:48:20.100Z';
+		}],
+		['future-control', (control) => {
+			control.beforeCaptureStartedAt = '2026-07-16T12:46:36.900Z';
+			control.beforeCapturedAt = '2026-07-16T12:46:36.950Z';
+			control.beforeCaptureCompletedAt = '2026-07-16T12:46:37.000Z';
+			control.afterCaptureStartedAt = '2026-07-16T12:48:37.000Z';
+			control.afterCapturedAt = '2026-07-16T12:48:37.050Z';
+			control.afterCaptureCompletedAt = '2026-07-16T12:48:37.100Z';
+		}],
+	]) {
+		const { before, after, measured } = validDbIntegritySnapshots();
+		const control = validDbControlAdoption();
+		mutate(control);
+		withTempJsonFiles(`faithlog-195-control-binding-${label}-`, [before, after, measured, control], (paths) => {
+			const result = runJsonTool(files.dbIntegrityValidator, [
+				...paths, '', 'admin_users-first_page', '2m', '10',
+			]);
+			assert.notEqual(result.status, 0, label);
+		});
+	}
+
 	const { before, after, measured } = validDbIntegritySnapshots(4_200);
 	after.databaseStats.xactCommit = (BigInt(before.databaseStats.xactCommit) + 8_400n).toString();
 	withTempJsonFiles('faithlog-195-db-wide-missing-', [
 		before, after, measured, validDbControlAdoption(),
 	], (paths) => {
-		const result = runJsonTool(files.dbIntegrityValidator, [...paths, '', 'admin_users-first_page']);
+		const result = runJsonTool(files.dbIntegrityValidator, [
+			...paths, '', 'admin_users-first_page', '2m', '10',
+		]);
 		assert.notEqual(result.status, 0, 'a missing expected commit must still fail closed');
 	});
 
@@ -1910,11 +2038,11 @@ test('actual k6 v2 Trend, Counter, and Rate shapes normalize losslessly through 
 							`faithlog-195-k6-v2-db-${shape}-`,
 							[before, after, normalized],
 							(paths, dbDirectory) => {
-								const dbResult = runJsonTool(files.dbIntegrityValidator, [
-									...paths,
-									path.join(dbDirectory, 'db-adoption.json'),
+								const dbResult = runDbIntegrity(
+									paths,
 									'admin_users-first_page',
-								]);
+									path.join(dbDirectory, 'db-adoption.json'),
+								);
 								assert.equal(dbResult.status, 0, `${shape}: ${dbResult.stderr}`);
 							},
 						);
@@ -2370,9 +2498,7 @@ test('PostgreSQL cumulative counters remain lossless beyond Number.MAX_SAFE_INTE
 	after.databaseStats.xactRollback = '9007199254740992';
 	withTempJsonFiles('faithlog-195-bigint-db-', [before, after, measured], (paths, directory) => {
 		const outputPath = path.join(directory, 'adoption.json');
-		const result = runJsonTool(files.dbIntegrityValidator, [
-			...paths, outputPath, 'admin_users-first_page',
-		]);
+		const result = runDbIntegrity(paths, 'admin_users-first_page', outputPath);
 		assert.equal(result.status, 0, result.stderr);
 		const adoption = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
 		assert.equal(adoption.commitDelta, '21');
