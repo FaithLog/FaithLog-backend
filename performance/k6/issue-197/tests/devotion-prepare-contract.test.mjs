@@ -243,11 +243,14 @@ test('fake full prepare uses one create-only path and writes exact manifest/cred
 			blueprint, input, request, ...reservation, nowEpochSeconds,
 			prepareMaxDurationSeconds: 900, tokenTtlSafetySeconds: 60,
 		});
-		assert.equal(calls.length, 3014);
+		assert.equal(calls.length, 3018);
 		assert.equal(calls.filter(({ path: requestPath }) => requestPath === '/api/v1/auth/signup').length, 1002);
 		assert.equal(calls.filter(({ path: requestPath }) => /\/api\/v1\/admin\/campuses\/\d+\/members/.test(requestPath)).length, 1002);
 		assert.equal(calls.filter(({ path: requestPath }) => requestPath === '/api/v1/auth/login').length, 1003);
-		assert.equal(calls.filter(({ path: requestPath }) => requestPath.includes('/penalty-rules')).length, 4);
+		const penaltyRuleCalls = calls.filter(({ path: requestPath }) => requestPath.includes('/penalty-rules'));
+		assert.equal(penaltyRuleCalls.length, 8);
+		assert.equal(penaltyRuleCalls.filter(({ path: requestPath }) => requestPath.includes('/campuses/901/')).length, 4);
+		assert.equal(penaltyRuleCalls.filter(({ path: requestPath }) => requestPath.includes('/campuses/902/')).length, 4);
 		assert.equal(result.manifest.measuredUserIds.length, 1000);
 		assert.equal(result.credentials.tokens.length, 1002);
 		assert.equal(result.manifest.expectedPenaltyAmount, 2250);
@@ -327,8 +330,10 @@ test('preparation inspector binds manifest, 1002 JWTs, preflight, workload, and 
 	const preflight = {
 		distinctFixtureUsers: 1002, activeFixtureUsers: 1002, activeCampuses: 2,
 		successActiveMembers: 1001, rollbackActiveMembers: 1, successUsersInRollbackCampus: 0, rollbackUsersInSuccessCampus: 0,
-		successActivePenaltyAccounts: 1, rollbackActivePenaltyAccounts: 0, activePenaltyRuleCount: 4,
-		invalidActivePenaltyRulePairs: 0, calculatedPenaltyAmount: 2250,
+		successActivePenaltyAccounts: 1, rollbackActivePenaltyAccounts: 0,
+		successActivePenaltyRuleCount: 4, rollbackActivePenaltyRuleCount: 4,
+		successInvalidActivePenaltyRulePairs: 0, rollbackInvalidActivePenaltyRulePairs: 0,
+		successCalculatedPenaltyAmount: 2250, rollbackCalculatedPenaltyAmount: 2250,
 		existingWeeklyCount: 0, existingDailyCount: 0, existingDevotionCharges: 0,
 	};
 	const evidence = inspectPreparation({

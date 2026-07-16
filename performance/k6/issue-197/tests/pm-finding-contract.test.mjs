@@ -123,6 +123,33 @@ test('devotion preflight validator rejects stale cohorts and wrong calculated am
 	}
 });
 
+test('I-shaped rollback success proves the isolated campus lacked rules before the missing-account failure point', () => {
+	const devotionScenario = fs.readFileSync(requiredPath('devotion-write.js'), 'utf8');
+	const prepare = fs.readFileSync(requiredPath('lib/devotion-prepare.mjs'), 'utf8');
+	const preflightSql = fs.readFileSync(requiredPath('preflight-devotion.sql'), 'utf8');
+	const preflightValidator = fs.readFileSync(requiredPath('lib/validate-devotion-preflight.mjs'), 'utf8');
+	const commandService = fs.readFileSync(path.join(
+		REPO_ROOT, 'src/main/java/com/faithlog/devotion/service/WeeklyDevotionCommandService.java',
+	), 'utf8');
+
+	const zeroAmountReturn = commandService.indexOf('if (calculation.totalAmount() == 0)');
+	const chargeCreation = commandService.indexOf('penaltyChargePort.createPenaltyCharge');
+	assert.ok(zeroAmountReturn >= 0 && zeroAmountReturn < chargeCreation,
+		'current source must skip the payment-account lookup when the active-rule calculation is zero');
+	assert.match(devotionScenario, /quietTimeChecked:\s*index < 4/);
+	assert.match(devotionScenario, /prayerChecked:\s*index < 4/);
+	assert.match(devotionScenario, /bibleReadingChecked:\s*index < 4/);
+	assert.match(devotionScenario, /saturdayLateMinutes:\s*5/);
+
+	assert.match(prepare, /for \(const targetCampusId of \[campusId, rollbackCampusId\]\)/,
+		'prepare must create the same four active penalty rules in both isolated campuses');
+	assert.match(preflightSql, /rollback_active_rules/);
+	assert.match(preflightSql, /rollbackActivePenaltyRuleCount/);
+	assert.match(preflightSql, /rollbackCalculatedPenaltyAmount/);
+	assert.match(preflightValidator, /rollbackActivePenaltyRuleCount:\s*4/);
+	assert.match(preflightValidator, /rollbackCalculatedPenaltyAmount:\s*manifest\.expectedPenaltyAmount/);
+});
+
 test('k6 adoption supports direct and values shapes and rejects missing or failed metrics', () => {
 	const validator = requiredPath('lib/validate-k6-summary.mjs');
 	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-197-summary-'));
