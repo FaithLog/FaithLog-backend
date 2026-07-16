@@ -1,12 +1,19 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "issue": 199,
   "exampleOnly": true,
+  "currentDevelopBase": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
   "datasetId": "PERFORMANCE_SHARED_1000_EXAMPLE",
+  "fixtureNamespace": {
+    "namespaceId": "RUNTIME_APPROVAL_REQUIRED",
+    "preparedAt": "RUNTIME_APPROVAL_REQUIRED",
+    "expiresAt": "RUNTIME_APPROVAL_REQUIRED",
+    "immutable": true
+  },
   "runtimeTarget": {
-    "app": {"service": "app", "containerPort": 8080},
-    "postgres": {"service": "postgres"},
-    "redis": {"service": "redis"}
+    "app": {"service": "app", "containerPort": 8080, "imageId": "RUNTIME_REQUIRED", "imageRef": "RUNTIME_REQUIRED"},
+    "postgres": {"service": "postgres", "containerPort": 5432, "imageId": "RUNTIME_REQUIRED", "imageRef": "RUNTIME_REQUIRED"},
+    "redis": {"service": "redis", "containerPort": 6379, "imageId": "RUNTIME_REQUIRED", "imageRef": "RUNTIME_REQUIRED"}
   },
   "modes": {
     "empty": {

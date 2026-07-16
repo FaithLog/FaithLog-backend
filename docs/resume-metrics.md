@@ -9,6 +9,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-16 - Issue #199 관리자 대시보드 before 시나리오 current-develop 보정
+
+- 상태: `scenario-ready/not-measured`, `conditional-not-adoptable`. 실제 seed/Docker/PostgreSQL/HTTP/k6 실행과 baseline 수치·개선 성과는 0건이며 production/Flyway/dependency 변경도 없다.
+- current `origin/develop`의 dashboard API/source와 Flyway V1~V11 SHA-256을 고정하고, #200 duty-only ownership 비권한, #201 pagination/archive 비적용, #202 direct owner JDBC RLS 무영향, #206 category/poll stable ordering을 scenario-only 계약으로 검증한다.
+- runtime target·service·full image·credential·workload에는 fallback이 없고, immutable fixture namespace validity가 승인 warmup+measured window를 덮지 못하면 Docker inspect 전에 실패한다.
+- pre/post-lock과 mode final까지 app/PostgreSQL/Redis container/server identity, PostgreSQL Flyway/RLS/pgss, Redis run_id를 strict 비교하며 k6/DB/resource rejection은 machine-readable로 보존하고 `automaticAdoption=false`를 기록한다.
+- 성능 이슈의 issue-local test code는 병렬 보정할 수 있지만 실제 shared-stack load는 PM measurement slot에서만 순차 수행한다.
+
 ## 2026-07-16 - Issue #206 청구 페이징 동률 정렬 안정화
 
 - 발견: #193 current-develop before preflight에서 동일 `created_at` 청구 쌍의 ID 순서가 API 응답마다 asc/desc로 혼재해 offset paging의 중복·누락 가능성과 측정 correctness 실패를 확인했다. #193 D는 1,000 ACTIVE 멤버/35,000 청구 fixture까지만 생성되고 k6 warmup/measured 0, summary 없음으로 거부·보존됐다.

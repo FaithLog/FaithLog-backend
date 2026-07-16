@@ -44,11 +44,13 @@ assert.equal(currentUser.body.success, true, 'frontend users/me must use the suc
 assert.equal(campuses.status, 200, 'frontend campuses/me must succeed');
 assert.equal(campuses.body.success, true, 'frontend campuses/me must use the success envelope');
 for (const dataset of datasets) {
+	const managerRoles = new Set(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
 	assert.ok(
 		(campuses.body.data || []).some(
-			(campus) => campus.campusId === dataset.campusId && campus.status === 'ACTIVE',
+			(campus) => campus.campusId === dataset.campusId
+				&& campus.status === 'ACTIVE' && managerRoles.has(campus.campusRole),
 		),
-		`campuses/me must contain ACTIVE measured campus ${dataset.campusId}`,
+		`campuses/me must contain ACTIVE campus manager role for measured campus ${dataset.campusId}`,
 	);
 }
 

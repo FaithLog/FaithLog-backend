@@ -83,7 +83,10 @@ test('inventory matches the production dashboard endpoint, optional query, respo
 	assert.equal(contract.endpoint.path, '/api/v1/admin/campuses/{campusId}/dashboard/summary');
 	assert.deepEqual(contract.endpoint.queryParameters, [{name: 'weekStartDate', required: false, format: 'YYYY-MM-DD Monday'}]);
 	assert.deepEqual(contract.authorization.allowed, ['service-admin', 'active-campus-minister', 'active-campus-elder', 'active-campus-leader']);
-	assert.deepEqual(contract.authorization.denied, ['plain-member', 'other-campus-admin', 'global-manager-only']);
+	assert.deepEqual(contract.authorization.denied, [
+		'plain-member', 'other-campus-admin', 'global-manager-only',
+		'active COFFEE duty-only member', 'active MEAL duty-only member',
+	]);
 	assert.equal(contract.authorization.deniedCode, 'ADMIN_DASHBOARD_ACCESS_FORBIDDEN');
 
 	for (const field of [
@@ -111,11 +114,15 @@ test('manifest separates empty, small, and 1000-member modes and references shar
 
 	assert.equal(manifest.issue, 199);
 	assert.equal(manifest.datasetId, 'PERFORMANCE_SHARED_1000_EXAMPLE');
-	assert.deepEqual(manifest.runtimeTarget, {
-		app: {service: 'app', containerPort: 8080},
-		postgres: {service: 'postgres'},
-		redis: {service: 'redis'},
-	});
+	assert.equal(manifest.schemaVersion, 2);
+	assert.equal(manifest.currentDevelopBase, '6796ed146244d8f3f5b5dd7048ebe16865084a97');
+	assert.equal(manifest.fixtureNamespace.immutable, true);
+	for (const component of ['app', 'postgres', 'redis']) {
+		assert.equal(typeof manifest.runtimeTarget[component].service, 'string');
+		assert.equal(typeof manifest.runtimeTarget[component].containerPort, 'number');
+		assert.equal(typeof manifest.runtimeTarget[component].imageId, 'string');
+		assert.equal(typeof manifest.runtimeTarget[component].imageRef, 'string');
+	}
 	for (const mode of contract.dataset.modes) {
 		assert.ok(manifest.modes[mode], `missing dataset mode: ${mode}`);
 		assert.equal(manifest.modes[mode].mode, mode);
@@ -401,7 +408,7 @@ test('runner fake execution refreshes the token per mode and keeps bootstrap out
 			['small', 3],
 		]) {
 			const environment = JSON.parse(fs.readFileSync(
-				path.join(harness.generatedReport, mode, 'environment.json'),
+				harness.reportPath(mode, 'environment.json'),
 				'utf8',
 			));
 			assert.equal(environment.externalActivityCoverage, 'boundary-snapshot-only');
@@ -482,7 +489,7 @@ test('runner revalidates post-lock immutable endpoint identity before measured t
 	try {
 		const result = harness.run({DATASET_MODES: 'empty', FAKE_RUNTIME_IDENTITY_MODE: 'replace-before-initial'});
 		assert.notEqual(result.status, 0);
-		assert.match(result.stderr, /published port|runtime target|BASE_URL/i);
+		assert.match(result.stderr, /published port|runtime target|BASE_URL|image identity/i);
 		assert.equal(findLog(harness.log(), 'k6:empty:measured'), -1);
 	} finally {
 		harness.cleanup();
@@ -1200,8 +1207,8 @@ test('runner blocks a container identity replacement between dataset modes befor
 
 test('runner refuses an existing mode report directory instead of mixing stale evidence', () => {
 	const harness = createFakeRunnerHarness();
-	fs.mkdirSync(path.join(harness.generatedReport, 'empty'), {recursive: true});
-	fs.writeFileSync(path.join(harness.generatedReport, 'empty', 'stale.json'), '{}');
+	fs.mkdirSync(harness.reportPath('empty'), {recursive: true});
+	fs.writeFileSync(harness.reportPath('empty', 'stale.json'), '{}');
 	try {
 		const result = harness.run({DATASET_MODES: 'empty'});
 		assert.notEqual(result.status, 0);
@@ -1272,12 +1279,12 @@ test('DB correctness validator exact-matches per-poll counts even when aggregate
 			{pollId: 202, responseCount: 16},
 		];
 		fs.writeFileSync(manifestPath, JSON.stringify(manifest));
-		fs.writeFileSync(validEvidencePath, JSON.stringify(validEvidence));
-		fs.writeFileSync(redistributedEvidencePath, JSON.stringify(redistributedEvidence));
+		fs.writeFileSync(validEvidencePath, JSON.stringify({evidenceBoundary: 'before', ...validEvidence}));
+		fs.writeFileSync(redistributedEvidencePath, JSON.stringify({evidenceBoundary: 'before', ...redistributedEvidence}));
 
-		assert.equal(runNode(files.dbCorrectnessValidator, manifestPath, 'small', validEvidencePath).status, 0);
+		assert.equal(runNode(files.dbCorrectnessValidator, manifestPath, 'small', 'before', validEvidencePath).status, 0);
 		assert.notEqual(
-			runNode(files.dbCorrectnessValidator, manifestPath, 'small', redistributedEvidencePath).status,
+			runNode(files.dbCorrectnessValidator, manifestPath, 'small', 'before', redistributedEvidencePath).status,
 			0,
 		);
 	} finally {
@@ -1441,6 +1448,7 @@ function runtimeIdentityFixture({capturedAt = '2026-07-14T00:00:00.000Z'} = {}) 
 		composeService: service,
 		composeConfigHash: `sha256:${service}-config`,
 		name: `faithlog-latest-${service}`,
+		publishedPorts: {},
 	});
 	return {
 		capturedAt,
@@ -1477,7 +1485,7 @@ function runtimeIdentityFixture({capturedAt = '2026-07-14T00:00:00.000Z'} = {}) 
 			},
 		},
 		redis: {
-			runId: 'contract-redis-run-id',
+		runId: '0123456789abcdef0123456789abcdef01234567',
 			serverVersion: '7.4.0',
 			serverPort: 6379,
 			uptimeSeconds: '100',
@@ -1490,7 +1498,7 @@ function dockerResourceFixture({mode = 'small', boundary = 'before'} = {}) {
 	return ['app', 'postgres', 'redis'].map((component, index) => ({
 		datasetMode: mode,
 		boundary,
-		sampledAt: boundary === 'before' ? '2026-07-14T00:00:10.000Z' : '2026-07-14T00:01:05.000Z',
+		sampledAt: boundary === 'before' ? '2026-07-14T00:00:10.000Z' : '2026-07-14T00:00:55.000Z',
 		sampleSequence: 1,
 		samplingCadence: 'one-no-stream-snapshot-per-boundary',
 		stats: {
@@ -1553,8 +1561,8 @@ function createFakeRunnerHarness() {
 	const fakeClockPath = path.join(temporaryDirectory, 'clock');
 	const fakeMeasuredRanPath = path.join(temporaryDirectory, 'measured-ran');
 	const fakeSecondModePath = path.join(temporaryDirectory, 'second-mode');
-	const fixtureRunId = `ISSUE_199_CONTRACT_${process.pid}_${path.basename(temporaryDirectory)}`;
-	const generatedReport = path.join(issueRoot, 'reports', 'CONTRACT_DATASET', fixtureRunId);
+	const fixtureNamespace = `ISSUE_199_CONTRACT_${process.pid}_${path.basename(temporaryDirectory)}`;
+	const generatedReport = path.join(issueRoot, 'reports', 'CONTRACT_DATASET');
 	const composeProject = `contract-${process.pid}-${path.basename(temporaryDirectory).replace(/[^A-Za-z0-9._-]/g, '-')}`;
 	fs.mkdirSync(fakeBin);
 	fs.writeFileSync(fakeClockPath, '0');
@@ -1563,7 +1571,7 @@ function createFakeRunnerHarness() {
 	for (const mode of ['empty', 'small']) {
 		modes[mode] = {
 			mode,
-			fixtureRunId,
+			fixtureRunId: `${fixtureNamespace}_${mode}`,
 			campusId: 101,
 			isolationCampusId: 102,
 			weekStartDate: '2026-07-13',
@@ -1572,12 +1580,15 @@ function createFakeRunnerHarness() {
 	}
 	const manifestPath = path.join(temporaryDirectory, 'manifest.json');
 	fs.writeFileSync(manifestPath, JSON.stringify({
+		schemaVersion: 2,
 		issue: 199,
+		currentDevelopBase: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
 		datasetId: 'CONTRACT_DATASET',
+		fixtureNamespace: {namespaceId: fixtureNamespace, preparedAt: '2020-01-01T00:00:00.000Z', expiresAt: '2030-01-01T00:00:00.000Z', immutable: true},
 		runtimeTarget: {
-			app: {service: 'app', containerPort: 8080},
-			postgres: {service: 'postgres'},
-			redis: {service: 'redis'},
+			app: {service: 'app', containerPort: 8080, imageId: `sha256:${'d'.repeat(64)}`, imageRef: 'faithlog/app:contract'},
+			postgres: {service: 'postgres', containerPort: 5432, imageId: `sha256:${'e'.repeat(64)}`, imageRef: 'faithlog/postgres:contract'},
+			redis: {service: 'redis', containerPort: 6379, imageId: `sha256:${'f'.repeat(64)}`, imageRef: 'faithlog/redis:contract'},
 		},
 		modes,
 	}));
@@ -1617,28 +1628,31 @@ case "$1" in
 	      elif [[ "$container" == *redis* ]]; then service=redis
 	      else service=app
 	      fi
-	      id="sha256:\${service}-container"
-	      image_id="sha256:\${service}-image"
+	      if [[ "$service" == app ]]; then id='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; image_id='sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+	      elif [[ "$service" == postgres ]]; then id='sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; image_id='sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+	      else id='sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'; image_id='sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'; fi
 	      started_at='2026-07-13T23:00:00.000Z'
 	      published_ports='{}'
 	      if [[ "$service" == app ]]; then published_ports='{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"28080"}]}'; fi
 	      if [[ "\${FAKE_RUNTIME_IDENTITY_MODE:-}" == replace-before-initial && "$service" == app ]]; then
-	        id='sha256:replacement-container'
-	        image_id='sha256:replacement-image'
+	        id='sha256:9999999999999999999999999999999999999999999999999999999999999999'
+	        image_id='sha256:8888888888888888888888888888888888888888888888888888888888888888'
 	        started_at='2026-07-14T00:00:15.000Z'
 	        published_ports='{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"28081"}]}'
 	      elif [[ "\${FAKE_RUNTIME_IDENTITY_MODE:-}" == replace-after && "$service" == app && -f "$FAKE_MEASURED_RAN_PATH" ]]; then
-	        id='sha256:replacement-container'
-	        image_id='sha256:replacement-image'
+	        id='sha256:9999999999999999999999999999999999999999999999999999999999999999'
+	        image_id='sha256:8888888888888888888888888888888888888888888888888888888888888888'
 	        started_at='2026-07-14T00:00:30.000Z'
 	      elif [[ "\${FAKE_RUNTIME_IDENTITY_MODE:-}" == replace-second-mode && "$service" == app && -f "$FAKE_SECOND_MODE_PATH" ]]; then
-	        id='sha256:replacement-container'
-	        image_id='sha256:replacement-image'
+	        id='sha256:9999999999999999999999999999999999999999999999999999999999999999'
+	        image_id='sha256:8888888888888888888888888888888888888888888888888888888888888888'
 	        started_at='2026-07-14T00:00:45.000Z'
 	      fi
 	      name="faithlog-latest-\${service}"
 	      printf '{"id":"%s","imageId":"%s","imageRef":"faithlog/%s:contract","startedAt":"%s","composeProject":"%s","composeService":"%s","composeConfigHash":"sha256:%s-config","name":"%s","publishedPorts":%s}\\n' \\
 	        "$id" "$image_id" "$service" "$started_at" "$FAKE_COMPOSE_PROJECT" "$service" "$service" "$name" "$published_ports"
+	    elif [[ "$*" == *Config.Env* ]]; then
+	      printf '%s\n' '["SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/runtime-only-db-name","SPRING_DATASOURCE_USERNAME=runtime-only-db-user","SPRING_DATASOURCE_PASSWORD=runtime-only-db-secret","SPRING_DATA_REDIS_HOST=redis","SPRING_DATA_REDIS_PORT=6379"]'
 	    elif [[ "$*" == *NetworkSettings.Ports* ]]; then
       printf '%s\\n' "$FAKE_APP_PORTS_JSON"
     elif [[ "$*" == *com.docker.compose.project* ]]; then
@@ -1666,16 +1680,24 @@ case "$1" in
     for component in app postgres redis; do
       evidence_mode="$RESOURCE_DATASET_MODE"
       if [[ "\${FAKE_DOCKER_RESOURCE_MODE:-}" == mixed-mode && "$component" == postgres ]]; then evidence_mode=thousand; fi
-      printf '{"datasetMode":"%s","boundary":"%s","stats":{"ID":"sha256:%s-container","Name":"faithlog-latest-%s","CPUPerc":"1.25%%","MemUsage":"64MiB / 1GiB","MemPerc":"6.25%%"}}\\n' \\
-        "$evidence_mode" "$RESOURCE_BOUNDARY" "$component" "$component"
+      if [[ "$component" == app ]]; then full_id='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      elif [[ "$component" == postgres ]]; then full_id='sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+      else full_id='sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'; fi
+      printf '{"datasetMode":"%s","boundary":"%s","stats":{"ID":"%s","Name":"faithlog-latest-%s","CPUPerc":"1.25%%","MemUsage":"64MiB / 1GiB","MemPerc":"6.25%%"}}\\n' \\
+        "$evidence_mode" "$RESOURCE_BOUNDARY" "$full_id" "$component"
     done
     exit 0
     ;;
   exec)
+    if [[ "$*" == *redis-cli* ]]; then
+      printf 'redis_version:7.4.0\\r\\nrun_id:0123456789abcdef0123456789abcdef01234567\\r\\ntcp_port:6379\\r\\nuptime_in_seconds:100\\r\\n'
+      exit 0
+    fi
     sql="$(</dev/stdin)"
     if [[ "$sql" == *issue199:evidence=correctness* ]]; then
       printf 'docker:db-correctness\\n' >> "$FAKE_LOG"
-      printf '%s\\n' "$FAKE_DB_EVIDENCE_JSON"
+      boundary="$(printf '%s' "$*" | sed -n 's/.*evidence_boundary=\\([^ ]*\\).*/\\1/p')"
+      FAKE_BOUNDARY="$boundary" ${shellQuote(process.execPath)} -e 'const v=JSON.parse(process.env.FAKE_DB_EVIDENCE_JSON); process.stdout.write(JSON.stringify({evidenceBoundary:process.env.FAKE_BOUNDARY,...v})+"\\n")'
 	    elif [[ "$sql" == *issue199:evidence=counters* ]]; then
       printf 'docker:db-counters\\n' >> "$FAKE_LOG"
       count=0
@@ -1687,7 +1709,7 @@ case "$1" in
       fi
 	    elif [[ "$sql" == *issue199:evidence=runtime-identity* ]]; then
 	      printf 'docker:db-runtime-identity\\n' >> "$FAKE_LOG"
-	      printf '{"database":"faithlog","serverAddress":"172.18.0.2","serverPort":5432,"serverVersion":"17.5","postmasterStartedAt":"2026-07-13T23:00:05.000Z"}\\n'
+	      printf '{"database":"faithlog","serverAddress":"172.18.0.2","serverPort":5432,"serverVersion":"17.5","systemIdentifier":"contract-postgres-system","postmasterStartedAt":"2026-07-13T23:00:05.000Z","expectedRoleMatched":true,"flyway":{"latestVersion":"11","latestScript":"V11__secure_supabase_data_api.sql","latestSuccess":true},"rls":{"requiredTables":["campus_members","campuses","charge_items","poll_responses","polls","users","weekly_devotion_records"],"allEnabled":true,"anyForced":false,"policyCount":0,"allOwnedByCurrentUser":true}}\\n'
 	    else
       printf 'docker:db-context\\n' >> "$FAKE_LOG"
       printf 'context evidence\\n'
@@ -1760,6 +1782,7 @@ fi
 		MEASURED_VUS: '1',
 		MEASURED_DURATION: '1s',
 		TOKEN_EXPIRY_SAFETY_SECONDS: '10',
+		FIXTURE_EXPIRY_SAFETY_SECONDS: '60',
 		EXTERNAL_ACTIVITY: 'none',
 		PERF_ADMIN_EMAIL: 'runtime-only@example.com',
 		PERF_ADMIN_PASSWORD: 'runtime-only-secret',
@@ -1771,6 +1794,9 @@ fi
 	return {
 		composeProject,
 		generatedReport,
+		reportPath(mode, ...segments) {
+			return path.join(generatedReport, modes[mode].fixtureRunId, mode, ...segments);
+		},
 		tokenCountPath,
 		run(environment = {}) {
 			const childEnvironment = {...baseEnvironment, ...environment};

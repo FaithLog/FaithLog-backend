@@ -2,14 +2,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:28080').replace(/\/$/, '');
+const BASE_URL_SOURCE = process.env.BASE_URL;
 const INPUT_MANIFEST = process.env.INPUT_MANIFEST;
-const DATASET_MODE = process.env.DATASET_MODE || 'thousand';
+const DATASET_MODE = process.env.DATASET_MODE;
+const EVIDENCE_BOUNDARY = process.env.EVIDENCE_BOUNDARY;
 const PERF_ACCESS_TOKEN = process.env.PERF_ACCESS_TOKEN;
 
-if (!INPUT_MANIFEST || !PERF_ACCESS_TOKEN) {
-	throw new Error('INPUT_MANIFEST and the runtime-only PERF_ACCESS_TOKEN are required.');
+if (!BASE_URL_SOURCE || !INPUT_MANIFEST || !DATASET_MODE || !EVIDENCE_BOUNDARY || !PERF_ACCESS_TOKEN) {
+	throw new Error('BASE_URL, INPUT_MANIFEST, DATASET_MODE, EVIDENCE_BOUNDARY, and runtime-only PERF_ACCESS_TOKEN are required.');
 }
+assert.ok(['before', 'pre-measured', 'after'].includes(EVIDENCE_BOUNDARY));
+const BASE_URL = BASE_URL_SOURCE.replace(/\/$/, '');
 
 if (!/^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(BASE_URL)) {
 	throw new Error('Issue #199 verification is restricted to the local faithlog-latest target.');
@@ -47,6 +50,8 @@ assert.equal(isolation.body.code, 'ADMIN_DASHBOARD_ACCESS_FORBIDDEN');
 
 process.stdout.write(`${JSON.stringify({
 	status: 'correctness-verified',
+	automaticAdoption: false,
+	evidenceBoundary: EVIDENCE_BOUNDARY,
 	datasetId: manifest.datasetId,
 	fixtureRunId: dataset.fixtureRunId,
 	datasetMode: DATASET_MODE,

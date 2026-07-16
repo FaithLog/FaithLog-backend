@@ -22,6 +22,7 @@ try {
 		const container = identity.containers[component];
 		object(container, `runtime identity containers.${component}`);
 		string(container.id, `runtime identity containers.${component}.id`);
+		assert.match(container.id, /^sha256:[a-f0-9]{64}$/, `runtime identity containers.${component}.id must be full.`);
 		string(container.name, `runtime identity containers.${component}.name`);
 		assert.ok(!expectedById.has(container.id), 'Runtime identity container IDs must be unique.');
 		expectedById.set(container.id, {component, name: container.name});
@@ -31,11 +32,17 @@ try {
 	assert.equal(lines.length, COMPONENTS.length, 'Docker resource evidence must contain exactly three components.');
 	const seen = new Set();
 	const resourcesByComponent = new Map();
+	const sampledAtValues = new Set();
+	const memoryPercentMismatches = [];
 	for (const [index, line] of lines.entries()) {
 		const row = JSON.parse(line);
 		object(row, `Docker resource row ${index}`);
 		assert.equal(row.datasetMode, datasetMode, `Docker resource row ${index} dataset mode mismatch.`);
 		assert.equal(row.boundary, boundary, `Docker resource row ${index} boundary mismatch.`);
+		timestamp(row.sampledAt, `Docker resource row ${index}.sampledAt`);
+		assert.equal(row.sampleSequence, 1, `Docker resource row ${index} sampleSequence must be 1.`);
+		assert.equal(row.samplingCadence, 'one-no-stream-snapshot-per-boundary');
+		sampledAtValues.add(row.sampledAt);
 		object(row.stats, `Docker resource row ${index}.stats`);
 		for (const field of ['ID', 'Name', 'CPUPerc', 'MemUsage', 'MemPerc']) {
 			string(row.stats[field], `Docker resource row ${index}.stats.${field}`);
@@ -53,6 +60,10 @@ try {
 		assert.ok(usedBytes <= limitBytes,
 			`${expected.component}.MemUsage used bytes must not exceed the limit.`);
 		assert.ok(memoryPercent <= 100, `${expected.component}.MemPerc must be at most 100%.`);
+		const canonicalMemoryPercent = usedBytes / limitBytes * 100;
+		if (memoryPercent !== canonicalMemoryPercent) {
+			memoryPercentMismatches.push({component: expected.component, canonicalMemoryPercent, reportedMemoryPercent: memoryPercent});
+		}
 		resourcesByComponent.set(expected.component, {
 			component: expected.component,
 			containerId: row.stats.ID,
@@ -60,26 +71,46 @@ try {
 			cpuPercent,
 			memoryUsageBytes: usedBytes,
 			memoryLimitBytes: limitBytes,
-			memoryPercent,
+			canonicalMemoryPercent,
+			reportedMemoryPercent: memoryPercent,
 		});
 	}
 	assert.deepEqual([...seen].sort(), COMPONENTS, 'Docker resource component set must be exact.');
+	assert.equal(sampledAtValues.size, 1, 'Docker resource rows must share one exact sampledAt boundary timestamp.');
+	const sampledAt = [...sampledAtValues][0];
+	timestamp(identity.capturedAt, 'runtime identity capturedAt');
+	if (boundary === 'before') {
+		assert.ok(Date.parse(sampledAt) >= Date.parse(identity.capturedAt), 'Before resource sample must follow its runtime identity boundary.');
+	} else {
+		assert.ok(Date.parse(sampledAt) <= Date.parse(identity.capturedAt), 'After resource sample must precede its runtime identity boundary.');
+	}
 
 	const output = {
-		status: 'docker-resource-evidence-valid',
-		adoptable: true,
+		status: memoryPercentMismatches.length === 0 ? 'docker-resource-evidence-valid' : 'conditional-not-adoptable',
+		adoptable: memoryPercentMismatches.length === 0,
+		automaticAdoption: false,
 		datasetMode,
 		boundary,
+		sampledAt,
+		samplingCadence: 'one-no-stream-snapshot-per-boundary',
+		windowCoverage: 'boundary-only',
+		cadenceSeconds: null,
 		sampling: 'boundary-snapshot-not-continuous-or-peak',
 		components: COMPONENTS.map((component) => resourcesByComponent.get(component)),
+		failures: memoryPercentMismatches,
 	};
 	fs.writeFileSync(path.resolve(outputPath), `${JSON.stringify(output, null, 2)}\n`, {flag: 'wx', mode: 0o600});
+	if (memoryPercentMismatches.length > 0) {
+		process.stderr.write('Docker resource raw MemPerc differs from the canonical used/limit percentage; user-approved tolerance is absent.\n');
+		process.exitCode = 2;
+	}
 } catch (error) {
 	if (outputPath && !fs.existsSync(path.resolve(outputPath))) {
 		try {
 			fs.writeFileSync(path.resolve(outputPath), `${JSON.stringify({
 				status: 'contaminated',
 				adoptable: false,
+				automaticAdoption: false,
 				datasetMode: datasetMode || null,
 				boundary: boundary || null,
 				sampling: 'boundary-snapshot-not-continuous-or-peak',
@@ -129,4 +160,9 @@ function object(value, label) {
 
 function string(value, label) {
 	assert.ok(typeof value === 'string' && value.length > 0, `${label} must be a non-empty string.`);
+}
+
+function timestamp(value, label) {
+	string(value, label);
+	assert.ok(Number.isFinite(Date.parse(value)), `${label} must be an ISO timestamp.`);
 }

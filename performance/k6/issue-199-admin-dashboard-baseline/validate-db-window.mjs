@@ -33,7 +33,7 @@ try {
 	const after = readJson(afterPath);
 	const evidence = validateWindow(before, after, externalActivity);
 	assert.ok(outputPath, 'DB window adoption output path is required.');
-	fs.writeFileSync(path.resolve(outputPath), `${JSON.stringify(evidence, null, 2)}\n`, {flag: 'wx', mode: 0o600});
+	writeOutput(evidence);
 	if (evidence.status === 'conditional-not-adoptable') {
 		process.stderr.write('Measured DB window is conditional-not-adoptable: external activity coverage is boundary-snapshot-only.\n');
 		process.exitCode = 2;
@@ -41,6 +41,14 @@ try {
 		assert.equal(evidence.adoptable, true, `Measured DB window is contaminated: ${JSON.stringify(evidence.failures)}`);
 	}
 } catch (error) {
+	if (outputPath && !fs.existsSync(path.resolve(outputPath))) {
+		try {
+			writeOutput({status: 'contaminated', adoptable: false, automaticAdoption: false,
+				failures: [{name: 'dbWindowEvidence', actual: error.message}]});
+		} catch {
+			// Preserve the original validation failure.
+		}
+	}
 	process.stderr.write(`${error.message}\n`);
 	process.exitCode = 1;
 }
@@ -56,8 +64,12 @@ function validateWindow(before, after, declaredExternalActivity) {
 		if (!deepEqual(snapshot.observerOverhead, OBSERVER_POLICY)) {
 			failures.push({name: `${stage}.observerOverhead`, expected: OBSERVER_POLICY, actual: snapshot.observerOverhead});
 		}
-		if (safeIntegerNumber(snapshot.externalActiveSessions, `${stage}.externalActiveSessions`) !== 0) {
+		if (counter(snapshot.externalActiveSessions, `${stage}.externalActiveSessions`) !== 0n) {
 			failures.push({name: `${stage}.externalActiveSessions`, expected: 0, actual: snapshot.externalActiveSessions});
+		}
+		if (!Array.isArray(snapshot.externalActiveSessionDetails)
+			|| BigInt(snapshot.externalActiveSessions) !== BigInt(snapshot.externalActiveSessionDetails.length)) {
+			failures.push({name: `${stage}.externalActiveSessionDetails`, expected: snapshot.externalActiveSessions, actual: snapshot.externalActiveSessionDetails});
 		}
 	}
 	const externalActivityCoverage = before.externalActivityCoverage;
@@ -116,15 +128,20 @@ function validateWindow(before, after, declaredExternalActivity) {
 	if (!deepEqual(before.plannerContext, after.plannerContext)) {
 		failures.push({name: 'plannerContext', expected: before.plannerContext, actual: after.plannerContext});
 	}
+	if (!deepEqual(before.pgStatStatements, after.pgStatStatements)) {
+		failures.push({name: 'pgStatStatements continuity', expected: before.pgStatStatements, actual: after.pgStatStatements});
+	}
 
 	const coverageOnly = failures.length === 1 && failures[0].name === 'externalActivityCoverage';
 	return {
 		status: coverageOnly ? 'conditional-not-adoptable' : failures.length === 0 ? 'adoptable' : 'contaminated',
 		adoptable: failures.length === 0,
+		automaticAdoption: false,
 		externalActivity: declaredExternalActivity,
 		externalActivityCoverage,
 		observerOverhead: OBSERVER_POLICY,
 		plannerContext: before.plannerContext,
+		pgStatStatements: before.pgStatStatements,
 		databaseDelta,
 		tableDeltas,
 		failures,
@@ -135,7 +152,8 @@ function validateSnapshotSchema(snapshot, label) {
 	object(snapshot, label);
 	timestamp(snapshot.capturedAt, `${label}.capturedAt`, false);
 	string(snapshot.externalActivityCoverage, `${label}.externalActivityCoverage`);
-	safeIntegerNumber(snapshot.externalActiveSessions, `${label}.externalActiveSessions`);
+	counter(snapshot.externalActiveSessions, `${label}.externalActiveSessions`);
+	assert.ok(Array.isArray(snapshot.externalActiveSessionDetails), `${label}.externalActiveSessionDetails must be an array.`);
 	object(snapshot.observerOverhead, `${label}.observerOverhead`);
 
 	object(snapshot.database, `${label}.database`);
@@ -176,6 +194,7 @@ function validateSnapshotSchema(snapshot, label) {
 		string(snapshot.plannerContext[field], `${label}.plannerContext.${field}`);
 	}
 	assert.equal(snapshot.plannerContext.scope, 'observer-session', `${label}.plannerContext.scope must be observer-session.`);
+	validatePgss(snapshot.pgStatStatements, `${label}.pgStatStatements`);
 }
 
 function readJson(filePath) {
@@ -211,12 +230,8 @@ function deltaFields(before, after, fields, label, failures) {
 }
 
 function counter(value, label) {
-	if (typeof value === 'number') {
-		assert.ok(Number.isSafeInteger(value) && value >= 0, `${label} must be a non-negative safe integer or decimal string.`);
-		return BigInt(value);
-	}
 	assert.ok(typeof value === 'string' && /^(?:0|[1-9]\d*)$/.test(value),
-		`${label} must be a non-negative safe integer or decimal string.`);
+		`${label} must be a canonical non-negative decimal string.`);
 	return BigInt(value);
 }
 
@@ -246,4 +261,28 @@ function deepEqual(left, right) {
 	} catch {
 		return false;
 	}
+}
+
+function validatePgss(value, label) {
+	object(value, label);
+	assert.deepEqual(Object.keys(value).sort(),
+		['extensionInstalled', 'extensionVersion', 'statsReset', 'status', 'viewAvailable'], `${label} field set must be exact.`);
+	assert.ok(['available', 'unavailable'].includes(value.status), `${label}.status is invalid.`);
+	assert.equal(typeof value.extensionInstalled, 'boolean', `${label}.extensionInstalled must be boolean.`);
+	assert.equal(typeof value.viewAvailable, 'boolean', `${label}.viewAvailable must be boolean.`);
+	if (value.status === 'available') {
+		assert.equal(value.extensionInstalled, true);
+		assert.equal(value.viewAvailable, true);
+		string(value.extensionVersion, `${label}.extensionVersion`);
+		timestamp(value.statsReset, `${label}.statsReset`, false);
+	} else {
+		assert.equal(value.extensionInstalled, false);
+		assert.equal(value.viewAvailable, false);
+		assert.equal(value.extensionVersion, null);
+		assert.equal(value.statsReset, null);
+	}
+}
+
+function writeOutput(value) {
+	fs.writeFileSync(path.resolve(outputPath), `${JSON.stringify(value, null, 2)}\n`, {flag: 'wx', mode: 0o600});
 }

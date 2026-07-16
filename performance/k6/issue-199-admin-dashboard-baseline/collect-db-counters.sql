@@ -6,6 +6,30 @@
 
 BEGIN TRANSACTION READ ONLY;
 
+SELECT
+    (EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'))::integer AS pgss_extension_installed,
+    (to_regclass('pg_stat_statements') IS NOT NULL AND to_regclass('pg_stat_statements_info') IS NOT NULL)::integer AS pgss_view_available
+\gset
+\if :pgss_extension_installed
+    \if :pgss_view_available
+        SELECT jsonb_build_object(
+            'status', 'available', 'extensionInstalled', true, 'viewAvailable', true,
+            'extensionVersion', extversion, 'statsReset', stats_reset
+        )::text AS pgss_json
+        FROM pg_extension CROSS JOIN pg_stat_statements_info
+        WHERE extname = 'pg_stat_statements'
+        \gset
+    \else
+        SELECT '{"status":"inconsistent","extensionInstalled":true,"viewAvailable":false,"extensionVersion":null,"statsReset":null}' AS pgss_json \gset
+    \endif
+\else
+    \if :pgss_view_available
+        SELECT '{"status":"inconsistent","extensionInstalled":false,"viewAvailable":true,"extensionVersion":null,"statsReset":null}' AS pgss_json \gset
+    \else
+        SELECT '{"status":"unavailable","extensionInstalled":false,"viewAvailable":false,"extensionVersion":null,"statsReset":null}' AS pgss_json \gset
+    \endif
+\endif
+
 WITH database_counters AS (
     SELECT
         datname,
@@ -85,7 +109,7 @@ planner_context AS (
 ),
 external_activity AS (
     SELECT
-        COUNT(*) AS active_sessions,
+        COUNT(*)::text AS active_sessions,
         COALESCE(
             jsonb_agg(jsonb_build_object(
                 'pid', pid,
@@ -122,7 +146,8 @@ SELECT jsonb_build_object(
         (SELECT jsonb_agg(to_jsonb(planner_settings) ORDER BY name) FROM planner_settings),
         '[]'::jsonb
     ),
-    'plannerContext', (SELECT context FROM planner_context)
+    'plannerContext', (SELECT context FROM planner_context),
+    'pgStatStatements', :'pgss_json'::jsonb
 )
 FROM database_counters;
 

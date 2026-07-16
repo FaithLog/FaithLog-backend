@@ -4,12 +4,13 @@ import path from 'node:path';
 
 const COMPONENTS = ['app', 'postgres', 'redis'];
 const CONTAINER_IDENTITY_FIELDS = [
-	'id', 'imageId', 'imageRef', 'startedAt', 'composeProject', 'composeService', 'composeConfigHash', 'name',
+	'id', 'imageId', 'imageRef', 'startedAt', 'composeProject', 'composeService', 'composeConfigHash', 'name', 'publishedPorts',
 ];
-const APP_IDENTITY_FIELDS = [...CONTAINER_IDENTITY_FIELDS, 'publishedPorts'];
 const POSTGRES_IDENTITY_FIELDS = [
-	'database', 'serverAddress', 'serverPort', 'serverVersion', 'postmasterStartedAt',
+	'database', 'serverAddress', 'serverPort', 'serverVersion', 'systemIdentifier', 'postmasterStartedAt',
+	'expectedRoleMatched', 'flyway', 'rls',
 ];
+const REQUIRED_RLS_TABLES = ['campus_members', 'campuses', 'charge_items', 'poll_responses', 'polls', 'users', 'weekly_devotion_records'];
 
 const [initialPath, beforePath, afterPath, outputPath] = process.argv.slice(2);
 
@@ -22,6 +23,15 @@ try {
 	fs.writeFileSync(path.resolve(outputPath), `${JSON.stringify(evidence, null, 2)}\n`, {flag: 'wx', mode: 0o600});
 	assert.equal(evidence.continuous, true, `Runtime identity changed: ${JSON.stringify(evidence.failures)}`);
 } catch (error) {
+	if (outputPath && !fs.existsSync(path.resolve(outputPath))) {
+		try {
+			fs.writeFileSync(path.resolve(outputPath), `${JSON.stringify({status: 'contaminated', continuous: false,
+				automaticAdoption: false, failures: [{name: 'runtimeContinuityEvidence', actual: error.message}]}, null, 2)}\n`,
+			{flag: 'wx', mode: 0o600});
+		} catch {
+			// Preserve the original validation failure.
+		}
+	}
 	process.stderr.write(`${error.message}\n`);
 	process.exitCode = 1;
 }
@@ -35,13 +45,22 @@ function readSnapshot(filePath, label) {
 	assert.deepEqual(Object.keys(snapshot.containers).sort(), COMPONENTS, `${label}.containers set must be exact.`);
 	for (const component of COMPONENTS) {
 		object(snapshot.containers[component], `${label}.containers.${component}`);
+		assert.deepEqual(Object.keys(snapshot.containers[component]).sort(), [...CONTAINER_IDENTITY_FIELDS].sort(),
+			`${label}.containers.${component} field set must be exact.`);
 		for (const field of CONTAINER_IDENTITY_FIELDS) {
-			string(snapshot.containers[component][field], `${label}.containers.${component}.${field}`);
+			if (field === 'publishedPorts') object(snapshot.containers[component][field], `${label}.containers.${component}.${field}`);
+			else string(snapshot.containers[component][field], `${label}.containers.${component}.${field}`);
 		}
 		timestamp(snapshot.containers[component].startedAt, `${label}.containers.${component}.startedAt`);
 	}
-	object(snapshot.containers.app.publishedPorts, `${label}.containers.app.publishedPorts`);
+	for (const component of COMPONENTS) {
+		object(snapshot.containers[component].publishedPorts, `${label}.containers.${component}.publishedPorts`);
+		assert.match(snapshot.containers[component].id, /^sha256:[a-f0-9]{64}$/, `${label}.containers.${component}.id must be full.`);
+		assert.match(snapshot.containers[component].imageId, /^sha256:[a-f0-9]{64}$/, `${label}.containers.${component}.imageId must be full.`);
+	}
 	object(snapshot.postgres, `${label}.postgres`);
+	assert.deepEqual(Object.keys(snapshot.postgres).sort(), [...POSTGRES_IDENTITY_FIELDS].sort(),
+		`${label}.postgres field set must be exact.`);
 	for (const field of POSTGRES_IDENTITY_FIELDS) {
 		assert.ok(Object.hasOwn(snapshot.postgres, field), `${label}.postgres.${field} is required.`);
 	}
@@ -54,7 +73,21 @@ function readSnapshot(filePath, label) {
 		`${label}.postgres.serverPort must be a positive integer.`,
 	);
 	string(snapshot.postgres.serverVersion, `${label}.postgres.serverVersion`);
+	string(snapshot.postgres.systemIdentifier, `${label}.postgres.systemIdentifier`);
 	timestamp(snapshot.postgres.postmasterStartedAt, `${label}.postgres.postmasterStartedAt`);
+	assert.equal(snapshot.postgres.expectedRoleMatched, true, `${label}.postgres expected role must match.`);
+	object(snapshot.postgres.flyway, `${label}.postgres.flyway`);
+	assert.deepEqual(snapshot.postgres.flyway, {latestVersion: '11', latestScript: 'V11__secure_supabase_data_api.sql', latestSuccess: true},
+		`${label}.postgres.flyway must match current develop.`);
+	object(snapshot.postgres.rls, `${label}.postgres.rls`);
+	assert.deepEqual(snapshot.postgres.rls, {requiredTables: REQUIRED_RLS_TABLES, allEnabled: true, anyForced: false,
+		policyCount: 0, allOwnedByCurrentUser: true}, `${label}.postgres.rls must preserve owner JDBC behavior.`);
+	object(snapshot.redis, `${label}.redis`);
+	assert.deepEqual(Object.keys(snapshot.redis).sort(), ['runId', 'serverPort', 'serverVersion', 'uptimeSeconds']);
+	assert.match(snapshot.redis.runId, /^[a-f0-9]{40}$/);
+	string(snapshot.redis.serverVersion, `${label}.redis.serverVersion`);
+	assert.ok(Number.isInteger(snapshot.redis.serverPort) && snapshot.redis.serverPort > 0);
+	decimal(snapshot.redis.uptimeSeconds, `${label}.redis.uptimeSeconds`);
 	return snapshot;
 }
 
@@ -71,7 +104,7 @@ function validateContinuity(initial, before, after) {
 		});
 	}
 	for (const component of COMPONENTS) {
-		const fields = component === 'app' ? APP_IDENTITY_FIELDS : CONTAINER_IDENTITY_FIELDS;
+		const fields = CONTAINER_IDENTITY_FIELDS;
 		for (const field of fields) {
 			compare(failures, `containers.${component}.${field}`, initial.containers[component][field], before.containers[component][field]);
 			compare(failures, `containers.${component}.${field}`, initial.containers[component][field], after.containers[component][field]);
@@ -81,12 +114,25 @@ function validateContinuity(initial, before, after) {
 		compare(failures, `postgres.${field}`, initial.postgres[field], before.postgres[field]);
 		compare(failures, `postgres.${field}`, initial.postgres[field], after.postgres[field]);
 	}
+	for (const field of ['runId', 'serverVersion', 'serverPort']) {
+		compare(failures, `redis.${field}`, initial.redis[field], before.redis[field]);
+		compare(failures, `redis.${field}`, initial.redis[field], after.redis[field]);
+	}
+	const initialUptime = BigInt(initial.redis.uptimeSeconds);
+	const beforeUptime = BigInt(before.redis.uptimeSeconds);
+	const afterUptime = BigInt(after.redis.uptimeSeconds);
+	if (beforeUptime < initialUptime || afterUptime < beforeUptime) {
+		failures.push({name: 'redis.uptimeSeconds', expected: 'monotonic', actual: {initial: initial.redis.uptimeSeconds,
+			before: before.redis.uptimeSeconds, after: after.redis.uptimeSeconds}});
+	}
 	return {
 		status: failures.length === 0 ? 'continuous' : 'runtime-identity-changed',
 		continuous: failures.length === 0,
+		automaticAdoption: false,
 		identityFields: {
-			containers: {app: APP_IDENTITY_FIELDS, postgres: CONTAINER_IDENTITY_FIELDS, redis: CONTAINER_IDENTITY_FIELDS},
+			containers: {app: CONTAINER_IDENTITY_FIELDS, postgres: CONTAINER_IDENTITY_FIELDS, redis: CONTAINER_IDENTITY_FIELDS},
 			postgres: POSTGRES_IDENTITY_FIELDS,
+			redis: ['runId', 'serverVersion', 'serverPort', 'uptimeSeconds'],
 		},
 		failures,
 	};
@@ -116,4 +162,8 @@ function string(value, label) {
 function timestamp(value, label) {
 	string(value, label);
 	assert.ok(Number.isFinite(Date.parse(value)), `${label} must be an ISO timestamp.`);
+}
+
+function decimal(value, label) {
+	assert.ok(typeof value === 'string' && /^(?:0|[1-9]\d*)$/.test(value), `${label} must be a decimal string.`);
 }

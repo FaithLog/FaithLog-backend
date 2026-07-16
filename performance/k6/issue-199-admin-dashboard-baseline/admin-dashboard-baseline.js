@@ -2,17 +2,19 @@ import http from 'k6/http';
 import {check, fail} from 'k6';
 import {Counter, Rate, Trend} from 'k6/metrics';
 
-const BASE_URL = (__ENV.BASE_URL || 'http://127.0.0.1:28080').replace(/\/$/, '');
+const BASE_URL_SOURCE = __ENV.BASE_URL;
 const INPUT_MANIFEST = __ENV.INPUT_MANIFEST;
-const DATASET_MODE = __ENV.DATASET_MODE || 'thousand';
-const PHASE = __ENV.PHASE || 'measured';
-const VUS = Number(__ENV.VUS || 0);
-const DURATION = __ENV.DURATION || '0s';
+const DATASET_MODE = __ENV.DATASET_MODE;
+const PHASE = __ENV.PHASE;
+const VUS_SOURCE = __ENV.VUS;
+const DURATION = __ENV.DURATION;
 const PERF_ACCESS_TOKEN = __ENV.PERF_ACCESS_TOKEN;
 
-if (!INPUT_MANIFEST) {
-	throw new Error('INPUT_MANIFEST is required.');
+if (!BASE_URL_SOURCE || !INPUT_MANIFEST || !DATASET_MODE || !PHASE || !VUS_SOURCE || !DURATION) {
+	throw new Error('BASE_URL, INPUT_MANIFEST, DATASET_MODE, PHASE, VUS, and DURATION are runtime-required.');
 }
+const BASE_URL = BASE_URL_SOURCE.replace(/\/$/, '');
+const VUS = Number(VUS_SOURCE);
 
 const inputManifest = JSON.parse(open(INPUT_MANIFEST));
 const dataset = inputManifest.modes?.[DATASET_MODE];

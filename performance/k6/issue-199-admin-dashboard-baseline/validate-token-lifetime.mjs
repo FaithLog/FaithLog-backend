@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-const [durationSource, safetySource, nowSource, purposeSource = 'runtime'] = process.argv.slice(2);
+const [durationSource, safetySource, nowSource, purposeSource] = process.argv.slice(2);
 
 try {
 	const token = process.env.PERF_ACCESS_TOKEN;

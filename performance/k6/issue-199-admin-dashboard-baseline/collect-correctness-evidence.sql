@@ -95,6 +95,7 @@ recently_closed AS (
       AND ends_at BETWEEN now() - interval '7 days' AND now()
 )
 SELECT jsonb_build_object(
+	'evidenceBoundary', :'evidence_boundary',
     'campus', jsonb_build_object(
         'campusId', campus.campus_id,
         'campusName', campus.campus_name,

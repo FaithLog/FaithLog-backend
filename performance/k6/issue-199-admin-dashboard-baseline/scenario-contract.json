@@ -2,6 +2,7 @@
   "issue": 199,
   "status": "scenario-ready/not-measured",
   "baselineAdoptionStatus": "conditional-not-adoptable",
+  "currentDevelopBase": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
   "endpoint": {
     "method": "GET",
     "path": "/api/v1/admin/campuses/{campusId}/dashboard/summary",
@@ -14,11 +15,11 @@
     ]
   },
   "runtimeTarget": {
-    "runtimeRequired": ["BASE_URL", "APP_CONTAINER", "POSTGRES_CONTAINER", "REDIS_CONTAINER"],
+    "runtimeRequired": ["BASE_URL", "APP_CONTAINER", "POSTGRES_CONTAINER", "REDIS_CONTAINER", "approved imageId/imageRef", "credentials", "VUS/duration", "fixture validity and safety"],
     "containerAlias": "optional evidence-only; never used for target selection",
     "publishedPortMustMatch": "exactly one binding compatible with the selected numeric loopback address family and exact port; a valid IPv4/IPv6 dual-stack pair is allowed; revalidated from post-lock immutable identity",
     "serviceLabelsFromManifestMustMatch": ["app", "postgres", "redis"],
-    "continuityIdentity": ["containerId", "containerName", "imageId", "imageRef", "startedAt", "composeConfigHash", "appPublishedPorts", "postgresPostmasterStartedAt"]
+    "continuityIdentity": ["pre/post-lock full app/postgres/redis container identity", "final container identity", "PostgreSQL systemIdentifier/postmaster/Flyway V11/RLS owner JDBC", "Redis runId/version/port/monotonic uptime", "app datasource and Redis connection binding"]
   },
   "authorization": {
     "allowed": [
@@ -31,6 +32,8 @@
       "plain-member",
       "other-campus-admin",
       "global-manager-only"
+      ,"active COFFEE duty-only member"
+      ,"active MEAL duty-only member"
     ],
     "deniedCode": "ADMIN_DASHBOARD_ACCESS_FORBIDDEN"
   },
@@ -42,7 +45,7 @@
     ],
     "productionParallelSiblings": [
       "admin campus members",
-      "duty assignments",
+      "GET duty-assignments?staleOnly=false (ACTIVE assignments, id ascending, multiple COFFEE allowed)",
       "prayer weekly board",
       "campus detail for invite code"
     ],
@@ -68,6 +71,7 @@
       "prayer"
     ],
     "seedPolicy": "reference-only"
+    ,"freshness": "schemaVersion/currentDevelopBase/unique fixtureRunId/immutable namespace preparedAt+expiresAt must cover approved warmup+measured window plus runtime safety"
   },
   "runSelection": {
     "datasetModesRuntimeRequired": true,
@@ -89,8 +93,10 @@
     "throughputMustExistAndBePositive": true,
     "requiredLatencyStatistics": "finite non-negative p50 <= p95 <= p99 <= max",
     "latencyThreshold": "not-user-approved",
+    "automaticAdoption": false,
     "dbWindow": "strict database/table/observer-session-planner schema; required sets exact; precision-safe decimal counter deltas; stable stats_reset/analyze/autoanalyze/vacuum/autovacuum/observer planner; boundary snapshots contain no external activity",
-    "dockerResources": "before/after exact mode, boundary, app/postgres/redis full container ID and name; CPU finite non-negative with multi-core values above 100 allowed; RAM safe finite non-negative, positive limit, used <= limit, 0 <= percent <= 100; boundary snapshots only, never continuous or peak",
+    "dockerResources": "before/after exact mode, boundary, sampledAt, one-no-stream-snapshot-per-boundary, app/postgres/redis full container ID and name; CPU finite non-negative with multi-core values above 100 allowed; RAM safe finite non-negative, positive limit, used <= limit, canonical used/limit percentage; raw MemPerc mismatch stays conditional without user-approved tolerance; boundary snapshots only, never continuous or peak",
+    "pgStatStatements": "explicit available/unavailable strict schema and exact extension version/stats-reset continuity",
     "externalActivityCoverage": "boundary-snapshot-only",
     "externalActivityAdoption": "non-adoptable until user-approved continuous provenance or isolation exists"
   },
@@ -101,6 +107,8 @@
     "OPEN and recently CLOSED poll counts",
     "per-OPEN-poll response counts and aggregate missing count",
     "same-campus data only and other-campus denial"
+    ,"pagination/archive not applicable: sole query is weekStartDate and aggregate is all-age UNPAID PENALTY/COFFEE"
+    ,"stable order: PENALTY then COFFEE; per-poll evidence pollId ascending"
   ],
   "evidence": [
     "warmup and measured k6 summaries",
@@ -112,6 +120,7 @@
     "observer psql session planner settings and context (not measured app-session planner proof)",
     "operator external activity declaration and boundary-only pg_stat_activity snapshots (not complete provenance)",
     "matching actual Compose project/service labels and a shared Compose-project runner lock",
-    "initial/mode-before/mode-after immutable container/name and PostgreSQL postmaster continuity evidence"
+    "pre-lock/post-lock/mode-before/measured-after/final immutable app/PostgreSQL/Redis continuity evidence",
+    "first machine-readable rejection is preserved and every gate records automaticAdoption=false"
   ]
 }
