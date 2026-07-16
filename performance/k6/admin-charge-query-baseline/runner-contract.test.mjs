@@ -205,9 +205,14 @@ test('PostgreSQL counter integrity preserves decimal strings across the JS safe 
 test('resource evidence covers app, PostgreSQL, and Redis with exact immutable IDs', async () => {
 	const {normalizeDockerStats, validateDockerResourceEvidence} = await module('docker-resource-evidence.mjs');
 	const ids = {app: 'a'.repeat(64), postgres: 'b'.repeat(64), redis: 'c'.repeat(64)};
-	const containers = Object.entries(ids).map(([role, containerId]) => ({
-		role, containerId, cpuPercent: 1, memoryUsedBytes: 100, memoryLimitBytes: 1000, memoryPercent: 10,
-	}));
+	const normalized = normalizeDockerStats({
+		capturedAt: '2026-07-15T00:00:00.000Z',
+		expectedContainerIds: ids,
+		rawStats: Object.values(ids).map((id) => ({
+			ID: id, CPUPerc: '1%', MemUsage: '100B / 1000B', MemPerc: '10%',
+		})),
+	});
+	const containers = normalized.containers;
 	const result = validateDockerResourceEvidence({
 		samples: [
 			{capturedAt: '2026-07-15T00:00:00.000Z', containers},
@@ -219,13 +224,6 @@ test('resource evidence covers app, PostgreSQL, and Redis with exact immutable I
 		samplingIntervalSeconds: 1,
 	});
 	assert.equal(result.sampleCount, 2);
-	const normalized = normalizeDockerStats({
-		capturedAt: '2026-07-15T00:00:00.000Z',
-		expectedContainerIds: ids,
-		rawStats: Object.values(ids).map((id) => ({
-			ID: id, CPUPerc: '1%', MemUsage: '100B / 1000B', MemPerc: '10%',
-		})),
-	});
 	assert.deepEqual(normalized.containers.map(({role}) => role), ['app', 'postgres', 'redis']);
 	assert.throws(() => normalizeDockerStats({
 		capturedAt: '2026-07-15T00:00:00.000Z',

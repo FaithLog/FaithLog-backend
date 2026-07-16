@@ -4,8 +4,13 @@ import {pathToFileURL} from 'node:url';
 const ROLES = ['app', 'postgres', 'redis'];
 const FULL_CONTAINER_ID = /^[a-f0-9]{64}$/;
 const CONTAINER_KEYS = [
-	'role', 'containerId', 'cpuPercent', 'memoryUsedBytes', 'memoryLimitBytes', 'memoryPercent',
+	'role', 'containerId', 'cpuPercent', 'memoryUsed', 'memoryLimit', 'memoryPercent',
 ];
+const MEMORY_RANGE_KEYS = ['displayed', 'minimumBytesInclusive', 'maximumBytesInclusive'];
+const PERCENT_RANGE_KEYS = [
+	'displayed', 'minimumNumeratorInclusive', 'maximumNumeratorExclusive', 'denominator',
+];
+const MAX_SAFE_BYTES = BigInt(Number.MAX_SAFE_INTEGER);
 
 export function validateDockerResourceEvidence({
 	samples,
@@ -77,22 +82,15 @@ export function normalizeDockerStats({capturedAt, expectedContainerIds, rawStats
 			throw new Error(`Docker stats cannot be bound exactly to the ${role} container identity.`);
 		}
 		const raw = matches[0];
-		const [memoryUsedBytes, memoryLimitBytes] = parseMemoryUsage(raw.MemUsage);
-		if (memoryLimitBytes <= 0 || memoryUsedBytes > memoryLimitBytes) {
-			throw new Error(`${role} Docker memory usage and limit are invalid.`);
-		}
-		const memoryPercent = (memoryUsedBytes / memoryLimitBytes) * 100;
-		const renderedMemoryPercent = parseRenderedPercent(raw.MemPerc, `${role} memory`);
-		if (Number(memoryPercent.toFixed(renderedMemoryPercent.decimalPlaces))
-			!== renderedMemoryPercent.value) {
-			throw new Error(`${role} Docker memory percentage contradicts MemUsage used/limit evidence.`);
-		}
+		const [memoryUsed, memoryLimit] = parseMemoryUsage(raw.MemUsage);
+		const memoryPercent = parseRenderedPercent(raw.MemPerc, `${role} memory`);
+		validateMemoryEvidence(memoryUsed, memoryLimit, memoryPercent, role);
 		return {
 			role,
 			containerId: expectedId,
 			cpuPercent: parsePercent(raw.CPUPerc, `${role} CPU`),
-			memoryUsedBytes,
-			memoryLimitBytes,
+			memoryUsed,
+			memoryLimit,
 			memoryPercent,
 		};
 	});
@@ -113,22 +111,19 @@ function validateContainers(containers, expectedContainerIds, sampleIndex) {
 		if (container.role !== role || container.containerId !== expectedContainerIds[role]) {
 			throw new Error(`Docker sample ${sampleIndex}.${role} container identity does not match.`);
 		}
-		for (const name of ['cpuPercent', 'memoryUsedBytes', 'memoryLimitBytes', 'memoryPercent']) {
-			if (typeof container[name] !== 'number' || !Number.isFinite(container[name]) || container[name] < 0) {
-				throw new Error(`Docker sample ${sampleIndex}.${role}.${name} must be a non-negative finite number.`);
-			}
+		if (typeof container.cpuPercent !== 'number'
+			|| !Number.isFinite(container.cpuPercent)
+			|| container.cpuPercent < 0) {
+			throw new Error(`Docker sample ${sampleIndex}.${role}.cpuPercent must be a non-negative finite number.`);
 		}
-		for (const name of ['memoryUsedBytes', 'memoryLimitBytes']) {
-			if (!Number.isSafeInteger(container[name])) {
-				throw new Error(`Docker sample ${sampleIndex}.${role}.${name} must be a safe integer byte value.`);
-			}
-		}
-		if (container.memoryLimitBytes <= 0
-			|| container.memoryUsedBytes > container.memoryLimitBytes
-			|| container.memoryPercent > 100
-			|| container.memoryPercent !== (container.memoryUsedBytes / container.memoryLimitBytes) * 100) {
-			throw new Error(`Docker sample ${sampleIndex}.${role} RAM values are invalid.`);
-		}
+		validateNormalizedRange(container.memoryUsed, parseByteSize, MEMORY_RANGE_KEYS,
+			`Docker sample ${sampleIndex}.${role}.memoryUsed`);
+		validateNormalizedRange(container.memoryLimit, parseByteSize, MEMORY_RANGE_KEYS,
+			`Docker sample ${sampleIndex}.${role}.memoryLimit`);
+		validateNormalizedRange(container.memoryPercent, parseRenderedPercent, PERCENT_RANGE_KEYS,
+			`Docker sample ${sampleIndex}.${role}.memoryPercent`);
+		validateMemoryEvidence(container.memoryUsed, container.memoryLimit, container.memoryPercent,
+			`Docker sample ${sampleIndex}.${role}`);
 	}
 }
 
@@ -163,16 +158,25 @@ function parseByteSize(value) {
 		kib: 1024n, mib: 1024n ** 2n, gib: 1024n ** 3n, tib: 1024n ** 4n,
 	};
 	const [whole, fraction = ''] = match[1].split('.');
-	const scale = 10n ** BigInt(fraction.length);
-	const scaledBytes = BigInt(`${whole}${fraction}`) * factors[unit];
-	if (scaledBytes % scale !== 0n) {
-		throw new Error(`Docker memory size must resolve to an integer byte value: ${value}`);
+	if (whole.length + fraction.length > 32) {
+		throw new Error(`Docker memory size has unsafe precision: ${value}`);
 	}
-	const bytes = scaledBytes / scale;
-	if (bytes > BigInt(Number.MAX_SAFE_INTEGER)) {
+	const scale = 10n ** BigInt(fraction.length);
+	const displayed = BigInt(`${whole}${fraction}`);
+	const denominator = 2n * scale;
+	const factor = factors[unit];
+	const minimumNumerator = (2n * displayed - 1n) * factor;
+	const maximumNumeratorExclusive = (2n * displayed + 1n) * factor;
+	const minimumBytesInclusive = minimumNumerator <= 0n ? 0n : ceilDivide(minimumNumerator, denominator);
+	const maximumBytesInclusive = ceilDivide(maximumNumeratorExclusive, denominator) - 1n;
+	if (maximumBytesInclusive > MAX_SAFE_BYTES) {
 		throw new Error(`Docker memory size exceeds the safe integer byte range: ${value}`);
 	}
-	return Number(bytes);
+	return {
+		displayed: value,
+		minimumBytesInclusive: minimumBytesInclusive.toString(),
+		maximumBytesInclusive: maximumBytesInclusive.toString(),
+	};
 }
 
 function assertFullContainerId(value, label) {
@@ -182,7 +186,7 @@ function assertFullContainerId(value, label) {
 }
 
 function parsePercent(value, label) {
-	if (typeof value !== 'string' || !value.endsWith('%')) {
+	if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?%$/.test(value)) {
 		throw new Error(`${label} percentage is invalid.`);
 	}
 	return positiveFinite(Number(value.slice(0, -1)), `${label} percentage`, true);
@@ -192,14 +196,82 @@ function parseRenderedPercent(value, label) {
 	if (typeof value !== 'string') {
 		throw new Error(`${label} percentage is invalid.`);
 	}
-	const match = /^(\d+)(?:\.(\d+))?%$/.exec(value);
+	const match = /^(0|[1-9][0-9]*)(?:\.(\d+))?%$/.exec(value);
 	if (!match) {
 		throw new Error(`${label} percentage is invalid.`);
 	}
+	const fraction = match[2] ?? '';
+	if (match[1].length + fraction.length > 32) {
+		throw new Error(`${label} percentage has unsafe precision.`);
+	}
+	const scale = 10n ** BigInt(fraction.length);
+	const displayed = BigInt(`${match[1]}${fraction}`);
+	if (displayed > 100n * scale) {
+		throw new Error(`${label} percentage must be between 0 and 100.`);
+	}
+	const denominator = 2n * scale;
 	return {
-		value: positiveFinite(Number(value.slice(0, -1)), `${label} percentage`, true),
-		decimalPlaces: match[2]?.length ?? 0,
+		displayed: value,
+		minimumNumeratorInclusive: (displayed === 0n ? 0n : 2n * displayed - 1n).toString(),
+		maximumNumeratorExclusive: (2n * displayed + 1n).toString(),
+		denominator: denominator.toString(),
 	};
+}
+
+function validateMemoryEvidence(memoryUsed, memoryLimit, memoryPercent, label) {
+	const usedMinimum = strictDecimalString(memoryUsed?.minimumBytesInclusive, `${label} used minimum`);
+	const usedMaximum = strictDecimalString(memoryUsed?.maximumBytesInclusive, `${label} used maximum`);
+	const limitMinimum = strictDecimalString(memoryLimit?.minimumBytesInclusive, `${label} limit minimum`);
+	const limitMaximum = strictDecimalString(memoryLimit?.maximumBytesInclusive, `${label} limit maximum`);
+	if (usedMinimum > usedMaximum
+		|| limitMinimum <= 0n
+		|| limitMinimum > limitMaximum
+		|| usedMaximum > limitMinimum
+		|| limitMaximum > MAX_SAFE_BYTES) {
+		throw new Error(`${label} Docker memory usage and limit ranges are invalid.`);
+	}
+	const percentMinimum = strictDecimalString(
+		memoryPercent?.minimumNumeratorInclusive, `${label} percent minimum numerator`
+	);
+	const percentMaximum = strictDecimalString(
+		memoryPercent?.maximumNumeratorExclusive, `${label} percent maximum numerator`
+	);
+	const percentDenominator = strictDecimalString(memoryPercent?.denominator, `${label} percent denominator`);
+	if (percentDenominator <= 0n || percentMinimum >= percentMaximum) {
+		throw new Error(`${label} Docker memory percentage rounding interval is invalid.`);
+	}
+	const possibleRatioMaximumReachesPercentMinimum =
+		usedMaximum * 100n * percentDenominator >= percentMinimum * limitMinimum;
+	const possibleRatioMinimumPrecedesPercentMaximum =
+		usedMinimum * 100n * percentDenominator < percentMaximum * limitMaximum;
+	if (!possibleRatioMaximumReachesPercentMinimum || !possibleRatioMinimumPrecedesPercentMaximum) {
+		throw new Error(`${label} Docker memory percentage contradicts MemUsage rounding ranges.`);
+	}
+}
+
+function validateNormalizedRange(value, parser, keys, label) {
+	assertExactKeys(value, keys, label);
+	const reparsed = parser(value.displayed, label);
+	for (const key of keys) {
+		if (value[key] !== reparsed[key]) {
+			throw new Error(`${label} does not match its displayed rounding evidence.`);
+		}
+	}
+}
+
+function strictDecimalString(value, label) {
+	if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]*)$/.test(value) || value.length > 32) {
+		throw new Error(`${label} must be a safe non-negative decimal string.`);
+	}
+	const parsed = BigInt(value);
+	if (parsed > MAX_SAFE_BYTES) {
+		throw new Error(`${label} exceeds the safe magnitude.`);
+	}
+	return parsed;
+}
+
+function ceilDivide(numerator, denominator) {
+	return (numerator + denominator - 1n) / denominator;
 }
 
 function positiveFinite(value, label, allowZero = false) {
