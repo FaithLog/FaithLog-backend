@@ -38,8 +38,8 @@ const read = (file) => fs.readFileSync(file, 'utf8');
 
 let cachedFakeRunnerResult;
 
-function runFakeBaseline({ swapAfterPreLock = false } = {}) {
-	if (!swapAfterPreLock && cachedFakeRunnerResult) {
+function runFakeBaseline({ swapAfterPreLock = false, preflightSourceMismatch = false } = {}) {
+	if (!swapAfterPreLock && !preflightSourceMismatch && cachedFakeRunnerResult) {
 		return cachedFakeRunnerResult;
 	}
 
@@ -50,6 +50,7 @@ function runFakeBaseline({ swapAfterPreLock = false } = {}) {
 	fs.mkdirSync(binaryDirectory);
 	fs.copyFileSync(files.runner, runnerPath);
 	fs.chmodSync(runnerPath, 0o755);
+	fs.copyFileSync(files.contract, path.join(tempDirectory, 'scenario-contract.json'));
 	for (const validator of [
 		files.targetIdentity,
 		files.tokenLifetime,
@@ -59,6 +60,7 @@ function runFakeBaseline({ swapAfterPreLock = false } = {}) {
 		files.resourceSnapshotValidator,
 		files.resourceSnapshotCapture,
 		files.measurementClassifier,
+		files.firstRejectionRecorder,
 	]) {
 		fs.copyFileSync(validator, path.join(tempDirectory, path.basename(validator)));
 	}
@@ -80,7 +82,7 @@ case "\${1-}" in
 		count=$((count + 1))
 		printf '%s' "$count" > "$count_file"
 		replaced=0
-		if [[ "\${FAKE_SWAP_AFTER_PRELOCK-0}" == 1 && "$count" -gt 5 ]]; then replaced=1; fi
+		if [[ "\${FAKE_SWAP_AFTER_PRELOCK-0}" == 1 && "$count" -gt 10 ]]; then replaced=1; fi
 		if [[ "$*" == *'{{.Id}}'* ]]; then
 			printf '%s\\n' "sha256:\${*: -1}-container-$replaced"
 		elif [[ "$*" == *'{{.Name}}'* ]]; then
@@ -148,7 +150,7 @@ while [[ "$#" -gt 0 ]]; do
 	shift
 done
 metric="issue195_\${SCENARIO}_\${CASE}"
-printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_requests":{"count":10,"rate":2},"%s_failures":{"rate":0}}}\\n' \\
+printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_requests":{"count":10,"rate":2},"%s_failures":{"rate":0,"passes":10,"fails":0}}}\\n' \\
 	"$metric" "$metric" "$metric" > "$summary"
 `);
 	const fakeCollector = path.join(tempDirectory, 'collect-db-evidence.sh');
@@ -171,6 +173,9 @@ printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_re
 				PERF_DATASET_ID: 'issue195-contract-dataset',
 				PERF_FIXTURE_RUN_ID: 'issue195-contract-run',
 				PERF_EXECUTION_RUN_ID: 'EXEC195_CONTRACT_RUN',
+				PERF_SOURCE_COMMIT: preflightSourceMismatch
+					? '0000000000000000000000000000000000000000'
+					: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
 				PERF_ADMIN_EMAIL: 'runtime-admin@example.test',
 				PERF_ADMIN_PASSWORD: 'runtime-secret',
 				PERF_ACCESS_TOKEN: 'stale-inherited-token',
@@ -179,8 +184,13 @@ printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_re
 				ISOLATION_USER_ID: '103',
 				APP_CONTAINER_ID: 'fake-app',
 				EXPECTED_APP_COMPOSE_SERVICE: 'fake-service',
+				EXPECTED_APP_IMAGE_ID: 'sha256:fake-app-image-0',
 				POSTGRES_CONTAINER_ID: 'fake-postgres',
 				EXPECTED_POSTGRES_COMPOSE_SERVICE: 'fake-service',
+				EXPECTED_POSTGRES_IMAGE_ID: 'sha256:fake-postgres-image-0',
+				REDIS_CONTAINER_ID: 'fake-redis',
+				EXPECTED_REDIS_COMPOSE_SERVICE: 'fake-service',
+				EXPECTED_REDIS_IMAGE_ID: 'sha256:fake-redis-image-0',
 				POSTGRES_USER: 'runtime-db-user',
 				POSTGRES_DB: 'runtime-db',
 				POSTGRES_PASSWORD: 'runtime-db-secret',
@@ -190,6 +200,9 @@ printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_re
 				MEASURED_DURATION: '2m',
 				MAX_FAILURE_RATE: '0',
 				TOKEN_SAFETY_MARGIN_SECONDS: '0',
+				EXPECTED_ACTIVE_MEMBERS: '1000',
+				EXPECTED_DUTY_ASSIGNMENTS: '101',
+				RESOURCE_BOUNDARY_MAX_GAP_SECONDS: '60',
 				FAKE_SWAP_AFTER_PRELOCK: swapAfterPreLock ? '1' : '0',
 				PERF_REPORT_ROOT: path.join(tempDirectory, 'reports'),
 		};
@@ -206,8 +219,18 @@ printf '{"metrics":{"%s_duration":{"p(50)":1,"p(95)":2,"p(99)":3,"max":4},"%s_re
 		const trace = fs.existsSync(tracePath)
 			? fs.readFileSync(tracePath, 'utf8').trim().split('\n').filter(Boolean)
 			: [];
-		const fakeResult = { ...result, repeated, trace };
-		if (!swapAfterPreLock) cachedFakeRunnerResult = fakeResult;
+		const firstRejectionPath = path.join(
+			environment.PERF_REPORT_ROOT,
+			environment.PERF_DATASET_ID,
+			environment.PERF_FIXTURE_RUN_ID,
+			environment.PERF_EXECUTION_RUN_ID,
+			'first-rejection.json',
+		);
+		const firstRejection = fs.existsSync(firstRejectionPath)
+			? JSON.parse(fs.readFileSync(firstRejectionPath, 'utf8'))
+			: null;
+		const fakeResult = { ...result, repeated, trace, firstRejection };
+		if (!swapAfterPreLock && !preflightSourceMismatch) cachedFakeRunnerResult = fakeResult;
 		return fakeResult;
 	} finally {
 		fs.rmSync(tempDirectory, { recursive: true, force: true });
@@ -577,11 +600,15 @@ test('scenario manifest separates endpoints, page depths, filters, and correctne
 		'noUnsupportedArchiveParameter',
 	]);
 	assert.deepEqual(contract.adoption, [
+		'approvedSourceAndImageIdentity',
 		'approvedPublishedTargetIdentity',
 		'runtimeTargetContinuity',
+		'redisRuntimeContinuity',
 		'tokenLifetime',
 		'nonEmptyFiniteSummary',
+		'exactRateObservationCount',
 		'validatedBoundaryResourceSnapshots',
+		'resourceBoundaryCadence',
 		'currentDatabaseCompositeQueryDelta',
 		'queryAvailabilityContinuity',
 		'nonEmptyProductionQueryInventory',
@@ -591,6 +618,7 @@ test('scenario manifest separates endpoints, page depths, filters, and correctne
 		'tableCounterExpectationsAndInvariance',
 		'freshExecutionReportDirectory',
 		'conditionalSharedStackClassification',
+		'firstMachineReadableRejection',
 	]);
 	assert.equal(contract.expectedDatabaseTransactionsPerRequest, 2);
 });
@@ -644,7 +672,8 @@ test('fixture preparation is additive and keeps credentials runtime-only', () =>
 	]) {
 		assert.match(source, new RegExp(`process\\.env\\.${environmentName}`));
 	}
-	assert.match(source, /requiredActiveMembers:\s*1000/);
+	assert.match(source, /requiredActiveMembers\s*=\s*Number\(process\.env\.EXPECTED_ACTIVE_MEMBERS\)/);
+	assert.match(source, /requiredActiveMembers !== contract\.dataset\.requiredActiveMembers/);
 	assert.match(source, /\/api\/v1\/admin\/campuses\/\$\{campusId\}\/members/);
 	assert.match(source, /\/api\/v1\/admin\/campuses\/\$\{campusId\}\/duty-assignments\/meal/);
 	assert.match(source, /\/api\/v1\/admin\/campuses\/\$\{campusId\}\/duty-assignments\/coffee/);
@@ -777,7 +806,7 @@ test('runner serializes every case, records compose labels, and never changes Do
 	const source = read(files.runner);
 
 	assert.match(source, /mkdir "\$LOCK_DIR"/);
-	assert.match(source, /cleanup\(\)[\s\S]*rmdir "\$LOCK_DIR"[\s\S]*trap cleanup EXIT/);
+	assert.match(source, /cleanup\(\)[\s\S]*rmdir "\$LOCK_DIR"[\s\S]*trap 'cleanup \$\?' EXIT/);
 	assert.match(source, /docker inspect/);
 	assert.match(source, /com\.docker\.compose\.project/);
 	assert.match(source, /com\.docker\.compose\.service/);
@@ -971,10 +1000,20 @@ test('BASE_URL is runtime-required and bound to approved Compose services and th
 	const common = {
 		BASE_URL: 'http://127.0.0.1:18080',
 		APP_CONTAINER_ID: 'app-container',
+		APP_IMAGE_ID: 'sha256:app-image',
+		EXPECTED_APP_IMAGE_ID: 'sha256:app-image',
 		APP_COMPOSE_SERVICE: 'app',
 		EXPECTED_APP_COMPOSE_SERVICE: 'app',
 		POSTGRES_COMPOSE_SERVICE: 'postgres',
+		POSTGRES_CONTAINER_ID: 'postgres-container',
 		EXPECTED_POSTGRES_COMPOSE_SERVICE: 'postgres',
+		POSTGRES_IMAGE_ID: 'sha256:postgres-image',
+		EXPECTED_POSTGRES_IMAGE_ID: 'sha256:postgres-image',
+		REDIS_CONTAINER_ID: 'redis-container',
+		REDIS_COMPOSE_SERVICE: 'redis',
+		EXPECTED_REDIS_COMPOSE_SERVICE: 'redis',
+		REDIS_IMAGE_ID: 'sha256:redis-image',
+		EXPECTED_REDIS_IMAGE_ID: 'sha256:redis-image',
 		APP_PUBLISHED_PORTS_JSON: JSON.stringify({
 			'8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '18080' }],
 		}),
@@ -986,13 +1025,26 @@ test('BASE_URL is runtime-required and bound to approved Compose services and th
 		BASE_URL: 'http://127.0.0.1:18081',
 	});
 	assert.notEqual(mismatch.status, 0, 'a port mismatch must stop before login or fixture mutation');
+	assert.notEqual(runJsonTool(files.targetIdentity, [], {
+		...common,
+		EXPECTED_APP_IMAGE_ID: 'sha256:other-app-image',
+	}).status, 0, 'an unapproved app image must fail before bootstrap');
+	assert.notEqual(runJsonTool(files.targetIdentity, [], {
+		...common,
+		EXPECTED_REDIS_IMAGE_ID: 'sha256:other-redis-image',
+	}).status, 0, 'an unapproved Redis image must fail before bootstrap');
 
 	const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'faithlog-195-fixture-target-'));
 	try {
 		const dockerPath = path.join(tempDirectory, 'docker');
 		fs.writeFileSync(dockerPath, `#!/usr/bin/env bash
-if [[ "$*" == *com.docker.compose.project* ]]; then printf '%s\\n' fixture-project
-elif [[ "$*" == *com.docker.compose.service* ]]; then printf '%s\\n' app
+if [[ "$*" == *'{{.Id}}'* ]]; then printf 'sha256:%s-container\\n' "\${*: -1}"
+elif [[ "$*" == *'{{.Name}}'* ]]; then printf '/%s\\n' "\${*: -1}"
+elif [[ "$*" == *'{{.Image}}'* ]]; then printf 'sha256:%s-image\\n' "\${*: -1}"
+elif [[ "$*" == *State.StartedAt* ]]; then printf '%s\\n' '2026-07-16T00:00:00Z'
+elif [[ "$*" == *com.docker.compose.project* ]]; then printf '%s\\n' fixture-project
+elif [[ "$*" == *com.docker.compose.service* ]]; then
+	if [[ "\${*: -1}" == fake-redis ]]; then printf '%s\\n' redis; else printf '%s\\n' app; fi
 else printf '%s\\n' '{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18080"}]}'
 fi
 `);
@@ -1007,8 +1059,15 @@ fi
 				PERF_ADMIN_PASSWORD: 'must-not-mutate',
 				PERF_DATASET_ID: 'PERF_CONTRACT',
 				PERF_FIXTURE_RUN_ID: 'ISSUE195_CONTRACT',
+				PERF_SOURCE_COMMIT: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
 				APP_CONTAINER_ID: 'fake-app',
 				EXPECTED_APP_COMPOSE_SERVICE: 'app',
+				EXPECTED_APP_IMAGE_ID: 'sha256:fake-app-image',
+				REDIS_CONTAINER_ID: 'fake-redis',
+				EXPECTED_REDIS_COMPOSE_SERVICE: 'redis',
+				EXPECTED_REDIS_IMAGE_ID: 'sha256:fake-redis-image',
+				EXPECTED_ACTIVE_MEMBERS: '1000',
+				EXPECTED_DUTY_ASSIGNMENTS: '101',
 				PERF_REPORT_ROOT: path.join(tempDirectory, 'reports'),
 			},
 		});
@@ -1212,6 +1271,15 @@ test('runtime continuity rejects immutable app or PostgreSQL replacement between
 			composeService: 'postgres',
 			publishedPorts: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '25432' }] },
 		},
+		redis: {
+			containerId: 'sha256:redis-container-1',
+			name: '/faithlog-redis',
+			imageId: 'sha256:redis-image-1',
+			startedAt: '2026-07-14T00:00:00Z',
+			composeProject: 'faithlog',
+			composeService: 'redis',
+			publishedPorts: { '6379/tcp': [{ HostIp: '127.0.0.1', HostPort: '26379' }] },
+		},
 		database: {
 			name: 'faithlog',
 			serverAddress: '127.0.0.1',
@@ -1227,6 +1295,7 @@ test('runtime continuity rejects immutable app or PostgreSQL replacement between
 		(value) => { value.app.containerId = 'sha256:app-container-2'; },
 		(value) => { value.app.imageId = 'sha256:app-image-2'; },
 		(value) => { value.postgres.startedAt = '2026-07-14T00:01:00Z'; },
+		(value) => { value.redis.containerId = 'sha256:redis-container-2'; },
 		(value) => { value.database.postmasterStartedAt = '2026-07-14T00:01:00Z'; },
 	]) {
 		const replacement = structuredClone(identity);
@@ -1321,7 +1390,7 @@ test('k6 summary validator accepts direct/v2 shapes and rejects invalid counts o
 	const validValues = {
 		[`${metricName}_duration`]: { 'p(50)': 1, 'p(95)': 2, 'p(99)': 3, max: 4 },
 		[`${metricName}_requests`]: { count: 10, rate: 2 },
-		[`${metricName}_failures`]: { rate: 0 },
+		[`${metricName}_failures`]: { rate: 0, passes: 10, fails: 0 },
 	};
 	for (const [label, metrics] of [
 		['direct', validValues],
@@ -1399,6 +1468,15 @@ test('resource boundary validator binds exact case, identities, metrics, and eve
 			composeService: 'postgres',
 			publishedPorts: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '25432' }] },
 		},
+		redis: {
+			containerId: 'sha256:redis-1',
+			name: '/faithlog-redis',
+			imageId: 'sha256:redis-image',
+			startedAt: '2026-07-14T00:00:00Z',
+			composeProject: 'faithlog',
+			composeService: 'redis',
+			publishedPorts: { '6379/tcp': [{ HostIp: '127.0.0.1', HostPort: '26379' }] },
+		},
 		database: {
 			name: 'faithlog', serverAddress: '127.0.0.1', serverPort: 5432,
 			postmasterStartedAt: '2026-07-14T00:00:00Z',
@@ -1411,8 +1489,9 @@ test('resource boundary validator binds exact case, identities, metrics, and eve
 		capturedAt,
 		coverage: 'boundary-only',
 		containers: [
-			{ role: 'app', containerId: identity.app.containerId, name: identity.app.name, cpuPercent: 1.5, memoryBytes: 1_048_576 },
-			{ role: 'postgres', containerId: identity.postgres.containerId, name: identity.postgres.name, cpuPercent: 0, memoryBytes: 2_097_152 },
+			{ role: 'app', containerId: identity.app.containerId, name: identity.app.name, imageId: identity.app.imageId, startedAt: identity.app.startedAt, cpuPercent: 1.5, memoryBytes: 1_048_576 },
+			{ role: 'postgres', containerId: identity.postgres.containerId, name: identity.postgres.name, imageId: identity.postgres.imageId, startedAt: identity.postgres.startedAt, cpuPercent: 0, memoryBytes: 2_097_152 },
+			{ role: 'redis', containerId: identity.redis.containerId, name: identity.redis.name, imageId: identity.redis.imageId, startedAt: identity.redis.startedAt, cpuPercent: 0.2, memoryBytes: 524_288 },
 		],
 	});
 	const snapshots = [
@@ -1434,7 +1513,7 @@ test('resource boundary validator binds exact case, identities, metrics, and eve
 			fs.writeFileSync(resourcePath, resourceValues.map(JSON.stringify).join('\n') + '\n');
 			fs.writeFileSync(windowsPath, windowValues.map(JSON.stringify).join('\n') + '\n');
 			return runJsonTool(files.resourceSnapshotValidator, [
-				identityPath, resourcePath, windowsPath, 'admin_users', 'first_page', path.join(tempDirectory, 'adoption.json'),
+				identityPath, resourcePath, windowsPath, 'admin_users', 'first_page', '1', path.join(tempDirectory, 'adoption.json'),
 			]);
 		} finally {
 			fs.rmSync(tempDirectory, { recursive: true, force: true });
@@ -1476,6 +1555,15 @@ test('shared-stack evidence remains conditional-not-adoptable without user-appro
 	const result = runFakeBaseline();
 	assert.notEqual(result.status, 0);
 	assert.match(result.stderr, /conditional-not-adoptable|exclusive provenance/i);
+	assert.deepEqual(result.firstRejection, {
+		schemaVersion: 1,
+		status: 'non-adoptable',
+		automaticAdoption: false,
+		stage: 'final-classification',
+		scenario: null,
+		case: null,
+		exitCode: 2,
+	});
 });
 
 test('PostgreSQL cumulative counters remain lossless beyond Number.MAX_SAFE_INTEGER', () => {
@@ -1741,6 +1829,12 @@ test('common integrity audit - resource snapshots bind full three-container iden
 		snapshot('before', '2026-07-16T00:00:01.500Z'),
 		snapshot('after', '2026-07-16T00:00:03.500Z'),
 	]).status, 0);
+	const mixedIdentity = [
+		snapshot('before', '2026-07-16T00:00:01.500Z'),
+		snapshot('after', '2026-07-16T00:00:03.500Z'),
+	];
+	mixedIdentity[1].containers[2].imageId = 'sha256:other-redis-image';
+	assert.notEqual(run(mixedIdentity).status, 0, 'every resource role must match the full immutable identity');
 	assert.notEqual(run([
 		snapshot('before', '2026-07-16T00:00:00.000Z'),
 		snapshot('after', '2026-07-16T00:00:03.500Z'),
@@ -1773,4 +1867,32 @@ test('common integrity audit - first machine-readable rejection is atomic and ne
 	} finally {
 		fs.rmSync(directory, { recursive: true, force: true });
 	}
+});
+
+test('common integrity audit - fixture mutation binds PostgreSQL with app and Redis across lock boundaries', () => {
+	const fixture = read(files.fixture);
+	for (const name of [
+		'POSTGRES_CONTAINER_ID',
+		'EXPECTED_POSTGRES_COMPOSE_SERVICE',
+		'EXPECTED_POSTGRES_IMAGE_ID',
+	]) {
+		assert.match(fixture, new RegExp(`process\\.env\\.${name}`), `fixture must require ${name}`);
+	}
+	assert.match(fixture, /postgres:\s*captureContainer\(POSTGRES_CONTAINER_ID\)/);
+	assert.match(fixture, /App, PostgreSQL, and Redis Compose projects must match/);
+});
+
+test('common integrity audit - pre-lock rejection is preserved before login, DB evidence, or k6', () => {
+	const result = runFakeBaseline({ preflightSourceMismatch: true });
+	assert.notEqual(result.status, 0);
+	assert.deepEqual(result.trace.filter((line) => /^(login|collector|k6)\|/.test(line)), []);
+	assert.deepEqual(result.firstRejection, {
+		schemaVersion: 1,
+		status: 'non-adoptable',
+		automaticAdoption: false,
+		stage: 'source-contract',
+		scenario: null,
+		case: null,
+		exitCode: 1,
+	});
 });
