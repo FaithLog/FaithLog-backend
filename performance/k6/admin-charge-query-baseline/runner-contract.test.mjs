@@ -532,6 +532,57 @@ test('fresh measured login clears a delayed users stats increment before the str
 	assert.match(runner, /'status=completed' \\\n\s*'tables=users' \\\n\s*> "\$REPORT_DIR\/evidence\/measured-login-user-vacuum-analyze-complete\.txt"/);
 });
 
+test('users update counter requires an exact delayed plus-one ACK before measured-login vacuum', async () => {
+	const runner = await read('run-baseline.sh');
+	const counterSql = await read('collect-users-update-counter.sql');
+	const {classifyUsersUpdateAck} = await module('users-update-ack.mjs');
+
+	assert.equal(
+		counterSql.trim(),
+		"SELECT n_tup_upd::text FROM pg_stat_user_tables WHERE relid = 'users'::regclass;",
+	);
+	assert.doesNotMatch(counterSql, /\b(?:INSERT|UPDATE|DELETE|TRUNCATE|VACUUM|ANALYZE|CREATE|ALTER|DROP|pg_stat_reset)\b/i);
+	assert.equal(classifyUsersUpdateAck('72\n', '72\n'), 'pending');
+	assert.equal(classifyUsersUpdateAck('72\n', '73\n'), 'acknowledged');
+	assert.deepEqual(
+		['72\n', '72\n', '73\n'].map((current) => classifyUsersUpdateAck('72\n', current)),
+		['pending', 'pending', 'acknowledged'],
+		'a delayed later poll must acknowledge exactly one measured-login update',
+	);
+	assert.deepEqual(
+		Array.from({length: 5}, () => classifyUsersUpdateAck('72\n', '72\n')),
+		Array(5).fill('pending'),
+		'a never-flushed update stays pending until the runner timeout rejects it',
+	);
+	for (const current of ['71\n', '74\n', '01\n', '-1\n', 'NaN\n', '1e3\n', '9223372036854775808\n', '73\n74\n']) {
+		assert.throws(() => classifyUsersUpdateAck('72\n', current));
+	}
+	for (const before of [72, '', ' 72\n', '9223372036854775808\n']) {
+		assert.throws(() => classifyUsersUpdateAck(before, '73\n'));
+	}
+
+	const beforeCounter = runner.indexOf('users-update-counter-before.txt');
+	const measuredLogin = runner.indexOf('IDENTITY_LABEL=ADMIN_MEASURED');
+	const pollCounter = runner.indexOf('users-update-counter-attempt-');
+	const ackGate = runner.indexOf('USERS_UPDATE_ACKNOWLEDGED" != true');
+	const usersVacuum = runner.indexOf('vacuum-measured-login-user.sql');
+	const stabilization = runner.indexOf('measurement-state-pre-boundary-attempt-');
+	const counterBefore = runner.indexOf('counter-before.json');
+	const measuredWindow = runner.indexOf('MEASURED_START=');
+	assert.ok(beforeCounter < measuredLogin && measuredLogin < pollCounter);
+	assert.ok(pollCounter < ackGate && ackGate < usersVacuum);
+	assert.ok(usersVacuum < stabilization && usersVacuum < counterBefore && usersVacuum < measuredWindow);
+	assert.match(runner, /USERS_UPDATE_ACK_STATUS="\$\(node "\$SCENARIO_DIR\/users-update-ack\.mjs"[\s\S]*\)"/);
+	assert.match(runner, /USERS_UPDATE_ACK_STATUS" == acknowledged[\s\S]*USERS_UPDATE_ACKNOWLEDGED=true[\s\S]*break/);
+	assert.match(runner, /USERS_UPDATE_ACKNOWLEDGED" != true[\s\S]*exit 8/);
+	assert.equal(
+		[...runner.matchAll(/for \(\(attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt\+\+\)\)/g)].length,
+		2,
+		'counter ACK polling and maintenance stable-pair must reuse the same five-attempt bound',
+	);
+	assert.doesNotMatch(runner, /:\s+"\$\{USERS_UPDATE_ACK_/);
+});
+
 test('database evidence is exact, non-mutating, and keeps optional pgss continuity', async () => {
 	const state = await read('collect-measurement-state.sql');
 	const counters = await read('collect-counter-boundary.sql');
