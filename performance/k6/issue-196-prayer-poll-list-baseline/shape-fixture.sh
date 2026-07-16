@@ -271,7 +271,7 @@ SELECT json_build_object(
 		AND (SELECT count(*) FROM coffee_updated) = 1 AND (SELECT count(*) FROM meal_open_updated) = 1 THEN 1 ELSE 0 END
 );"
 
-shape_result="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD "${DB_CONTAINER}" \
+shape_result="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -i -e PGPASSWORD "${DB_CONTAINER}" \
 	psql -X -v ON_ERROR_STOP=1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
 	-v campus_id="${campus_id}" \
 	-v open_id="${open_id}" -v open_title="PERF_196_${FIXTURE_RUN_ID}_POLL_OPEN" \
@@ -282,7 +282,7 @@ shape_result="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD "${DB
 	-v meal_archived_id="${meal_archived_id}" -v meal_archived_title="PERF_196_${FIXTURE_RUN_ID}_POLL_MEAL_ARCHIVED" \
 	-v coffee_id="${coffee_id}" -v coffee_title="PERF_196_${FIXTURE_RUN_ID}_POLL_COFFEE" \
 	-v meal_open_id="${meal_open_id}" -v meal_open_title="PERF_196_${FIXTURE_RUN_ID}_POLL_MEAL_OPEN" \
-	-c "${sql}")"
+	-f - <<< "${sql}")"
 
 SHAPE_RESULT="${shape_result}" node -e '
 	const fs = require("node:fs");
