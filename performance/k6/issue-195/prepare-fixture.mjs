@@ -27,8 +27,7 @@ const EXPECTED_POSTGRES_IMAGE_ID = process.env.EXPECTED_POSTGRES_IMAGE_ID;
 const REDIS_CONTAINER_ID = process.env.REDIS_CONTAINER_ID;
 const EXPECTED_REDIS_COMPOSE_SERVICE = process.env.EXPECTED_REDIS_COMPOSE_SERVICE;
 const EXPECTED_REDIS_IMAGE_ID = process.env.EXPECTED_REDIS_IMAGE_ID;
-const REPORT_ROOT = process.env.PERF_REPORT_ROOT
-	|| path.join('performance', 'k6', 'issue-195', 'reports');
+const REPORT_ROOT = process.env.PERF_REPORT_ROOT;
 const requiredActiveMembers = Number(process.env.EXPECTED_ACTIVE_MEMBERS);
 const expectedDutyAssignments = Number(process.env.EXPECTED_DUTY_ASSIGNMENTS);
 const tokenSafetyMarginSeconds = Number(process.env.TOKEN_SAFETY_MARGIN_SECONDS);
@@ -54,6 +53,7 @@ for (const [name, value] of Object.entries({
 	EXPECTED_ACTIVE_MEMBERS: process.env.EXPECTED_ACTIVE_MEMBERS,
 	EXPECTED_DUTY_ASSIGNMENTS: process.env.EXPECTED_DUTY_ASSIGNMENTS,
 	TOKEN_SAFETY_MARGIN_SECONDS: process.env.TOKEN_SAFETY_MARGIN_SECONDS,
+	PERF_REPORT_ROOT: REPORT_ROOT,
 })) {
 	if (!value) {
 		throw new Error(`${name} is required.`);
@@ -75,6 +75,9 @@ if (!/^PERF_[A-Za-z0-9_]+$/.test(DATASET_ID)) {
 }
 if (!/^ISSUE195_[A-Za-z0-9_]+$/.test(FIXTURE_RUN_ID)) {
 	throw new Error('PERF_FIXTURE_RUN_ID must be a new ISSUE195_ identifier.');
+}
+if (!path.isAbsolute(REPORT_ROOT)) {
+	throw new Error('PERF_REPORT_ROOT must be an absolute runtime path.');
 }
 guardLocalTarget();
 const outputDirectory = reserveFixtureReportDirectory({
@@ -429,8 +432,8 @@ async function request(method, pathName, token, body, stage, pathTemplate) {
 }
 
 function guardLocalTarget() {
-	const localTarget = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal|faithlog-backend|app)(?::\d+)?($|\/)/.test(BASE_URL);
+	const localTarget = /^http:\/\/(127\.0\.0\.1|\[::1\]):\d+$/.test(BASE_URL);
 	if (!localTarget) {
-		throw new Error('Issue #195 fixture preparation is local Docker only.');
+		throw new Error('Issue #195 fixture preparation requires an exact numeric loopback HTTP origin.');
 	}
 }

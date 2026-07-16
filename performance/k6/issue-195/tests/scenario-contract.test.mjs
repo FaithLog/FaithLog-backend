@@ -1041,11 +1041,20 @@ test('BASE_URL is runtime-required and bound to approved Compose services and th
 		const dockerPath = path.join(tempDirectory, 'docker');
 		fs.writeFileSync(dockerPath, `#!/usr/bin/env bash
 container="\${2-}"
-if [[ "$container" == fake-postgres ]]; then service=postgres
-elif [[ "$container" == fake-redis ]]; then service=redis
-else service=app
+if [[ "$container" == fake-postgres ]]; then
+	service=postgres
+	id=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+	image=2222222222222222222222222222222222222222222222222222222222222222
+elif [[ "$container" == fake-redis ]]; then
+	service=redis
+	id=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+	image=3333333333333333333333333333333333333333333333333333333333333333
+else
+	service=app
+	id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+	image=1111111111111111111111111111111111111111111111111111111111111111
 fi
-printf '[{"Id":"sha256:%s-container","Name":"/%s","Image":"sha256:%s-image","State":{"StartedAt":"2026-07-16T00:00:00Z"},"Config":{"Labels":{"com.docker.compose.project":"fixture-project","com.docker.compose.service":"%s"}},"NetworkSettings":{"Ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18080"}]}}}]\\n' "$container" "$container" "$container" "$service"
+printf '[{"Id":"%s","Name":"/%s","Image":"sha256:%s","State":{"StartedAt":"2026-07-16T00:00:00Z"},"Config":{"Labels":{"com.docker.compose.project":"fixture-project","com.docker.compose.service":"%s"}},"NetworkSettings":{"Ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18080"}]}}}]\\n' "$id" "$container" "$image" "$service"
 `);
 		fs.chmodSync(dockerPath, 0o755);
 		const fixtureResult = spawnSync(process.execPath, [files.fixture], {
@@ -1061,13 +1070,13 @@ printf '[{"Id":"sha256:%s-container","Name":"/%s","Image":"sha256:%s-image","Sta
 				PERF_SOURCE_COMMIT: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
 				APP_CONTAINER_ID: 'fake-app',
 				EXPECTED_APP_COMPOSE_SERVICE: 'app',
-				EXPECTED_APP_IMAGE_ID: 'sha256:fake-app-image',
+				EXPECTED_APP_IMAGE_ID: `sha256:${'1'.repeat(64)}`,
 				POSTGRES_CONTAINER_ID: 'fake-postgres',
 				EXPECTED_POSTGRES_COMPOSE_SERVICE: 'postgres',
-				EXPECTED_POSTGRES_IMAGE_ID: 'sha256:fake-postgres-image',
+				EXPECTED_POSTGRES_IMAGE_ID: `sha256:${'2'.repeat(64)}`,
 				REDIS_CONTAINER_ID: 'fake-redis',
 				EXPECTED_REDIS_COMPOSE_SERVICE: 'redis',
-				EXPECTED_REDIS_IMAGE_ID: 'sha256:fake-redis-image',
+				EXPECTED_REDIS_IMAGE_ID: `sha256:${'3'.repeat(64)}`,
 				EXPECTED_ACTIVE_MEMBERS: '1000',
 				EXPECTED_DUTY_ASSIGNMENTS: '101',
 				TOKEN_SAFETY_MARGIN_SECONDS: '120',

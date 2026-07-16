@@ -54,14 +54,14 @@ export function validateTargetIdentity({
 
 	const target = new URL(baseUrl);
 	if (target.protocol !== 'http:'
-		|| !['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)
+		|| !['127.0.0.1', '[::1]'].includes(target.hostname)
 		|| !target.port
 		|| target.pathname !== '/'
 		|| target.search
 		|| target.hash
 		|| target.username
 		|| target.password) {
-		throw new Error('BASE_URL must be an exact local published HTTP origin with an explicit port and no path/query/credentials.');
+		throw new Error('BASE_URL must be an exact numeric loopback published HTTP origin with an explicit port and no path/query/credentials.');
 	}
 
 	let publishedPorts;
@@ -121,9 +121,6 @@ function validateOptionalTarget(label, values) {
 
 function hostBindingMatches(hostname, hostIp) {
 	const normalized = hostIp || '0.0.0.0';
-	if (hostname === 'localhost') {
-		return ['0.0.0.0', '127.0.0.1', '::', '::1'].includes(normalized);
-	}
 	if (hostname === '127.0.0.1') {
 		return ['0.0.0.0', '127.0.0.1'].includes(normalized);
 	}
