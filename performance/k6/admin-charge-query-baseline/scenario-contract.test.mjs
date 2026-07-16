@@ -564,6 +564,8 @@ test('documents scenario-only status, immutable baseline server, and the measure
 		assert.match(readme, new RegExp(immutableIdentity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 	}
 	assert.match(readme, /#206[\s\S]*createdAt,desc[\s\S]*id,desc/);
-	assert.match(readme, /사용자 승인.*before 측정.*production 최적화.*금지/s);
+	assert.match(readme, /k6\/fixture\/validator\/test\/docs.*별도 사용자 승인 없이.*PM 리뷰/s);
+	assert.match(readme, /src\/main.*production backend.*Flyway 변경 직전.*사용자 승인/s);
+	assert.match(readme, /실제 수집.*개발 세션에서 실행하지 않/s);
 	assert.match(readme, /Docker build.*restart.*prune.*금지/s);
 });

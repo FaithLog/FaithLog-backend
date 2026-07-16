@@ -85,7 +85,7 @@ test('fixture commit is followed by the exact approved three-table vacuum analyz
 	assert.ok(fixtureAnalyze < datasetBinding && fixtureAnalyze < expectations);
 	assert.ok(fixtureAnalyze < preflight && fixtureAnalyze < warmup);
 	assert.match(runner, /psql_exec -q -t -A < "\$SCENARIO_DIR\/analyze-fixture-tables\.sql" \\\n\s*> "\$REPORT_DIR\/evidence\/fixture-vacuum-analyze\.txt"/);
-	assert.match(runner, /fixture-vacuum-analyze-complete\.txt/);
+	assert.match(runner, /'status=completed' \\\n\s*'tables=campus_members,payment_accounts,charge_items' \\\n\s*> "\$REPORT_DIR\/evidence\/fixture-vacuum-analyze-complete\.txt"/);
 });
 
 test('runtime identity binds app, PostgreSQL, and Redis to one approved Compose project', async () => {

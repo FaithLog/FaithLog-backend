@@ -10,6 +10,18 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-16 - Performance Measurement Code Approval Boundary
+
+- Context: 반복되는 before 측정에서 fixture, k6, validator, fake/static test와 evidence 문서의 measurement-boundary 결함을 PM 리뷰로 보정해야 했지만, 매 보정마다 별도 사용자 승인을 기다리면 유효 baseline 확보가 지연됐다. 반면 production backend와 Flyway 변경은 실제 제품·데이터 계약에 영향을 줄 수 있어 사용자 결정권을 유지해야 한다.
+- Decision: 이 성능 개선 목표에서는 k6, fixture, validator, test, docs 같은 측정·테스트 코드 수정은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행한다. `src/main` production backend 또는 Flyway 변경은 실제 편집 직전에 사용자 승인을 받는다. 실제 Docker/DB/k6 실행 권한은 각 실행 지시를 따르며, 이 승인 경계 변경만으로 개발 세션이 load를 실행할 수는 없다.
+- Impact: 측정 harness 보정은 RED→최소 GREEN→정적/fake 검증→PM finding 0 절차로 진행한다. Production 최적화와 migration은 유효 before baseline 중간보고 후에도 사용자 승인 전에는 편집하지 않는다.
+
+### 2026-07-16 - Issue #193 Pre-measurement Fixture VACUUM ANALYZE Boundary
+
+- Context: Actual-before J는 fixture COMMIT 뒤 exact 3-table ANALYZE로 `charge_items` autoanalyze 오염을 막았지만, measured 시작 약 45초 뒤 `campus_members` insert-triggered autovacuum이 실행돼 strict measurement-integrity에서 rejected됐다.
+- Decision: 기존 ANALYZE-only command를 fixture COMMIT 직후, dataset binding·expectations·preflight·warmup보다 앞서 immutable PostgreSQL container ID의 psql stdin으로 실행하는 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체한다. `users`나 다른 table, `VACUUM FULL`, `FREEZE`, 데이터 삭제, schema/index/Flyway/config/reset/extension 변경은 허용하지 않는다.
+- Impact: Completion evidence에는 exact 3-table 목록을 유지한다. 이 command는 `prepare-fixture.sql` transaction 밖에서만 실행하고 measured before/after의 vacuum/analyze/auto-maintenance continuity 검증은 완화하지 않는다. 다음 실제 실행은 재사용하지 않는 fresh K namespace만 사용할 수 있다.
+
 ### 2026-07-16 - Issue #206 Stable Charge Item Pagination Ordering
 
 - Context: Issue #193 current-develop before preflight에서 `sort=createdAt,desc`로 조회한 회원별 청구 상세의 동일 `created_at` 행이 일부는 ID 오름차순, 일부는 내림차순으로 반환됐다. primary 정렬만 있는 offset paging은 동률 행의 페이지 간 중복·누락 가능성이 있어 정확한 baseline 검증을 중단했다.

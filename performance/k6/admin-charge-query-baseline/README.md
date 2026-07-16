@@ -70,9 +70,9 @@ fixture는 승인된 service ADMIN과 일반 duty user를 포함해 기존 ACTIV
 
 ## Measurement approval gate
 
-사용자 승인 없는 before 측정과 production 최적화는 금지한다. 승인된 J는 measured 중 `campus_members` insert-triggered autovacuum으로 measurement-integrity에서 rejected됐다. VACUUM 정책과 다음 fresh execution ID는 사용자 결정 전에는 제안하거나 구현하지 않는다. 승인 후에도 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 실제 수집을 진행한다.
+승인된 J는 measured 중 `campus_members` insert-triggered autovacuum으로 measurement-integrity에서 rejected됐다. 사용자는 fixture COMMIT 직후 exact 3-table `VACUUM (ANALYZE)`로 교체하는 정책을 승인했다. 이 목표의 k6/fixture/validator/test/docs 변경은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행하지만, `src/main` production backend 또는 Flyway 변경 직전에는 사용자 승인을 받아야 한다. 실제 수집은 개발 세션에서 실행하지 않으며, 한 서버 한 load 원칙, runtime admin/duty credential, 1,000 ACTIVE user pool, 승인 workload와 fresh namespace를 모두 충족한 PM 실행에서만 진행한다.
 
-`I193_BEFORE_20260716_J / I193_FIXTURE_20260716_J / EXEC193_BEFORE_20260716_J`는 rejected evidence로 보존하며 B/C/D/E/F/G/H/I/J namespace와 report를 절대 재사용하지 않는다. 다음 ID는 아직 제안하지 않는다.
+`I193_BEFORE_20260716_J / I193_FIXTURE_20260716_J / EXEC193_BEFORE_20260716_J`는 rejected evidence로 보존하며 B/C/D/E/F/G/H/I/J namespace와 report를 절대 재사용하지 않는다. PM 실행 제안용 fresh K 식별자는 `I193_BEFORE_20260716_K / I193_FIXTURE_20260716_K / EXEC193_BEFORE_20260716_K`이고 report 경로는 `build/reports/k6/issue-193/I193_BEFORE_20260716_K/I193_FIXTURE_20260716_K/EXEC193_BEFORE_20260716_K`다.
 
 PM 승인 요청용 추천값은 다음과 같다.
 
@@ -84,7 +84,7 @@ PM 승인 요청용 추천값은 다음과 같다.
 - `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`: blocking capture를 back-to-back으로 요청하는 nominal cadence metadata다.
 - `DOCKER_STATS_MAX_GAP_SECONDS=5`: Docker Desktop `--no-stream` capture overhead를 포함한 인접 sample 간 승인 maximum gap이다.
 
-Workload/token 값은 추천일 뿐 별도 승인 전에는 실행값이 아니다. Resource cadence의 `interval=1s`, `maxGap=5s` 쌍은 이번 수정의 승인 계약이지만 runner default로 두지 않고 매 실행에 명시해야 한다. after 측정과 개별 branch Docker build는 PM integration branch까지 금지한다.
+Workload/token 값은 runner default가 아니며 PM actual execution에서 매번 명시해야 한다. Resource cadence의 `interval=1s`, `maxGap=5s` 쌍도 runtime-required로 유지한다. 개발 세션의 actual 실행, after 측정과 개별 branch Docker build는 PM integration 절차 전까지 금지한다.
 
 ## Runner/evidence boundary
 
@@ -102,7 +102,7 @@ Resource cadence는 nominal requested interval과 approved maximum gap을 분리
 
 Fresh measured login은 `users.last_login_at`을 갱신하므로 PostgreSQL cumulative table stats flush가 HTTP 응답보다 늦을 수 있다. Runner는 runtime 입력이나 default를 추가하지 않고 issue-local 상수 `1초 간격`, `최대 5회`로 pre-boundary pair를 수집한다. 각 시도는 `capture → 1초 sleep → capture`이며 두 JSON의 database identity/postmaster/stats reset, planner settings, 4개 table의 analyze/vacuum maintenance state가 exact 일치할 때만 두 번째 snapshot을 `measurement-state-before.json`으로 이동한다. 안정화 실패는 measured counter-before와 window 시작 전에 fail-closed하며, measured 이후 기존 exact before/after continuity gate는 완화하지 않는다.
 
-Fixture bulk insert의 planner stats는 transaction 내부에서 임의로 변경하지 않는다. `prepare-fixture.sql` COMMIT 성공 직후 별도 issue-local stdin SQL로 exact `ANALYZE campus_members, payment_accounts, charge_items;`를 한 번 실행하고 completion marker를 남긴 뒤에만 dataset binding, expectations, preflight, warmup으로 진행한다. `users`는 bulk fixture 대상이 아니므로 ANALYZE하지 않고 measured login stats는 pre-boundary stable-pair gate가 담당한다. 데이터/schema/index/Flyway/config/reset/VACUUM은 변경하지 않으며 measured before/after의 analyze/autoanalyze continuity 검증은 그대로 유지한다.
+Fixture bulk insert의 maintenance는 transaction 내부에서 실행하지 않는다. `prepare-fixture.sql` COMMIT 성공 직후 별도 issue-local stdin SQL로 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`를 한 번 실행하고 exact table completion marker를 남긴 뒤에만 dataset binding, expectations, preflight, warmup으로 진행한다. `users`나 다른 table, `VACUUM FULL`, `FREEZE`는 허용하지 않는다. Fresh measured login의 users stats는 pre-boundary stable-pair gate가 담당하며 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없다. Measured before/after의 vacuum/analyze/auto-maintenance continuity 검증은 그대로 유지한다.
 
 공유 stack의 quiet snapshot은 경계 관찰일 뿐이다. 모든 DB/resource validator 뒤에는 app/PostgreSQL/Redis runtime, database, numeric loopback binding을 final snapshot으로 다시 비교하고, 이 final continuity를 통과한 뒤에만 classification을 기록한다. post-lock 이후 psql과 Docker stats는 mutable name이 아니라 승인된 full container ID를 사용한다. `measurementStatus`는 최대 `conditional-shared-stack`, `evidenceIntegrity`는 별도 검증 상태이며 `automaticAdoption=false`다. PM이 exclusive-use 전체 window와 evidence를 검토하기 전 baseline으로 채택할 수 없다.
 
@@ -174,4 +174,4 @@ Read-only 확인값은 `autovacuum_naptime=60s`, `autovacuum_vacuum_insert_thres
 
 측정 계정 15026/15027은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. J namespace, DB rows, report는 보존하며 절대 재사용하지 않는다. J의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
 
-추천 후보는 기존 ANALYZE를 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체하는 것이지만, 사용자 승인 전 정책 후보일 뿐이며 아직 scenario/code/test에 구현하지 않았다. 데이터/schema/index/Flyway/config/reset 변경도 수행하지 않았다.
+사용자는 기존 ANALYZE-only command를 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체하도록 승인했다. Runner는 이를 fixture COMMIT 직후 immutable PostgreSQL ID의 psql stdin으로 실행하고 `fixture-vacuum-analyze.txt`와 exact table completion marker를 남긴다. `users`/다른 table, `VACUUM FULL`, `FREEZE`, 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없으며 strict before/after continuity도 유지한다. 다음 actual 후보는 위 fresh K namespace뿐이고 개발 세션에서는 실행하지 않는다.
