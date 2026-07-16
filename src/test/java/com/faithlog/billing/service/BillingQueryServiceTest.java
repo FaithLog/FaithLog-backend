@@ -300,6 +300,70 @@ class BillingQueryServiceTest {
 	}
 
 	@Test
+	void listAdminCampusCharges_sorts_aggregates_in_database_and_preserves_page_metadata() {
+		User manager = saveUser("query-admin-sort-manager@example.com", UserRole.MANAGER, "관리자");
+		User firstMember = saveUser("query-admin-sort-first@example.com", UserRole.USER, "Alpha");
+		User secondMember = saveUser("query-admin-sort-second@example.com", UserRole.USER, "Bravo");
+		User thirdMember = saveUser("query-admin-sort-third@example.com", UserRole.USER, "Charlie");
+		CampusCreateResult campus = createCampus(manager, "193DB정렬캠");
+		campusService.joinCampus(new JoinCampusCommand(firstMember.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(secondMember.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(thirdMember.id(), campus.inviteCode()));
+		PaymentAccountResult account = createAccount(
+			campus.campusId(), manager.id(), PaymentCategory.PENALTY, "193-DB-SORT"
+		);
+		saveCharge(campus.campusId(), firstMember.id(), account, PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 19311L, "Alpha 벌금", 1000, ChargeStatus.UNPAID, null);
+		saveCharge(campus.campusId(), secondMember.id(), account, PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 19312L, "Bravo 벌금", 3000, ChargeStatus.PAID, null);
+		saveCharge(campus.campusId(), thirdMember.id(), account, PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 19313L, "Charlie 벌금", 2000, ChargeStatus.WAIVED, null);
+
+		AdminCampusChargesResult firstPage = billingQueryService.listAdminCampusCharges(
+			new AdminCampusChargeListQuery(
+				campus.campusId(), manager.id(), null, null, null, null,
+				PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "totalAmount"))
+			)
+		);
+		AdminCampusChargesResult secondPage = billingQueryService.listAdminCampusCharges(
+			new AdminCampusChargeListQuery(
+				campus.campusId(), manager.id(), null, null, null, null,
+				PageRequest.of(1, 2, Sort.by(Sort.Direction.DESC, "totalAmount"))
+			)
+		);
+
+		assertThat(firstPage.summary().totalAmount()).isEqualTo(6000);
+		assertThat(firstPage.members()).extracting(AdminCampusChargeMemberResult::userId)
+			.containsExactly(secondMember.id(), thirdMember.id());
+		assertThat(firstPage.page()).isZero();
+		assertThat(firstPage.size()).isEqualTo(2);
+		assertThat(firstPage.totalElements()).isEqualTo(3);
+		assertThat(firstPage.totalPages()).isEqualTo(2);
+		assertThat(secondPage.members()).extracting(AdminCampusChargeMemberResult::userId)
+			.containsExactly(firstMember.id());
+
+		for (String sortProperty : java.util.List.of(
+			"createdAt",
+			"userId",
+			"name",
+			"email",
+			"totalAmount",
+			"unpaidAmount",
+			"paidAmount",
+			"waivedAmount",
+			"canceledAmount"
+		)) {
+			AdminCampusChargesResult sorted = billingQueryService.listAdminCampusCharges(
+				new AdminCampusChargeListQuery(
+					campus.campusId(), manager.id(), null, null, null, null,
+					PageRequest.of(0, 10, Sort.by(Sort.Direction.ASC, sortProperty))
+				)
+			);
+			assertThat(sorted.members()).as(sortProperty).hasSize(3);
+		}
+	}
+
+	@Test
 	void listAdminMemberCharges_includes_target_user_information_and_reuses_charge_item_shape() {
 		User manager = saveUser("query-admin-detail-manager@example.com", UserRole.MANAGER, "관리자");
 		User member = saveUser("query-admin-detail-member@example.com", UserRole.USER, "상세멤버");
