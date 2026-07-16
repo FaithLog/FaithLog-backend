@@ -468,6 +468,18 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 	assert.doesNotMatch(runner, /(?:^|\s)(?:source|\.)\s+\.env(?:\s|$)/m);
 });
 
+test('conditional evidence continues the explicit mode sequence but the completed run remains non-adoptable', () => {
+	const runner = read('run-baseline.sh');
+	assert.match(runner, /conditional-not-adoptable/,
+		'runner must distinguish clean conditional evidence from rejected evidence');
+	assert.match(runner, /overall_non_adoptable/,
+		'runner must remember that every collected report remains non-adoptable');
+	assert.match(runner, /for mode in "\$\{modes\[@\]\}"[\s\S]*for endpoint in[\s\S]*run_endpoint/,
+		'conditional evidence must return control to the existing sequential mode loop');
+	assert.match(runner, /Issue #196 baseline evidence collection finished[\s\S]*exit 2/,
+		'the full evidence collection must still finish with a non-adoptable status');
+});
+
 test('runner rejects every missing target identity before inspect or login', () => {
 	const runner = join(ROOT, 'run-baseline.sh');
 	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-target-'));
