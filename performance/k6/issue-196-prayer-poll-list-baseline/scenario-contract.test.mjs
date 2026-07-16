@@ -150,6 +150,110 @@ function integritySample(overrides = {}) {
 	});
 }
 
+function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = '' } = {}) {
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-adoption-sequence-'));
+	const project = `faithlog-adoption-${process.pid}`;
+	const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+	const fixtureRunId = `i196seq${suffix}`.slice(0, 32);
+	const executionRunId = `execseq${suffix}`.slice(0, 32);
+	const reportRoot = join(temporary, 'reports');
+	const calls = join(temporary, 'calls.log');
+	try {
+		const bin = join(temporary, 'bin');
+		mkdirSync(bin);
+		const manifest = join(temporary, 'fixture.json');
+		const identityCount = join(temporary, 'identity-count');
+		const now = Date.now();
+		writeFileSync(manifest, JSON.stringify({
+			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: new Date(now).toISOString(),
+			primaryCampus: actorManifest(),
+			composeRuntime: manifestRuntime(project, { appImage: 'faithlog-latest', appImageId: 'sha256:contract' }),
+			polls: { byKey: {
+				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
+				closed_member_visible: { endsAt: new Date(now - 2 * 86400000).toISOString() },
+				closed_admin_only: { endsAt: new Date(now - 5 * 86400000).toISOString() },
+				closed_expired: { endsAt: new Date(now - 8 * 86400000).toISOString() },
+				scheduled_future: { startsAt: new Date(now + 2 * 86400000).toISOString() },
+			}, duty: dutyWindows(now) },
+		}));
+		writeFileSync(join(bin, 'docker'), [
+			'#!/usr/bin/env bash',
+			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_FAILURE:-}'}" == runtime && "$count" -ge 5 ]]; then echo app-container-replaced; else echo app-container-id; fi; exit 0; fi`,
+			`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
+			'if [[ "$1" == exec ]]; then',
+			`  if [[ "$*" == *app_client_addrs* ]]; then printf '%s\\n' '{"capturedAt":"2026-07-14T00:00:00Z","unexpectedSessions":[]}'; exit 0; fi`,
+			`  if [[ "$*" == *faithlog_issue196_observer* ]]; then printf '%s\\n' '${JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity)}'; exit 0; fi`,
+			`  printf '%s\\n' '${JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z'))}'; exit 0`,
+			'fi',
+			'case "$*" in',
+			`*com.docker.compose.project*) echo "${project}" ;;`,
+			'*com.docker.compose.service*faithlog-backend*) echo app ;;',
+			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
+			'*com.docker.compose.service*faithlog-redis*) echo redis ;;',
+			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
+			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
+			'*com.docker.compose.config-hash*faithlog-redis*) echo redis-hash ;;',
+			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
+			'*"{{.Id}}"*faithlog-postgres*) echo db-container-id ;;',
+			'*"{{.Id}}"*faithlog-redis*) echo redis-container-id ;;',
+			'*"{{.State.StartedAt}}"*) echo 2026-07-14T00:00:00.000Z ;;',
+			'*"{{.Config.Image}}"*faithlog-backend*) echo faithlog-latest ;;',
+			'*"{{.Config.Image}}"*faithlog-postgres*) echo postgres:17 ;;',
+			'*"{{.Config.Image}}"*faithlog-redis*) echo redis:7-alpine ;;',
+			'*"{{.Image}}"*faithlog-backend*) echo sha256:contract ;;',
+			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
+			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
+			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
+			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
+			`*"stats --no-stream"*) if [[ "${'${FAKE_FAILURE:-}'}" == sampler ]]; then exit 43; fi; printf "faithlog-backend\\t10.0%%%%\\t100MiB / 1GiB\\t9.8%%%%\\nfaithlog-postgres\\t20.0%%%%\\t200MiB / 1GiB\\t19.5%%%%\\nfaithlog-redis\\t5.0%%%%\\t50MiB / 1GiB\\t4.9%%%%\\n" ;;`,
+			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
+			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`,
+			'esac', '',
+		].join('\n'));
+		writeFileSync(join(bin, 'node'), [
+			'#!/usr/bin/env bash',
+			`if [[ "$*" == *"await fetch"* ]]; then echo "login:${'${LOGIN_EMAIL}'}" >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
+			`if [[ "$1" == *summarize-run.mjs ]]; then endpoint="$2"; report="${'${10}'}"; echo "summarize:$endpoint" >> "${calls}"; case "${'${FAKE_SUMMARY_BEHAVIOR}'}" in conditional) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"conditional-not-adoptable"}' > "$report" ;; rejected) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"rejected"}' > "$report" ;; malformed) printf '{' > "$report" ;; missing) : ;; esac; exit 2; fi`,
+			`exec "${process.execPath}" "$@"`, '',
+		].join('\n'));
+		writeFileSync(join(bin, 'k6'), [
+			'#!/usr/bin/env bash',
+			'summary=""; while (( $# > 0 )); do if [[ "$1" == --summary-export ]]; then summary="$2"; shift 2; else shift; fi; done',
+			'phase=measured; [[ "$summary" == *warmup* ]] && phase=warmup',
+			`echo "k6:${'${ENDPOINT}'}:$phase" >> "${calls}"`,
+			'mkdir -p "$(dirname "$summary")"; printf "%s\\n" "{}" > "$summary"',
+			`if [[ "$phase" == measured ]]; then sleep 0.12; [[ "${'${FAKE_FAILURE:-}'}" == k6 ]] && exit 42; fi`,
+			'exit 0', '',
+		].join('\n'));
+		writeFileSync(join(bin, 'lsof'), [
+			'#!/usr/bin/env bash',
+			`[[ "${'${FAKE_FAILURE:-}'}" == integrity ]] && exit 44`,
+			'exit 0', '',
+		].join('\n'));
+		for (const command of ['docker', 'node', 'k6', 'lsof']) chmodSync(join(bin, command), 0o755);
+
+		const result = spawnSync('bash', [join(ROOT, 'run-baseline.sh'), 'prayer'], {
+			env: {
+				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`,
+				FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId, FIXTURE_MANIFEST: manifest,
+				REPORT_ROOT: reportRoot,
+				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
+				MEASURED_VUS: '1', MEASURED_DURATION: '1s', SAMPLING_INTERVAL_SECONDS: '0.05', SAMPLING_MAX_GAP_SECONDS: '0.1',
+				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
+				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
+				FAKE_SUMMARY_BEHAVIOR: summaryBehavior, FAKE_FAILURE: failure,
+			},
+			encoding: 'utf8', timeout: 60000,
+		});
+		return {
+			result,
+			calls: existsSync(calls) ? readFileSync(calls, 'utf8').trim().split(/\r?\n/).filter(Boolean) : [],
+		};
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
+}
+
 function read(name) {
 	const path = join(ROOT, name);
 	return existsSync(path) ? readFileSync(path, 'utf8') : '';
@@ -478,6 +582,32 @@ test('conditional evidence continues the explicit mode sequence but the complete
 		'conditional evidence must return control to the existing sequential mode loop');
 	assert.match(runner, /Issue #196 baseline evidence collection finished[\s\S]*exit 2/,
 		'the full evidence collection must still finish with a non-adoptable status');
+});
+
+test('fake runner preserves conditional sequencing and fails closed on report or operational errors', () => {
+	const completed = runFakeAdoptionSequence();
+	assert.equal(completed.result.status, 2, completed.result.stderr);
+	assert.equal(completed.calls.filter((line) => line.startsWith('summarize:')).length, 5);
+	assert.ok(completed.calls.includes('k6:prayer_groups:warmup'), 'conditional first endpoint must advance to the next endpoint');
+	assert.match(completed.result.stderr, /baseline evidence collection finished requested mode=prayer/);
+
+	for (const summaryBehavior of ['rejected', 'malformed', 'missing']) {
+		const failed = runFakeAdoptionSequence({ summaryBehavior });
+		assert.notEqual(failed.result.status, 0, `${summaryBehavior} report must fail closed`);
+		assert.deepEqual(failed.calls.filter((line) => line.startsWith('summarize:')), ['summarize:prayer_current_season']);
+		assert.equal(failed.calls.some((line) => line.startsWith('k6:prayer_groups:')), false,
+			`${summaryBehavior} report must block the next endpoint`);
+	}
+
+	for (const failure of ['k6', 'sampler', 'integrity', 'runtime']) {
+		const failed = runFakeAdoptionSequence({ failure });
+		assert.notEqual(failed.result.status, 0, `${failure} failure must not be swallowed by conditional evidence`);
+		assert.deepEqual(failed.calls.filter((line) => line.startsWith('summarize:')), ['summarize:prayer_current_season']);
+		assert.equal(failed.calls.some((line) => line.startsWith('k6:prayer_groups:')), false,
+			`${failure} failure must block the next endpoint`);
+		assert.doesNotMatch(failed.result.stderr, /continuing the approved sequential scope/,
+			`${failure} failure must not claim that the runner is continuing`);
+	}
 });
 
 test('runner rejects every missing target identity before inspect or login', () => {
