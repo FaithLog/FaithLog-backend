@@ -308,6 +308,13 @@ test('Docker decimal binary-unit displays preserve rounding ranges without false
 		measuredEnd: '2026-07-16T00:00:01.000Z',
 		samplingIntervalSeconds: 1,
 	}).sampleCount, 2);
+	assert.doesNotThrow(() => normalizeDockerStats({
+		capturedAt: '2026-07-16T00:00:00.000Z',
+		expectedContainerIds: ids,
+		rawStats: Object.values(ids).map((id) => ({
+			ID: id, CPUPerc: '0%', MemUsage: '1GiB / 1GiB', MemPerc: '100%',
+		})),
+	}), 'overlapping rounded ranges must allow a consistent used <= limit value');
 
 	for (const mutate of [
 		(rows) => { rows[0].MemPerc = '99%'; },
