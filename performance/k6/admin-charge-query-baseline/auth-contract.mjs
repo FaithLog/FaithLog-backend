@@ -80,6 +80,23 @@ export function requiredTokenCoverageSeconds(phaseDurationSeconds, safetySeconds
 	return required;
 }
 
+export function requiredTokenJourneyCoverageSeconds(warmupDurationSeconds, measuredDurationSeconds, safetySeconds) {
+	for (const [value, label] of [
+		[warmupDurationSeconds, 'Warmup duration seconds'],
+		[measuredDurationSeconds, 'Measured duration seconds'],
+		[safetySeconds, 'TOKEN_EXPIRY_SAFETY_SECONDS'],
+	]) {
+		if (!Number.isSafeInteger(value) || value <= 0) {
+			throw new Error(`${label} must be a positive integer.`);
+		}
+	}
+	const required = warmupDurationSeconds + measuredDurationSeconds + safetySeconds;
+	if (!Number.isSafeInteger(required)) {
+		throw new Error('Required token journey coverage exceeds the safe integer range.');
+	}
+	return required;
+}
+
 function parseJwtExpiration(accessToken) {
 	const parts = accessToken.split('.');
 	if (parts.length < 2) {
@@ -126,6 +143,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 		process.stdout.write(String(requiredTokenCoverageSeconds(
 			Number(process.argv[3]),
 			Number(process.argv[4])
+		)));
+	} else if (process.argv[2] === 'journey-coverage') {
+		process.stdout.write(String(requiredTokenJourneyCoverageSeconds(
+			Number(process.argv[3]),
+			Number(process.argv[4]),
+			Number(process.argv[5])
 		)));
 	} else {
 		process.stdout.write(String(parseK6DurationSeconds(process.argv[2])));

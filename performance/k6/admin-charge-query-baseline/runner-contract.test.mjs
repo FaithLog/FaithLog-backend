@@ -129,6 +129,7 @@ test('target binding accepts only the inspected numeric loopback app port', asyn
 });
 
 test('k6 keeps the 16 frontend cases in one ordered loop and separates warmup from measured load', async () => {
+	const {requiredTokenJourneyCoverageSeconds} = await module('auth-contract.mjs');
 	const script = await read('admin-charge-query-baseline.js');
 	assert.match(script, /buildRequestCases\(EXPECTATIONS, CAMPUS_ID\)/);
 	assert.match(script, /for \(const requestCase of requestCases\)/);
@@ -141,6 +142,10 @@ test('k6 keeps the 16 frontend cases in one ordered loop and separates warmup fr
 	assert.doesNotMatch(runner, /IDENTITY_LABEL=ADMIN_MEASURED/);
 	assert.equal([...runner.matchAll(/node "\$SCENARIO_DIR\/authenticate\.mjs"/g)].length, 2);
 	assert.match(runner, /INITIAL_ADMIN_REQUIRED_TTL_SECONDS/);
+	assert.equal(requiredTokenJourneyCoverageSeconds(300, 180, 120), 600);
+	for (const values of [[0, 180, 120], [300, -1, 120], [300, 180, 0], [Number.MAX_SAFE_INTEGER, 1, 1]]) {
+		assert.throws(() => requiredTokenJourneyCoverageSeconds(...values));
+	}
 });
 
 test('summary validation enforces exact count math, failure math, latency order, and throughput', async () => {
@@ -438,7 +443,7 @@ test('measurement integrity rejects activity, planner, maintenance, pgss, and co
 	}
 });
 
-test('pre-boundary maintenance state requires two consecutive stable snapshots after measured login', async () => {
+test('pre-boundary maintenance state requires two consecutive stable snapshots after initial-login cleanup', async () => {
 	const runner = await read('run-baseline.sh');
 	assert.doesNotMatch(
 		runner,
@@ -626,7 +631,9 @@ test('the first post-report failure is preserved as a non-adoptable machine-read
 	assert.match(runner, /MEASUREMENT_STAGE=runtime-pre-lock/);
 	assert.match(runner, /measurement-rejection\.mjs[\s\S]*measurement-rejection\.json/);
 	assert.match(runner, /cleanup\(\)[\s\S]*local exit_status="\$\?"[\s\S]*write_measurement_rejection/);
-	assert.match(runner, /MEASUREMENT_STAGE=completed[\s\S]*measurement-classification\.json/);
+	assert.match(runner, /LOCK_ACQUIRED=false[\s\S]*if ! mkdir "\$LOCK_DIR"[\s\S]*LOCK_ACQUIRED=true/);
+	assert.match(runner, /LOCK_ACQUIRED" == true[\s\S]*rmdir "\$LOCK_DIR"/);
+	assert.match(runner, /MEASUREMENT_STAGE=classification[\s\S]*measurement-classification\.json[\s\S]*MEASUREMENT_STAGE=completed/);
 	assert.doesNotMatch(runner, /(?:EMAIL|PASSWORD|ACCESS_TOKEN).*measurement-rejection/i);
 });
 
@@ -674,7 +681,7 @@ test('final immutable checkpoint follows every evidence validator and precedes c
 	const finalRuntime = runner.indexOf('runtime-identity-final.json');
 	const finalDatabase = runner.indexOf('database-identity-final.json');
 	const finalBinding = runner.indexOf('target-binding-final.json');
-	const finalContinuity = runner.indexOf('final-continuity');
+	const finalContinuity = runner.indexOf('final-continuity.txt');
 	const classification = runner.indexOf('measurement-classification.json');
 	for (const position of [resourceValidation, databaseValidation, finalRuntime, finalDatabase, finalBinding, finalContinuity, classification]) {
 		assert.ok(position >= 0);

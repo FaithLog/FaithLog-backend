@@ -91,6 +91,10 @@ WARMUP_REQUIRED_TTL_SECONDS="$(
 MEASURED_REQUIRED_TTL_SECONDS="$(
 	node "$SCENARIO_DIR/auth-contract.mjs" coverage "$MEASURED_SECONDS" "$TOKEN_EXPIRY_SAFETY_SECONDS"
 )"
+INITIAL_ADMIN_REQUIRED_TTL_SECONDS="$(
+	node "$SCENARIO_DIR/auth-contract.mjs" journey-coverage \
+		"$WARMUP_MAX_SECONDS" "$MEASURED_SECONDS" "$TOKEN_EXPIRY_SAFETY_SECONDS"
+)"
 DOCKER_STATS_CADENCE_CONTRACT="$(
 	node "$SCENARIO_DIR/docker-resource-evidence.mjs" cadence \
 		"$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS" "$DOCKER_STATS_MAX_GAP_SECONDS"
@@ -111,6 +115,57 @@ if [[ "$CREATED_REPORT_DIR" != "$REPORT_DIR" ]]; then
 	exit 3
 fi
 mkdir -p "$REPORT_DIR/warmup" "$REPORT_DIR/measured" "$REPORT_DIR/evidence"
+
+MEASUREMENT_STAGE=runtime-pre-lock
+LOCK_DIR=''
+LOCK_ACQUIRED=false
+STATS_STOP_FILE=''
+STATS_READY_FILE=''
+STATS_PID=''
+ADMIN_ACCESS_TOKEN=''
+DUTY_ACCESS_TOKEN=''
+
+write_measurement_rejection() {
+	local exit_status="$1"
+	if (( exit_status == 0 )) || [[ "$MEASUREMENT_STAGE" == completed ]]; then
+		return
+	fi
+	node "$SCENARIO_DIR/measurement-rejection.mjs" \
+		"$REPORT_DIR/measurement-rejection.json" "$MEASUREMENT_STAGE" "$exit_status" \
+		2>/dev/null || true
+}
+
+cleanup() {
+	local exit_status="$?"
+	set +e
+	write_measurement_rejection "$exit_status"
+	ADMIN_ACCESS_TOKEN=''
+	DUTY_ACCESS_TOKEN=''
+	ADMIN_EMAIL=''
+	ADMIN_PASSWORD=''
+	DUTY_EMAIL=''
+	DUTY_PASSWORD=''
+	unset PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_DUTY_EMAIL PERF_DUTY_PASSWORD PERF_ACCESS_TOKEN
+	if [[ "$LOCK_ACQUIRED" == true && -n "$LOCK_DIR" && -d "$LOCK_DIR" ]]; then
+		: > "$STATS_STOP_FILE"
+		if [[ -n "$STATS_PID" ]]; then
+			wait "$STATS_PID" 2>/dev/null || true
+		fi
+		if [[ -e "$STATS_STOP_FILE" ]]; then
+			unlink "$STATS_STOP_FILE"
+		fi
+		if [[ -e "$STATS_READY_FILE" ]]; then
+			unlink "$STATS_READY_FILE"
+		fi
+		if [[ -e "$LOCK_DIR/owner.txt" ]]; then
+			unlink "$LOCK_DIR/owner.txt"
+		fi
+		rmdir "$LOCK_DIR" 2>/dev/null || true
+	fi
+	return "$exit_status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 inspect_container_identity() {
 	docker inspect --format '{"id":"{{.Id}}","image":"{{.Image}}","startedAt":"{{.State.StartedAt}}","project":"{{ index .Config.Labels "com.docker.compose.project" }}","service":"{{ index .Config.Labels "com.docker.compose.service" }}","running":{{.State.Running}}}' "$1"
@@ -166,6 +221,7 @@ DATABASE_IDENTITY_JSON="$DATABASE_IDENTITY_JSON" EXPECTED_DATABASE_NAME="$POSTGR
 	> "$REPORT_DIR/evidence/database-identity-before-lock.json"
 APP_PROJECT="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).app.project)' "$REPORT_DIR/evidence/runtime-identity-before.json")"
 
+MEASUREMENT_STAGE=lock
 LOCK_KEY="$(printf '%s' "$EXPECTED_COMPOSE_PROJECT" | tr -c 'A-Za-z0-9_.-' '_')"
 LOCK_DIR="/tmp/faithlog-performance-${LOCK_KEY}.lock"
 if ! mkdir "$LOCK_DIR"; then
@@ -175,44 +231,16 @@ if ! mkdir "$LOCK_DIR"; then
 	fi
 	exit 4
 fi
+LOCK_ACQUIRED=true
 printf 'issue=193 pid=%s startedAt=%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/owner.txt"
 
 STATS_STOP_FILE="$LOCK_DIR/docker-stats.stop"
 STATS_READY_FILE="$LOCK_DIR/docker-stats.ready"
-STATS_PID=''
-ADMIN_ACCESS_TOKEN=''
-DUTY_ACCESS_TOKEN=''
-cleanup() {
-	ADMIN_ACCESS_TOKEN=''
-	DUTY_ACCESS_TOKEN=''
-	ADMIN_EMAIL=''
-	ADMIN_PASSWORD=''
-	DUTY_EMAIL=''
-	DUTY_PASSWORD=''
-	unset PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_DUTY_EMAIL PERF_DUTY_PASSWORD PERF_ACCESS_TOKEN
-	if [[ -d "$LOCK_DIR" ]]; then
-		: > "$STATS_STOP_FILE"
-		if [[ -n "$STATS_PID" ]]; then
-			wait "$STATS_PID" 2>/dev/null || true
-		fi
-		if [[ -e "$STATS_STOP_FILE" ]]; then
-			unlink "$STATS_STOP_FILE"
-		fi
-		if [[ -e "$STATS_READY_FILE" ]]; then
-			unlink "$STATS_READY_FILE"
-		fi
-		if [[ -e "$LOCK_DIR/owner.txt" ]]; then
-			unlink "$LOCK_DIR/owner.txt"
-		fi
-		rmdir "$LOCK_DIR" 2>/dev/null || true
-	fi
-}
-trap cleanup EXIT
-trap 'exit 130' INT TERM
 
 # The canonical lock serializes cooperating runners, but names can still be
 # replaced externally. Rebind the complete approved target before any login,
 # fixture mutation, measurement evidence, or k6 process is allowed.
+MEASUREMENT_STAGE=runtime-post-lock
 validate_runtime_bootstrap > "$REPORT_DIR/evidence/runtime-identity-post-lock.json"
 TARGET_BINDING_JSON="$(inspect_target_binding)"
 BASE_URL="$BASE_URL" TARGET_BINDING_JSON="$TARGET_BINDING_JSON" \
@@ -256,6 +284,8 @@ printf '%s\n' \
 	"measuredVus=$MEASURED_VUS" \
 	"measuredDuration=$MEASURED_DURATION" \
 	"tokenExpirySafetySeconds=$TOKEN_EXPIRY_SAFETY_SECONDS" \
+	"initialAdminRequiredTtlSeconds=$INITIAL_ADMIN_REQUIRED_TTL_SECONDS" \
+	"measuredRequiredTtlSeconds=$MEASURED_REQUIRED_TTL_SECONDS" \
 	"dockerStatsSamplingIntervalSeconds=$DOCKER_STATS_SAMPLING_INTERVAL_SECONDS" \
 	"dockerStatsMaximumGapSeconds=$DOCKER_STATS_MAX_GAP_SECONDS" \
 	"preBoundaryStabilizationIntervalSeconds=$PRE_BOUNDARY_STABILIZATION_INTERVAL_SECONDS" \
@@ -273,15 +303,21 @@ for snapshot in 1 2; do
 	sleep 1
 done
 
-# Read-only logins prove both approved identities before the immutable fixture
-# namespace is consumed. Tokens stay in shell memory and never enter reports.
+# Capture the cumulative users update counter before the only two login writes.
+# Promotion/signup happens before this runner, so any delta beyond two is contamination.
+MEASUREMENT_STAGE=credentials
+psql_exec -q -t -A < "$SCENARIO_DIR/collect-users-update-counter.sql" \
+	> "$REPORT_DIR/evidence/users-update-counter-before.txt"
+
+# The two initial logins prove both approved identities before the immutable fixture
+# namespace is consumed. Their tokens stay in shell memory and never enter reports.
 ADMIN_ACCESS_TOKEN="$(
 	BASE_URL="$BASE_URL" \
 	PERF_LOGIN_EMAIL="$ADMIN_EMAIL" \
 	PERF_LOGIN_PASSWORD="$ADMIN_PASSWORD" \
 	EXPECTED_USER_ID="$REQUESTER_USER_ID" \
 	IDENTITY_LABEL=ADMIN \
-	MIN_TOKEN_TTL_SECONDS="$WARMUP_REQUIRED_TTL_SECONDS" \
+	MIN_TOKEN_TTL_SECONDS="$INITIAL_ADMIN_REQUIRED_TTL_SECONDS" \
 	node "$SCENARIO_DIR/authenticate.mjs"
 )"
 DUTY_ACCESS_TOKEN="$(
@@ -293,7 +329,12 @@ DUTY_ACCESS_TOKEN="$(
 	MIN_TOKEN_TTL_SECONDS="$WARMUP_REQUIRED_TTL_SECONDS" \
 	node "$SCENARIO_DIR/authenticate.mjs"
 )"
+ADMIN_EMAIL=''
+ADMIN_PASSWORD=''
+DUTY_EMAIL=''
+DUTY_PASSWORD=''
 
+MEASUREMENT_STAGE=fixture
 psql_exec \
 	-v dataset_id="$DATASET_ID" \
 	-v fixture_run_id="$FIXTURE_RUN_ID" \
@@ -334,16 +375,19 @@ node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' "
 TARGET_USER_ID="$(node -e 'process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).targetUserId))' "$EXPECTATIONS_PATH")"
 FIXTURE_ACCOUNT_ID="$(node -e 'process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).fixtureAccountId))' "$EXPECTATIONS_PATH")"
 
+MEASUREMENT_STAGE=preflight
 BASE_URL="$BASE_URL" \
 CAMPUS_ID="$CAMPUS_ID" \
 PERF_ADMIN_ACCESS_TOKEN="$ADMIN_ACCESS_TOKEN" \
 PERF_DUTY_ACCESS_TOKEN="$DUTY_ACCESS_TOKEN" \
 EXPECTATIONS_PATH="$EXPECTATIONS_PATH" \
 node "$SCENARIO_DIR/preflight.mjs"
+DUTY_ACCESS_TOKEN=''
 
-# The first token must still cover the complete approved warmup window after
-# fixture creation and correctness preflight have finished.
-PERF_ACCESS_TOKEN="$ADMIN_ACCESS_TOKEN" MIN_TOKEN_TTL_SECONDS="$WARMUP_REQUIRED_TTL_SECONDS" \
+# The reused initial ADMIN token must still cover warmup, measured load, and safety
+# after fixture creation and correctness preflight have finished.
+MEASUREMENT_STAGE=warmup
+PERF_ACCESS_TOKEN="$ADMIN_ACCESS_TOKEN" MIN_TOKEN_TTL_SECONDS="$INITIAL_ADMIN_REQUIRED_TTL_SECONDS" \
 	node "$SCENARIO_DIR/validate-token-ttl.mjs"
 
 PHASE=warmup \
@@ -361,31 +405,9 @@ k6 run --summary-export "$REPORT_DIR/warmup/summary.json" \
 	> "$REPORT_DIR/warmup/k6-console.txt"
 node "$SCENARIO_DIR/validate-measured-summary.mjs" "$REPORT_DIR/warmup/summary.json" "$WARMUP_ITERATIONS"
 
-# Capture the canonical cumulative users update counter before the one approved
-# measured login write. This query is read-only and precedes the login commit.
-psql_exec -q -t -A < "$SCENARIO_DIR/collect-users-update-counter.sql" \
-	> "$REPORT_DIR/evidence/users-update-counter-before.txt"
-
-# Refresh authentication after warmup. No measured-window HTTP setup request is
-# needed, and the fresh token must cover the full approved measured duration.
-ADMIN_ACCESS_TOKEN="$(
-	BASE_URL="$BASE_URL" \
-	PERF_LOGIN_EMAIL="$ADMIN_EMAIL" \
-	PERF_LOGIN_PASSWORD="$ADMIN_PASSWORD" \
-	EXPECTED_USER_ID="$REQUESTER_USER_ID" \
-	IDENTITY_LABEL=ADMIN_MEASURED \
-	MIN_TOKEN_TTL_SECONDS="$MEASURED_REQUIRED_TTL_SECONDS" \
-	node "$SCENARIO_DIR/authenticate.mjs"
-)"
-ADMIN_EMAIL=''
-ADMIN_PASSWORD=''
-DUTY_EMAIL=''
-DUTY_PASSWORD=''
-DUTY_ACCESS_TOKEN=''
-
-# Wait until PostgreSQL acknowledges exactly the one users.last_login_at update
-# from the fresh measured login. A pending zero delta may be polled for the same
-# bounded one-second/five-attempt contract used by pre-boundary stabilization.
+# Warmup gives PostgreSQL backends a bounded opportunity to flush both initial
+# login updates. Require exact +2 before clearing their maintenance state.
+MEASUREMENT_STAGE=initial-login-ack
 USERS_UPDATE_ACKNOWLEDGED=false
 for ((attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt++)); do
 	USERS_UPDATE_COUNTER_CURRENT="$REPORT_DIR/evidence/users-update-counter-attempt-${attempt}.txt"
@@ -393,14 +415,15 @@ for ((attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt++
 		> "$USERS_UPDATE_COUNTER_CURRENT"
 	USERS_UPDATE_ACK_STATUS="$(node "$SCENARIO_DIR/users-update-ack.mjs" \
 		"$REPORT_DIR/evidence/users-update-counter-before.txt" \
-		"$USERS_UPDATE_COUNTER_CURRENT")"
+		"$USERS_UPDATE_COUNTER_CURRENT" \
+		"2")"
 	if [[ "$USERS_UPDATE_ACK_STATUS" == acknowledged ]]; then
 		USERS_UPDATE_ACKNOWLEDGED=true
 		printf '%s\n' \
 			'status=acknowledged' \
-			'expectedDelta=1' \
+			'expectedDelta=2' \
 			"attempt=$attempt" \
-			> "$REPORT_DIR/evidence/measured-login-user-update-ack-complete.txt"
+			> "$REPORT_DIR/evidence/initial-logins-user-update-ack-complete.txt"
 		break
 	fi
 	if (( attempt < PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS )); then
@@ -408,19 +431,21 @@ for ((attempt = 1; attempt <= PRE_BOUNDARY_STABILIZATION_MAX_ATTEMPTS; attempt++
 	fi
 done
 if [[ "$USERS_UPDATE_ACKNOWLEDGED" != true ]]; then
-	echo 'users.n_tup_upd did not acknowledge exactly one measured-login update within five attempts.' >&2
+	echo 'users.n_tup_upd did not acknowledge exactly two initial-login updates within five attempts.' >&2
 	exit 8
 fi
 
-# The login write is now visible. Clear it from pre-window maintenance state
+# Both login writes are now visible. Clear them from pre-window maintenance state
 # before any before evidence, counter, resource sampler, or measured window.
-psql_exec -q -t -A < "$SCENARIO_DIR/vacuum-measured-login-user.sql" \
-	> "$REPORT_DIR/evidence/measured-login-user-vacuum-analyze.txt"
+MEASUREMENT_STAGE=users-maintenance
+psql_exec -q -t -A < "$SCENARIO_DIR/vacuum-initial-login-users.sql" \
+	> "$REPORT_DIR/evidence/initial-logins-users-vacuum-analyze.txt"
 printf '%s\n' \
 	'status=completed' \
 	'tables=users' \
-	> "$REPORT_DIR/evidence/measured-login-user-vacuum-analyze-complete.txt"
+	> "$REPORT_DIR/evidence/initial-logins-users-vacuum-analyze-complete.txt"
 
+MEASUREMENT_STAGE=boundary
 psql_exec -q -t -A \
 	-v stage=before \
 	-v run_explain=false \
@@ -492,6 +517,7 @@ while [[ ! -f "$STATS_READY_FILE" ]]; do
 	sleep 0.05
 done
 
+MEASUREMENT_STAGE=measured
 MEASURED_START="$(node -e 'process.stdout.write(new Date().toISOString())')"
 
 PHASE=measured \
@@ -543,6 +569,7 @@ psql_exec -q -t -A \
 # A user-approved latency target remains intentionally absent. Static gates
 # validate metrics and supporting PostgreSQL evidence, but shared-stack
 # provenance remains conditional until PM verifies the exclusive-use window.
+MEASUREMENT_STAGE=validation
 node "$SCENARIO_DIR/validate-measured-summary.mjs" "$REPORT_DIR/measured/summary.json"
 node "$SCENARIO_DIR/docker-resource-evidence.mjs" validate \
 	"$REPORT_DIR/measured/docker-stats.jsonl" \
@@ -562,6 +589,7 @@ EXPECTED_DATABASE_NAME="$POSTGRES_DB" node "$SCENARIO_DIR/measurement-integrity.
 # Evidence is adoptable for PM review only if the mutable service names still
 # resolve to the exact approved containers and the DB/binding identities remain
 # continuous after every evidence validator has completed.
+MEASUREMENT_STAGE=final-continuity
 validate_runtime_bootstrap > "$REPORT_DIR/evidence/runtime-identity-final.json"
 TARGET_BINDING_JSON="$(inspect_target_binding)"
 BASE_URL="$BASE_URL" TARGET_BINDING_JSON="$TARGET_BINDING_JSON" \
@@ -582,6 +610,8 @@ EXPECTED_DATABASE_NAME="$POSTGRES_DB" node "$SCENARIO_DIR/runtime-identity.mjs" 
 printf 'status=exact-runtime-database-binding-continuity\n' \
 	> "$REPORT_DIR/evidence/final-continuity.txt"
 
+MEASUREMENT_STAGE=classification
 EXTERNAL_ACTIVITY="$EXTERNAL_ACTIVITY" node "$SCENARIO_DIR/measurement-classification.mjs" \
 	> "$REPORT_DIR/measurement-classification.json"
+MEASUREMENT_STAGE=completed
 echo "Issue #193 evidence is conditional shared-stack evidence under $REPORT_DIR; PM adoption is separate."
