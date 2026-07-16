@@ -4,26 +4,26 @@ This tooling measures the approved `origin/develop` before baseline only. It mus
 
 ## Authoritative current-develop before bundle
 
-The PM completed the strict four-mode bundle at `build/reports/k6/poll-settlement/bundles/EXEC192_BEFORE_BUNDLE_O/`. It binds source commit `355f79df5b2e47636b7d1a17dea029da6c93c62d`, target SHA-256 `8a35ba2b2be146c40d89c00670fe16a62548e9a0e7d4501e347d7e05dee2ca80`, protocol `faithlog-192-single-mode-v1`, and a fresh 1,000 ACTIVE / 34 poll / 34,000 response fixture per mode. `_CS_O`, `_MS_O`, `_CC_O`, and `_MC_O` each passed SHA continuity and strict evidence validation. All failure rates are zero, while classification remains `conditional-boundary-only`, `accepted=false`, and `automaticAdoption=false` because continuous exclusivity is not machine-proven.
+The PM completed the authoritative current-develop four-mode bundle at `build/reports/k6/poll-settlement/bundles/EXEC192_BEFORE_CURRENT_BUNDLE_R/`. It binds source commit `6796ed146244d8f3f5b5dd7048ebe16865084a97`, target SHA-256 `7e7dd3a430666112f5139cf3950f2b859dc49034c5306cee0b770cfe80b8cb62`, protocol `faithlog-192-single-mode-v1`, and a fresh 1,000 ACTIVE / 34 poll / 34,000 response fixture per mode. All four modes passed SHA continuity, strict evidence validation, correctness, and HTTP/check failure zero. Classification remains `conditional-boundary-only`, `accepted=false`, and `automaticAdoption=false` because continuous exclusivity is not machine-proven; PM designates this validated bundle as the authoritative before evidence for an identical integration-after comparison.
 
 | mode | count | p50 ms | p95 ms | p99 ms | max ms | throughput req/s |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| coffee-sequential | 10 | 890.6895 | 1117.2471 | 1168.37502 | 1181.157 | 1.0649627 |
-| meal-sequential | 10 | 1146.035 | 1294.67735 | 1303.83467 | 1306.124 | 0.8567512 |
-| coffee-concurrent | 5 | 2732.844 | 4330.2564 | 4474.45768 | 4510.508 | 1.1084017 |
-| meal-concurrent | 5 | 3019.871 | 6293.2634 | 6762.88068 | 6880.285 | 0.7265330 |
+| coffee-sequential | 10 | 2932.822 | 6231.9487 | 6504.08494 | 6572.119 | 0.2788311398616998 |
+| meal-sequential | 10 | 1317.1715 | 1450.967 | 1514.9534 | 1530.95 | 0.7514841812579846 |
+| coffee-concurrent | 5 | 3705.763 | 5941.3596 | 6143.80952 | 6194.422 | 0.8071025020177562 |
+| meal-concurrent | 5 | 3892.11 | 6154.0946 | 6357.64532 | 6408.533 | 0.7801529099703542 |
 
 `pg_stat_statements` was unavailable, so DB/table counters and container resource evidence are supporting evidence rather than per-query attribution. These numbers are the approved current-develop before reference for final integration comparison, not an automatically adopted performance achievement.
 
 ## Production settlement batch optimization
 
-The before bundle's supporting table counters match the production loop structure. COFFEE sequential recorded `payment_accounts.seq_scan=9009`, `charge_items.idx_scan=9000`, and `users.idx_scan=9020`; MEAL sequential recorded `10020`, `10000`, and `10032`. The concurrent modes recorded the same pattern at their smaller request counts: COFFEE `4004/4000/4011` and MEAL `5010/5000/5017`. Because `pg_stat_statements` was unavailable, these are supporting correlations, not per-statement attribution.
+The R bundle's supporting table counters match the production loop structure. COFFEE sequential recorded `payment_accounts.seq_scan=10010`, `payment_accounts.seq_tup_read=1241250`, and `charge_items.idx_scan=10000`; MEAL sequential recorded `10020`, `1272540`, and `10000`. The concurrent modes recorded the same pattern at half cardinality: COFFEE payment-account/charge scans `5005/5000` and MEAL `5010/5000`. Because `pg_stat_statements` was unavailable, these are supporting correlations combined with the inspected call graph, not per-statement attribution.
 
 The production change keeps each settlement in its existing transaction and preserves poll/duty/account ownership checks, amount calculation, duplicate prevention, terminal charge handling, API responses, and archive visibility. The settlement services now hand one charge-command collection to billing. Billing validates the selected account once per collection, loads existing source charges with one pessimistically locked source-ID set query, updates only existing UNPAID COFFEE charges, leaves terminal COFFEE charges unchanged, rejects any existing MEAL charge, and submits new entities through one repository collection-save boundary.
 
 This does not claim JDBC insert batching. `ChargeItem` still uses identity IDs, and every required charge row must still be inserted. The supported optimization claim is removal of per-charge account and existing-charge repository lookups. No controller/DTO/API, Flyway migration, dependency, or index changed. Actual after latency and counter deltas remain reserved for the final PM integration run.
 
-TDD first failed at `compileTestJava` with eight missing batch-contract symbols. The minimal implementation then passed the four new batch tests, the expanded 134-test billing/poll/#200/#201 focused set, the full Gradle suite (`556` tests, `0` failures, `0` errors, `3` skipped), Gradle build, asciidoctor, and all 77 issue-local static/fake contracts.
+TDD first failed at `compileTestJava` with eight missing batch-contract symbols. A self-review RED also reproduced one batch-save unique conflict bypassing the existing MEAL duplicate error mapping. The current-develop minimal implementation then passed five focused batch tests, 113 related billing/poll/#200/#201 regressions, and the full Gradle suite (`560` tests, `0` failures, `0` errors, `3` skipped). Gradle build and asciidoctor also passed. No Docker image or after load was run in this development session.
 
 Issue #194 should inspect `EXPLAIN (ANALYZE, BUFFERS)` for the new locked bulk lookup and evaluate a `charge_items (campus_id, payment_category, source_type, source_id)` index. The existing unique index places `user_id` before category/source columns, so it may not serve this query shape efficiently. #194 should also inspect the existing `poll_options` `poll_id/order` lookup before deciding whether a `(poll_id, sort_order)` index is warranted. `payment_accounts` already has a primary-key lookup path; its before sequential scans may simply be the planner's choice for the small fixture relation and are not evidence for another index by themselves.
 

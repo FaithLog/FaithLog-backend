@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-17 - Issue #192 Current-Develop Settlement Batch Optimization
+
+- Context: The validated current-develop before bundle `EXEC192_BEFORE_CURRENT_BUNDLE_R` binds source `6796ed146244d8f3f5b5dd7048ebe16865084a97` and target SHA-256 `7e7dd3a430666112f5139cf3950f2b859dc49034c5306cee0b770cfe80b8cb62`. It passed all four mode correctness and failure gates while retaining `conditional-boundary-only`, `accepted=false`, and `automaticAdoption=false` to distinguish validated numeric evidence from machine-proven continuous exclusivity.
+- Decision: Use the R bundle as the authoritative before evidence for the identical integration-after protocol. Replace per-response COFFEE/MEAL payment-account and existing-charge repository lookups with one account validation, one source-ID-set pessimistic lock lookup ordered by charge ID, and one collection-save boundary per settlement. Keep all existing scalar charge APIs compatible.
+- Decision: Preserve the outer settlement transactions, COFFEE UNPAID update and terminal-charge preservation, MEAL duplicate `409` and final flush/rollback behavior, #200 creator/duty/account ownership and lock order, amount/source/snapshot correctness, and the existing unique constraint as the final concurrent-insert defense.
+- Impact: Controller paths, request/response DTOs, HTTP/ErrorCode contracts, frontend, dependencies, Flyway, and indexes do not change. `saveAll` is a repository collection boundary only; the project does not claim JDBC insert batching or fewer required charge INSERT rows. Issue #194 retains the execution-plan candidate `charge_items(campus_id, payment_category, source_type, source_id)` for later independent validation. Actual after measurement remains a one-server/one-load PM integration step.
+
 ### 2026-07-16 - Issue #206 Stable Charge Item Pagination Ordering
 
 - Context: Issue #193 current-develop before preflight에서 `sort=createdAt,desc`로 조회한 회원별 청구 상세의 동일 `created_at` 행이 일부는 ID 오름차순, 일부는 내림차순으로 반환됐다. primary 정렬만 있는 offset paging은 동률 행의 페이지 간 중복·누락 가능성이 있어 정확한 baseline 검증을 중단했다.
