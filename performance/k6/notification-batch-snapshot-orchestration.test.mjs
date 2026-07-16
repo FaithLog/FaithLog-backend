@@ -278,6 +278,17 @@ test('fake full run prepares once, captures once, restores before every sample, 
 					fixturePolicy: 'dummy-token-and-generated-log-only', credentialRecorded: false,
 				})}\n`, { flag: 'wx' });
 			},
+			initializeRedisCommandstats: async ({ receiptPath, childEnvironment }) => {
+				actions.push('redis-commandstats-bootstrap');
+				childEnvironments.push(childEnvironment);
+				writeFileSync(receiptPath, `${JSON.stringify({
+					schemaVersion: 1, composeProject: 'faithlog-perf-198-before',
+					redisContainerId: 'a'.repeat(64), database: 0,
+					bootstrapKeySha256: 'b'.repeat(64), setCommandsExecuted: 1,
+					delCommandsExecuted: 1, dbSizeAfter: '0', commandstatsSetCalls: '1',
+					commandstatsDelCalls: '1', credentialRecorded: false, automaticAdoption: false,
+				})}\n`, { flag: 'wx' });
+			},
 			captureSnapshot: async ({ outputPath, childEnvironment }) => {
 				assert.equal(lockHeld, true);
 				actions.push('capture');
@@ -333,7 +344,10 @@ test('fake full run prepares once, captures once, restores before every sample, 
 		assert.equal(result.measuredCount, 10);
 		assert.equal(result.automaticAdoption, false);
 		assert.equal(lockHeld, false);
-		assert.deepEqual(actions.slice(0, 3), ['seed', 'fixture:canonical', 'capture']);
+		assert.deepEqual(actions.slice(0, 4), [
+			'seed', 'fixture:canonical', 'redis-commandstats-bootstrap', 'capture',
+		]);
+		assert.equal(actions.filter((action) => action === 'redis-commandstats-bootstrap').length, 1);
 		assert.equal(actions.filter((action) => action === 'seed').length, 1);
 		assert.equal(actions.filter((action) => action === 'capture').length, 1);
 		assert.equal(actions.filter((action) => action.startsWith('restore:')).length, 11);
@@ -552,4 +566,26 @@ test('isolated schema and synthetic dataset bootstrap is mandatory before canoni
 	assert.throws(() => validateSeedReceipt({ ...receipt, activeMemberCount: 999 }), /1000/);
 	assert.throws(() => validateSeedReceipt({ ...receipt, externalDataCopied: true }), /external|copied/i);
 	assert.throws(() => validateSeedReceipt({ ...receipt, externalFcm: true }), /FCM/i);
+});
+
+test('pristine Redis commandstats is initialized once without weakening missing-counter evidence', async () => {
+	const contract = await importScenario('redis-commandstats-bootstrap-contract.mjs');
+	const receipt = contract.validateRedisCommandstatsBootstrapReceipt({
+		schemaVersion: 1, composeProject: 'faithlog-perf-198-before', redisContainerId: 'a'.repeat(64),
+		database: 0, bootstrapKeySha256: 'b'.repeat(64), setCommandsExecuted: 1,
+		delCommandsExecuted: 1, dbSizeAfter: '0', commandstatsSetCalls: '1',
+		commandstatsDelCalls: '1', credentialRecorded: false, automaticAdoption: false,
+	});
+	assert.equal(receipt.dbSizeAfter, '0');
+	for (const invalid of [
+		{ ...receipt, composeProject: 'faithlog-frontend-latest' },
+		{ ...receipt, setCommandsExecuted: 2 },
+		{ ...receipt, dbSizeAfter: '1' },
+		{ ...receipt, credentialRecorded: true },
+	]) assert.throws(() => contract.validateRedisCommandstatsBootstrapReceipt(invalid));
+	const script = readFileSync(new URL('./notification-batch/bootstrap-redis-commandstats.sh', import.meta.url), 'utf8');
+	assert.match(script, /SET/);
+	assert.match(script, /DEL/);
+	assert.match(script, /DBSIZE/);
+	assert.doesNotMatch(script, /FLUSHDB|CONFIG\s+(?:SET|RESETSTAT)/i);
 });
