@@ -1,5 +1,5 @@
 export const FIXTURE_CONTRACT = Object.freeze({
-	datasetId: 'issue-196-prayer-poll-list-v1',
+	datasetId: 'issue-196-prayer-poll-list-v2',
 	fixtureRunIdRequired: true,
 	existingRowsMayBeUpdatedOrDeleted: false,
 	primaryCampus: Object.freeze({
@@ -7,6 +7,15 @@ export const FIXTURE_CONTRACT = Object.freeze({
 	}),
 	isolationCampus: Object.freeze({
 		activeMemberCount: 50,
+	}),
+	currentDevelop: Object.freeze({
+		sourceRevision: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
+		flywayVersion: '11',
+		publicApplicationTableCount: 27,
+		genericPollListPaginated: false,
+		mealManagementMaxPageSize: 100,
+		mealArchiveDays: 90,
+		deterministicMealSort: 'id,desc',
 	}),
 	prayer: Object.freeze({
 		groupCount: 40,
@@ -21,6 +30,11 @@ export const FIXTURE_CONTRACT = Object.freeze({
 		commentCount: 200,
 		templateCount: 40,
 		optionsPerTemplate: 8,
+		manageableByMe: Object.freeze({
+			custom: Object.freeze({ admin: true, member: false, coffeeCreator: false, otherCoffeeDuty: false, mealDuty: false }),
+			coffee: Object.freeze({ admin: false, member: false, coffeeCreator: true, otherCoffeeDuty: false, mealDuty: false }),
+			meal: Object.freeze({ admin: false, member: false, coffeeCreator: false, otherCoffeeDuty: false, mealDuty: true }),
+		}),
 		visibilityCases: Object.freeze([
 			Object.freeze({ key: 'open', status: 'OPEN', memberVisible: true, adminVisible: true }),
 			Object.freeze({ key: 'closed_member_visible', status: 'CLOSED', memberVisible: true, adminVisible: true }),
@@ -56,6 +70,16 @@ export const MODE_ENDPOINTS = Object.freeze({
 		'poll_admin_template_list',
 		'poll_admin_template_detail',
 		'poll_admin_cross_campus_detail',
+	]),
+	'poll-duty': Object.freeze([
+		'poll_coffee_creator_list',
+		'poll_other_coffee_duty_list',
+		'poll_meal_duty_list',
+		'poll_coffee_creator_detail',
+		'poll_meal_duty_detail',
+		'poll_meal_management_default',
+		'poll_meal_management_archive',
+		'poll_meal_management_forbidden',
 	]),
 });
 

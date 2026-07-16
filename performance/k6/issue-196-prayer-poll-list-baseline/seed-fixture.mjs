@@ -1,8 +1,10 @@
-import { mkdirSync, rmdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, rmdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { FIXTURE_CONTRACT, currentMonday, validateFixtureRunId } from './fixture-contract.mjs';
+import { FIXTURE_CONTRACT, validateFixtureRunId } from './fixture-contract.mjs';
 import { validatePublishedTarget } from './validate-published-target.mjs';
+import { validateRuntimeIdentity } from './validate-runtime-identity.mjs';
+import { parseRedisRuntimeIdentity } from './redis-runtime-identity.mjs';
 
 const BASE_URL = required('BASE_URL').replace(/\/$/, '');
 const DATASET_ID = process.env.DATASET_ID || FIXTURE_CONTRACT.datasetId;
@@ -10,25 +12,46 @@ const FIXTURE_RUN_ID = validateFixtureRunId(process.env.FIXTURE_RUN_ID);
 const ADMIN_EMAIL = required('PERF_ADMIN_EMAIL');
 const ADMIN_PASSWORD = required('PERF_ADMIN_PASSWORD');
 const MEMBER_PASSWORD = required('PERF_MEMBER_PASSWORD');
-const WEEK_START_DATE = process.env.PERF_WEEK_START_DATE || currentMonday();
+const WEEK_START_DATE = required('PERF_WEEK_START_DATE');
 const REPORT_ROOT = resolve(process.env.REPORT_ROOT || 'build/reports/k6/issue-196');
 const MANIFEST_PATH = resolve(process.env.FIXTURE_MANIFEST || `${REPORT_ROOT}/${FIXTURE_RUN_ID}/fixture-manifest.json`);
 const APP_CONTAINER = required('APP_CONTAINER');
 const DB_CONTAINER = required('DB_CONTAINER');
+const REDIS_CONTAINER = required('REDIS_CONTAINER');
 const EXPECTED_APP_SERVICE = required('EXPECTED_APP_SERVICE');
 const EXPECTED_DB_SERVICE = required('EXPECTED_DB_SERVICE');
+const EXPECTED_REDIS_SERVICE = required('EXPECTED_REDIS_SERVICE');
 const EXPECTED_APP_IMAGE = required('EXPECTED_APP_IMAGE');
+const EXPECTED_APP_IMAGE_ID = required('EXPECTED_APP_IMAGE_ID');
+const EXPECTED_DB_IMAGE = required('EXPECTED_DB_IMAGE');
+const EXPECTED_DB_IMAGE_ID = required('EXPECTED_DB_IMAGE_ID');
+const EXPECTED_REDIS_IMAGE = required('EXPECTED_REDIS_IMAGE');
+const EXPECTED_REDIS_IMAGE_ID = required('EXPECTED_REDIS_IMAGE_ID');
+const EXPECTED_REDIS_PORT = required('EXPECTED_REDIS_PORT');
+const EXPECTED_FLYWAY_VERSION = required('EXPECTED_FLYWAY_VERSION');
+const EXPECTED_SOURCE_REVISION = required('EXPECTED_SOURCE_REVISION');
 const DB_USER = required('PERF_DB_USER');
 const DB_NAME = required('PERF_DB_NAME');
 const DB_PASSWORD = required('PERF_DB_PASSWORD');
 
-for (const name of ['PERF_ACCESS_TOKEN', 'PERF_ADMIN_ACCESS_TOKEN', 'PERF_MEMBER_ACCESS_TOKEN']) {
+for (const name of [
+	'PERF_ACCESS_TOKEN',
+	'PERF_ADMIN_ACCESS_TOKEN',
+	'PERF_MEMBER_ACCESS_TOKEN',
+	'PERF_COFFEE_CREATOR_ACCESS_TOKEN',
+	'PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN',
+	'PERF_MEAL_DUTY_ACCESS_TOKEN',
+]) {
 	delete process.env[name];
 }
 
 guardLocalTarget();
 guardDatasetIdentity();
 validateMonday(WEEK_START_DATE);
+if (EXPECTED_SOURCE_REVISION !== FIXTURE_CONTRACT.currentDevelop.sourceRevision
+	|| EXPECTED_FLYWAY_VERSION !== FIXTURE_CONTRACT.currentDevelop.flywayVersion) {
+	throw new Error('Approved source/Flyway identity does not match the current-develop scenario contract.');
+}
 const composeRuntime = verifyComposeRuntime();
 const projectLock = `/tmp/faithlog-performance-${composeRuntime.composeProject}.lock`;
 acquireProjectLock(projectLock);
@@ -68,6 +91,12 @@ try {
 		creatorMember(refreshedAdminSession, isolationCampus.campusId, adminUserId),
 		...generatedIsolationMembers,
 	].sort((left, right) => left.membershipId - right.membershipId);
+	const dutyActors = {
+		coffeeCreator: generatedPrimaryMembers[1],
+		otherCoffeeDuty: generatedPrimaryMembers[2],
+		mealDuty: generatedPrimaryMembers[3],
+	};
+	await assignDuties(adminToken, primaryCampus.campusId, dutyActors);
 
 	const prayer = await createPrayerFixture(
 		adminToken,
@@ -95,6 +124,7 @@ try {
 		primaryMembers,
 		generatedPrimaryMembers
 	);
+	const dutyPolls = await createDutyPollFixture(primaryCampus.campusId, dutyActors);
 	adminToken = (await login(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
 	const isolationPoll = await createPoll(
 		adminToken,
@@ -116,6 +146,7 @@ try {
 			campusId: primaryCampus.campusId,
 			activeMemberCount: primaryMembers.length,
 			memberActor: generatedPrimaryMembers[0],
+			...dutyActors,
 			members: primaryMembers,
 		},
 		isolationCampus: {
@@ -130,6 +161,8 @@ try {
 		},
 		polls: {
 			...polls,
+			duty: dutyPolls,
+			manageableByMe: FIXTURE_CONTRACT.polls.manageableByMe,
 			isolationPollId: isolationPoll.id,
 		},
 	};
@@ -307,6 +340,94 @@ async function createPollFixture(adminToken, campusId, activeMembers, responseCa
 	};
 }
 
+async function assignDuties(adminToken, campusId, actors) {
+	for (const actor of [actors.coffeeCreator, actors.otherCoffeeDuty]) {
+		await request('PUT', `/api/v1/admin/campuses/${campusId}/duty-assignments/coffee`, {
+			userId: actor.userId,
+		}, adminToken, [200]);
+	}
+	await request('POST', `/api/v1/admin/campuses/${campusId}/duty-assignments/meal`, {
+		userId: actors.mealDuty.userId,
+	}, adminToken, [200]);
+}
+
+async function createDutyPollFixture(campusId, actors) {
+	const coffeeToken = (await login(actors.coffeeCreator.email, MEMBER_PASSWORD)).accessToken;
+	const brands = await request('GET', '/api/v1/coffee-brands', undefined, coffeeToken, [200]);
+	if (!Array.isArray(brands) || brands.length === 0) {
+		throw new Error('Current-develop COFFEE fixture requires at least one active catalog brand.');
+	}
+	const menus = await request('GET', `/api/v1/coffee-brands/${brands[0].id}/menus`, undefined, coffeeToken, [200]);
+	if (!Array.isArray(menus) || menus.length < FIXTURE_CONTRACT.polls.optionCount) {
+		throw new Error(`Current-develop COFFEE fixture requires ${FIXTURE_CONTRACT.polls.optionCount} active menu rows.`);
+	}
+	const account = await request('POST', `/api/v1/admin/campuses/${campusId}/payment-accounts`, {
+		accountType: 'COFFEE',
+		nickname: `PERF_196_${FIXTURE_RUN_ID}_COFFEE`,
+		bankName: 'PERF_LOCAL_ONLY',
+		accountNumber: `196-${FIXTURE_RUN_ID}`,
+		accountHolder: `PERF_196_${FIXTURE_RUN_ID}`,
+		ownerUserId: actors.coffeeCreator.userId,
+	}, coffeeToken, [201]);
+	const coffeeWindow = currentWindow();
+	const coffeeTitle = `PERF_196_${FIXTURE_RUN_ID}_POLL_COFFEE`;
+	const coffee = await request('POST', `/api/v1/admin/campuses/${campusId}/polls`, {
+		title: coffeeTitle,
+		pollType: 'COFFEE',
+		selectionType: 'SINGLE',
+		isAnonymous: false,
+		allowUserOptionAdd: false,
+		chargeGenerationType: 'OPTION_PRICE',
+		paymentCategory: 'COFFEE',
+		paymentAccountId: account.id,
+		startsAt: coffeeWindow.startsAt,
+		endsAt: coffeeWindow.endsAt,
+		options: menus.slice(0, FIXTURE_CONTRACT.polls.optionCount).map((menu, index) => ({
+			content: menu.name,
+			menuId: menu.id,
+			priceAmount: menu.priceAmount,
+			sortOrder: index + 1,
+		})),
+	}, coffeeToken, [201]);
+
+	const mealToken = (await login(actors.mealDuty.email, MEMBER_PASSWORD)).accessToken;
+	const openMeal = await createMealPoll(mealToken, campusId, 'OPEN');
+	const mealToArchive = await createMealPoll(mealToken, campusId, 'ARCHIVED');
+	const archivedMeal = await request('PATCH', `/api/v1/campuses/${campusId}/meal/polls/${mealToArchive.id}/close`, undefined, mealToken, [200]);
+	return {
+		coffee: pollManifest(coffee),
+		mealOpen: pollManifest(openMeal),
+		mealArchived: pollManifest(archivedMeal),
+		mealManagementDefaultIds: [openMeal.id],
+		mealManagementArchiveIds: [openMeal.id, archivedMeal.id].sort((left, right) => right - left),
+	};
+}
+
+async function createMealPoll(token, campusId, key) {
+	const title = `PERF_196_${FIXTURE_RUN_ID}_POLL_MEAL_${key}`;
+	return request('POST', `/api/v1/campuses/${campusId}/meal/polls`, {
+		title,
+		isAnonymous: false,
+		allowUserOptionAdd: false,
+		endsAt: currentWindow().endsAt,
+		options: Array.from({ length: FIXTURE_CONTRACT.polls.optionCount }, (_, index) => ({
+			content: `${title}_OPTION_${index + 1}`,
+			sortOrder: index + 1,
+		})),
+	}, token, [201]);
+}
+
+function pollManifest(poll) {
+	return {
+		id: poll.id,
+		title: poll.title,
+		status: poll.status,
+		startsAt: poll.startsAt,
+		endsAt: poll.endsAt,
+		optionIds: poll.options.map((option) => option.id),
+	};
+}
+
 async function createPoll(adminToken, campusId, key, anonymous, window) {
 	const title = `PERF_196_${FIXTURE_RUN_ID}_POLL_${key.toUpperCase()}`;
 	const poll = await request('POST', `/api/v1/admin/campuses/${campusId}/polls`, {
@@ -420,38 +541,59 @@ function verifyComposeRuntime() {
 	const dbContainerId = dockerInspect(DB_CONTAINER, '{{.Id}}');
 	const dbImageId = dockerInspect(DB_CONTAINER, '{{.Image}}');
 	const dbContainerStartedAt = dockerInspect(DB_CONTAINER, '{{.State.StartedAt}}');
+	const redisContainerId = dockerInspect(REDIS_CONTAINER, '{{.Id}}');
+	const redisImageId = dockerInspect(REDIS_CONTAINER, '{{.Image}}');
+	const redisContainerStartedAt = dockerInspect(REDIS_CONTAINER, '{{.State.StartedAt}}');
 	const appProject = dockerLabel(APP_CONTAINER, 'com.docker.compose.project');
 	const dbProject = dockerLabel(DB_CONTAINER, 'com.docker.compose.project');
+	const redisProject = dockerLabel(REDIS_CONTAINER, 'com.docker.compose.project');
 	const appService = dockerLabel(APP_CONTAINER, 'com.docker.compose.service');
 	const dbService = dockerLabel(DB_CONTAINER, 'com.docker.compose.service');
+	const redisService = dockerLabel(REDIS_CONTAINER, 'com.docker.compose.service');
 	const appConfigHash = dockerLabel(APP_CONTAINER, 'com.docker.compose.config-hash');
 	const dbConfigHash = dockerLabel(DB_CONTAINER, 'com.docker.compose.config-hash');
+	const redisConfigHash = dockerLabel(REDIS_CONTAINER, 'com.docker.compose.config-hash');
 	const appImage = dockerInspect(APP_CONTAINER, '{{.Config.Image}}');
+	const dbImage = dockerInspect(DB_CONTAINER, '{{.Config.Image}}');
+	const redisImage = dockerInspect(REDIS_CONTAINER, '{{.Config.Image}}');
 	const databaseIdentity = captureDatabaseIdentity();
+	const redisIdentity = captureRedisIdentity();
 	const publishedPorts = execFileSync('docker', ['port', APP_CONTAINER, '8080/tcp'], { encoding: 'utf8', env: sanitizedChildEnv() }).trim();
 	const publishedTarget = validatePublishedTarget(BASE_URL, publishedPorts.split(/\r?\n/).filter(Boolean));
 	const targetPort = String(publishedTarget.hostPort);
-	if (!appProject || appProject !== dbProject || appService !== EXPECTED_APP_SERVICE || dbService !== EXPECTED_DB_SERVICE
-		|| !appConfigHash || !dbConfigHash
-		|| appImage !== EXPECTED_APP_IMAGE) {
-		throw new Error('Seed requires the approved app/PostgreSQL Compose project, service/config-hash labels, and app image.');
+	if (!appProject || appProject !== dbProject || appProject !== redisProject
+		|| appService !== EXPECTED_APP_SERVICE || dbService !== EXPECTED_DB_SERVICE || redisService !== EXPECTED_REDIS_SERVICE
+		|| !appConfigHash || !dbConfigHash || !redisConfigHash
+		|| appImage !== EXPECTED_APP_IMAGE || appImageId !== EXPECTED_APP_IMAGE_ID
+		|| dbImage !== EXPECTED_DB_IMAGE || dbImageId !== EXPECTED_DB_IMAGE_ID
+		|| redisImage !== EXPECTED_REDIS_IMAGE || redisImageId !== EXPECTED_REDIS_IMAGE_ID) {
+		throw new Error('immutable-app-image-mismatch: approved app/PostgreSQL/Redis Compose identity did not match.');
 	}
 	if (!/^[a-z0-9][a-z0-9_-]*$/.test(appProject)) {
 		throw new Error('Compose project label cannot be represented by the canonical project lock path.');
 	}
 	return {
 		composeProject: appProject,
+		sourceRevision: EXPECTED_SOURCE_REVISION,
 		appService,
 		dbService,
+		redisService,
 		appConfigHash,
 		dbConfigHash,
+		redisConfigHash,
 		appImage,
+		dbImage,
+		redisImage,
 		appContainerId,
 		appImageId,
 		appContainerStartedAt,
 		dbContainerId,
 		dbImageId,
 		dbContainerStartedAt,
+		redisContainerId,
+		redisImageId,
+		redisContainerStartedAt,
+		...redisIdentity,
 		databaseIdentity,
 		publishedTarget,
 		targetPort,
@@ -459,16 +601,23 @@ function verifyComposeRuntime() {
 }
 
 function captureDatabaseIdentity() {
+	const sql = readFileSync(new URL('./db-runtime-identity.sql', import.meta.url), 'utf8');
 	const result = execFileSync('docker', [
 		'exec', '-e', 'PGPASSWORD', '-e', 'PGAPPNAME=faithlog_issue196_observer', DB_CONTAINER,
 		'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-U', DB_USER, '-d', DB_NAME, '-At',
-		'-c', "select json_build_object('currentDatabase', current_database(), 'serverAddress', inet_server_addr(), 'serverPort', inet_server_port(), 'postmasterStartedAt', pg_postmaster_start_time())",
-	], { encoding: 'utf8', env: { ...sanitizedChildEnv(), PGPASSWORD: DB_PASSWORD } }).trim();
-	const parsed = JSON.parse(result);
-	if (!parsed || typeof parsed.currentDatabase !== 'string' || typeof parsed.postmasterStartedAt !== 'string') {
-		throw new Error('PostgreSQL runtime identity is malformed.');
-	}
-	return parsed;
+		'-f', '-',
+	], { encoding: 'utf8', input: sql, env: { ...sanitizedChildEnv(), PGPASSWORD: DB_PASSWORD } }).trim();
+	return validateRuntimeIdentity(JSON.parse(result), {
+		expectedFlywayVersion: EXPECTED_FLYWAY_VERSION,
+		expectedTableCount: FIXTURE_CONTRACT.currentDevelop.publicApplicationTableCount,
+	});
+}
+
+function captureRedisIdentity() {
+	const info = execFileSync('docker', ['exec', REDIS_CONTAINER, 'redis-cli', '--raw', 'INFO', 'server'], {
+		encoding: 'utf8', env: sanitizedChildEnv(),
+	});
+	return parseRedisRuntimeIdentity(info, EXPECTED_REDIS_PORT);
 }
 
 function semanticEqual(left, right) {
@@ -493,7 +642,7 @@ function dockerInspect(container, format) {
 }
 
 function sanitizedChildEnv() {
-	const blocked = /^(PERF_ADMIN_EMAIL|PERF_ADMIN_PASSWORD|PERF_MEMBER_PASSWORD|PERF_DB_USER|PERF_DB_NAME|PERF_DB_PASSWORD|PERF_ACCESS_TOKEN|PERF_ADMIN_ACCESS_TOKEN|PERF_MEMBER_ACCESS_TOKEN)$/;
+	const blocked = /^(PERF_ADMIN_EMAIL|PERF_ADMIN_PASSWORD|PERF_MEMBER_PASSWORD|PERF_DB_USER|PERF_DB_NAME|PERF_DB_PASSWORD|PERF_ACCESS_TOKEN|PERF_ADMIN_ACCESS_TOKEN|PERF_MEMBER_ACCESS_TOKEN|PERF_COFFEE_CREATOR_ACCESS_TOKEN|PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN|PERF_MEAL_DUTY_ACCESS_TOKEN)$/;
 	return Object.fromEntries(Object.entries(process.env).filter(([name]) => !blocked.test(name)));
 }
 

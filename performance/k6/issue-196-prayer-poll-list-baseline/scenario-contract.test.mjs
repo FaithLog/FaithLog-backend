@@ -14,6 +14,9 @@ const REQUIRED_FILES = [
 	'scenario.js',
 	'run-baseline.sh',
 	'db-table-stats.sql',
+	'db-runtime-identity.sql',
+	'validate-runtime-identity.mjs',
+	'redis-runtime-identity.mjs',
 	'db-activity.sql',
 	'activity-sample.mjs',
 	'token-lifetime.mjs',
@@ -38,6 +41,76 @@ const COUNTER_FIELDS = new Set([
 	'seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch', 'n_tup_ins', 'n_tup_upd', 'n_tup_del',
 	'n_live_tup', 'n_dead_tup', 'analyze_count', 'autoanalyze_count', 'vacuum_count', 'autovacuum_count',
 ]);
+const SOURCE_REVISION = '6796ed146244d8f3f5b5dd7048ebe16865084a97';
+const FAKE_REDIS_RUN_ID = 'a'.repeat(40);
+
+function approvedTargetEnv() {
+	return {
+		BASE_URL: 'http://127.0.0.1:18080', APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db',
+		REDIS_CONTAINER: 'approved-redis', EXPECTED_APP_SERVICE: 'app', EXPECTED_DB_SERVICE: 'postgres',
+		EXPECTED_REDIS_SERVICE: 'redis', EXPECTED_APP_IMAGE: 'approved-image', EXPECTED_APP_IMAGE_ID: 'sha256:app',
+		EXPECTED_DB_IMAGE: 'postgres:17', EXPECTED_DB_IMAGE_ID: 'sha256:db', EXPECTED_REDIS_IMAGE: 'redis:7-alpine',
+		EXPECTED_REDIS_IMAGE_ID: 'sha256:redis', EXPECTED_REDIS_PORT: '6379', EXPECTED_FLYWAY_VERSION: '11',
+		EXPECTED_SOURCE_REVISION: SOURCE_REVISION,
+	};
+}
+
+function manifestRuntime(project = 'approved', overrides = {}) {
+	return {
+		composeProject: project, sourceRevision: SOURCE_REVISION, appService: 'app', dbService: 'postgres', redisService: 'redis',
+		appConfigHash: 'app-hash', dbConfigHash: 'db-hash', redisConfigHash: 'redis-hash',
+		appImage: 'approved-image', appImageId: 'sha256:app', dbImage: 'postgres:17', dbImageId: 'sha256:db',
+		redisImage: 'redis:7-alpine', redisImageId: 'sha256:redis', targetPort: '18080',
+		...overrides,
+	};
+}
+
+function faithlogTargetEnv() {
+	return {
+		...approvedTargetEnv(), APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', REDIS_CONTAINER: 'faithlog-redis',
+		EXPECTED_APP_IMAGE: 'faithlog-latest', EXPECTED_APP_IMAGE_ID: 'sha256:contract',
+		EXPECTED_DB_IMAGE: 'postgres:17', EXPECTED_DB_IMAGE_ID: 'sha256:db',
+		EXPECTED_REDIS_IMAGE: 'redis:7-alpine', EXPECTED_REDIS_IMAGE_ID: 'sha256:redis',
+	};
+}
+
+function fakeRedisInfo(runId = FAKE_REDIS_RUN_ID) {
+	return `# Server\nredis_version:7.2.0\nrun_id:${runId}\ntcp_port:6379\n`;
+}
+
+function actorManifest() {
+	return {
+		memberActor: { email: 'member@example.test' }, coffeeCreator: { email: 'coffee@example.test' },
+		otherCoffeeDuty: { email: 'coffee-other@example.test' }, mealDuty: { email: 'meal@example.test' },
+	};
+}
+
+function dutyWindows(now = Date.now()) {
+	return {
+		coffee: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
+		mealOpen: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
+		mealArchived: { endsAt: new Date(now - 91 * 86400000).toISOString() },
+	};
+}
+
+function reportRuntime(overrides = {}) {
+	return {
+		sourceRevision: SOURCE_REVISION, expectedFlywayVersion: '11',
+		appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres', redisContainer: 'faithlog-redis',
+		appImageId: 'sha256:contract', expectedAppImageId: 'sha256:contract',
+		dbImage: 'postgres:17', expectedDbImage: 'postgres:17', dbImageId: 'sha256:db', expectedDbImageId: 'sha256:db',
+		redisImage: 'redis:7-alpine', expectedRedisImage: 'redis:7-alpine', redisImageId: 'sha256:redis', expectedRedisImageId: 'sha256:redis',
+		resourceContainerIds: {
+			'faithlog-backend': 'app-container-id', 'faithlog-postgres': 'db-container-id', 'faithlog-redis': 'redis-container-id',
+		},
+		measurementStartedAt: '2026-07-14T00:00:00.000Z', measurementEndedAt: '2026-07-14T00:00:02.000Z',
+		samplingIntervalSeconds: 1, samplingMaxGapSeconds: 2,
+		k6ExitStatus: 0, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
+		warmupExitStatus: 0, integritySamplerExitStatus: 0, runtimeContinuityExitStatus: 0,
+		logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
+		...overrides,
+	};
+}
 
 function tableRow(relname, overrides = {}) {
 	const row = {
@@ -57,8 +130,11 @@ function dbSnapshot(capturedAt, overridesByTable = {}, plannerSettings = EXPECTE
 		capturedAt,
 		plannerSettings,
 		databaseIdentity: {
-			currentDatabase: 'faithlog', serverAddress: '172.20.0.2', serverPort: 5432,
-			postmasterStartedAt: '2026-07-14T00:00:00.000Z',
+			currentDatabase: 'faithlog', currentUser: 'faithlog', sessionUser: 'faithlog', sessionUserIsDatabaseOwner: true,
+			serverAddress: '172.20.0.2', serverPort: 5432, postmasterStartedAt: '2026-07-14T00:00:00.000Z',
+			latestFlywayVersion: '11', publicApplicationTableCount: 27, rlsEnabledTableCount: 27,
+			forceRlsTableCount: 0, policyCount: 0, jdbcOwnedTableCount: 27,
+			pgStatStatementsExtensionInstalled: false, pgStatStatementsPreloaded: false, pgStatStatementsViewAvailable: false,
 		},
 		tables: EXPECTED_TABLES.map((name) => tableRow(name, overridesByTable[name])),
 	};
@@ -94,7 +170,7 @@ test('fixture contract separates stable dataset identity from one immutable fixt
 	assert.equal(existsSync(contractPath), true, 'missing fixture-contract.mjs');
 	const { FIXTURE_CONTRACT, currentMonday, validateFixtureRunId } = await import(`${pathToFileURL(contractPath).href}?test=${Date.now()}`);
 
-	assert.equal(FIXTURE_CONTRACT.datasetId, 'issue-196-prayer-poll-list-v1');
+	assert.equal(FIXTURE_CONTRACT.datasetId, 'issue-196-prayer-poll-list-v2');
 	assert.equal(FIXTURE_CONTRACT.fixtureRunIdRequired, true);
 	assert.equal(FIXTURE_CONTRACT.primaryCampus.activeMemberCount, 1000);
 	assert.equal(FIXTURE_CONTRACT.isolationCampus.activeMemberCount, 50);
@@ -141,6 +217,7 @@ test('current develop Poll contracts are pinned without paginating the generic l
 	const { FIXTURE_CONTRACT, MODE_ENDPOINTS } = await import(`${pathToFileURL(join(ROOT, 'fixture-contract.mjs')).href}?develop=${Date.now()}`);
 	assert.equal(FIXTURE_CONTRACT.datasetId, 'issue-196-prayer-poll-list-v2');
 	assert.deepEqual(FIXTURE_CONTRACT.currentDevelop, {
+		sourceRevision: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
 		flywayVersion: '11', publicApplicationTableCount: 27, genericPollListPaginated: false,
 		mealManagementMaxPageSize: 100, mealArchiveDays: 90, deterministicMealSort: 'id,desc',
 	});
@@ -172,6 +249,7 @@ test('current develop Poll contracts are pinned without paginating the generic l
 		assert.match(scenario, new RegExp(`\\b${field}\\b`));
 	}
 	assert.match(scenario, /MEAL_DUTY_REQUIRED/);
+	assert.doesNotMatch(scenario, /expectedResponded\s*=\s*!admin/, 'actor-specific list validation must not reference the removed admin boolean');
 });
 
 test('current develop Flyway, RLS JDBC bypass, and immutable image identity are fail-closed contracts', () => {
@@ -184,9 +262,7 @@ test('current develop Flyway, RLS JDBC bypass, and immutable image identity are 
 		const source = read(entrypoint);
 		assert.match(source, /EXPECTED_APP_IMAGE_ID.*required/i, `${entrypoint} must require the approved immutable image ID`);
 		assert.match(source, /EXPECTED_FLYWAY_VERSION.*required/i, `${entrypoint} must require the approved Flyway version`);
-		for (const marker of ['latestFlywayVersion', 'rlsEnabledTableCount', 'forceRlsTableCount', 'policyCount', 'jdbcOwnedTableCount']) {
-			assert.match(source, new RegExp(marker), `${entrypoint} missing runtime schema identity ${marker}`);
-		}
+		assert.match(source, /(?:db-runtime-identity|validate-runtime-identity)/, `${entrypoint} must use the shared DB identity contract`);
 	}
 	const tableStats = read('db-table-stats.sql');
 	const summarizer = read('summarize-run.mjs');
@@ -210,13 +286,20 @@ test('common integrity audit pins fallback-free workload and app DB Redis contin
 			'EXPECTED_FLYWAY_VERSION',
 		]) {
 			assert.match(source, new RegExp(`${requiredName}.*required`, 'i'), `${entrypoint} must require ${requiredName}`);
-			assert.doesNotMatch(source, new RegExp(`${requiredName}[^\\n]*(?::-|\\|\\|)`), `${entrypoint} must not default ${requiredName}`);
+			assert.doesNotMatch(source, new RegExp(`${requiredName}\\s*=\\s*[^\\n]*(?::-|\\|\\|)`), `${entrypoint} must not default ${requiredName}`);
 		}
-		for (const marker of ['redisContainerId', 'redisImageId', 'redisContainerStartedAt', 'redisRunId']) {
-			assert.match(source, new RegExp(marker), `${entrypoint} missing ${marker} continuity`);
+		for (const marker of ['redis(?:_|)container(?:_|)id', 'redis(?:_|)image(?:_|)id', 'redis(?:_|)container(?:_|)started(?:_|)at']) {
+			assert.match(source, new RegExp(marker, 'i'), `${entrypoint} missing ${marker} continuity`);
 		}
+		assert.match(source, /redis-runtime-identity/, `${entrypoint} must validate Redis process identity`);
 	}
-	assert.match(read('seed-fixture.mjs'), /PERF_WEEK_START_DATE.*required/i);
+	const shape = read('shape-fixture.sh');
+	for (const containerName of ['APP_CONTAINER', 'DB_CONTAINER', 'REDIS_CONTAINER']) {
+		assert.match(shape, new RegExp(`Config\\.Image[^\\n]+\\$\\{${containerName}\\}`),
+			`shape post-lock continuity must rebind the configured image for ${containerName}`);
+	}
+	assert.match(read('redis-runtime-identity.mjs'), /redisRunId/);
+	assert.match(read('seed-fixture.mjs'), /required\(['"]PERF_WEEK_START_DATE['"]\)/i);
 	assert.doesNotMatch(read('seed-fixture.mjs'), /PERF_WEEK_START_DATE\s*\|\|/);
 	const runner = read('run-baseline.sh');
 	assert.ok((runner.match(/assert_runtime_continuity/g) || []).length >= 5,
@@ -226,6 +309,14 @@ test('common integrity audit pins fallback-free workload and app DB Redis contin
 	assert.match(runner, /APP_CONTAINER_ID_VALUE/);
 	assert.match(runner, /DB_CONTAINER_ID_VALUE/);
 	assert.match(runner, /REDIS_CONTAINER_ID_VALUE/);
+	for (const entrypoint of ['seed-fixture.mjs', 'shape-fixture.sh', 'run-baseline.sh']) {
+		const source = read(entrypoint);
+		for (const tokenName of [
+			'PERF_COFFEE_CREATOR_ACCESS_TOKEN', 'PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN', 'PERF_MEAL_DUTY_ACCESS_TOKEN',
+		]) {
+			assert.match(source, new RegExp(tokenName), `${entrypoint} must remove caller-supplied ${tokenName}`);
+		}
+	}
 });
 
 test('common integrity audit pins pgss state, full resource identity, and primary machine rejection', () => {
@@ -247,6 +338,27 @@ test('common integrity audit pins pgss state, full resource identity, and primar
 	assert.match(runner, /APP_CONTAINER_ID_VALUE/);
 	assert.match(runner, /DB_CONTAINER_ID_VALUE/);
 	assert.match(runner, /REDIS_CONTAINER_ID_VALUE/);
+});
+
+test('shared DB and Redis identity validators reject source/runtime drift without side effects', async () => {
+	const { validateRuntimeIdentity } = await import(`${pathToFileURL(join(ROOT, 'validate-runtime-identity.mjs')).href}?identity=${Date.now()}`);
+	const valid = dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity;
+	assert.doesNotThrow(() => validateRuntimeIdentity(valid, { expectedFlywayVersion: '11', expectedTableCount: 27 }));
+	assert.throws(() => validateRuntimeIdentity({ ...valid, latestFlywayVersion: '10' }, {
+		expectedFlywayVersion: '11', expectedTableCount: 27,
+	}), /flyway-version-drift/);
+	assert.throws(() => validateRuntimeIdentity({ ...valid, rlsEnabledTableCount: 26 }, {
+		expectedFlywayVersion: '11', expectedTableCount: 27,
+	}), /rls-contract-drift/);
+	assert.throws(() => validateRuntimeIdentity({ ...valid, jdbcOwnedTableCount: 26 }, {
+		expectedFlywayVersion: '11', expectedTableCount: 27,
+	}), /jdbc-owner-bypass-drift/);
+
+	const { parseRedisRuntimeIdentity } = await import(`${pathToFileURL(join(ROOT, 'redis-runtime-identity.mjs')).href}?redis=${Date.now()}`);
+	assert.deepEqual(parseRedisRuntimeIdentity(fakeRedisInfo(), '6379'), {
+		redisRunId: FAKE_REDIS_RUN_ID, redisVersion: '7.2.0', redisPort: 6379,
+	});
+	assert.throws(() => parseRedisRuntimeIdentity(fakeRedisInfo(), '6380'), /unexpected port/);
 });
 
 test('k6 scenario exposes exact Prayer and member/admin Poll read modes', () => {
@@ -367,15 +479,14 @@ test('runner rejects every missing target identity before inspect or login', () 
 		for (const command of ['k6', 'lsof']) writeFileSync(join(bin, command), '#!/usr/bin/env bash\nexit 99\n');
 		for (const command of ['docker', 'k6', 'lsof']) chmodSync(join(bin, command), 0o755);
 		const required = {
+			...approvedTargetEnv(),
 			FIXTURE_RUN_ID: 'i196target', EXECUTION_RUN_ID: 'exectarget',
 			WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
 			PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
 			PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'secret',
-			BASE_URL: 'http://127.0.0.1:18080', APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db',
-			EXPECTED_APP_SERVICE: 'app', EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'approved-image',
 			SAMPLING_INTERVAL_SECONDS: '1', SAMPLING_MAX_GAP_SECONDS: '2',
 		};
-		for (const missing of ['BASE_URL', 'APP_CONTAINER', 'DB_CONTAINER', 'EXPECTED_APP_SERVICE', 'EXPECTED_DB_SERVICE', 'EXPECTED_APP_IMAGE']) {
+		for (const missing of Object.keys(approvedTargetEnv())) {
 			const env = { ...process.env, ...required, PATH: `${bin}:${process.env.PATH}` };
 			delete env[missing];
 			const result = spawnSync('bash', [runner, 'prayer'], { env, encoding: 'utf8' });
@@ -396,14 +507,11 @@ test('seed, shape, and direct scenario require every approved target identity be
 		const calls = join(temporary, 'calls.log');
 		writeFileSync(join(bin, 'docker'), `#!/usr/bin/env bash\necho docker >> "${calls}"\nexit 99\n`);
 		chmodSync(join(bin, 'docker'), 0o755);
-		const required = {
-			BASE_URL: 'http://127.0.0.1:18080', APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db',
-			EXPECTED_APP_SERVICE: 'app', EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'approved-image',
-		};
+		const required = approvedTargetEnv();
 		const manifest = join(temporary, 'fixture-manifest.json');
 		writeFileSync(manifest, JSON.stringify({
-			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196entry', shapedAt: null,
-			composeRuntime: { composeProject: 'approved', appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:app' },
+			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId: 'i196entry', shapedAt: null,
+			composeRuntime: manifestRuntime(),
 			primaryCampus: { campusId: 1 }, polls: { byKey: {
 				open: { id: 1 }, closed_member_visible: { id: 2 }, closed_admin_only: { id: 3 },
 				closed_expired: { id: 4 }, scheduled_future: { id: 5 },
@@ -415,6 +523,7 @@ test('seed, shape, and direct scenario require every approved target identity be
 				const env = {
 					...process.env, ...required, PATH: `${bin}:${process.env.PATH}`,
 					FIXTURE_RUN_ID: 'i196entry', FIXTURE_MANIFEST: manifest,
+					PERF_WEEK_START_DATE: '2026-07-13',
 					PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
 					PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'secret',
 				};
@@ -473,30 +582,40 @@ test('seed and shape reject a same-name post-lock runtime replacement before API
 		const bin = join(temporary, 'bin');
 		mkdirSync(bin);
 		const calls = join(temporary, 'calls.log');
+		const dbIdentity = JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity);
+		const dbIdentityChanged = JSON.stringify({
+			...dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity,
+			postmasterStartedAt: '2026-07-14T00:00:01.000Z',
+		});
 		const makeDocker = (marker) => [
 			'#!/usr/bin/env bash',
 			`if [[ "$1" == port ]]; then touch "${marker}"; echo 0.0.0.0:18080; exit 0; fi`,
-			`if [[ "$1" == exec ]]; then if [[ "$*" == *"UPDATE polls"* ]]; then echo shape-sql >> "${calls}"; echo '{}'; else if [[ -f "${marker}" ]]; then printf '%s\\n' '{"currentDatabase":"faithlog","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:01.000Z"}'; else printf '%s\\n' '{"currentDatabase":"faithlog","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:00.000Z"}'; fi; fi; exit 0; fi`,
+			`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
+			`if [[ "$1" == exec ]]; then if [[ "$*" == *"UPDATE polls"* ]]; then echo shape-sql >> "${calls}"; echo '{}'; else if [[ -f "${marker}" ]]; then printf '%s\\n' '${dbIdentityChanged}'; else printf '%s\\n' '${dbIdentity}'; fi; fi; exit 0; fi`,
 			'case "$*" in',
 			`*com.docker.compose.project*) echo "${project}" ;;`,
 			'*com.docker.compose.service*approved-app*) echo app ;;',
 			'*com.docker.compose.service*approved-db*) echo postgres ;;',
+			'*com.docker.compose.service*approved-redis*) echo redis ;;',
 			'*com.docker.compose.config-hash*approved-app*) echo app-hash ;;',
 			'*com.docker.compose.config-hash*approved-db*) echo db-hash ;;',
-			'*"{{.Config.Image}}"*) echo approved-image ;;',
+			'*com.docker.compose.config-hash*approved-redis*) echo redis-hash ;;',
+			'*"{{.Config.Image}}"*approved-app*) echo approved-image ;;',
+			'*"{{.Config.Image}}"*approved-db*) echo postgres:17 ;;',
+			'*"{{.Config.Image}}"*approved-redis*) echo redis:7-alpine ;;',
 			`*"{{.Id}}"*approved-app*) if [[ -f "${marker}" ]]; then echo app-B; else echo app-A; fi ;;`,
 			`*"{{.Id}}"*approved-db*) if [[ -f "${marker}" ]]; then echo db-B; else echo db-A; fi ;;`,
+			`*"{{.Id}}"*approved-redis*) if [[ -f "${marker}" ]]; then echo redis-B; else echo redis-A; fi ;;`,
 			'*"{{.Image}}"*approved-app*) echo sha256:app ;;',
 			'*"{{.Image}}"*approved-db*) echo sha256:db ;;',
+			'*"{{.Image}}"*approved-redis*) echo sha256:redis ;;',
 			`*"{{.State.StartedAt}}"*) if [[ -f "${marker}" ]]; then echo 2026-07-14T00:00:01.000Z; else echo 2026-07-14T00:00:00.000Z; fi ;;`,
 			'*) exit 98 ;;', 'esac', '',
 		].join('\n');
 		const preload = join(temporary, 'preload.cjs');
 		writeFileSync(preload, `const fs=require('node:fs'); global.fetch=async()=>{fs.appendFileSync(${JSON.stringify(calls)},'seed-api\\n'); return {status:500,text:async()=>'{"success":false}'};};\n`);
 		const commonEnv = {
-			...process.env, PATH: `${bin}:${process.env.PATH}`, BASE_URL: 'http://127.0.0.1:18080',
-			APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db', EXPECTED_APP_SERVICE: 'app',
-			EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'approved-image',
+			...process.env, ...approvedTargetEnv(), PATH: `${bin}:${process.env.PATH}`, PERF_WEEK_START_DATE: '2026-07-13',
 			PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
 		};
 
@@ -519,11 +638,11 @@ test('seed and shape reject a same-name post-lock runtime replacement before API
 		const fixtureRunId = `i196shape${process.pid}`.slice(0, 32);
 		const manifest = join(temporary, 'shape-manifest.json');
 		writeFileSync(manifest, JSON.stringify({
-			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId, shapedAt: null,
-			composeRuntime: { composeProject: project, appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:app', targetPort: '18080' },
+			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: null,
+			composeRuntime: manifestRuntime(project),
 			primaryCampus: { campusId: 1 }, polls: { byKey: {
 				open: { id: 1 }, closed_member_visible: { id: 2 }, closed_admin_only: { id: 3 }, closed_expired: { id: 4 }, scheduled_future: { id: 5 },
-			} },
+			}, duty: { coffee: { id: 6 }, mealOpen: { id: 7 }, mealArchived: { id: 8 } } },
 		}));
 		const shape = spawnSync('bash', [join(ROOT, 'shape-fixture.sh')], {
 			env: { ...commonEnv, FIXTURE_RUN_ID: fixtureRunId, FIXTURE_MANIFEST: manifest }, encoding: 'utf8',
@@ -600,31 +719,40 @@ test('project-scoped lock blocks a fake same-project runner before login, mutati
 		const manifest = join(temporary, 'fixture.json');
 		const now = Date.now();
 		writeFileSync(manifest, JSON.stringify({
-			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196lock', shapedAt: new Date(now).toISOString(),
-			primaryCampus: { memberActor: { email: 'member@example.test' } },
-			composeRuntime: { composeProject: project, appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:contract', targetPort: '18080' },
+			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId: 'i196lock', shapedAt: new Date(now).toISOString(),
+			primaryCampus: actorManifest(),
+			composeRuntime: manifestRuntime(project, { appImage: 'faithlog-latest', appImageId: 'sha256:contract' }),
 			polls: { byKey: {
 				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
 				closed_member_visible: { endsAt: new Date(now - 2 * 86400000).toISOString() },
 				closed_admin_only: { endsAt: new Date(now - 5 * 86400000).toISOString() },
 				closed_expired: { endsAt: new Date(now - 8 * 86400000).toISOString() },
 				scheduled_future: { startsAt: new Date(now + 2 * 86400000).toISOString() },
-			} },
+			}, duty: dutyWindows(now) },
 		}));
 		writeFileSync(join(bin, 'docker'), [
 			'#!/usr/bin/env bash',
-			`if [[ "$1" == exec && "$*" == *pg_postmaster_start_time* ]]; then printf '%s\\n' '{"currentDatabase":"faithlog","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:00.000Z"}'; exit 0; fi`,
+			`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
+			`if [[ "$1" == exec ]]; then printf '%s\\n' '${JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity)}'; exit 0; fi`,
 			'case "$*" in',
 			`*com.docker.compose.project*) echo "${project}" ;;`,
 			'*com.docker.compose.service*faithlog-backend*) echo app ;;',
 			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
+			'*com.docker.compose.service*faithlog-redis*) echo redis ;;',
 			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
 			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
+			'*com.docker.compose.config-hash*faithlog-redis*) echo redis-hash ;;',
 			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
 			'*"{{.Id}}"*faithlog-backend*) echo app-container-id ;;',
 			'*"{{.Id}}"*faithlog-postgres*) echo db-container-id ;;',
+			'*"{{.Id}}"*faithlog-redis*) echo redis-container-id ;;',
 			'*"{{.State.StartedAt}}"*) echo 2026-07-14T00:00:00.000Z ;;',
-			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
+			'*"{{.Config.Image}}"*faithlog-backend*) echo faithlog-latest ;;',
+			'*"{{.Config.Image}}"*faithlog-postgres*) echo postgres:17 ;;',
+			'*"{{.Config.Image}}"*faithlog-redis*) echo redis:7-alpine ;;',
+			'*"{{.Image}}"*faithlog-backend*) echo sha256:contract ;;',
+			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
+			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
 			`*) echo "docker:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
 		].join('\n'));
@@ -637,11 +765,9 @@ test('project-scoped lock blocks a fake same-project runner before login, mutati
 		mkdirSync(canonicalLock);
 		const result = spawnSync('bash', [runner, 'prayer'], {
 			env: {
-				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: 'i196lock', EXECUTION_RUN_ID: 'exec-lock',
+				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: 'i196lock', EXECUTION_RUN_ID: 'exec-lock',
 				FIXTURE_MANIFEST: manifest, REPORT_ROOT: join(temporary, 'reports'), BASE_URL: 'http://127.0.0.1:18080',
 				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s', VUS: '1', DURATION: '1s',
-				APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app',
-				EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'faithlog-latest',
 				SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
 				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'secret', PERF_MEMBER_PASSWORD: 'secret',
 				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'secret',
@@ -669,16 +795,16 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		const manifest = join(temporary, 'fixture.json');
 		const now = Date.now();
 		writeFileSync(manifest, JSON.stringify({
-			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId, shapedAt: new Date(now).toISOString(),
-			primaryCampus: { memberActor: { email: 'member@example.test' } },
-			composeRuntime: { composeProject: project, appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:contract', targetPort: '18080' },
+			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: new Date(now).toISOString(),
+			primaryCampus: actorManifest(),
+			composeRuntime: manifestRuntime(project, { appImage: 'faithlog-latest', appImageId: 'sha256:contract' }),
 			polls: { byKey: {
 				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
 				closed_member_visible: { endsAt: new Date(now - 2 * 86400000).toISOString() },
 				closed_admin_only: { endsAt: new Date(now - 5 * 86400000).toISOString() },
 				closed_expired: { endsAt: new Date(now - 8 * 86400000).toISOString() },
 				scheduled_future: { startsAt: new Date(now + 2 * 86400000).toISOString() },
-			} },
+			}, duty: dutyWindows(now) },
 		}));
 		writeFileSync(join(bin, 'docker'), [
 			'#!/usr/bin/env bash',
@@ -687,16 +813,25 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 			`*com.docker.compose.project*) echo "${project}" ;;`,
 			'*com.docker.compose.service*faithlog-backend*) echo app ;;',
 			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
+			'*com.docker.compose.service*faithlog-redis*) echo redis ;;',
 			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
 			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
+			'*com.docker.compose.config-hash*faithlog-redis*) echo redis-hash ;;',
 			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
 			'*"{{.Id}}"*faithlog-backend*) echo app-container-id ;;',
 			'*"{{.Id}}"*faithlog-postgres*) echo db-container-id ;;',
+			'*"{{.Id}}"*faithlog-redis*) echo redis-container-id ;;',
 			'*"{{.State.StartedAt}}"*) echo 2026-07-14T00:00:00.000Z ;;',
-			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
+			'*"{{.Config.Image}}"*faithlog-backend*) echo faithlog-latest ;;',
+			'*"{{.Config.Image}}"*faithlog-postgres*) echo postgres:17 ;;',
+			'*"{{.Config.Image}}"*faithlog-redis*) echo redis:7-alpine ;;',
+			'*"{{.Image}}"*faithlog-backend*) echo sha256:contract ;;',
+			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
+			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
 			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
-			'*"pg_postmaster_start_time"*) printf "%s\\n" \'{"currentDatabase":"faithlog","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:00.000Z"}\' ;;',
+			`*"redis-cli --raw INFO server"*) printf '%b' ${JSON.stringify(fakeRedisInfo())} ;;`,
+			`*"psql -X"*) printf '%s\\n' '${JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity)}' ;;`,
 			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
 		].join('\n'));
 		writeFileSync(join(bin, 'node'), [
@@ -708,17 +843,15 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		writeFileSync(join(bin, 'k6'), [
 			'#!/usr/bin/env bash',
 			'if [[ -n "${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}" ]]; then echo k6-credential-leak >> "' + calls + '"; fi',
-			'if [[ -z "${PERF_ADMIN_ACCESS_TOKEN:-}" || -z "${PERF_MEMBER_ACCESS_TOKEN:-}" ]]; then echo k6-token-missing >> "' + calls + '"; fi',
+			'if [[ -z "${PERF_ADMIN_ACCESS_TOKEN:-}" || -z "${PERF_MEMBER_ACCESS_TOKEN:-}" || -z "${PERF_COFFEE_CREATOR_ACCESS_TOKEN:-}" || -z "${PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN:-}" || -z "${PERF_MEAL_DUTY_ACCESS_TOKEN:-}" ]]; then echo k6-token-missing >> "' + calls + '"; fi',
 			`echo warmup-k6 >> "${calls}"`, 'exit 42', '',
 		].join('\n'));
 		for (const command of ['docker', 'k6', 'node']) chmodSync(join(bin, command), 0o755);
 		const result = spawnSync('bash', [runner, 'prayer'], {
 			env: {
-				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
+				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
 				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://127.0.0.1:18080',
 				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
-				APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app',
-				EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'faithlog-latest',
 				SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
 				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
 				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
@@ -728,7 +861,7 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		assert.notEqual(result.status, 0);
 		const observed = readFileSync(calls, 'utf8').trim().split(/\r?\n/);
 		assert.equal(observed.filter((line) => line === 'warmup-k6').length, 1, 'measured k6 must not start');
-		assert.equal(observed.filter((line) => line === 'login').length, 2, 'only warmup tokens are issued');
+		assert.equal(observed.filter((line) => line === 'login').length, 5, 'only warmup actor tokens are issued');
 		assert.equal(observed.some((line) => line.includes('credential-leak') || line.includes('token-missing') || line.startsWith('docker-unexpected')), false);
 		assert.equal(existsSync(join(reportBase, executionRunId, 'prayer', 'prayer_current_season', 'db-before.json')), false);
 	} finally {
@@ -759,25 +892,26 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		writeFileSync(before, JSON.stringify(dbSnapshot(new Date(now - 1000).toISOString())));
 		writeFileSync(after, JSON.stringify(dbSnapshot(new Date(now + 1000).toISOString(), { users: { seq_scan: 1, seq_tup_read: 1000 } })));
 		writeFileSync(manifest, JSON.stringify({
-			datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId, shapedAt: new Date(now).toISOString(),
-			primaryCampus: { memberActor: { email: 'member@example.test' } },
-			composeRuntime: { composeProject: project, appConfigHash: 'app-hash', dbConfigHash: 'db-hash', appImageId: 'sha256:contract', targetPort: '18080' },
+			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: new Date(now).toISOString(),
+			primaryCampus: actorManifest(),
+			composeRuntime: manifestRuntime(project, { appImage: 'faithlog-latest', appImageId: 'sha256:contract' }),
 			polls: { byKey: {
 				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
 				closed_member_visible: { endsAt: new Date(now - 2 * 86400000).toISOString() },
 				closed_admin_only: { endsAt: new Date(now - 5 * 86400000).toISOString() },
 				closed_expired: { endsAt: new Date(now - 8 * 86400000).toISOString() },
 				scheduled_future: { startsAt: new Date(now + 2 * 86400000).toISOString() },
-			} },
+			}, duty: dutyWindows(now) },
 		}));
 		writeFileSync(join(bin, 'docker'), [
 			'#!/usr/bin/env bash',
 			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 && -f "${postLockMarker}" ]]; then echo app-container-post-lock-replaced; elif [[ "${'${FAKE_REPLACE_RUNTIME:-0}'}" == 1 && "$count" -gt 1 ]]; then echo app-container-replaced; else echo app-container-id; fi; exit 0; fi`,
+			`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
 			'if [[ "$1" == exec ]]; then',
 			`  if [[ -z "${'${PGPASSWORD+x}'}" || -n "${'${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_PASSWORD+x}${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]]; then echo db-scope-bad >> "${calls}"; fi`,
 			`  echo db-collector >> "${calls}"`,
-			`  if [[ "$*" == *pg_postmaster_start_time* ]]; then printf '%s\\n' '{"currentDatabase":"faithlog","serverAddress":"127.0.0.1","serverPort":5432,"postmasterStartedAt":"2026-07-14T00:00:00.000Z"}'; exit 0; fi`,
-			`  if [[ "$*" == *faithlog_issue196_observer* ]]; then printf '%s\\n' '{"capturedAt":"2026-07-14T00:00:00Z","unexpectedSessions":[]}'; exit 0; fi`,
+			`  if [[ "$*" == *app_client_addrs* ]]; then printf '%s\\n' '{"capturedAt":"2026-07-14T00:00:00Z","unexpectedSessions":[]}'; exit 0; fi`,
+			`  if [[ "$*" == *faithlog_issue196_observer* ]]; then printf '%s\\n' '${JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity)}'; exit 0; fi`,
 			`  count=$(cat "${dbCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${dbCount}"`,
 			`  if (( count == 1 )); then cat "${before}"; else cat "${after}"; fi`,
 			'  exit 0', 'fi',
@@ -786,15 +920,23 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			`*com.docker.compose.project*) echo "${project}" ;;`,
 			'*com.docker.compose.service*faithlog-backend*) echo app ;;',
 			'*com.docker.compose.service*faithlog-postgres*) echo postgres ;;',
+			'*com.docker.compose.service*faithlog-redis*) echo redis ;;',
 			'*com.docker.compose.config-hash*faithlog-backend*) echo app-hash ;;',
 			'*com.docker.compose.config-hash*faithlog-postgres*) echo db-hash ;;',
+			'*com.docker.compose.config-hash*faithlog-redis*) echo redis-hash ;;',
 			'*NetworkSettings.Networks*) echo 172.20.0.3 ;;',
 			'*"{{.Id}}"*faithlog-postgres*) echo db-container-id ;;',
+			'*"{{.Id}}"*faithlog-redis*) echo redis-container-id ;;',
 			'*"{{.State.StartedAt}}"*) echo 2026-07-14T00:00:00.000Z ;;',
-			'*"{{.Config.Image}}"*) echo faithlog-latest ;;', '*"{{.Image}}"*) echo sha256:contract ;;',
+			'*"{{.Config.Image}}"*faithlog-backend*) echo faithlog-latest ;;',
+			'*"{{.Config.Image}}"*faithlog-postgres*) echo postgres:17 ;;',
+			'*"{{.Config.Image}}"*faithlog-redis*) echo redis:7-alpine ;;',
+			'*"{{.Image}}"*faithlog-backend*) echo sha256:contract ;;',
+			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
+			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
 			`*"port faithlog-backend 8080/tcp"*) [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 ]] && touch "${postLockMarker}"; echo 0.0.0.0:18080 ;;`,
 			'*"range .Config.Env"*) printf "%s\\n" LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL=false FAITHLOG_SCHEDULER_ENABLED=false ;;',
-			'*"stats --no-stream"*) printf "faithlog-backend\\t10.0%%\\t100MiB / 1GiB\\t9.8%%\\nfaithlog-postgres\\t20.0%%\\t200MiB / 1GiB\\t19.5%%\\n" ;;',
+			'*"stats --no-stream"*) printf "faithlog-backend\\t10.0%%\\t100MiB / 1GiB\\t9.8%%\\nfaithlog-postgres\\t20.0%%\\t200MiB / 1GiB\\t19.5%%\\nfaithlog-redis\\t5.0%%\\t50MiB / 1GiB\\t4.9%%\\n" ;;',
 			'*"logs --since"*) echo "INFO org.hibernate.SQL: select 1" ;;',
 			`*) echo "docker-unexpected:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
 		].join('\n'));
@@ -809,7 +951,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		writeFileSync(join(bin, 'k6'), [
 			'#!/usr/bin/env bash',
 			`if [[ -n "${'${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}'}" ]]; then echo k6-scope-bad >> "${calls}"; fi`,
-			`if [[ -z "${'${PERF_ADMIN_ACCESS_TOKEN:-}'}" || -z "${'${PERF_MEMBER_ACCESS_TOKEN:-}'}" ]]; then echo k6-token-missing >> "${calls}"; fi`,
+			`if [[ -z "${'${PERF_ADMIN_ACCESS_TOKEN:-}'}" || -z "${'${PERF_MEMBER_ACCESS_TOKEN:-}'}" || -z "${'${PERF_COFFEE_CREATOR_ACCESS_TOKEN:-}'}" || -z "${'${PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN:-}'}" || -z "${'${PERF_MEAL_DUTY_ACCESS_TOKEN:-}'}" ]]; then echo k6-token-missing >> "${calls}"; fi`,
 			`count=$(cat "${k6Count}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${k6Count}"`,
 			'summary=""; while (( $# > 0 )); do if [[ "$1" == --summary-export ]]; then summary="$2"; shift 2; else shift; fi; done',
 			'mkdir -p "$(dirname "${summary}")"',
@@ -821,11 +963,9 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		for (const command of ['docker', 'k6', 'node']) chmodSync(join(bin, command), 0o755);
 		const result = spawnSync('bash', [runner, 'prayer'], {
 			env: {
-				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
+				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId, EXECUTION_RUN_ID: executionRunId,
 				FIXTURE_MANIFEST: manifest, BASE_URL: 'http://127.0.0.1:18080',
 				WARMUP_VUS: '1', WARMUP_DURATION: '1s', MEASURED_VUS: '1', MEASURED_DURATION: '1s',
-				APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app',
-				EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'faithlog-latest',
 				SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
 				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
 				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
@@ -853,12 +993,10 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const replacementExecutionRunId = `execreplace${process.pid}`.slice(0, 32);
 		const replacementResult = spawnSync('bash', [runner, 'prayer'], {
 			env: {
-				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId,
+				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId,
 				EXECUTION_RUN_ID: replacementExecutionRunId, FIXTURE_MANIFEST: manifest,
 				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
 				MEASURED_VUS: '1', MEASURED_DURATION: '1s',
-				APP_CONTAINER: 'faithlog-backend', DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app',
-				EXPECTED_DB_SERVICE: 'postgres', EXPECTED_APP_IMAGE: 'faithlog-latest',
 				SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
 				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret',
 				PERF_MEMBER_PASSWORD: 'member-secret', PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog',
@@ -878,12 +1016,10 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		const postLockExecutionRunId = `execpostlock${process.pid}`.slice(0, 32);
 		const postLockResult = spawnSync('bash', [runner, 'prayer'], {
 			env: {
-				...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId,
+				...process.env, ...faithlogTargetEnv(), PATH: `${bin}:${process.env.PATH}`, FIXTURE_RUN_ID: fixtureRunId,
 				EXECUTION_RUN_ID: postLockExecutionRunId, FIXTURE_MANIFEST: manifest,
 				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
-				MEASURED_VUS: '1', MEASURED_DURATION: '1s', APP_CONTAINER: 'faithlog-backend',
-				DB_CONTAINER: 'faithlog-postgres', EXPECTED_APP_SERVICE: 'app', EXPECTED_DB_SERVICE: 'postgres',
-				EXPECTED_APP_IMAGE: 'faithlog-latest', SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
+				MEASURED_VUS: '1', MEASURED_DURATION: '1s', SAMPLING_INTERVAL_SECONDS: '2', SAMPLING_MAX_GAP_SECONDS: '4',
 				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
 				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret', FAKE_POST_LOCK_REPLACE: '1',
 			},
@@ -924,23 +1060,17 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(paths.after, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', { users: { seq_scan: 4, seq_tup_read: 4000, n_live_tup: 1000 } })));
 		writeFileSync(paths.sql, Array.from({ length: 4 }, (_, index) => `INFO org.hibernate.SQL: select * from users where id=${index + 1}`).join('\n'));
 		writeFileSync(paths.resources, [
-			'2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t100MiB / 1GiB\t9.8%',
-			'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
-			'2026-07-14T00:00:02Z\tfaithlog-backend\t11.0%\t101MiB / 1GiB\t9.9%',
-			'2026-07-14T00:00:02Z\tfaithlog-postgres\t21.0%\t201MiB / 1GiB\t19.6%',
+			'2026-07-14T00:00:00Z\tfaithlog-backend\tapp-container-id\t10.0%\t100MiB / 1GiB\t9.8%',
+			'2026-07-14T00:00:00Z\tfaithlog-postgres\tdb-container-id\t20.0%\t200MiB / 1GiB\t19.5%',
+			'2026-07-14T00:00:00Z\tfaithlog-redis\tredis-container-id\t5.0%\t50MiB / 1GiB\t4.9%',
+			'2026-07-14T00:00:02Z\tfaithlog-backend\tapp-container-id\t11.0%\t101MiB / 1GiB\t9.9%',
+			'2026-07-14T00:00:02Z\tfaithlog-postgres\tdb-container-id\t21.0%\t201MiB / 1GiB\t19.6%',
+			'2026-07-14T00:00:02Z\tfaithlog-redis\tredis-container-id\t6.0%\t51MiB / 1GiB\t5.0%',
 		].join('\n'));
 		writeFileSync(paths.integrity, `${integritySample()}\n${integritySample({ capturedAt: '2026-07-14T00:00:02.000Z' })}\n`);
 		writeFileSync(paths.metadata, JSON.stringify({
-			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196-test',
-			runtime: {
-				appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
-				measurementStartedAt: '2026-07-14T00:00:00.000Z', measurementEndedAt: '2026-07-14T00:00:02.000Z',
-				samplingIntervalSeconds: 1, samplingMaxGapSeconds: 2,
-				k6ExitStatus: 0, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
-				warmupExitStatus: 0, integritySamplerExitStatus: 0,
-				runtimeContinuityExitStatus: 0, exclusiveWindowConfirmed: true,
-				logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
-			},
+			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId: 'i196-test',
+			runtime: reportRuntime(),
 		}));
 
 		const pendingAdoptionProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
@@ -960,7 +1090,8 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		assert.equal(report.db.queriesPerRequest, 2);
 		assert.equal(report.db.tableCounterDelta[0].estimatedRowsAfter, '1000');
 		assert.equal(report.nPlusOneEvidence.loopSignal[0].count, 4);
-		assert.equal(report.resources.length, 2);
+		assert.equal(report.resources.length, 3);
+		assert.equal(report.primaryRejectionReason, 'adoption-policy-pending-user-approval');
 		assert.equal(report.resources.find((entry) => entry.container === 'faithlog-backend').maxObservedMemoryBytes, '105906176');
 		const approvedSamplingMetadata = join(temporary, 'metadata-approved-sampling.json');
 		const approvedSamplingReport = join(temporary, 'approved-sampling-report.json');
@@ -979,16 +1110,17 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 
 		for (const [name, resourceLines, expectedReason] of [
 			['negative', [
-				'2026-07-14T00:00:00Z\tfaithlog-backend\t-1.0%\t100MiB / 1GiB\t9.8%',
-				'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
-				'2026-07-14T00:00:02Z\tfaithlog-backend\t11.0%\t101MiB / 1GiB\t9.9%',
-				'2026-07-14T00:00:02Z\tfaithlog-postgres\t21.0%\t201MiB / 1GiB\t19.6%',
+				'2026-07-14T00:00:00Z\tfaithlog-backend\tapp-container-id\t-1.0%\t100MiB / 1GiB\t9.8%',
+				...readFileSync(paths.resources, 'utf8').split('\n').filter((line) => !line.includes('faithlog-backend')),
 			], 'invalid-resource-sample'],
 			['extra-container', [
 				...readFileSync(paths.resources, 'utf8').split('\n'),
-				'2026-07-14T00:00:00Z\tforeign-container\t1.0%\t1MiB / 1GiB\t0.1%',
-				'2026-07-14T00:00:02Z\tforeign-container\t1.0%\t1MiB / 1GiB\t0.1%',
+				'2026-07-14T00:00:00Z\tforeign-container\tforeign-id\t1.0%\t1MiB / 1GiB\t0.1%',
+				'2026-07-14T00:00:02Z\tforeign-container\tforeign-id\t1.0%\t1MiB / 1GiB\t0.1%',
 			], 'unexpected-resource-container'],
+			['wrong-container-id', readFileSync(paths.resources, 'utf8').split('\n')
+				.map((line) => line.replace('\tapp-container-id\t', '\tapp-container-replaced\t')),
+			'resource-container-id-mismatch:faithlog-backend'],
 		]) {
 			const resourcePath = join(temporary, `${name}-resources.tsv`);
 			const resourceReport = join(temporary, `${name}-resource-report.json`);
@@ -1009,10 +1141,8 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			const malformedResource = join(temporary, `${name}.tsv`);
 			const malformedResourceReport = join(temporary, `${name}-report.json`);
 			writeFileSync(malformedResource, [
-				`2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t${memoryUsage}\t${memoryPercent}`,
-				'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
-				'2026-07-14T00:00:02Z\tfaithlog-backend\t11.0%\t101MiB / 1GiB\t9.9%',
-				'2026-07-14T00:00:02Z\tfaithlog-postgres\t21.0%\t201MiB / 1GiB\t19.6%',
+				`2026-07-14T00:00:00Z\tfaithlog-backend\tapp-container-id\t10.0%\t${memoryUsage}\t${memoryPercent}`,
+				...readFileSync(paths.resources, 'utf8').split('\n').filter((line) => !line.includes('faithlog-backend')),
 			].join('\n'));
 			const malformedResourceProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 				paths.summary, paths.before, paths.after, paths.sql, malformedResource, paths.integrity, paths.metadata, malformedResourceReport]);
@@ -1033,16 +1163,8 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		const failedMetadata = join(temporary, 'metadata-k6-failed.json');
 		const failedReport = join(temporary, 'k6-failed-report.json');
 		writeFileSync(failedMetadata, JSON.stringify({
-			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196-test',
-				runtime: {
-					appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
-					measurementStartedAt: '2026-07-14T00:00:00.000Z', measurementEndedAt: '2026-07-14T00:00:02.000Z',
-					samplingIntervalSeconds: 1, samplingMaxGapSeconds: 2,
-					k6ExitStatus: 99, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
-					warmupExitStatus: 0, integritySamplerExitStatus: 0,
-					runtimeContinuityExitStatus: 0, exclusiveWindowConfirmed: true,
-					logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
-			},
+			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId: 'i196-test',
+			runtime: reportRuntime({ k6ExitStatus: 99 }),
 		}));
 		const failedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, failedMetadata, failedReport]);
@@ -1054,16 +1176,9 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		const samplerFailedMetadata = join(temporary, 'metadata-sampler-failed.json');
 		const samplerFailedReport = join(temporary, 'sampler-failed-report.json');
 		writeFileSync(samplerFailedMetadata, JSON.stringify({
-			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196-test',
-				runtime: {
-					appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
-					measurementStartedAt: '2026-07-14T00:00:00.000Z', measurementEndedAt: '2026-07-14T00:00:02.000Z',
-					samplingIntervalSeconds: 1, samplingMaxGapSeconds: 2,
-					k6ExitStatus: 97, resourceSamplerExitStatus: 98, fixtureWindowExitStatus: 1,
-					warmupExitStatus: 0, integritySamplerExitStatus: 94,
-					runtimeContinuityExitStatus: 0, exclusiveWindowConfirmed: true,
-					logCaptureExitStatus: 96, afterDbSnapshotExitStatus: 95,
-			},
+			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId: 'i196-test',
+			runtime: reportRuntime({ k6ExitStatus: 97, resourceSamplerExitStatus: 98, fixtureWindowExitStatus: 1,
+				integritySamplerExitStatus: 94, logCaptureExitStatus: 96, afterDbSnapshotExitStatus: 95 }),
 		}));
 		const samplerFailedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			join(temporary, 'missing-summary.json'), paths.before, paths.after, paths.sql,
@@ -1272,20 +1387,13 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		const sparseIntegrity = join(temporary, 'sparse-integrity.jsonl');
 		const sparseReport = join(temporary, 'sparse-report.json');
 		writeFileSync(sparseMetadata, JSON.stringify({
-			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v1', fixtureRunId: 'i196-test',
-			runtime: {
-				appContainer: 'faithlog-backend', dbContainer: 'faithlog-postgres',
-				measurementStartedAt: '2026-07-14T00:00:00.000Z', measurementEndedAt: '2026-07-14T00:10:00.000Z',
-				samplingIntervalSeconds: 1, samplingMaxGapSeconds: 2,
-				k6ExitStatus: 0, resourceSamplerExitStatus: 0, fixtureWindowExitStatus: 0,
-				warmupExitStatus: 0, integritySamplerExitStatus: 0,
-				runtimeContinuityExitStatus: 0, exclusiveWindowConfirmed: true,
-				logCaptureExitStatus: 0, afterDbSnapshotExitStatus: 0,
-			},
+			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId: 'i196-test',
+			runtime: reportRuntime({ measurementEndedAt: '2026-07-14T00:10:00.000Z' }),
 		}));
 		writeFileSync(sparseResources, [
-			'2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t100MiB / 1GiB\t9.8%',
-			'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
+			'2026-07-14T00:00:00Z\tfaithlog-backend\tapp-container-id\t10.0%\t100MiB / 1GiB\t9.8%',
+			'2026-07-14T00:00:00Z\tfaithlog-postgres\tdb-container-id\t20.0%\t200MiB / 1GiB\t19.5%',
+			'2026-07-14T00:00:00Z\tfaithlog-redis\tredis-container-id\t5.0%\t50MiB / 1GiB\t4.9%',
 		].join('\n'));
 		writeFileSync(sparseIntegrity, `${integritySample()}\n`);
 		const sparseProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
@@ -1297,16 +1405,46 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		const gapIntegrity = join(temporary, 'gap-integrity.jsonl');
 		const gapReport = join(temporary, 'gap-report.json');
 		writeFileSync(gapResources, [
-			'2026-07-14T00:00:00Z\tfaithlog-backend\t10.0%\t100MiB / 1GiB\t9.8%',
-			'2026-07-14T00:00:00Z\tfaithlog-postgres\t20.0%\t200MiB / 1GiB\t19.5%',
-			'2026-07-14T00:10:00Z\tfaithlog-backend\t11.0%\t101MiB / 1GiB\t9.9%',
-			'2026-07-14T00:10:00Z\tfaithlog-postgres\t21.0%\t201MiB / 1GiB\t19.6%',
+			'2026-07-14T00:00:00Z\tfaithlog-backend\tapp-container-id\t10.0%\t100MiB / 1GiB\t9.8%',
+			'2026-07-14T00:00:00Z\tfaithlog-postgres\tdb-container-id\t20.0%\t200MiB / 1GiB\t19.5%',
+			'2026-07-14T00:00:00Z\tfaithlog-redis\tredis-container-id\t5.0%\t50MiB / 1GiB\t4.9%',
+			'2026-07-14T00:10:00Z\tfaithlog-backend\tapp-container-id\t11.0%\t101MiB / 1GiB\t9.9%',
+			'2026-07-14T00:10:00Z\tfaithlog-postgres\tdb-container-id\t21.0%\t201MiB / 1GiB\t19.6%',
+			'2026-07-14T00:10:00Z\tfaithlog-redis\tredis-container-id\t6.0%\t51MiB / 1GiB\t5.0%',
 		].join('\n'));
 		writeFileSync(gapIntegrity, `${integritySample({ capturedAt: '2026-07-14T00:00:00.000Z' })}\n${integritySample({ capturedAt: '2026-07-14T00:10:00.000Z' })}\n`);
 		const gapProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			paths.summary, paths.before, paths.after, paths.sql, gapResources, gapIntegrity, sparseMetadata, gapReport]);
 		assert.notEqual(gapProcess.status, 0, 'a long unsampled middle gap must reject');
 		assert.ok(JSON.parse(readFileSync(gapReport, 'utf8')).rejectionReasons.some((reason) => reason.startsWith('sample-gap:')));
+
+		const pgssBefore = dbSnapshot('2026-07-14T00:00:01.000Z');
+		const pgssAfter = dbSnapshot('2026-07-14T00:00:02.000Z');
+		for (const snapshot of [pgssBefore, pgssAfter]) {
+			Object.assign(snapshot.databaseIdentity, {
+				pgStatStatementsExtensionInstalled: true,
+				pgStatStatementsPreloaded: true,
+				pgStatStatementsViewAvailable: true,
+			});
+		}
+		const pgssBeforePath = join(temporary, 'pgss-before.json');
+		const pgssAfterPath = join(temporary, 'pgss-after.json');
+		const pgssAvailableReport = join(temporary, 'pgss-available-report.json');
+		writeFileSync(pgssBeforePath, JSON.stringify(pgssBefore));
+		writeFileSync(pgssAfterPath, JSON.stringify(pgssAfter));
+		spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, pgssBeforePath, pgssAfterPath, paths.sql, paths.resources, paths.integrity, paths.metadata, pgssAvailableReport]);
+		const pgssAvailable = JSON.parse(readFileSync(pgssAvailableReport, 'utf8'));
+		assert.equal(pgssAvailable.measurementStatus, 'conditional-not-adoptable', 'stable pgss available state remains valid evidence');
+
+		pgssAfter.databaseIdentity.pgStatStatementsPreloaded = false;
+		writeFileSync(pgssAfterPath, JSON.stringify(pgssAfter));
+		const pgssDriftReport = join(temporary, 'pgss-drift-report.json');
+		spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, pgssBeforePath, pgssAfterPath, paths.sql, paths.resources, paths.integrity, paths.metadata, pgssDriftReport]);
+		const pgssDrift = JSON.parse(readFileSync(pgssDriftReport, 'utf8'));
+		assert.equal(pgssDrift.measurementStatus, 'rejected');
+		assert.ok(pgssDrift.rejectionReasons.includes('pgss-state-changed'));
 
 		const vacuumAfter = join(temporary, 'vacuum-after.json');
 		const vacuumReport = join(temporary, 'vacuum-report.json');
@@ -1347,7 +1485,7 @@ test('fixture preparation is create-only outside rows owned by the current fixtu
 	assert.doesNotMatch(seed, /method:\s*['\"]DELETE['\"]/);
 	assert.doesNotMatch(seed, /\bdelete\s+from\b/i);
 	assert.match(shaper, /fixture_run_id/);
-	assert.match(shaper, /Atomically update all five rows created by this fixture run/);
+	assert.match(shaper, /Atomically update all eight rows created by this fixture run/);
 	assert.match(shaper, /shaped_at/);
 	assert.match(shaper, /shape-attempted/);
 	assert.match(shaper, /composeRuntime\.composeProject/);

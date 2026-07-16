@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { validateRuntimeIdentity } from './validate-runtime-identity.mjs';
+import { FIXTURE_CONTRACT } from './fixture-contract.mjs';
 
 const [endpoint, summaryPath, beforePath, afterPath, sqlLogPath, resourcePath, integrityPath, metadataPath, outputPath] = process.argv.slice(2);
 if (![endpoint, summaryPath, beforePath, afterPath, sqlLogPath, resourcePath, integrityPath, metadataPath, outputPath].every(Boolean)) {
@@ -31,7 +33,10 @@ const EXPECTED_TABLE_FIELDS = [
 	'schemaname', 'relname', ...TABLE_COUNTER_FIELDS, ...MAINTENANCE_TIMESTAMP_FIELDS,
 ].sort();
 const EXPECTED_DATABASE_IDENTITY_KEYS = [
-	'currentDatabase', 'postmasterStartedAt', 'serverAddress', 'serverPort',
+	'currentDatabase', 'currentUser', 'forceRlsTableCount', 'jdbcOwnedTableCount', 'latestFlywayVersion',
+	'pgStatStatementsExtensionInstalled', 'pgStatStatementsPreloaded', 'pgStatStatementsViewAvailable',
+	'policyCount', 'postmasterStartedAt', 'publicApplicationTableCount', 'rlsEnabledTableCount',
+	'serverAddress', 'serverPort', 'sessionUser', 'sessionUserIsDatabaseOwner',
 ].sort();
 const MEMORY_UNIT_BYTES = Object.freeze({
 	B: 1,
@@ -100,6 +105,14 @@ if (runtimeContinuityExitStatus !== 0) rejectionReasons.push(`runtime-continuity
 if (fixtureWindowExitStatus !== 0) rejectionReasons.push('fixture-window-crossed');
 if (logCaptureExitStatus !== 0) rejectionReasons.push(`log-capture-exit-${logCaptureExitStatus}`);
 if (afterDbSnapshotExitStatus !== 0) rejectionReasons.push(`after-db-snapshot-exit-${afterDbSnapshotExitStatus}`);
+if (metadata.runtime?.sourceRevision !== FIXTURE_CONTRACT.currentDevelop.sourceRevision) addReason('source-revision-drift');
+if (metadata.runtime?.appImageId !== metadata.runtime?.expectedAppImageId
+	|| metadata.runtime?.dbImage !== metadata.runtime?.expectedDbImage
+	|| metadata.runtime?.dbImageId !== metadata.runtime?.expectedDbImageId
+	|| metadata.runtime?.redisImage !== metadata.runtime?.expectedRedisImage
+	|| metadata.runtime?.redisImageId !== metadata.runtime?.expectedRedisImageId) {
+	addReason('immutable-app-image-mismatch');
+}
 if (!summary) rejectionReasons.push('missing-k6-summary');
 if (!before || !after) rejectionReasons.push('missing-db-snapshot');
 if (queryLines.length === 0) rejectionReasons.push('missing-sql-evidence');
@@ -125,7 +138,7 @@ const resourceValidation = validateResourceEvidence(resourceText || '', metadata
 for (const reason of resourceValidation.rejectionReasons) addReason(reason);
 const resources = resourceValidation.resources;
 const capturedContainers = new Set(resources.map((resource) => resource.container));
-for (const container of [metadata.runtime?.appContainer, metadata.runtime?.dbContainer]) {
+for (const container of [metadata.runtime?.appContainer, metadata.runtime?.dbContainer, metadata.runtime?.redisContainer]) {
 	if (!container || !capturedContainers.has(container)) {
 		rejectionReasons.push(`missing-resource-samples:${container || 'undefined'}`);
 	}
@@ -147,12 +160,14 @@ const evidenceValid = k6ExitStatus === 0
 	&& rejectionReasons.length === 0;
 const accepted = false;
 addReason('adoption-policy-pending-user-approval');
+const primaryRejectionReason = rejectionReasons[0] || null;
 
 const report = {
 	accepted,
 	automaticAdoption: false,
 	measurementStatus: evidenceValid ? 'conditional-not-adoptable' : 'rejected',
 	rejectionReasons,
+	primaryRejectionReason,
 	toolPreparationStatus: TOOL_STATUS,
 	endpoint,
 	mode: metadata.mode,
@@ -284,17 +299,28 @@ function validateTableEvidence(before, after) {
 	if (!plannerSettingsValid) rejectionReasons.push('invalid-planner-settings');
 	const plannerSettingsStable = plannerSettingsValid && semanticEqual(before.plannerSettings, after.plannerSettings);
 	if (plannerSettingsValid && !plannerSettingsStable) rejectionReasons.push('planner-settings-changed');
-	const databaseIdentityValid = [before?.databaseIdentity, after?.databaseIdentity].every((identity) => (
-		isExactObject(identity, EXPECTED_DATABASE_IDENTITY_KEYS)
-		&& typeof identity.currentDatabase === 'string' && identity.currentDatabase.length > 0
-		&& typeof identity.serverAddress === 'string' && identity.serverAddress.length > 0
-		&& Number.isInteger(identity.serverPort) && identity.serverPort > 0
-		&& isValidTimestamp(identity.postmasterStartedAt)
-	));
+	let databaseIdentityValid = true;
+	for (const identity of [before?.databaseIdentity, after?.databaseIdentity]) {
+		try {
+			if (!isExactObject(identity, EXPECTED_DATABASE_IDENTITY_KEYS)) throw new Error('invalid-database-identity');
+			validateRuntimeIdentity(identity, {
+				expectedFlywayVersion: metadata.runtime?.expectedFlywayVersion,
+				expectedTableCount: EXPECTED_TABLES.length,
+			});
+		} catch (error) {
+			databaseIdentityValid = false;
+			if (['flyway-version-drift', 'rls-contract-drift', 'jdbc-owner-bypass-drift', 'invalid-pgss-state'].includes(error.message)) {
+				rejectionReasons.push(error.message);
+			}
+		}
+	}
 	if (!databaseIdentityValid) rejectionReasons.push('invalid-database-identity');
 	const databaseIdentityStable = databaseIdentityValid
 		&& semanticEqual(before.databaseIdentity, after.databaseIdentity);
 	if (databaseIdentityValid && !databaseIdentityStable) rejectionReasons.push('database-identity-changed');
+	if (databaseIdentityValid && !semanticEqual(
+		pickPgssState(before.databaseIdentity), pickPgssState(after.databaseIdentity)
+	)) rejectionReasons.push('pgss-state-changed');
 	if (!Array.isArray(beforeTables) || !Array.isArray(afterTables)) {
 		return {
 			rejectionReasons: [...rejectionReasons, 'invalid-db-table-snapshot'], snapshotOrderValid,
@@ -375,6 +401,14 @@ function semanticEqual(left, right) {
 	return false;
 }
 
+function pickPgssState(identity) {
+	return {
+		pgStatStatementsExtensionInstalled: identity.pgStatStatementsExtensionInstalled,
+		pgStatStatementsPreloaded: identity.pgStatStatementsPreloaded,
+		pgStatStatementsViewAvailable: identity.pgStatStatementsViewAvailable,
+	};
+}
+
 function strictNumber(value) {
 	return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -411,28 +445,36 @@ function validateResourceEvidence(tsv, runtime) {
 	const rejectionReasons = [];
 	for (const line of tsv.trim().split(/\r?\n/)) {
 		if (!line) continue;
-		const [capturedAt, container, cpuText, memoryText, memoryPercentText] = line.split('\t');
+		const [capturedAt, container, resourceContainerId, cpuText, memoryText, memoryPercentText] = line.split('\t');
 		const cpuPercent = Number(cpuText?.replace('%', ''));
 		const memoryPercent = Number(memoryPercentText?.replace('%', ''));
 		const memory = parseMemoryUsage(memoryText);
-		if (!container || !Number.isFinite(cpuPercent) || cpuPercent < 0
+		if (!container || typeof resourceContainerId !== 'string' || resourceContainerId.length === 0
+			|| !Number.isFinite(cpuPercent) || cpuPercent < 0
 			|| !Number.isFinite(memoryPercent) || memoryPercent < 0 || memoryPercent > 100
 			|| !memory || !isValidTimestamp(capturedAt)) {
 			rejectionReasons.push('invalid-resource-sample');
 			continue;
 		}
 		if (!byContainer.has(container)) byContainer.set(container, []);
-		byContainer.get(container).push({ capturedAt, cpuPercent, reportedMemoryPercent: memoryPercent, ...memory });
+		byContainer.get(container).push({ capturedAt, resourceContainerId, cpuPercent, reportedMemoryPercent: memoryPercent, ...memory });
 	}
-	const expectedContainers = [runtime?.appContainer, runtime?.dbContainer];
+	const expectedContainers = [runtime?.appContainer, runtime?.dbContainer, runtime?.redisContainer];
+	const expectedContainerIds = runtime?.resourceContainerIds;
 	const expectedContainerSetValid = expectedContainers.every((container) => typeof container === 'string' && container.length > 0)
-		&& new Set(expectedContainers).size === 2;
+		&& new Set(expectedContainers).size === 3
+		&& expectedContainerIds && typeof expectedContainerIds === 'object' && !Array.isArray(expectedContainerIds)
+		&& semanticEqual(Object.keys(expectedContainerIds).sort(), [...expectedContainers].sort())
+		&& Object.values(expectedContainerIds).every((id) => typeof id === 'string' && id.length > 0);
 	const actualContainers = [...byContainer.keys()].sort();
 	if (!expectedContainerSetValid || !semanticEqual(actualContainers, [...expectedContainers].sort())) {
 		rejectionReasons.push('unexpected-resource-container');
 	}
 	for (const container of expectedContainers) {
 		const samples = byContainer.get(container) || [];
+		if (samples.some((sample) => sample.resourceContainerId !== expectedContainerIds?.[container])) {
+			rejectionReasons.push(`resource-container-id-mismatch:${container || 'undefined'}`);
+		}
 		for (const reason of validateSampleTimeline(samples.map((sample) => sample.capturedAt), runtime, `resource:${container || 'undefined'}`)) {
 			rejectionReasons.push(reason);
 		}
@@ -441,6 +483,7 @@ function validateResourceEvidence(tsv, runtime) {
 		const maxMemorySample = samples.reduce((current, sample) => sample.usedBytes >= current.usedBytes ? sample : current);
 		return {
 			container,
+			resourceContainerId: samples[0]?.resourceContainerId || null,
 			sampleCount: samples.length,
 			averageCpuPercent: average(samples.map((sample) => sample.cpuPercent)),
 			maxCpuPercent: Math.max(...samples.map((sample) => sample.cpuPercent)),

@@ -12,7 +12,20 @@ const PERF_ADMIN_PASSWORD = __ENV.PERF_ADMIN_PASSWORD;
 const PERF_MEMBER_PASSWORD = __ENV.PERF_MEMBER_PASSWORD;
 const PERF_ADMIN_ACCESS_TOKEN = __ENV.PERF_ADMIN_ACCESS_TOKEN;
 const PERF_MEMBER_ACCESS_TOKEN = __ENV.PERF_MEMBER_ACCESS_TOKEN;
+const PERF_COFFEE_CREATOR_ACCESS_TOKEN = __ENV.PERF_COFFEE_CREATOR_ACCESS_TOKEN;
+const PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN = __ENV.PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN;
+const PERF_MEAL_DUTY_ACCESS_TOKEN = __ENV.PERF_MEAL_DUTY_ACCESS_TOKEN;
 const FIXTURE_MANIFEST = __ENV.FIXTURE_MANIFEST;
+const EXPECTED_SOURCE_REVISION = requiredEnv('EXPECTED_SOURCE_REVISION');
+const EXPECTED_APP_SERVICE = requiredEnv('EXPECTED_APP_SERVICE');
+const EXPECTED_DB_SERVICE = requiredEnv('EXPECTED_DB_SERVICE');
+const EXPECTED_REDIS_SERVICE = requiredEnv('EXPECTED_REDIS_SERVICE');
+const EXPECTED_APP_IMAGE = requiredEnv('EXPECTED_APP_IMAGE');
+const EXPECTED_APP_IMAGE_ID = requiredEnv('EXPECTED_APP_IMAGE_ID');
+const EXPECTED_DB_IMAGE = requiredEnv('EXPECTED_DB_IMAGE');
+const EXPECTED_DB_IMAGE_ID = requiredEnv('EXPECTED_DB_IMAGE_ID');
+const EXPECTED_REDIS_IMAGE = requiredEnv('EXPECTED_REDIS_IMAGE');
+const EXPECTED_REDIS_IMAGE_ID = requiredEnv('EXPECTED_REDIS_IMAGE_ID');
 
 function requiredEnv(name) {
 	const value = __ENV[name];
@@ -52,6 +65,7 @@ export const options = {
 
 export function setup() {
 	guardTarget();
+	guardRuntimeManifest();
 	if (!PERF_ADMIN_ACCESS_TOKEN && (!PERF_ADMIN_EMAIL || !PERF_ADMIN_PASSWORD)) {
 		fail('Provide PERF_ADMIN_ACCESS_TOKEN or runtime-only PERF_ADMIN_EMAIL and PERF_ADMIN_PASSWORD.');
 	}
@@ -65,12 +79,28 @@ export function setup() {
 	return {
 		adminToken: PERF_ADMIN_ACCESS_TOKEN || login(PERF_ADMIN_EMAIL, PERF_ADMIN_PASSWORD),
 		memberToken: PERF_MEMBER_ACCESS_TOKEN || login(manifest.primaryCampus.memberActor.email, PERF_MEMBER_PASSWORD),
+		coffeeCreatorToken: PERF_COFFEE_CREATOR_ACCESS_TOKEN || login(manifest.primaryCampus.coffeeCreator.email, PERF_MEMBER_PASSWORD),
+		otherCoffeeDutyToken: PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN || login(manifest.primaryCampus.otherCoffeeDuty.email, PERF_MEMBER_PASSWORD),
+		mealDutyToken: PERF_MEAL_DUTY_ACCESS_TOKEN || login(manifest.primaryCampus.mealDuty.email, PERF_MEMBER_PASSWORD),
 	};
+}
+
+function guardRuntimeManifest() {
+	const runtime = manifest.composeRuntime;
+	if (!runtime || runtime.sourceRevision !== EXPECTED_SOURCE_REVISION
+		|| runtime.appService !== EXPECTED_APP_SERVICE || runtime.dbService !== EXPECTED_DB_SERVICE
+		|| runtime.redisService !== EXPECTED_REDIS_SERVICE || runtime.appImage !== EXPECTED_APP_IMAGE
+		|| runtime.appImageId !== EXPECTED_APP_IMAGE_ID || runtime.dbImage !== EXPECTED_DB_IMAGE
+		|| runtime.dbImageId !== EXPECTED_DB_IMAGE_ID || runtime.redisImage !== EXPECTED_REDIS_IMAGE
+		|| runtime.redisImageId !== EXPECTED_REDIS_IMAGE_ID) {
+		fail('Direct k6 entrypoint runtime identity does not match the immutable fixture manifest.');
+	}
 }
 
 export default function (tokens) {
 	const config = endpointConfig();
-	const token = config.actor === 'admin' ? tokens.adminToken : tokens.memberToken;
+	const token = tokens[`${config.actor}Token`];
+	if (!token) fail(`Missing token for actor=${config.actor}.`);
 	const response = http.get(`${BASE_URL}${config.path}`, {
 		headers: { Authorization: `Bearer ${token}` },
 		tags: { name: ENDPOINT, mode: MODE, fixtureRunId: manifest.fixtureRunId },
@@ -127,12 +157,12 @@ function endpointConfig() {
 		poll_member_list: {
 			mode: 'poll-member', actor: 'member',
 			path: `/api/v1/campuses/${campusId}/polls`,
-			validate: (status, payload) => validatePollList(status, payload, false),
+			validate: (status, payload) => validatePollList(status, payload, 'member'),
 		},
 		poll_member_detail: {
 			mode: 'poll-member', actor: 'member',
 			path: pollDetailPath(campusId, memberPollId),
-			validate: (status, payload) => validatePollDetail(status, payload, 'open', true),
+			validate: (status, payload) => validatePollDetail(status, payload, 'open', true, 'member'),
 		},
 		poll_member_results: {
 			mode: 'poll-member', actor: 'member',
@@ -157,12 +187,12 @@ function endpointConfig() {
 		poll_admin_list: {
 			mode: 'poll-admin', actor: 'admin',
 			path: `/api/v1/campuses/${campusId}/polls`,
-			validate: (status, payload) => validatePollList(status, payload, true),
+			validate: (status, payload) => validatePollList(status, payload, 'admin'),
 		},
 		poll_admin_detail: {
 			mode: 'poll-admin', actor: 'admin',
 			path: pollDetailPath(campusId, adminPollId),
-			validate: (status, payload) => validatePollDetail(status, payload, 'closed_admin_only', false),
+			validate: (status, payload) => validatePollDetail(status, payload, 'closed_admin_only', false, 'admin'),
 		},
 		poll_admin_results: {
 			mode: 'poll-admin', actor: 'admin',
@@ -193,6 +223,41 @@ function endpointConfig() {
 			mode: 'poll-admin', actor: 'admin',
 			path: pollDetailPath(campusId, isolationPollId),
 			validate: validatePollIsolation,
+		},
+		poll_coffee_creator_list: {
+			mode: 'poll-duty', actor: 'coffeeCreator', path: `/api/v1/campuses/${campusId}/polls`,
+			validate: (status, payload) => validatePollList(status, payload, 'coffeeCreator'),
+		},
+		poll_other_coffee_duty_list: {
+			mode: 'poll-duty', actor: 'otherCoffeeDuty', path: `/api/v1/campuses/${campusId}/polls`,
+			validate: (status, payload) => validatePollList(status, payload, 'otherCoffeeDuty'),
+		},
+		poll_meal_duty_list: {
+			mode: 'poll-duty', actor: 'mealDuty', path: `/api/v1/campuses/${campusId}/polls`,
+			validate: (status, payload) => validatePollList(status, payload, 'mealDuty'),
+		},
+		poll_coffee_creator_detail: {
+			mode: 'poll-duty', actor: 'coffeeCreator', path: pollDetailPath(campusId, manifest.polls.duty.coffee.id),
+			validate: (status, payload) => validateDutyPollDetail(status, payload, 'coffee', 'coffeeCreator'),
+		},
+		poll_meal_duty_detail: {
+			mode: 'poll-duty', actor: 'mealDuty', path: pollDetailPath(campusId, manifest.polls.duty.mealOpen.id),
+			validate: (status, payload) => validateDutyPollDetail(status, payload, 'mealOpen', 'mealDuty'),
+		},
+		poll_meal_management_default: {
+			mode: 'poll-duty', actor: 'mealDuty',
+			path: `/api/v1/campuses/${campusId}/meal/polls?includeArchived=false&page=0&size=100&sort=id%2Cdesc`,
+			validate: (status, payload) => validateMealManagement(status, payload, false),
+		},
+		poll_meal_management_archive: {
+			mode: 'poll-duty', actor: 'mealDuty',
+			path: `/api/v1/campuses/${campusId}/meal/polls?includeArchived=true&page=0&size=100&sort=id%2Cdesc`,
+			validate: (status, payload) => validateMealManagement(status, payload, true),
+		},
+		poll_meal_management_forbidden: {
+			mode: 'poll-duty', actor: 'member',
+			path: `/api/v1/campuses/${campusId}/meal/polls?includeArchived=false&page=0&size=100&sort=id%2Cdesc`,
+			validate: validateMealManagementForbidden,
 		},
 	};
 	const config = configs[ENDPOINT];
@@ -287,13 +352,15 @@ function validatePrayerBoard(status, payload, admin) {
 		&& sameIds(editableIds, [actorId]);
 }
 
-function validatePollList(status, payload, admin) {
+function validatePollList(status, payload, actor) {
 	const data = successData(status, payload);
 	if (!Array.isArray(data)) {
 		return false;
 	}
-	const keys = admin ? manifest.polls.expectedAdminVisibleKeys : manifest.polls.expectedMemberVisibleKeys;
-	const expectedIds = keys.map((key) => manifest.polls.byKey[key].id).sort((left, right) => right - left);
+	const keys = actor === 'admin' ? manifest.polls.expectedAdminVisibleKeys : manifest.polls.expectedMemberVisibleKeys;
+	const dutyPolls = [manifest.polls.duty.coffee, manifest.polls.duty.mealOpen];
+	const expectedIds = [...keys.map((key) => manifest.polls.byKey[key].id), ...dutyPolls.map((poll) => poll.id)]
+		.sort((left, right) => right - left);
 	const actualIds = data.map((poll) => poll.id);
 	const isolation = manifest.polls.isolationPollId;
 	const hiddenIds = ['closed_expired', 'scheduled_future'].map((key) => manifest.polls.byKey[key].id);
@@ -302,24 +369,36 @@ function validatePollList(status, payload, admin) {
 		return false;
 	}
 	return data.every((poll) => {
+		if (Object.prototype.hasOwnProperty.call(poll, 'createdBy')) return false;
+		const dutyKey = poll.id === manifest.polls.duty.coffee.id ? 'coffee'
+			: poll.id === manifest.polls.duty.mealOpen.id ? 'meal' : null;
+		if (dutyKey) {
+			return poll.status === 'OPEN' && poll.responded === false
+				&& poll.pollType === dutyKey.toUpperCase()
+				&& poll.manageableByMe === manifest.polls.manageableByMe[dutyKey][actor];
+		}
 		const key = keys.find((candidate) => manifest.polls.byKey[candidate].id === poll.id);
 		const expectedStatus = key === 'open' ? 'OPEN' : 'CLOSED';
-		const expectedResponded = !admin && key === 'open';
+		const expectedResponded = actor !== 'admin' && key === 'open';
 		const expected = manifest.polls.byKey[key];
 		return poll.status === expectedStatus
 			&& poll.responded === expectedResponded
+			&& poll.pollType === 'CUSTOM'
+			&& poll.manageableByMe === manifest.polls.manageableByMe.custom[actor]
 			&& sameInstant(poll.startsAt, expected.startsAt)
 			&& sameInstant(poll.endsAt, expected.endsAt);
 	});
 }
 
-function validatePollDetail(status, payload, key, expectMyResponse) {
+function validatePollDetail(status, payload, key, expectMyResponse, actor) {
 	const data = successData(status, payload);
 	const expected = manifest.polls.byKey[key];
 	return Boolean(data)
 		&& data.id === expected.id
 		&& data.campusId === manifest.primaryCampus.campusId
 		&& data.status === (key === 'open' ? 'OPEN' : 'CLOSED')
+		&& !Object.prototype.hasOwnProperty.call(data, 'createdBy')
+		&& data.manageableByMe === manifest.polls.manageableByMe.custom[actor]
 		&& sameInstant(data.startsAt, expected.startsAt)
 		&& sameInstant(data.endsAt, expected.endsAt)
 		&& sameIds(data.options.map((option) => option.id), expected.optionIds)
@@ -327,6 +406,36 @@ function validatePollDetail(status, payload, key, expectMyResponse) {
 		&& (expectMyResponse
 			? sameIds(data.myResponse?.optionIds || [], [expected.optionIds[0]])
 			: data.myResponse === null);
+}
+
+function validateDutyPollDetail(status, payload, key, actor) {
+	const data = successData(status, payload);
+	const expected = manifest.polls.duty[key];
+	const typeKey = key === 'coffee' ? 'coffee' : 'meal';
+	return Boolean(data) && data.id === expected.id && data.campusId === manifest.primaryCampus.campusId
+		&& data.pollType === typeKey.toUpperCase() && data.status === 'OPEN'
+		&& !Object.prototype.hasOwnProperty.call(data, 'createdBy')
+		&& data.manageableByMe === manifest.polls.manageableByMe[typeKey][actor]
+		&& sameIds(data.options.map((option) => option.id), expected.optionIds)
+		&& assertAscending(data.options, (option) => [option.sortOrder, option.id]);
+}
+
+function validateMealManagement(status, payload, includeArchived) {
+	const data = successData(status, payload);
+	const expectedIds = includeArchived
+		? manifest.polls.duty.mealManagementArchiveIds
+		: manifest.polls.duty.mealManagementDefaultIds;
+	if (!data || !Array.isArray(data.content) || data.page !== 0 || data.size !== 100
+		|| data.totalElements !== expectedIds.length || data.totalPages !== (expectedIds.length === 0 ? 0 : 1)) {
+		return false;
+	}
+	const actualIds = data.content.map((poll) => poll.id);
+	return sameIds(actualIds, expectedIds) && assertDescending(actualIds)
+		&& data.content.every((poll) => poll.status === (poll.id === manifest.polls.duty.mealOpen.id ? 'OPEN' : 'CLOSED'));
+}
+
+function validateMealManagementForbidden(status, payload) {
+	return status === 403 && payload.success === false && payload.code === 'MEAL_DUTY_REQUIRED';
 }
 
 function validatePollResults(status, payload, key, anonymous) {

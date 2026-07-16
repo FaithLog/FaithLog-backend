@@ -7,6 +7,9 @@ SCENARIO_FILE="${ROOT_DIR}/scenario.js"
 DB_STATS_SQL="${ROOT_DIR}/db-table-stats.sql"
 DB_ACTIVITY_SQL="${ROOT_DIR}/db-activity.sql"
 VALIDATE_TARGET="${ROOT_DIR}/validate-published-target.mjs"
+DB_RUNTIME_IDENTITY_SQL="${ROOT_DIR}/db-runtime-identity.sql"
+VALIDATE_RUNTIME_IDENTITY="${ROOT_DIR}/validate-runtime-identity.mjs"
+PARSE_REDIS_IDENTITY="${ROOT_DIR}/redis-runtime-identity.mjs"
 FIXTURE_RUN_ID="${FIXTURE_RUN_ID:?FIXTURE_RUN_ID is required}"
 EXECUTION_RUN_ID="${EXECUTION_RUN_ID:?EXECUTION_RUN_ID is required}"
 FIXTURE_MANIFEST="${FIXTURE_MANIFEST:-${REPO_ROOT}/build/reports/k6/issue-196/${FIXTURE_RUN_ID}/fixture-manifest.json}"
@@ -26,15 +29,26 @@ PERF_DB_NAME="${PERF_DB_NAME:?PERF_DB_NAME is required at runtime}"
 PERF_DB_PASSWORD="${PERF_DB_PASSWORD:?PERF_DB_PASSWORD is required at runtime}"
 APP_CONTAINER="${APP_CONTAINER:?APP_CONTAINER is required at runtime}"
 DB_CONTAINER="${DB_CONTAINER:?DB_CONTAINER is required at runtime}"
+REDIS_CONTAINER="${REDIS_CONTAINER:?REDIS_CONTAINER is required at runtime}"
 EXPECTED_APP_SERVICE="${EXPECTED_APP_SERVICE:?EXPECTED_APP_SERVICE is required at runtime}"
 EXPECTED_DB_SERVICE="${EXPECTED_DB_SERVICE:?EXPECTED_DB_SERVICE is required at runtime}"
+EXPECTED_REDIS_SERVICE="${EXPECTED_REDIS_SERVICE:?EXPECTED_REDIS_SERVICE is required at runtime}"
 EXPECTED_APP_IMAGE="${EXPECTED_APP_IMAGE:?EXPECTED_APP_IMAGE is required at runtime}"
+EXPECTED_APP_IMAGE_ID="${EXPECTED_APP_IMAGE_ID:?EXPECTED_APP_IMAGE_ID is required at runtime}"
+EXPECTED_DB_IMAGE="${EXPECTED_DB_IMAGE:?EXPECTED_DB_IMAGE is required at runtime}"
+EXPECTED_DB_IMAGE_ID="${EXPECTED_DB_IMAGE_ID:?EXPECTED_DB_IMAGE_ID is required at runtime}"
+EXPECTED_REDIS_IMAGE="${EXPECTED_REDIS_IMAGE:?EXPECTED_REDIS_IMAGE is required at runtime}"
+EXPECTED_REDIS_IMAGE_ID="${EXPECTED_REDIS_IMAGE_ID:?EXPECTED_REDIS_IMAGE_ID is required at runtime}"
+EXPECTED_REDIS_PORT="${EXPECTED_REDIS_PORT:?EXPECTED_REDIS_PORT is required at runtime}"
+EXPECTED_FLYWAY_VERSION="${EXPECTED_FLYWAY_VERSION:?EXPECTED_FLYWAY_VERSION is required at runtime}"
+EXPECTED_SOURCE_REVISION="${EXPECTED_SOURCE_REVISION:?EXPECTED_SOURCE_REVISION is required at runtime}"
 SQL_LOG_MARKER="org.hibernate.SQL"
-REQUESTED_MODE="${1:?Mode is required: all, prayer, poll-member, or poll-admin}"
-MODE_SEQUENCE=(prayer poll-member poll-admin)
+REQUESTED_MODE="${1:?Mode is required: all, prayer, poll-member, poll-admin, or poll-duty}"
+MODE_SEQUENCE=(prayer poll-member poll-admin poll-duty)
 
 export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER PERF_DB_NAME PERF_DB_PASSWORD
-unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN
+unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN \
+	PERF_COFFEE_CREATOR_ACCESS_TOKEN PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN PERF_MEAL_DUTY_ACCESS_TOKEN
 
 if [[ ! "${FIXTURE_RUN_ID}" =~ ^[a-z0-9][a-z0-9_-]{7,31}$ ]]; then
 	echo "FIXTURE_RUN_ID must be 8-32 lowercase characters." >&2
@@ -69,9 +83,12 @@ manifest_value() {
 manifest_run_id="$(manifest_value fixtureRunId)"
 dataset_id="$(manifest_value datasetId)"
 member_email="$(manifest_value primaryCampus.memberActor.email)"
+coffee_creator_email="$(manifest_value primaryCampus.coffeeCreator.email)"
+other_coffee_duty_email="$(manifest_value primaryCampus.otherCoffeeDuty.email)"
+meal_duty_email="$(manifest_value primaryCampus.mealDuty.email)"
 shaped_at="$(manifest_value shapedAt)"
 [[ "${manifest_run_id}" == "${FIXTURE_RUN_ID}" ]] || { echo "fixtureRunId mismatch." >&2; exit 1; }
-[[ "${dataset_id}" == "issue-196-prayer-poll-list-v1" ]] || { echo "Unexpected datasetId=${dataset_id}." >&2; exit 1; }
+[[ "${dataset_id}" == "issue-196-prayer-poll-list-v2" ]] || { echo "Unexpected datasetId=${dataset_id}." >&2; exit 1; }
 [[ "${shaped_at}" != "null" ]] || { echo "Fixture has not been shaped." >&2; exit 1; }
 
 assert_fixture_windows() {
@@ -80,6 +97,7 @@ assert_fixture_windows() {
 	const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 	const now = Date.now();
 	const poll = manifest.polls.byKey;
+	const duty = manifest.polls.duty;
 	const instant = (value) => {
 		const parsed = Date.parse(value);
 		if (!Number.isFinite(parsed)) throw new Error(`Invalid manifest instant: ${value}`);
@@ -90,6 +108,9 @@ assert_fixture_windows() {
 	if (!(instant(poll.closed_admin_only.endsAt) <= now && now <= instant(poll.closed_admin_only.endsAt) + 7 * 86400000)) throw new Error("Admin visibility fixture window is stale.");
 	if (!(now > instant(poll.closed_expired.endsAt) + 7 * 86400000)) throw new Error("Expired fixture is not beyond the admin window.");
 	if (!(now < instant(poll.scheduled_future.startsAt))) throw new Error("Scheduled fixture is no longer in the future.");
+	if (!(instant(duty.coffee.startsAt) <= now && now < instant(duty.coffee.endsAt))) throw new Error("COFFEE duty fixture window is stale.");
+	if (!(instant(duty.mealOpen.startsAt) <= now && now < instant(duty.mealOpen.endsAt))) throw new Error("MEAL duty fixture window is stale.");
+	if (!(now > instant(duty.mealArchived.endsAt) + 90 * 86400000)) throw new Error("MEAL archive fixture is not beyond 90 days.");
 ' "${FIXTURE_MANIFEST}"
 }
 
@@ -100,9 +121,17 @@ label() {
 }
 
 capture_database_identity() {
-	PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
+	local raw
+	raw="$(PGPASSWORD="${PERF_DB_PASSWORD}" docker exec -e PGPASSWORD -e PGAPPNAME=faithlog_issue196_observer "${DB_CONTAINER}" \
 		psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${PERF_DB_USER}" -d "${PERF_DB_NAME}" -At \
-		-c "select json_build_object('currentDatabase', current_database(), 'serverAddress', inet_server_addr(), 'serverPort', inet_server_port(), 'postmasterStartedAt', pg_postmaster_start_time())"
+		-f - < "${DB_RUNTIME_IDENTITY_SQL}")"
+	DB_RUNTIME_IDENTITY_JSON="${raw}" EXPECTED_FLYWAY_VERSION="${EXPECTED_FLYWAY_VERSION}" node "${VALIDATE_RUNTIME_IDENTITY}"
+}
+
+capture_redis_identity() {
+	local info
+	info="$(docker exec "${REDIS_CONTAINER}" redis-cli --raw INFO server)"
+	REDIS_INFO_TEXT="${info}" EXPECTED_REDIS_PORT="${EXPECTED_REDIS_PORT}" node "${PARSE_REDIS_IDENTITY}"
 }
 
 app_container_id="$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")"
@@ -110,42 +139,60 @@ app_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${AP
 db_container_id="$(docker inspect --format '{{.Id}}' "${DB_CONTAINER}")"
 db_image_id="$(docker inspect --format '{{.Image}}' "${DB_CONTAINER}")"
 db_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")"
+redis_container_id="$(docker inspect --format '{{.Id}}' "${REDIS_CONTAINER}")"
+redis_image_id="$(docker inspect --format '{{.Image}}' "${REDIS_CONTAINER}")"
+redis_container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "${REDIS_CONTAINER}")"
 compose_project="$(label "${APP_CONTAINER}" com.docker.compose.project)"
 app_service="$(label "${APP_CONTAINER}" com.docker.compose.service)"
 db_project="$(label "${DB_CONTAINER}" com.docker.compose.project)"
 db_service="$(label "${DB_CONTAINER}" com.docker.compose.service)"
+redis_project="$(label "${REDIS_CONTAINER}" com.docker.compose.project)"
+redis_service="$(label "${REDIS_CONTAINER}" com.docker.compose.service)"
 app_config_hash="$(label "${APP_CONTAINER}" com.docker.compose.config-hash)"
 db_config_hash="$(label "${DB_CONTAINER}" com.docker.compose.config-hash)"
+redis_config_hash="$(label "${REDIS_CONTAINER}" com.docker.compose.config-hash)"
 app_image="$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")"
 app_image_id="$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")"
+db_image="$(docker inspect --format '{{.Config.Image}}' "${DB_CONTAINER}")"
+redis_image="$(docker inspect --format '{{.Config.Image}}' "${REDIS_CONTAINER}")"
 app_client_addrs="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' "${APP_CONTAINER}")"
 app_client_addrs="${app_client_addrs//$'\n'/,}"
 app_client_addrs="${app_client_addrs%,}"
 database_identity="$(capture_database_identity)"
+redis_identity="$(capture_redis_identity)"
 seed_project="$(manifest_value composeRuntime.composeProject)"
 seed_app_hash="$(manifest_value composeRuntime.appConfigHash)"
 seed_db_hash="$(manifest_value composeRuntime.dbConfigHash)"
+seed_redis_hash="$(manifest_value composeRuntime.redisConfigHash)"
 seed_app_image_id="$(manifest_value composeRuntime.appImageId)"
+seed_db_image_id="$(manifest_value composeRuntime.dbImageId)"
+seed_redis_image_id="$(manifest_value composeRuntime.redisImageId)"
+seed_source_revision="$(manifest_value composeRuntime.sourceRevision)"
 seed_target_port="$(manifest_value composeRuntime.targetPort)"
 published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
 base_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${published_ports}" \
 	node "${VALIDATE_TARGET}" --host-port)" \
 	|| { echo "BASE_URL and the app container published binding do not identify one approved numeric loopback target." >&2; exit 1; }
 
-[[ -n "${compose_project}" && "${compose_project}" == "${db_project}" ]] \
-	|| { echo "App/Postgres Compose project labels are missing or different." >&2; exit 1; }
+[[ -n "${compose_project}" && "${compose_project}" == "${db_project}" && "${compose_project}" == "${redis_project}" ]] \
+	|| { echo "App/Postgres/Redis Compose project labels are missing or different." >&2; exit 1; }
 [[ "${compose_project}" =~ ^[a-z0-9][a-z0-9_-]*$ ]] \
 	|| { echo "Compose project label cannot be represented by the canonical lock path." >&2; exit 1; }
-[[ "${app_service}" == "${EXPECTED_APP_SERVICE}" && "${db_service}" == "${EXPECTED_DB_SERVICE}" ]] \
-	|| { echo "Unexpected Compose service labels: app=${app_service}, db=${db_service}." >&2; exit 1; }
-[[ -n "${app_config_hash}" && -n "${db_config_hash}" ]] \
-	|| { echo "Compose config-hash labels must be present on app and PostgreSQL." >&2; exit 1; }
-[[ "${app_image}" == "${EXPECTED_APP_IMAGE}" ]] \
-	|| { echo "Expected app image ${EXPECTED_APP_IMAGE}, actual ${app_image}." >&2; exit 1; }
-[[ "${compose_project}" == "${seed_project}" && "${app_config_hash}" == "${seed_app_hash}" && "${db_config_hash}" == "${seed_db_hash}" ]] \
+[[ "${app_service}" == "${EXPECTED_APP_SERVICE}" && "${db_service}" == "${EXPECTED_DB_SERVICE}" \
+	&& "${redis_service}" == "${EXPECTED_REDIS_SERVICE}" ]] \
+	|| { echo "Unexpected Compose service labels: app=${app_service}, db=${db_service}, redis=${redis_service}." >&2; exit 1; }
+[[ -n "${app_config_hash}" && -n "${db_config_hash}" && -n "${redis_config_hash}" ]] \
+	|| { echo "Compose config-hash labels must be present on app, PostgreSQL, and Redis." >&2; exit 1; }
+[[ "${app_image}" == "${EXPECTED_APP_IMAGE}" && "${app_image_id}" == "${EXPECTED_APP_IMAGE_ID}" \
+	&& "${db_image}" == "${EXPECTED_DB_IMAGE}" && "${db_image_id}" == "${EXPECTED_DB_IMAGE_ID}" \
+	&& "${redis_image}" == "${EXPECTED_REDIS_IMAGE}" && "${redis_image_id}" == "${EXPECTED_REDIS_IMAGE_ID}" ]] \
+	|| { echo "immutable-app-image-mismatch: approved app/PostgreSQL/Redis image identity differs." >&2; exit 1; }
+[[ "${compose_project}" == "${seed_project}" && "${app_config_hash}" == "${seed_app_hash}" \
+	&& "${db_config_hash}" == "${seed_db_hash}" && "${redis_config_hash}" == "${seed_redis_hash}" ]] \
 	|| { echo "Current Compose identity differs from the seed manifest." >&2; exit 1; }
-[[ "${app_image_id}" == "${seed_app_image_id}" ]] \
-	|| { echo "Current immutable app image differs from the seed manifest." >&2; exit 1; }
+[[ "${app_image_id}" == "${seed_app_image_id}" && "${db_image_id}" == "${seed_db_image_id}" \
+	&& "${redis_image_id}" == "${seed_redis_image_id}" && "${EXPECTED_SOURCE_REVISION}" == "${seed_source_revision}" ]] \
+	|| { echo "Current immutable runtime/source identity differs from the seed manifest." >&2; exit 1; }
 [[ "${base_target_port}" == "${seed_target_port}" ]] \
 	|| { echo "BASE_URL port ${base_target_port} differs from the seed target port ${seed_target_port}." >&2; exit 1; }
 [[ "${app_client_addrs}" =~ ^[0-9a-fA-F:.]+(,[0-9a-fA-F:.]+)*$ ]] \
@@ -160,6 +207,7 @@ trap 'rmdir "${PERF_PROJECT_LOCK}" 2>/dev/null || true' EXIT
 
 assert_runtime_continuity() {
 	local current_database_identity
+	local current_redis_identity
 	local current_published_ports
 	local current_target_port
 	[[ "$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")" == "${app_container_id}" ]] \
@@ -174,14 +222,26 @@ assert_runtime_continuity() {
 		|| { echo "PostgreSQL immutable image ID changed during execution." >&2; return 1; }
 	[[ "$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")" == "${db_container_started_at}" ]] \
 		|| { echo "PostgreSQL container start time changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.Id}}' "${REDIS_CONTAINER}")" == "${redis_container_id}" ]] \
+		|| { echo "Redis container ID changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.Image}}' "${REDIS_CONTAINER}")" == "${redis_image_id}" ]] \
+		|| { echo "Redis immutable image ID changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.State.StartedAt}}' "${REDIS_CONTAINER}")" == "${redis_container_started_at}" ]] \
+		|| { echo "Redis container start time changed during execution." >&2; return 1; }
 	[[ "$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")" == "${app_image}" ]] \
 		|| { echo "App configured image changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{.Config.Image}}' "${DB_CONTAINER}")" == "${db_image}"
+		&& "$(docker inspect --format '{{.Config.Image}}' "${REDIS_CONTAINER}")" == "${redis_image}" ]] \
+		|| { echo "PostgreSQL/Redis configured image changed during execution." >&2; return 1; }
 	[[ "$(label "${APP_CONTAINER}" com.docker.compose.project)" == "${compose_project}"
 		&& "$(label "${DB_CONTAINER}" com.docker.compose.project)" == "${compose_project}"
+		&& "$(label "${REDIS_CONTAINER}" com.docker.compose.project)" == "${compose_project}"
 		&& "$(label "${APP_CONTAINER}" com.docker.compose.service)" == "${app_service}"
 		&& "$(label "${DB_CONTAINER}" com.docker.compose.service)" == "${db_service}"
+		&& "$(label "${REDIS_CONTAINER}" com.docker.compose.service)" == "${redis_service}"
 		&& "$(label "${APP_CONTAINER}" com.docker.compose.config-hash)" == "${app_config_hash}"
-		&& "$(label "${DB_CONTAINER}" com.docker.compose.config-hash)" == "${db_config_hash}" ]] \
+		&& "$(label "${DB_CONTAINER}" com.docker.compose.config-hash)" == "${db_config_hash}"
+		&& "$(label "${REDIS_CONTAINER}" com.docker.compose.config-hash)" == "${redis_config_hash}" ]] \
 		|| { echo "Compose runtime labels changed during execution." >&2; return 1; }
 	current_published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
 	current_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${current_published_ports}" \
@@ -195,6 +255,12 @@ assert_runtime_continuity() {
 		const current = JSON.parse(process.env.CURRENT_DB_IDENTITY);
 		if (JSON.stringify(expected) !== JSON.stringify(current)) process.exit(1);
 	' || { echo "PostgreSQL runtime identity changed during execution." >&2; return 1; }
+	current_redis_identity="$(capture_redis_identity)"
+	EXPECTED_REDIS_IDENTITY="${redis_identity}" CURRENT_REDIS_IDENTITY="${current_redis_identity}" node -e '
+		const expected = JSON.parse(process.env.EXPECTED_REDIS_IDENTITY);
+		const current = JSON.parse(process.env.CURRENT_REDIS_IDENTITY);
+		if (JSON.stringify(expected) !== JSON.stringify(current)) process.exit(1);
+	' || { echo "Redis runtime identity changed during execution." >&2; return 1; }
 }
 
 if ! assert_runtime_continuity; then
@@ -253,8 +319,17 @@ sample_resources() {
 		local captured_at
 		captured_at="$(rfc3339_now)"
 		docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' \
-			"${APP_CONTAINER}" "${DB_CONTAINER}" \
-			| while IFS= read -r sample; do printf '%s\t%s\n' "${captured_at}" "${sample}"; done \
+			"${APP_CONTAINER}" "${DB_CONTAINER}" "${REDIS_CONTAINER}" \
+			| while IFS=$'\t' read -r container cpu memory memory_percent; do
+				resource_container_id=''
+				case "${container}" in
+					"${APP_CONTAINER}") resource_container_id="${app_container_id}" ;;
+					"${DB_CONTAINER}") resource_container_id="${db_container_id}" ;;
+					"${REDIS_CONTAINER}") resource_container_id="${redis_container_id}" ;;
+					*) resource_container_id="UNEXPECTED" ;;
+				esac
+				printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${captured_at}" "${container}" "${resource_container_id}" "${cpu}" "${memory}" "${memory_percent}"
+			done \
 			>> "${output}"
 		sleep "${SAMPLING_INTERVAL_SECONDS}"
 	done
@@ -298,6 +373,9 @@ endpoints_for_mode() {
 		poll-admin)
 			echo "poll_admin_list poll_admin_detail poll_admin_results poll_admin_comments poll_admin_missing_members poll_admin_template_list poll_admin_template_detail poll_admin_cross_campus_detail"
 			;;
+		poll-duty)
+			echo "poll_coffee_creator_list poll_other_coffee_duty_list poll_meal_duty_list poll_coffee_creator_detail poll_meal_duty_detail poll_meal_management_default poll_meal_management_archive poll_meal_management_forbidden"
+			;;
 		*)
 			echo "Unknown mode: $1" >&2
 			return 1
@@ -320,6 +398,9 @@ run_endpoint() {
 	local report_file="${endpoint_dir}/report.json"
 	local admin_token
 	local member_token
+	local coffee_creator_token
+	local other_coffee_duty_token
+	local meal_duty_token
 	local warmup_status
 	local log_since
 	local log_until
@@ -346,19 +427,35 @@ run_endpoint() {
 
 	admin_token="$(login_token "${PERF_ADMIN_EMAIL}" "${PERF_ADMIN_PASSWORD}")"
 	member_token="$(login_token "${member_email}" "${PERF_MEMBER_PASSWORD}")"
+	coffee_creator_token="$(login_token "${coffee_creator_email}" "${PERF_MEMBER_PASSWORD}")"
+	other_coffee_duty_token="$(login_token "${other_coffee_duty_email}" "${PERF_MEMBER_PASSWORD}")"
+	meal_duty_token="$(login_token "${meal_duty_email}" "${PERF_MEMBER_PASSWORD}")"
 	validate_token_lifetime "${admin_token}" "${WARMUP_DURATION}"
 	validate_token_lifetime "${member_token}" "${WARMUP_DURATION}"
+	validate_token_lifetime "${coffee_creator_token}" "${WARMUP_DURATION}"
+	validate_token_lifetime "${other_coffee_duty_token}" "${WARMUP_DURATION}"
+	validate_token_lifetime "${meal_duty_token}" "${WARMUP_DURATION}"
 	set +e
 	env -u PERF_ADMIN_EMAIL -u PERF_ADMIN_PASSWORD -u PERF_MEMBER_PASSWORD \
 	-u PERF_DB_USER -u PERF_DB_NAME -u PERF_DB_PASSWORD \
 	BASE_URL="${BASE_URL}" MODE="${mode}" ENDPOINT="${endpoint}" \
 	VUS="${WARMUP_VUS}" DURATION="${WARMUP_DURATION}" FIXTURE_MANIFEST="${FIXTURE_MANIFEST}" \
+	EXPECTED_SOURCE_REVISION="${EXPECTED_SOURCE_REVISION}" EXPECTED_APP_SERVICE="${EXPECTED_APP_SERVICE}" \
+	EXPECTED_DB_SERVICE="${EXPECTED_DB_SERVICE}" EXPECTED_REDIS_SERVICE="${EXPECTED_REDIS_SERVICE}" \
+	EXPECTED_APP_IMAGE="${EXPECTED_APP_IMAGE}" EXPECTED_APP_IMAGE_ID="${EXPECTED_APP_IMAGE_ID}" \
+	EXPECTED_DB_IMAGE="${EXPECTED_DB_IMAGE}" EXPECTED_DB_IMAGE_ID="${EXPECTED_DB_IMAGE_ID}" \
+	EXPECTED_REDIS_IMAGE="${EXPECTED_REDIS_IMAGE}" EXPECTED_REDIS_IMAGE_ID="${EXPECTED_REDIS_IMAGE_ID}" \
 	PERF_ADMIN_ACCESS_TOKEN="${admin_token}" PERF_MEMBER_ACCESS_TOKEN="${member_token}" \
+	PERF_COFFEE_CREATOR_ACCESS_TOKEN="${coffee_creator_token}" \
+	PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN="${other_coffee_duty_token}" PERF_MEAL_DUTY_ACCESS_TOKEN="${meal_duty_token}" \
 		k6 run --summary-export "${warmup_summary_file}" "${SCENARIO_FILE}"
 	warmup_status=$?
 	set -e
 	admin_token=''
 	member_token=''
+	coffee_creator_token=''
+	other_coffee_duty_token=''
+	meal_duty_token=''
 	if (( warmup_status != 0 )); then
 		echo "Warmup failed for ${mode}/${endpoint}; measured phase was not started." >&2
 		return "${warmup_status}"
@@ -368,8 +465,14 @@ run_endpoint() {
 
 	admin_token="$(login_token "${PERF_ADMIN_EMAIL}" "${PERF_ADMIN_PASSWORD}")"
 	member_token="$(login_token "${member_email}" "${PERF_MEMBER_PASSWORD}")"
+	coffee_creator_token="$(login_token "${coffee_creator_email}" "${PERF_MEMBER_PASSWORD}")"
+	other_coffee_duty_token="$(login_token "${other_coffee_duty_email}" "${PERF_MEMBER_PASSWORD}")"
+	meal_duty_token="$(login_token "${meal_duty_email}" "${PERF_MEMBER_PASSWORD}")"
 	validate_token_lifetime "${admin_token}" "${MEASURED_DURATION}"
 	validate_token_lifetime "${member_token}" "${MEASURED_DURATION}"
+	validate_token_lifetime "${coffee_creator_token}" "${MEASURED_DURATION}"
+	validate_token_lifetime "${other_coffee_duty_token}" "${MEASURED_DURATION}"
+	validate_token_lifetime "${meal_duty_token}" "${MEASURED_DURATION}"
 	snapshot_db_tables "${before_file}"
 	log_since="$(rfc3339_now)"
 	: > "${resource_file}"
@@ -384,8 +487,16 @@ run_endpoint() {
 	VUS="${MEASURED_VUS}" \
 	DURATION="${MEASURED_DURATION}" \
 	FIXTURE_MANIFEST="${FIXTURE_MANIFEST}" \
+	EXPECTED_SOURCE_REVISION="${EXPECTED_SOURCE_REVISION}" EXPECTED_APP_SERVICE="${EXPECTED_APP_SERVICE}" \
+	EXPECTED_DB_SERVICE="${EXPECTED_DB_SERVICE}" EXPECTED_REDIS_SERVICE="${EXPECTED_REDIS_SERVICE}" \
+	EXPECTED_APP_IMAGE="${EXPECTED_APP_IMAGE}" EXPECTED_APP_IMAGE_ID="${EXPECTED_APP_IMAGE_ID}" \
+	EXPECTED_DB_IMAGE="${EXPECTED_DB_IMAGE}" EXPECTED_DB_IMAGE_ID="${EXPECTED_DB_IMAGE_ID}" \
+	EXPECTED_REDIS_IMAGE="${EXPECTED_REDIS_IMAGE}" EXPECTED_REDIS_IMAGE_ID="${EXPECTED_REDIS_IMAGE_ID}" \
 	PERF_ADMIN_ACCESS_TOKEN="${admin_token}" \
 	PERF_MEMBER_ACCESS_TOKEN="${member_token}" \
+	PERF_COFFEE_CREATOR_ACCESS_TOKEN="${coffee_creator_token}" \
+	PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN="${other_coffee_duty_token}" \
+	PERF_MEAL_DUTY_ACCESS_TOKEN="${meal_duty_token}" \
 		k6 run --summary-export "${summary_file}" "${SCENARIO_FILE}" &
 	k6_pid=$!
 	sample_resources "${k6_pid}" "${resource_file}" &
@@ -424,14 +535,23 @@ run_endpoint() {
 	MODE_VALUE="${mode}" ENDPOINT_VALUE="${endpoint}" DATASET_VALUE="${dataset_id}" \
 	FIXTURE_VALUE="${FIXTURE_RUN_ID}" EXECUTION_VALUE="${EXECUTION_RUN_ID}" PROJECT_VALUE="${compose_project}" \
 	APP_SERVICE_VALUE="${app_service}" DB_SERVICE_VALUE="${db_service}" \
+	REDIS_SERVICE_VALUE="${redis_service}" SOURCE_REVISION_VALUE="${EXPECTED_SOURCE_REVISION}" \
+	EXPECTED_FLYWAY_VERSION_VALUE="${EXPECTED_FLYWAY_VERSION}" \
 	EXPECTED_APP_SERVICE_VALUE="${EXPECTED_APP_SERVICE}" EXPECTED_DB_SERVICE_VALUE="${EXPECTED_DB_SERVICE}" \
 	APP_HASH_VALUE="${app_config_hash}" DB_HASH_VALUE="${db_config_hash}" \
+	REDIS_HASH_VALUE="${redis_config_hash}" \
 	APP_IMAGE_VALUE="${app_image}" EXPECTED_IMAGE_VALUE="${EXPECTED_APP_IMAGE}" \
+	EXPECTED_APP_IMAGE_ID_VALUE="${EXPECTED_APP_IMAGE_ID}" EXPECTED_DB_IMAGE_VALUE="${EXPECTED_DB_IMAGE}" \
+	EXPECTED_DB_IMAGE_ID_VALUE="${EXPECTED_DB_IMAGE_ID}" EXPECTED_REDIS_IMAGE_VALUE="${EXPECTED_REDIS_IMAGE}" \
+	EXPECTED_REDIS_IMAGE_ID_VALUE="${EXPECTED_REDIS_IMAGE_ID}" \
 	APP_IMAGE_ID_VALUE="${app_image_id}" TARGET_PORT_VALUE="${seed_target_port}" \
-	APP_CONTAINER_VALUE="${APP_CONTAINER}" DB_CONTAINER_VALUE="${DB_CONTAINER}" \
+	DB_IMAGE_VALUE="${db_image}" REDIS_IMAGE_VALUE="${redis_image}" \
+	APP_CONTAINER_VALUE="${APP_CONTAINER}" DB_CONTAINER_VALUE="${DB_CONTAINER}" REDIS_CONTAINER_VALUE="${REDIS_CONTAINER}" \
 	APP_CONTAINER_ID_VALUE="${app_container_id}" APP_STARTED_AT_VALUE="${app_container_started_at}" \
 	DB_CONTAINER_ID_VALUE="${db_container_id}" DB_IMAGE_ID_VALUE="${db_image_id}" \
 	DB_STARTED_AT_VALUE="${db_container_started_at}" DB_IDENTITY_VALUE="${database_identity}" \
+	REDIS_CONTAINER_ID_VALUE="${redis_container_id}" REDIS_IMAGE_ID_VALUE="${redis_image_id}" \
+	REDIS_STARTED_AT_VALUE="${redis_container_started_at}" REDIS_IDENTITY_VALUE="${redis_identity}" \
 	K6_STATUS_VALUE="${k6_status}" SAMPLER_STATUS_VALUE="${sampler_status}" \
 	INTEGRITY_STATUS_VALUE="${integrity_status}" WARMUP_STATUS_VALUE="${warmup_status}" \
 	CONTINUITY_STATUS_VALUE="${runtime_continuity_status}" \
@@ -451,24 +571,45 @@ run_endpoint() {
 			fixtureRunId: process.env.FIXTURE_VALUE,
 			executionRunId: process.env.EXECUTION_VALUE,
 			runtime: {
+				sourceRevision: process.env.SOURCE_REVISION_VALUE,
+				expectedFlywayVersion: process.env.EXPECTED_FLYWAY_VERSION_VALUE,
 				composeProject: process.env.PROJECT_VALUE,
 				appServiceLabel: process.env.APP_SERVICE_VALUE,
 				dbServiceLabel: process.env.DB_SERVICE_VALUE,
+				redisServiceLabel: process.env.REDIS_SERVICE_VALUE,
 				appConfigHash: process.env.APP_HASH_VALUE,
 				dbConfigHash: process.env.DB_HASH_VALUE,
+				redisConfigHash: process.env.REDIS_HASH_VALUE,
 				appImage: process.env.APP_IMAGE_VALUE,
 				appImageId: process.env.APP_IMAGE_ID_VALUE,
+				dbImage: process.env.DB_IMAGE_VALUE,
+				redisImage: process.env.REDIS_IMAGE_VALUE,
 				expectedAppImage: process.env.EXPECTED_IMAGE_VALUE,
+				expectedAppImageId: process.env.EXPECTED_APP_IMAGE_ID_VALUE,
+				expectedDbImage: process.env.EXPECTED_DB_IMAGE_VALUE,
+				expectedDbImageId: process.env.EXPECTED_DB_IMAGE_ID_VALUE,
+				expectedRedisImage: process.env.EXPECTED_REDIS_IMAGE_VALUE,
+				expectedRedisImageId: process.env.EXPECTED_REDIS_IMAGE_ID_VALUE,
 				expectedAppService: process.env.EXPECTED_APP_SERVICE_VALUE,
 				expectedDbService: process.env.EXPECTED_DB_SERVICE_VALUE,
 				targetPort: process.env.TARGET_PORT_VALUE,
 				appContainer: process.env.APP_CONTAINER_VALUE,
 				dbContainer: process.env.DB_CONTAINER_VALUE,
+				redisContainer: process.env.REDIS_CONTAINER_VALUE,
 				appContainerId: process.env.APP_CONTAINER_ID_VALUE,
 				appContainerStartedAt: process.env.APP_STARTED_AT_VALUE,
 				dbContainerId: process.env.DB_CONTAINER_ID_VALUE,
 				dbImageId: process.env.DB_IMAGE_ID_VALUE,
 				dbContainerStartedAt: process.env.DB_STARTED_AT_VALUE,
+				redisContainerId: process.env.REDIS_CONTAINER_ID_VALUE,
+				redisImageId: process.env.REDIS_IMAGE_ID_VALUE,
+				redisContainerStartedAt: process.env.REDIS_STARTED_AT_VALUE,
+				redisIdentity: JSON.parse(process.env.REDIS_IDENTITY_VALUE),
+				resourceContainerIds: {
+					[process.env.APP_CONTAINER_VALUE]: process.env.APP_CONTAINER_ID_VALUE,
+					[process.env.DB_CONTAINER_VALUE]: process.env.DB_CONTAINER_ID_VALUE,
+					[process.env.REDIS_CONTAINER_VALUE]: process.env.REDIS_CONTAINER_ID_VALUE,
+				},
 				databaseIdentity: JSON.parse(process.env.DB_IDENTITY_VALUE),
 				k6ExitStatus: Number(process.env.K6_STATUS_VALUE),
 				resourceSamplerExitStatus: Number(process.env.SAMPLER_STATUS_VALUE),
@@ -538,7 +679,7 @@ if [[ "${REQUESTED_MODE}" == "all" ]]; then
 else
 	case " ${MODE_SEQUENCE[*]} " in
 		*" ${REQUESTED_MODE} "*) modes=("${REQUESTED_MODE}") ;;
-		*) echo "Mode must be all, prayer, poll-member, or poll-admin." >&2; exit 1 ;;
+		*) echo "Mode must be all, prayer, poll-member, poll-admin, or poll-duty." >&2; exit 1 ;;
 	esac
 fi
 
