@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { isIP } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -53,6 +54,14 @@ export function validateExpectedFlywayIdentity(expected, actual) {
 	return actual;
 }
 
+export function validatePostgresServerAddress(actual, approved) {
+	const actualCanonical = canonicalLoopbackAddress(actual, true, 'PostgreSQL server address');
+	const approvedCanonical = canonicalLoopbackAddress(approved, false, 'runtime-approved PostgreSQL host');
+	assert.equal(actualCanonical, approvedCanonical,
+		'PostgreSQL server address must match the explicit runtime-approved loopback target');
+	return actual;
+}
+
 export function validateRuntimeIdentitySeries(initial, checkpoints) {
 	validateRuntimeIdentity(initial);
 	assertExactKeys(checkpoints, [...CHECKPOINTS].sort(), 'runtime identity checkpoints');
@@ -92,8 +101,7 @@ function captureFromEnvironment(databaseServer, redisServer) {
 	});
 	assert.equal(databaseServer.serverPort, runtimePort(process.env.EXPECTED_DB_PORT, 'EXPECTED_DB_PORT'),
 		'PostgreSQL server port must match the runtime-approved target');
-	assert.equal(databaseServer.serverAddress, process.env.DB_HOST,
-		'PostgreSQL server address must match the explicit runtime-approved target');
+	validatePostgresServerAddress(databaseServer.serverAddress, process.env.DB_HOST);
 	assert.equal(redisServer.tcpPort, runtimePort(process.env.EXPECTED_REDIS_PORT, 'EXPECTED_REDIS_PORT'),
 		'Redis server port must match the runtime-approved target');
 	const identity = {
@@ -178,6 +186,23 @@ function runtimePort(value, label) {
 	const port = Number(value);
 	positivePort(port, label);
 	return port;
+}
+
+function canonicalLoopbackAddress(value, allowHostCidr, label) {
+	nonEmptyString(value, label);
+	const fields = value.split('/');
+	assert.ok(fields.length === 1 || (allowHostCidr && fields.length === 2),
+		`${label} must be an explicit numeric loopback${allowHostCidr ? ' with an optional host CIDR' : ''}`);
+	const [address, prefix] = fields;
+	const version = isIP(address);
+	assert.ok(version === 4 || version === 6, `${label} must be an explicit numeric loopback address`);
+	if (prefix !== undefined) {
+		const expectedPrefix = version === 4 ? '32' : '128';
+		assert.equal(prefix, expectedPrefix, `${label} CIDR prefix must be exactly /${expectedPrefix}`);
+	}
+	const canonical = version === 4 ? address : new URL(`http://[${address}]/`).hostname.slice(1, -1);
+	assert.ok(canonical === '127.0.0.1' || canonical === '::1', `${label} must be the approved numeric loopback host`);
+	return canonical;
 }
 
 function strictTimestamp(value, label) {

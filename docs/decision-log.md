@@ -816,6 +816,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Require every digest path to exist independently in the approved revision tree, then hash the combined inventory of `src/main/java/com/faithlog/devotion`, `src/main/java/com/faithlog/notification`, `src/main/java/com/faithlog/batch/infrastructure/scheduler`, `src/main/java/com/faithlog/batch/service`, and `src/main/resources/db/migration`. For revision `6796ed146244d8f3f5b5dd7048ebe16865084a97`, the corrected 154-entry digest is `625bc9e8f83561c67f8f8d5bc26c68bdf172c191d57fec01aca4423e7c2b2a9d`; the earlier migration-only digest must not be approved.
 - Impact: This changes only Issue #197 provenance evidence and runtime handoff documentation. Production, Flyway, dependency, API behavior, Docker, DB, HTTP, k6, and measured status remain unchanged.
 
+### 2026-07-17 - Issue #197 PostgreSQL Inet Host Identity Normalization
+
+- Context: Fresh C stopped before fixture API writes because PostgreSQL serialized `inet_server_addr()::text` as the canonical host CIDR `127.0.0.1/32`, while the explicit approved runtime input was `DB_HOST=127.0.0.1`. This was a runner comparison defect, not a server failure. C fixture HTTP and k6 load were 0, its temporary ADMIN USER was restored, and its report/evidence must be preserved without cleanup or reuse.
+- Decision: Keep runtime `DB_HOST` restricted to explicit numeric `127.0.0.1` or `::1`. Preserve PostgreSQL evidence exactly as observed, but compare through a lossless host-address canonical form that accepts only optional `/32` for IPv4 and `/128` for IPv6 and normalizes IPv6 spelling. Different IPs, different loopbacks, external addresses, non-host CIDR prefixes, and CIDR-bearing runtime inputs remain fail-closed.
+- Impact: C is permanently rejected and fresh D is the next devotion namespace. This is scenario/runtime-evidence validation only; production, Flyway, DB state, API behavior, Docker, HTTP, k6, and performance status are unchanged.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope

@@ -116,7 +116,7 @@ SQL은 bigint 누적 counter를 decimal string으로 직렬화해 JavaScript `Nu
 
 실제 `pgStatStatements` snapshot은 availability truthiness를 사용하지 않는다. `available`은 boolean만 허용하며 available이면 statement inventory의 exact query/calls/rows/time/block key와 type을, unavailable이면 non-empty reason과 빈 statements를 강제한다. malformed schema나 phase availability drift는 non-adoptable reason으로 남긴다.
 
-runtime identity query는 순수 DB counter window 밖에 둔다. measured-before identity를 확인한 다음 DB before snapshot을 찍고, measured 완료 뒤 DB after snapshot을 먼저 찍은 다음 measured-after identity를 확인한다. app/DB container 교체, image/StartedAt 변경, Compose label/port 변경, PostgreSQL database/address/port/postmaster restart가 있으면 서로 다른 runtime의 evidence를 합치지 않는다.
+runtime identity query는 순수 DB counter window 밖에 둔다. measured-before identity를 확인한 다음 DB before snapshot을 찍고, measured 완료 뒤 DB after snapshot을 먼저 찍은 다음 measured-after identity를 확인한다. PostgreSQL `inet_server_addr()::text` evidence는 실제 원문을 보존한다. 비교할 때만 IPv4 `/32`, IPv6 `/128` host CIDR과 IPv6 축약형을 lossless canonicalize해 explicit `DB_HOST=127.0.0.1|::1`과 같은 loopback인지 확인한다. 다른 IP/loopback, 외부 주소, non-host CIDR, CIDR이 붙은 runtime input은 거부한다. app/DB container 교체, image/StartedAt 변경, Compose label/port 변경, PostgreSQL database/address/port/postmaster restart가 있으면 서로 다른 runtime의 evidence를 합치지 않는다.
 
 실행은 PM이 candidate namespace가 비어 있고 shared Docker의 actual load가 0임을 확인한 뒤 prepare와 baseline을 같은 승인 runtime 입력으로 순차 실행한다.
 
@@ -254,7 +254,8 @@ read-only audit에서 확인한 실행 stack은 Compose project `faithlog-fronte
 
 fresh namespace 추천값은 아직 예약값이 아니다. 기존 `A`가 DB와 filesystem에서 비어 있다는 read-only 근거 없이 `A`를 예약하지 않는다.
 
-- devotion fresh candidate: `datasetId=PERFORMANCE_1000_20260717_DEVOTION_197_B`, `fixtureRunId=ISSUE197_20260717_DEVOTION_BEFORE_B`. prepare가 실행일 `referenceDate`를 Asia/Seoul로 생성하며 2026-07-17 실행이면 rollback/warmup/measured week는 `2026-07-13`/`2026-07-20`/`2026-07-27`이다. 이 문서 작성 세션에서는 예약하지 않았다.
+- devotion C (`datasetId=PERFORMANCE_1000_20260717_DEVOTION_197_C`, `fixtureRunId=ISSUE197_20260717_DEVOTION_BEFORE_C`)는 fixture API write 전 runtime identity에서 PostgreSQL actual `127.0.0.1/32`와 승인 `DB_HOST=127.0.0.1`의 표기 차이로 rejected됐다. fixture HTTP와 k6 load는 0이고 임시 ADMIN USER는 원복됐다. C report/evidence는 보존하되 cleanup/reuse하지 않는다.
+- 다음 fresh candidate D는 `datasetId=PERFORMANCE_1000_20260717_DEVOTION_197_D`, `fixtureRunId=ISSUE197_20260717_DEVOTION_BEFORE_D`다. prepare가 실행일 `referenceDate`를 Asia/Seoul로 생성하며 2026-07-17 실행이면 rollback/warmup/measured week는 `2026-07-13`/`2026-07-20`/`2026-07-27`이다. 이 개발 세션에서는 D를 예약하거나 실행하지 않았다.
 - retention: `datasetId=PERFORMANCE_1000_20260716_RETENTION_197_A`, `fixtureRunId=ISSUE197_20260716_RETENTION_DRY_A`, 두 값을 모두 포함한 별도 `datasetPrefix`, reference instant `2027-01-31T15:00:00Z`.
 
 runtime 필수 입력은 fresh dataset/fixture ID, prepare report/secret/input 경로, service ADMIN credential과 fixture 공통 password를 담은 mode 600 input, `BASE_URL`, prepare 최대시간, 세 phase VUS/MAX_DURATION, token TTL safety, resource interval/max gap, app JAR SHA-256, DB/Redis image와 Flyway identity, numeric-loopback DB/Redis target이다. observed Compose/source/image/API digest는 승인 후보일 뿐 runner default가 아니다. prepare 최대시간 900초, warmup/rollback VUS 1, measured VUS 30, resource interval 1초/max gap 2초는 추천값이며 runner에 default가 없다.
