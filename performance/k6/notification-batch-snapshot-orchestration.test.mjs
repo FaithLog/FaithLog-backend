@@ -243,6 +243,8 @@ test('fake full run prepares once, captures once, restores before every sample, 
 				HOME: temporaryRoot,
 				PERF_REPORT_ROOT: forbiddenDefaultRoot,
 				PERF_DATASET_ID: 'PERFORMANCE_198_FAKE',
+				PERF_EXPECTED_REDIS_CONTAINER_ID: 'a'.repeat(64),
+				PERF_REDIS_DATABASE: '0',
 				POSTGRES_PASSWORD: 'runtime-secret',
 				REDIS_PASSWORD: 'runtime-secret',
 				API_KEY: 'must-not-leak',
@@ -393,6 +395,7 @@ test('fake full run prepares once, captures once, restores before every sample, 
 			},
 			baseChildEnvironment: {
 				PATH: process.env.PATH, POSTGRES_PASSWORD: 'secret', PERF_DATASET_ID: 'PERFORMANCE_198_FAKE',
+				PERF_EXPECTED_REDIS_CONTAINER_ID: 'a'.repeat(64), PERF_REDIS_DATABASE: '0',
 			},
 		}, {
 			provisionSyntheticDataset: async ({ receiptPath }) => writeFileSync(receiptPath, `${JSON.stringify({
@@ -413,8 +416,15 @@ test('fake full run prepares once, captures once, restores before every sample, 
 				inactiveCount: 100, noTokenCount: 100, mixedTokenUserCount: 1,
 				insertedDummyTokenCount: 901,
 				fixturePolicy: 'dummy-token-and-generated-log-only', credentialRecorded: false,
-			})}\n`, { flag: 'wx' });
+				})}\n`, { flag: 'wx' });
 			},
+			initializeRedisCommandstats: async ({ receiptPath }) => writeFileSync(receiptPath, `${JSON.stringify({
+				schemaVersion: 1, composeProject: 'faithlog-perf-198-before',
+				redisContainerId: 'a'.repeat(64), database: 0, bootstrapKeySha256: 'b'.repeat(64),
+				setCommandsExecuted: 1, delCommandsExecuted: 1, dbSizeAfter: '0',
+				commandstatsSetCalls: '1', commandstatsDelCalls: '1',
+				credentialRecorded: false, automaticAdoption: false,
+			})}\n`, { flag: 'wx' }),
 			captureSnapshot: async ({ outputPath, childEnvironment }) => {
 				const preserved = JSON.parse(readFileSync(join(temporaryRoot, 'orchestrations', 'issue198-fake-full-a', 'snapshot-receipt.json'), 'utf8'));
 				writeFileSync(outputPath, `${JSON.stringify({
@@ -588,4 +598,22 @@ test('pristine Redis commandstats is initialized once without weakening missing-
 	assert.match(script, /DEL/);
 	assert.match(script, /DBSIZE/);
 	assert.doesNotMatch(script, /FLUSHDB|CONFIG\s+(?:SET|RESETSTAT)/i);
+	const root = mkdtempSync(join(tmpdir(), 'faithlog-198-redis-bootstrap-evidence-'));
+	try {
+		const outputPath = join(root, 'redis-evidence.json');
+		const parsed = spawnSync(process.execPath, [fileURLToPath(new URL(
+			'./notification-batch/parse-redis-evidence.mjs', import.meta.url,
+		))], { encoding: 'utf8', env: {
+			...process.env, REDIS_EVIDENCE_OUTPUT_PATH: outputPath, REDIS_DBSIZE: '0',
+			REDIS_SERVER_INFO: 'run_id:redis-run-198\nuptime_in_seconds:100\ntcp_port:6379\n',
+			REDIS_COMMANDSTATS: 'cmdstat_set:calls=1,usec=1,usec_per_call=1.00\ncmdstat_del:calls=1,usec=1,usec_per_call=1.00\n',
+			REDIS_CAPTURED_AT: '2026-07-17T00:00:00.000Z',
+		} });
+		assert.equal(parsed.status, 0, parsed.stderr);
+		const evidence = JSON.parse(readFileSync(outputPath, 'utf8'));
+		assert.equal(evidence.dbSize, '0');
+		assert.equal(evidence.commands.set, '1');
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });

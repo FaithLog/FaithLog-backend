@@ -20,6 +20,7 @@ import {
 	validateSnapshotSequence,
 } from './snapshot-contract.mjs';
 import { validateSeedReceipt as validateSyntheticSeedReceipt } from './seed-contract.mjs';
+import { validateRedisCommandstatsBootstrapReceipt } from './redis-commandstats-bootstrap-contract.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const SAFE_BATCH_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,30}$/;
@@ -42,11 +43,13 @@ const ALLOWED_CHILD_ENVIRONMENT = new Set([
 	'PERF_REPORT_ROOT', 'EXPECTED_WARMUP_SAMPLES', 'EXPECTED_MEASURED_SAMPLES',
 	'CUMULATIVE_STATE_STRATEGY',
 	'PERF_SEED_RECEIPT_PATH',
+	'PERF_REDIS_BOOTSTRAP_RECEIPT_PATH',
 	'PERF_ORCHESTRATION_LOCK_RECEIPT',
 ]);
 
 const REPORT_PATH_ENVIRONMENT = new Set([
 	'PERF_ORCHESTRATION_LOCK_RECEIPT', 'PERF_SEED_RECEIPT_PATH', 'PERF_SNAPSHOT_ROOT',
+	'PERF_REDIS_BOOTSTRAP_RECEIPT_PATH',
 	'PERF_SNAPSHOT_RECEIPT_PATH', 'PERF_RESTORE_RECEIPT_PATH', 'MANIFEST_PATH',
 	'RUN_DIRS_FILE', 'OUTPUT_PATH', 'SNAPSHOT_RECEIPT_PATH', 'RESTORE_RECEIPTS_FILE',
 ]);
@@ -100,6 +103,9 @@ const defaultAdapters = {
 	},
 	prepareCanonicalFixture: async ({ childEnvironment }) => {
 		runFixedCommand('prepare-fixtures.sh', childEnvironment);
+	},
+	initializeRedisCommandstats: async ({ childEnvironment }) => {
+		runFixedCommand('bootstrap-redis-commandstats.sh', childEnvironment);
 	},
 	captureSnapshot: async ({ childEnvironment }) => {
 		runFixedCommand('capture-state-snapshot.sh', childEnvironment);
@@ -201,7 +207,8 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		actualComposeProject,
 	});
 	for (const adapter of [
-		'provisionSyntheticDataset', 'prepareCanonicalFixture', 'captureSnapshot', 'restoreSnapshot', 'runSample',
+		'provisionSyntheticDataset', 'prepareCanonicalFixture', 'initializeRedisCommandstats',
+		'captureSnapshot', 'restoreSnapshot', 'runSample',
 	]) {
 		assert.equal(typeof suppliedAdapters[adapter], 'function', `${adapter} adapter is required`);
 	}
@@ -217,6 +224,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 	);
 	const snapshotReceiptPath = join(batchRoot, 'snapshot-receipt.json');
 	const seedReceiptPath = join(batchRoot, 'seed-receipt.json');
+	const redisBootstrapReceiptPath = join(batchRoot, 'redis-commandstats-bootstrap.json');
 	const snapshotId = `${batchId}-snapshot`;
 	const plan = buildApprovedSamplePlan(batchId);
 	const restores = [];
@@ -268,6 +276,20 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 		assert.equal(canonicalManifest.fixtureRunId, canonicalFixtureRunId);
 		assert.equal(canonicalManifest.sampleKind, 'canonical');
 		assert.equal(canonicalManifest.composeProject, expectedComposeProject);
+
+		stage = 'redis-commandstats-bootstrap';
+		await suppliedAdapters.initializeRedisCommandstats({
+			receiptPath: redisBootstrapReceiptPath,
+			childEnvironment: orchestrationChildEnvironment(base, reportRoot, {
+				PERF_BATCH_ID: batchId,
+				PERF_REDIS_BOOTSTRAP_RECEIPT_PATH: redisBootstrapReceiptPath,
+			}),
+		});
+		const redisBootstrapReceipt = validateRedisCommandstatsBootstrapReceipt(readJson(redisBootstrapReceiptPath));
+		assert.equal(redisBootstrapReceipt.composeProject, expectedComposeProject);
+		assert.equal(redisBootstrapReceipt.redisContainerId, base.PERF_EXPECTED_REDIS_CONTAINER_ID);
+		assert.equal(redisBootstrapReceipt.database, Number(base.PERF_REDIS_DATABASE));
+		const redisBootstrapReceiptSha256 = sha256File(redisBootstrapReceiptPath);
 
 		stage = 'snapshot-capture';
 		await suppliedAdapters.captureSnapshot({
@@ -362,6 +384,7 @@ export async function orchestrateNotificationBatchBefore(options, suppliedAdapte
 			canonicalFixtureRunId,
 			seedReceiptSha256,
 			seedCampusId: seedReceipt.campusId,
+			redisBootstrapReceiptSha256,
 			snapshotId,
 			snapshotReceiptSha256,
 			runDirs,
