@@ -1,3 +1,4 @@
+import { exclusiveIsolationUserIds } from './fixture-contract.mjs';
 import http from 'k6/http';
 import { check, fail } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
@@ -315,7 +316,7 @@ function validatePrayerGroups(status, payload) {
 function validatePrayerAssignable(status, payload) {
 	const data = successData(status, payload);
 	const expectedIds = manifest.primaryCampus.members.map((member) => member.userId);
-	const isolation = new Set(manifest.isolationCampus.members.map((member) => member.userId));
+	const isolation = new Set(exclusiveIsolationUserIds(manifest.primaryCampus.members, manifest.isolationCampus.members));
 	return Array.isArray(data)
 		&& data.length === 1000
 		&& sameIds(data.map((member) => member.userId), expectedIds)
@@ -337,7 +338,7 @@ function validatePrayerBoard(status, payload, admin) {
 		return false;
 	}
 	const submitted = new Set(manifest.prayer.submissionUserIds);
-	const isolationUsers = new Set(manifest.isolationCampus.members.map((member) => member.userId));
+	const isolationUsers = new Set(exclusiveIsolationUserIds(manifest.primaryCampus.members, manifest.isolationCampus.members));
 	const exactGroups = data.groups.every((group, index) => (
 		group.groupId === manifest.prayer.groups[index].groupId
 		&& sameIds(group.members.map((member) => member.userId), manifest.prayer.groups[index].memberUserIds)

@@ -83,6 +83,19 @@ export const MODE_ENDPOINTS = Object.freeze({
 	]),
 });
 
+export function exclusiveIsolationUserIds(primaryMembers, isolationMembers) {
+	const userIds = (members, label) => {
+		if (!Array.isArray(members)) throw new Error(`${label} members must be an array.`);
+		const ids = members.map((member) => member?.userId);
+		if (ids.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+			throw new Error(`${label} members must contain unique positive safe-integer user IDs.`);
+		}
+		return ids;
+	};
+	const primaryUserIds = new Set(userIds(primaryMembers, 'Primary campus'));
+	return userIds(isolationMembers, 'Isolation campus').filter((userId) => !primaryUserIds.has(userId));
+}
+
 export function validateFixtureRunId(value) {
 	if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9_-]{7,31}$/.test(value)) {
 		throw new Error('FIXTURE_RUN_ID must be 8-32 lowercase characters using letters, numbers, underscore, or hyphen.');
