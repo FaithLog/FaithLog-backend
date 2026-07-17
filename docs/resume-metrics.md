@@ -1367,3 +1367,22 @@ Metric candidates:
 - Health check success rate: run `docker compose up -d postgres redis app` and repeat `curl /api/v1/health` against one approved runtime.
 - API response time: measure `GET /api/v1/health` or another user-approved endpoint with a fixed local or deployed target.
 <!-- daily-resume-monitor:end:resume-metrics:2026-06-17 -->
+
+### 2026-07-16 Issue #192 Latest-develop Scenario Verification
+
+- Base: `origin/develop` `6796ed146244d8f3f5b5dd7048ebe16865084a97` (#206 stable charge paging ordering).
+- TDD: latest-develop drift RED `10/13` and focused GREEN `15/15`; common integrity audit RED `18/21`, focused GREEN `21/21`, full issue-local static/fake `85/85`.
+- Static verification: 31 issue-local JavaScript files passed `node --check`; runner passed `bash -n`; target JSON parsing and `git diff --check` passed.
+- Correctness compatibility: verifier mirrors #206 `created_at DESC, id DESC`; #200 ownership/duty and #201 archive/page-size contracts remain covered; #202 direct JDBC observation remains target-bound without Supabase Data API credentials.
+- Measurement status: scenario-ready / not measured on latest develop. Existing valid before numbers and production optimization were not changed, and no new performance improvement is claimed.
+- Execution scope: Docker/DB/HTTP/fixture/k6/EXPLAIN and production/Flyway/dependency changes were zero. Test-code correction is parallel-safe; actual loads remain PM-only and sequential.
+- Audit result: Added a pre-mutable full target/source/Flyway/runtime/workload gate and strict k6 v2 wrapper Counter/Rate/Trend metadata plus Counter-rate/Rate passes-fails math. The four authoritative before O measured/warmup evidence files all pass the strengthened validator read-only; no metric was remeasured.
+
+### 2026-07-17 Issue #192 Current-Develop Before And Batch Optimization
+
+- Authoritative before: source `6796ed146244d8f3f5b5dd7048ebe16865084a97`, target SHA-256 `7e7dd3a430666112f5139cf3950f2b859dc49034c5306cee0b770cfe80b8cb62`, bundle `EXEC192_BEFORE_CURRENT_BUNDLE_R`, validated conditional evidence with failure rate 0 and correctness pass in all four modes.
+- Before latency: COFFEE sequential p50/p95/p99/max `2932.822/6231.9487/6504.08494/6572.119ms`; MEAL sequential `1317.1715/1450.967/1514.9534/1530.95ms`; COFFEE concurrent VUS5 `3705.763/5941.3596/6143.80952/6194.422ms`; MEAL concurrent VUS5 `3892.11/6154.0946/6357.64532/6408.533ms`.
+- Before DB signals: COFFEE sequential `payment_accounts.seq_scan=10010`, `seq_tup_read=1241250`, and `charge_items.idx_scan=10000`; MEAL sequential `10020`, `1272540`, and `10000`. `pg_stat_statements` was unavailable, so these are supporting table counters correlated with the inspected per-response call graph, not statement-level attribution.
+- Optimization: Settlement services now pass one command collection to billing. Billing validates the account once, loads existing source charges once with a deterministic pessimistic lock query, preserves COFFEE UNPAID/terminal semantics, rejects existing MEAL charges, and uses one repository collection-save boundary. No JDBC insert batching or latency improvement is claimed before integration after measurement.
+- TDD/verification: RED `compileTestJava` 8 missing batch symbols; self-review RED 1/1 reproduced a batch-save unique conflict bypassing the MEAL duplicate error mapping; batch focused GREEN 5/5; related billing/poll/#200/#201 regression 113/113; full Gradle 560 tests with 0 failures, 0 errors, 3 skipped; build and asciidoctor passed.
+- Change exclusions: API/controller/DTO/ErrorCode/frontend, Flyway/index, dependencies, and Docker were unchanged. The development session ran no actual after load. The bulk-query index candidate remains assigned to #194.

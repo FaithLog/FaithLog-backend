@@ -137,15 +137,13 @@ public class MealPollSettlementService {
 				group.actualTotalAmount(), group.roundingAdjustment()
 			))
 			.toList());
-		for (CalculatedGroup group : calculatedGroups) {
-			for (PollResponse response : group.responses()) {
-				chargeCreationService.createMealCharge(new CreateMealChargeCommand(
+		try {
+			chargeCreationService.createMealCharges(calculatedGroups.stream()
+				.flatMap(group -> group.responses().stream().map(response -> new CreateMealChargeCommand(
 					command.campusId(), response.userId(), command.requesterId(), account.id(), response.id(),
 					group.option().content(), group.amountPerMember()
-				));
-			}
-		}
-		try {
+				)))
+				.toList());
 			chargeItemRepository.flush();
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.MEAL_SETTLEMENT_ALREADY_CHARGED);

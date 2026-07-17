@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-17 - Issue #192 Current-Develop Settlement Batch Optimization
+
+- Context: The validated current-develop before bundle `EXEC192_BEFORE_CURRENT_BUNDLE_R` binds source `6796ed146244d8f3f5b5dd7048ebe16865084a97` and target SHA-256 `7e7dd3a430666112f5139cf3950f2b859dc49034c5306cee0b770cfe80b8cb62`. It passed all four mode correctness and failure gates while retaining `conditional-boundary-only`, `accepted=false`, and `automaticAdoption=false` to distinguish validated numeric evidence from machine-proven continuous exclusivity.
+- Decision: Use the R bundle as the authoritative before evidence for the identical integration-after protocol. Replace per-response COFFEE/MEAL payment-account and existing-charge repository lookups with one account validation, one source-ID-set pessimistic lock lookup ordered by charge ID, and one collection-save boundary per settlement. Keep all existing scalar charge APIs compatible.
+- Decision: Preserve the outer settlement transactions, COFFEE UNPAID update and terminal-charge preservation, MEAL duplicate `409` and final flush/rollback behavior, #200 creator/duty/account ownership and lock order, amount/source/snapshot correctness, and the existing unique constraint as the final concurrent-insert defense.
+- Impact: Controller paths, request/response DTOs, HTTP/ErrorCode contracts, frontend, dependencies, Flyway, and indexes do not change. `saveAll` is a repository collection boundary only; the project does not claim JDBC insert batching or fewer required charge INSERT rows. Issue #194 retains the execution-plan candidate `charge_items(campus_id, payment_category, source_type, source_id)` for later independent validation. Actual after measurement remains a one-server/one-load PM integration step.
+
 ### 2026-07-16 - Issue #206 Stable Charge Item Pagination Ordering
 
 - Context: Issue #193 current-develop before preflight에서 `sort=createdAt,desc`로 조회한 회원별 청구 상세의 동일 `created_at` 행이 일부는 ID 오름차순, 일부는 내림차순으로 반환됐다. primary 정렬만 있는 offset paging은 동률 행의 페이지 간 중복·누락 가능성이 있어 정확한 baseline 검증을 중단했다.
@@ -826,3 +833,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Recommendation: Provide one stable local transcript source path or leave transcript analysis disabled.
 - Current action: No transcript source was provided, so conversation transcripts were not inspected.
 <!-- daily-resume-monitor:end:decision-log:2026-06-16 -->
+
+### 2026-07-16 - Issue #192 Latest-develop Scenario Compatibility
+
+- User decision: Performance issues may correct k6/fixture/validator/test/docs code in parallel, while all actual fixture/DB/HTTP/k6 loads remain PM-owned and execute sequentially on one server.
+- Issue #192 scope: Preserve the valid before bundle and completed production optimization; update only latest-develop scenario and comparison contracts. Do not rerun before/after in the issue branch.
+- Current-develop drift: `origin/develop` `6796ed1` adds #206 stable charge paging. The settlement verifier must use the same `created_at DESC, id DESC` ordering. #202 RLS does not change the direct JDBC observer; DB identity remains runtime target-bound and no Supabase Data API credential is used.
+- Target/comparison decision: `TARGET_CONTRACT` is runtime-required with no runner default. Before/after comparison requires exact workload and target-role continuity, distinct source/immutable target identities, and preserves four mode metrics separately.
+- Status: scenario-ready / not measured. Actual Docker/DB/HTTP/fixture/k6 and production/Flyway/dependency changes were zero in this compatibility pass.
+- Integrity audit: The runner now validates the exact target top-level schema, source commit, Flyway version, immutable service/image/runtime identity, resource metadata, and approved workload before runtime capture or fixture work. No implicit target fallback is allowed.
+- k6 evidence decision: Metadata-bearing v2 wrappers must match their Counter/Rate/Trend type and contains identity. Wrapped Counter rate must be finite, and wrapped Rate passes/fails totals and ratio must match the exact measured request/check counts. Approved metadata-free direct/values fixtures remain supported.
