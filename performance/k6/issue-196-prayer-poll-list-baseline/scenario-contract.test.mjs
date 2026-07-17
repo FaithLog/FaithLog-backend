@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const REQUIRED_FILES = [
@@ -35,6 +36,9 @@ const REQUIRED_FILES = [
 	'runtime-prep-contract.mjs',
 	'tooling-provenance.mjs',
 	'filter-sql-log.mjs',
+	'capture-sql-window.sh',
+	'sql-evidence.mjs',
+	'storage-budget.mjs',
 	'README.md',
 ];
 
@@ -104,6 +108,7 @@ function manifestRuntime(project = 'approved', overrides = {}) {
 		appContainerId: 'app-container-id', appContainerStartedAt: '2026-07-14T00:00:00.000Z',
 		dbContainerId: 'db-container-id', dbContainerStartedAt: '2026-07-14T00:00:00.000Z',
 		redisContainerId: 'redis-container-id', redisContainerStartedAt: '2026-07-14T00:00:00.000Z',
+		appLogDriver: 'local', appLogMaxSize: '64m', appLogMaxFile: '3', appLogCompress: 'true',
 		...overrides,
 	};
 }
@@ -116,7 +121,13 @@ function faithlogTargetEnv() {
 		EXPECTED_APP_IMAGE: 'faithlog-latest', EXPECTED_APP_IMAGE_ID: 'sha256:contract',
 		EXPECTED_DB_IMAGE: 'postgres:17', EXPECTED_DB_IMAGE_ID: 'sha256:db',
 		EXPECTED_REDIS_IMAGE: 'redis:7-alpine', EXPECTED_REDIS_IMAGE_ID: 'sha256:redis',
+		PERF_SQL_GZIP_MAX_BYTES: '1048576', PERF_NON_SQL_EVIDENCE_MAX_BYTES: '1048576',
+		PERF_STORAGE_SAFETY_HEADROOM_BYTES: '2147483648', PERF_SQL_CAPTURE_TIMEOUT_SECONDS: '5',
 	};
+}
+
+function runtimePreparationIdentity() {
+	return { daemonLogRetention: { maximumRetainedBytes: '201326592' } };
 }
 
 function fakeRedisInfo(runId = FAKE_REDIS_RUN_ID) {
@@ -145,6 +156,9 @@ function reportRuntime(overrides = {}) {
 		appImageId: 'sha256:contract', expectedAppImageId: 'sha256:contract',
 		dbImage: 'postgres:17', expectedDbImage: 'postgres:17', dbImageId: 'sha256:db', expectedDbImageId: 'sha256:db',
 		redisImage: 'redis:7-alpine', expectedRedisImage: 'redis:7-alpine', redisImageId: 'sha256:redis', expectedRedisImageId: 'sha256:redis',
+		appLogConfig: { Type: 'local', Config: { 'max-size': '64m', 'max-file': '3', compress: 'true' } },
+		daemonLogMaximumRetainedBytes: '201326592', sqlGzipMaximumBytes: '1048576',
+		nonSqlEvidenceMaximumBytes: '1048576',
 		resourceContainerIds: {
 			'faithlog-backend': 'app-container-id', 'faithlog-postgres': 'db-container-id', 'faithlog-redis': 'redis-container-id',
 		},
@@ -214,6 +228,10 @@ function runtimePrepManifest(overrides = {}) {
 			sqlLogger: 'DEBUG', formatSql: false, showSql: false,
 			bindLogger: 'OFF', extractLogger: 'OFF', statementOnlyArtifact: true,
 		},
+		daemonLogRetention: {
+			driver: 'local', maxSize: '64m', maxFile: '3', compress: true,
+			maximumRetainedBytes: '201326592',
+		},
 	};
 	const result = { ...manifest, ...overrides };
 	if (!Object.hasOwn(overrides, 'attemptReceipt')) {
@@ -282,6 +300,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 		writeFileSync(manifest, JSON.stringify({
 			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: new Date(now).toISOString(),
 			primaryCampus: actorManifest(),
+			runtimePreparation: runtimePreparationIdentity(),
 			composeRuntime: manifestRuntime(project, { appImage: 'faithlog-latest', appImageId: 'sha256:contract' }),
 			polls: { byKey: {
 				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
@@ -291,10 +310,12 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 				scheduled_future: { startsAt: new Date(now + 2 * 86400000).toISOString() },
 			}, duty: dutyWindows(now) },
 		}));
-		writeFileSync(join(bin, 'docker'), [
-			'#!/usr/bin/env bash',
-			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_FAILURE:-}'}" == runtime && "$count" -ge 5 ]]; then echo ${FAKE_REPLACED_APP_CONTAINER_ID}; else echo ${FAKE_APP_CONTAINER_ID}; fi; exit 0; fi`,
-			`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
+			writeFileSync(join(bin, 'docker'), [
+				'#!/usr/bin/env bash',
+				'if [[ "$1" == logs && "$*" == *"--follow --since"* ]]; then printf "%s\\n" "$SQL_FIRST_SENTINEL" "INFO org.hibernate.SQL: select 1" "$SQL_FINAL_SENTINEL"; exit 0; fi',
+				`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_FAILURE:-}'}" == runtime && "$count" -ge 5 ]]; then echo ${FAKE_REPLACED_APP_CONTAINER_ID}; else echo ${FAKE_APP_CONTAINER_ID}; fi; exit 0; fi`,
+				`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
+				'if [[ "$1" == exec && "$*" == *"/proc/1/fd/1"* ]]; then exit 0; fi',
 			'if [[ "$1" == exec ]]; then',
 			`  if [[ "$*" == *app_client_addrs* ]]; then printf '%s\\n' '{"capturedAt":"2026-07-14T00:00:00Z","unexpectedSessions":[]}'; exit 0; fi`,
 			`  if [[ "$*" == *faithlog_issue196_observer* ]]; then printf '%s\\n' '${JSON.stringify(dbSnapshot('2026-07-14T00:00:00.000Z').databaseIdentity)}'; exit 0; fi`,
@@ -317,7 +338,8 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'*"{{.Config.Image}}"*faithlog-redis*) echo redis:7-alpine ;;',
 			'*"{{.Image}}"*faithlog-backend*) echo sha256:contract ;;',
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
-			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
+				'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
+				'*"{{json .HostConfig.LogConfig}}"*) printf "%s\\n" \'{"Type":"local","Config":{"max-size":"64m","max-file":"3","compress":"true"}}\' ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
 			`*"range .Config.Env"*) printf "%s\\n" 'SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}' FAITHLOG_SCHEDULER_ENABLED=false ;;`,
 			`*"stats --no-stream"*) printf "${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\n" ;;`,
@@ -331,7 +353,7 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'if [[ "$1" == *tooling-provenance.mjs ]]; then exit 0; fi',
 			'if [[ "$1" == *db-quiescence.mjs ]]; then exit 0; fi',
 			`if [[ "$*" == *"await fetch"* ]]; then echo "login:${'${LOGIN_EMAIL}'}" >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
-			`if [[ "$1" == *summarize-run.mjs ]]; then endpoint="$2"; report="${'${10}'}"; echo "summarize:$endpoint" >> "${calls}"; case "${'${FAKE_SUMMARY_BEHAVIOR}'}" in conditional) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"conditional-not-adoptable"}' > "$report" ;; rejected) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"rejected"}' > "$report" ;; malformed) printf '{' > "$report" ;; missing) : ;; esac; exit 2; fi`,
+			`if [[ "$1" == *summarize-run.mjs ]]; then endpoint="$2"; report="${'${11}'}"; echo "summarize:$endpoint" >> "${calls}"; case "${'${FAKE_SUMMARY_BEHAVIOR}'}" in conditional) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"conditional-not-adoptable"}' > "$report" ;; rejected) printf '%s\\n' '{"accepted":false,"automaticAdoption":false,"measurementStatus":"rejected"}' > "$report" ;; malformed) printf '{' > "$report" ;; missing) : ;; esac; exit 2; fi`,
 			'if [[ "$1" == *validate-runtime-identity.mjs ]]; then printf "%s" "$DB_RUNTIME_IDENTITY_JSON"; exit 0; fi',
 			`if [[ "$1" == *redis-runtime-identity.mjs ]]; then printf '%s\\n' '{"runId":"${FAKE_REDIS_RUN_ID}","redisVersion":"7.2.0","tcpPort":6379}'; exit 0; fi`,
 			'if [[ "$1" == *validate-published-target.mjs ]]; then echo 18080; exit 0; fi',
@@ -356,13 +378,18 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 			'      composeRuntime.dbImageId) printf sha256:db ;;',
 			'      composeRuntime.redisImageId) printf sha256:redis ;;',
 			`      composeRuntime.appContainerId) printf ${FAKE_APP_CONTAINER_ID} ;;`,
-			'      composeRuntime.appContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
+				'      composeRuntime.appContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
+				'      composeRuntime.appLogDriver) printf local ;;',
+				'      composeRuntime.appLogMaxSize) printf 64m ;;',
+				'      composeRuntime.appLogMaxFile) printf 3 ;;',
+				'      composeRuntime.appLogCompress) printf true ;;',
 			`      composeRuntime.dbContainerId) printf ${FAKE_DB_CONTAINER_ID} ;;`,
 			'      composeRuntime.dbContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
 			`      composeRuntime.redisContainerId) printf ${FAKE_REDIS_CONTAINER_ID} ;;`,
 			'      composeRuntime.redisContainerStartedAt) printf 2026-07-14T00:00:00.000Z ;;',
 			'      composeRuntime.sourceRevision) printf "%s" "$EXPECTED_SOURCE_REVISION" ;;',
-			'      composeRuntime.targetPort) printf 18080 ;;',
+				'      composeRuntime.targetPort) printf 18080 ;;',
+				'      runtimePreparation.daemonLogRetention.maximumRetainedBytes) printf 201326592 ;;',
 			'      *) exit 91 ;;',
 			'    esac',
 			'    exit 0',
@@ -400,7 +427,9 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 				BASE_URL: 'http://127.0.0.1:18080', WARMUP_VUS: '1', WARMUP_DURATION: '1s',
 				MEASURED_VUS: '1', MEASURED_DURATION: '1s', SAMPLING_INTERVAL_SECONDS: '0.05', SAMPLING_MAX_GAP_SECONDS: '0.1',
 				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
-				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
+					PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
+					PERF_SQL_GZIP_MAX_BYTES: '1048576', PERF_NON_SQL_EVIDENCE_MAX_BYTES: '1048576',
+					PERF_STORAGE_SAFETY_HEADROOM_BYTES: '2147483648', PERF_SQL_CAPTURE_TIMEOUT_SECONDS: '5',
 				FAKE_SUMMARY_BEHAVIOR: summaryBehavior, FAKE_FAILURE: failure, FAKE_PROJECT: project,
 			},
 			encoding: 'utf8', timeout: 60000,
@@ -414,6 +443,22 @@ function runFakeAdoptionSequence({ summaryBehavior = 'conditional', failure = ''
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
 	}
+}
+
+function writeSqlEvidenceFixture(sqlPath, attestationPath, statements) {
+	const text = `${statements.join('\n')}\n`;
+	const compressed = gzipSync(text);
+	writeFileSync(sqlPath, compressed);
+	const attestation = {
+		contractVersion: 1, status: 'complete', capturedAt: '2026-07-14T00:00:02.001Z', reusable: false,
+		firstSentinelSha256: 'a'.repeat(64), finalSentinelSha256: 'b'.repeat(64),
+		firstObserved: true, finalObserved: true, forbiddenValueLoggerObserved: false,
+		compressedSha256: createHash('sha256').update(compressed).digest('hex'),
+		compressedBytes: String(compressed.length), uncompressedBytes: String(Buffer.byteLength(text)),
+		lineCount: String(statements.length), statementCount: String(statements.length),
+	};
+	writeFileSync(attestationPath, JSON.stringify(attestation));
+	return attestation;
 }
 
 function read(name) {
@@ -607,7 +652,8 @@ test('common integrity audit pins pgss state, full resource identity, and primar
 });
 
 test('runtime instrumentation prep is app-only, statement-only, and binds the fresh immutable app identity', async () => {
-	for (const name of ['prepare-runtime.sh', 'runtime-evidence.override.yml', 'runtime-prep-contract.mjs', 'filter-sql-log.mjs']) {
+	for (const name of ['prepare-runtime.sh', 'runtime-evidence.override.yml', 'runtime-prep-contract.mjs',
+		'filter-sql-log.mjs', 'capture-sql-window.sh', 'sql-evidence.mjs', 'storage-budget.mjs']) {
 		assert.equal(existsSync(join(ROOT, name)), true, `missing ${name}`);
 	}
 
@@ -836,7 +882,7 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 	assert.match(runner, /EXPECTED_APP_IMAGE/);
 	assert.match(runner, /build\/reports\/k6\/issue-196/);
 	assert.match(runner, /new Date\(\)\.toISOString\(\)/);
-	assert.match(runner, /snapshot_db_tables "\$\{before_file\}"[\s\S]*log_since="\$\(rfc3339_now\)"[\s\S]*k6 run[\s\S]*log_until="\$\(rfc3339_now\)"[\s\S]*docker logs --since "\$\{log_since\}" --until "\$\{log_until\}"/);
+	assert.match(runner, /snapshot_db_tables "\$\{before_file\}"[\s\S]*log_since="\$\(rfc3339_now\)"[\s\S]*SQL_WINDOW_CAPTURE[\s\S]*emit_sql_sentinel "\$\{sql_first_sentinel\}"[\s\S]*k6 run[\s\S]*log_until="\$\(rfc3339_now\)"[\s\S]*emit_sql_sentinel "\$\{sql_final_sentinel\}"/);
 	assert.ok((runner.match(/assert_fixture_windows/g) || []).length >= 4, 'window freshness must be checked globally and before/after every endpoint');
 	for (const message of ['OPEN fixture window is stale', 'Member visibility fixture window is stale',
 		'Admin visibility fixture window is stale', 'Expired fixture is not beyond the admin window',
@@ -850,7 +896,7 @@ test('runner serializes endpoint phases and records runtime evidence without Doc
 	}
 	assert.ok((runner.match(/assert_runtime_continuity/g) || []).length >= 5,
 		'runtime identity must be checked before warmup, around measured, and before adoption');
-	assert.match(runner, /set \+e[\s\S]*docker logs[\s\S]*log_pipeline_status=.*PIPESTATUS[\s\S]*log_capture_status[\s\S]*snapshot_db_tables "\$\{after_file\}"[\s\S]*after_snapshot_status=\$\?[\s\S]*set -e/);
+	assert.match(runner, /wait_for_child_bounded[\s\S]*log_capture_status=\$\?[\s\S]*snapshot_db_tables "\$\{after_file\}"[\s\S]*after_snapshot_status=\$\?[\s\S]*set -e/);
 	assert.match(runner, /summarize-run\.mjs[\s\S]*summarize_status=\$\?[\s\S]*if \(\( summarize_status != 0 \)\)/);
 	assert.match(runner, /env -u PERF_ADMIN_EMAIL/);
 	for (const name of ['WARMUP_VUS', 'WARMUP_DURATION', 'MEASURED_VUS', 'MEASURED_DURATION', 'EXECUTION_RUN_ID']) {
@@ -940,6 +986,8 @@ test('runner rejects every missing target identity before inspect or login', () 
 			SAMPLING_INTERVAL_SECONDS: '1', SAMPLING_MAX_GAP_SECONDS: '2',
 			PERF_MAINTENANCE_QUIET_SECONDS: '30',
 			PERF_QUIESCENCE_TIMEOUT_SECONDS: '180',
+			PERF_SQL_GZIP_MAX_BYTES: '1048576', PERF_NON_SQL_EVIDENCE_MAX_BYTES: '1048576',
+			PERF_STORAGE_SAFETY_HEADROOM_BYTES: '2147483648', PERF_SQL_CAPTURE_TIMEOUT_SECONDS: '5',
 		};
 		for (const missing of Object.keys(approvedTargetEnv())) {
 			const env = { ...process.env, ...required, PATH: `${bin}:${process.env.PATH}` };
@@ -1066,6 +1114,7 @@ test('seed and shape reject a same-name post-lock runtime replacement before API
 			'*"{{.Image}}"*approved-app*) echo sha256:app ;;',
 			'*"{{.Image}}"*approved-db*) echo sha256:db ;;',
 			'*"{{.Image}}"*approved-redis*) echo sha256:redis ;;',
+			'*"{{json .HostConfig.LogConfig}}"*) printf "%s\\n" \'{"Type":"local","Config":{"max-size":"64m","max-file":"3","compress":"true"}}\' ;;',
 			`*"{{.State.StartedAt}}"*) if [[ -f "${marker}" ]]; then echo 2026-07-14T00:00:01.000Z; else echo 2026-07-14T00:00:00.000Z; fi ;;`,
 			'*) exit 98 ;;', 'esac', '',
 		].join('\n');
@@ -1193,6 +1242,7 @@ test('project-scoped lock blocks a fake same-project runner before login, mutati
 		writeFileSync(manifest, JSON.stringify({
 			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId: 'i196lock', shapedAt: new Date(now).toISOString(),
 			primaryCampus: actorManifest(),
+			runtimePreparation: runtimePreparationIdentity(),
 			composeRuntime: manifestRuntime(project, { appImage: 'faithlog-latest', appImageId: 'sha256:contract' }),
 			polls: { byKey: {
 				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
@@ -1225,6 +1275,7 @@ test('project-scoped lock blocks a fake same-project runner before login, mutati
 			'*"{{.Image}}"*faithlog-backend*) echo sha256:contract ;;',
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
+			'*"{{json .HostConfig.LogConfig}}"*) printf "%s\\n" \'{"Type":"local","Config":{"max-size":"64m","max-file":"3","compress":"true"}}\' ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
 			`*) echo "docker:$*" >> "${calls}"; exit 88 ;;`, 'esac', '',
 		].join('\n'));
@@ -1270,6 +1321,7 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 		writeFileSync(manifest, JSON.stringify({
 			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: new Date(now).toISOString(),
 			primaryCampus: actorManifest(),
+			runtimePreparation: runtimePreparationIdentity(),
 			composeRuntime: manifestRuntime(project, { appImage: 'faithlog-latest', appImageId: 'sha256:contract' }),
 			polls: { byKey: {
 				open: { startsAt: new Date(now - 3600000).toISOString(), endsAt: new Date(now + 86400000).toISOString() },
@@ -1301,6 +1353,7 @@ test('warmup failure blocks measured evidence and keeps credentials out of unrel
 			'*"{{.Image}}"*faithlog-backend*) echo sha256:contract ;;',
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
+			'*"{{json .HostConfig.LogConfig}}"*) printf "%s\\n" \'{"Type":"local","Config":{"max-size":"64m","max-file":"3","compress":"true"}}\' ;;',
 			'*"port faithlog-backend 8080/tcp"*) echo 0.0.0.0:18080 ;;',
 			`*"range .Config.Env"*) printf "%s\\n" 'SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}' FAITHLOG_SCHEDULER_ENABLED=false ;;`,
 			`*"redis-cli --raw INFO server"*) printf '%b' ${JSON.stringify(fakeRedisInfo())} ;;`,
@@ -1384,6 +1437,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		writeFileSync(manifest, JSON.stringify({
 			datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId, shapedAt: new Date(now).toISOString(),
 			primaryCampus: actorManifest(),
+			runtimePreparation: runtimePreparationIdentity(),
 			composeRuntime: manifestRuntime(project, {
 				appImage: 'faithlog-latest', appImageId: 'sha256:contract',
 				appContainerId: FAKE_APP_CONTAINER_ID, dbContainerId: FAKE_DB_CONTAINER_ID,
@@ -1399,8 +1453,11 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 		}));
 		writeFileSync(join(bin, 'docker'), [
 			'#!/usr/bin/env bash',
+			`if { [[ "$1" == logs && "$*" == *"--follow --since"* ]] || [[ "$1" == exec && "$*" == *"/proc/1/fd/1"* ]]; } && [[ -n "${'${PERF_ADMIN_PASSWORD+x}${PERF_DB_PASSWORD+x}${UNKNOWN_CAPTURE_SECRET+x}'}" ]]; then echo sql-child-scope-bad >> "${calls}"; fi`,
+			'if [[ "$1" == logs && "$*" == *"--follow --since"* ]]; then printf "%s\\n" "$SQL_FIRST_SENTINEL" "INFO org.hibernate.SQL: select 1" "$SQL_FINAL_SENTINEL"; exit 0; fi',
 			`if [[ "$*" == *'{{.Id}}'*faithlog-backend* ]]; then count=$(cat "${identityCount}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${identityCount}"; if [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 && -f "${postLockMarker}" ]]; then echo ${FAKE_REPLACED_APP_CONTAINER_ID}; elif [[ "${'${FAKE_REPLACE_RUNTIME:-0}'}" == 1 && "$count" -gt 1 ]]; then echo ${FAKE_REPLACED_APP_CONTAINER_ID}; else echo ${FAKE_APP_CONTAINER_ID}; fi; exit 0; fi`,
 			`if [[ "$1" == exec && "$*" == *redis-cli* ]]; then printf '%b' ${JSON.stringify(fakeRedisInfo())}; exit 0; fi`,
+			'if [[ "$1" == exec && "$*" == *"/proc/1/fd/1"* ]]; then exit 0; fi',
 			'if [[ "$1" == exec ]]; then',
 			`  if [[ -z "${'${PGPASSWORD+x}'}" || -n "${'${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_PASSWORD+x}${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]]; then echo db-scope-bad >> "${calls}"; fi`,
 			`  echo db-collector >> "${calls}"`,
@@ -1428,6 +1485,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			'*"{{.Image}}"*faithlog-backend*) echo sha256:contract ;;',
 			'*"{{.Image}}"*faithlog-postgres*) echo sha256:db ;;',
 			'*"{{.Image}}"*faithlog-redis*) echo sha256:redis ;;',
+			'*"{{json .HostConfig.LogConfig}}"*) printf "%s\\n" \'{"Type":"local","Config":{"max-size":"64m","max-file":"3","compress":"true"}}\' ;;',
 			`*"port faithlog-backend 8080/tcp"*) [[ "${'${FAKE_POST_LOCK_REPLACE:-0}'}" == 1 ]] && touch "${postLockMarker}"; echo 0.0.0.0:18080 ;;`,
 			`*"range .Config.Env"*) printf "%s\\n" 'SPRING_APPLICATION_JSON=${SPRING_APPLICATION_JSON}' FAITHLOG_SCHEDULER_ENABLED=false ;;`,
 			`*"stats --no-stream"*) printf "${FAKE_APP_CONTAINER_ID}|10.0%%|100MiB / 1GiB|9.8%%\\n${FAKE_DB_CONTAINER_ID}|20.0%%|200MiB / 1GiB|19.5%%\\n${FAKE_REDIS_CONTAINER_ID}|5.0%%|50MiB / 1GiB|4.9%%\\n" ;;`,
@@ -1472,6 +1530,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 				PERF_ADMIN_EMAIL: 'admin@example.test', PERF_ADMIN_PASSWORD: 'admin-secret', PERF_MEMBER_PASSWORD: 'member-secret',
 				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
 				PERF_ACCESS_TOKEN: 'stale-token', PERF_ADMIN_ACCESS_TOKEN: 'stale-admin-token', PERF_MEMBER_ACCESS_TOKEN: 'stale-member-token',
+				UNKNOWN_CAPTURE_SECRET: 'unknown-secret',
 			},
 			encoding: 'utf8',
 			timeout: 60000,
@@ -1559,8 +1618,8 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-contract-'));
 	try {
 		const endpoint = 'poll_member_list';
-		const paths = Object.fromEntries(['summary', 'before', 'after', 'sql', 'resources', 'integrity', 'metadata', 'report']
-			.map((name) => [name, join(temporary, `${name}.${name === 'sql' || name === 'resources' ? 'txt' : 'json'}`)]));
+		const paths = Object.fromEntries(['summary', 'before', 'after', 'sql', 'sqlAttestation', 'resources', 'integrity', 'metadata', 'report']
+			.map((name) => [name, join(temporary, name === 'sql' ? 'sql.log.gz' : `${name}.${name === 'resources' ? 'txt' : 'json'}`)]));
 		writeFileSync(paths.summary, JSON.stringify({ metrics: {
 			endpoint_poll_member_list_duration: { values: { 'p(50)': 10, 'p(95)': 20, 'p(99)': 30, max: 40 } },
 			endpoint_poll_member_list_requests: { values: { count: 2, rate: 1.5 } },
@@ -1568,7 +1627,8 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		} }));
 		writeFileSync(paths.before, JSON.stringify(dbSnapshot('2026-07-14T00:00:01.000Z', { users: { n_live_tup: 1000 } })));
 		writeFileSync(paths.after, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', { users: { seq_scan: 4, seq_tup_read: 4000, n_live_tup: 1000 } })));
-		writeFileSync(paths.sql, Array.from({ length: 4 }, (_, index) => `INFO org.hibernate.SQL: select * from users where id=${index + 1}`).join('\n'));
+		const sqlAttestation = writeSqlEvidenceFixture(paths.sql, paths.sqlAttestation,
+			Array.from({ length: 4 }, (_, index) => `INFO org.hibernate.SQL: select * from users where id=${index + 1}`));
 		writeFileSync(paths.resources, [
 			'2026-07-14T00:00:00Z\tfaithlog-backend\tapp-container-id\t10.0%\t100MiB / 1GiB\t9.8%',
 			'2026-07-14T00:00:00Z\tfaithlog-postgres\tdb-container-id\t20.0%\t200MiB / 1GiB\t19.5%',
@@ -1580,11 +1640,11 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(paths.integrity, `${integritySample()}\n${integritySample({ capturedAt: '2026-07-14T00:00:02.000Z' })}\n`);
 		writeFileSync(paths.metadata, JSON.stringify({
 			mode: 'poll-member', datasetId: 'issue-196-prayer-poll-list-v2', fixtureRunId: 'i196-test',
-			runtime: reportRuntime(),
+			runtime: reportRuntime({ sqlEvidenceAttestation: sqlAttestation }),
 		}));
 
 		const pendingAdoptionProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, paths.report]);
+			paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, paths.report]);
 		assert.notEqual(pendingAdoptionProcess.status, 0, 'clean sampled evidence cannot auto-adopt before user policy approval');
 		assert.equal(existsSync(paths.report), true, `summarizer did not preserve its report: ${pendingAdoptionProcess.stderr?.toString()}`);
 		const report = JSON.parse(readFileSync(paths.report, 'utf8'));
@@ -1611,7 +1671,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		approvedSampling.runtime.samplingMaxGapSeconds = 4;
 		writeFileSync(approvedSamplingMetadata, JSON.stringify(approvedSampling));
 		const approvedSamplingProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity,
+			paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity,
 			approvedSamplingMetadata, approvedSamplingReport]);
 		assert.notEqual(approvedSamplingProcess.status, 0, 'automatic adoption must remain disabled');
 		const approvedSamplingResult = JSON.parse(readFileSync(approvedSamplingReport, 'utf8'));
@@ -1637,7 +1697,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			const resourceReport = join(temporary, `${name}-resource-report.json`);
 			writeFileSync(resourcePath, resourceLines.join('\n'));
 			const resourceProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-				paths.summary, paths.before, paths.after, paths.sql, resourcePath, paths.integrity, paths.metadata, resourceReport]);
+				paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, resourcePath, paths.integrity, paths.metadata, resourceReport]);
 			assert.notEqual(resourceProcess.status, 0);
 			const resourceResult = JSON.parse(readFileSync(resourceReport, 'utf8'));
 			assert.equal(resourceResult.measurementStatus, 'rejected');
@@ -1656,7 +1716,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 				...readFileSync(paths.resources, 'utf8').split('\n').filter((line) => !line.includes('faithlog-backend')),
 			].join('\n'));
 			const malformedResourceProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-				paths.summary, paths.before, paths.after, paths.sql, malformedResource, paths.integrity, paths.metadata, malformedResourceReport]);
+				paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, malformedResource, paths.integrity, paths.metadata, malformedResourceReport]);
 			assert.notEqual(malformedResourceProcess.status, 0);
 			const malformedResourceResult = JSON.parse(readFileSync(malformedResourceReport, 'utf8'));
 			assert.equal(malformedResourceResult.measurementStatus, 'rejected');
@@ -1668,7 +1728,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		unconfirmed.runtime.exclusiveWindowConfirmed = false;
 		writeFileSync(unconfirmedMetadata, JSON.stringify(unconfirmed));
 		const unconfirmedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, unconfirmedMetadata, unconfirmedReport]);
+			paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, unconfirmedMetadata, unconfirmedReport]);
 		assert.notEqual(unconfirmedProcess.status, 0);
 		assert.ok(JSON.parse(readFileSync(unconfirmedReport, 'utf8')).rejectionReasons.includes('adoption-policy-pending-user-approval'));
 		const failedMetadata = join(temporary, 'metadata-k6-failed.json');
@@ -1678,7 +1738,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			runtime: reportRuntime({ k6ExitStatus: 99 }),
 		}));
 		const failedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, failedMetadata, failedReport]);
+			paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, failedMetadata, failedReport]);
 		assert.notEqual(failedProcess.status, 0);
 		const failed = JSON.parse(readFileSync(failedReport, 'utf8'));
 		assert.equal(failed.accepted, false);
@@ -1692,7 +1752,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 				integritySamplerExitStatus: 94, logCaptureExitStatus: 96, afterDbSnapshotExitStatus: 95 }),
 		}));
 		const samplerFailedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			join(temporary, 'missing-summary.json'), paths.before, paths.after, paths.sql,
+			join(temporary, 'missing-summary.json'), paths.before, paths.after, paths.sql, paths.sqlAttestation,
 			join(temporary, 'missing-resources.tsv'), paths.integrity, samplerFailedMetadata, samplerFailedReport]);
 		assert.notEqual(samplerFailedProcess.status, 0);
 		const samplerFailed = JSON.parse(readFileSync(samplerFailedReport, 'utf8'));
@@ -1714,7 +1774,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(malformedBefore, JSON.stringify(dbSnapshot('2026-07-14T00:00:01.000Z', { users: { seq_scan: null } })));
 		writeFileSync(malformedAfter, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', { users: { seq_scan: '' } })));
 		const malformedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			malformedSummary, malformedBefore, malformedAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, malformedReport]);
+			malformedSummary, malformedBefore, malformedAfter, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, malformedReport]);
 		assert.notEqual(malformedProcess.status, 0);
 		const malformed = JSON.parse(readFileSync(malformedReport, 'utf8'));
 		assert.equal(malformed.accepted, false);
@@ -1729,7 +1789,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(malformedDb, '{not-json');
 		const missingArtifactProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
 			join(temporary, 'absent-summary.json'), malformedDb, join(temporary, 'absent-after.json'),
-			emptySql, paths.resources, paths.integrity, paths.metadata, missingArtifactReport]);
+				emptySql, join(temporary, 'absent-sql-attestation.json'), paths.resources, paths.integrity, paths.metadata, missingArtifactReport]);
 		assert.notEqual(missingArtifactProcess.status, 0);
 		const missingArtifact = JSON.parse(readFileSync(missingArtifactReport, 'utf8'));
 		assert.equal(missingArtifact.accepted, false);
@@ -1741,7 +1801,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		const rejectedReport = join(temporary, 'rejected-report.json');
 		writeFileSync(rejectedAfter, JSON.stringify(dbSnapshot('2026-07-14T00:00:02.000Z', { users: { seq_scan: 4, seq_tup_read: 4000, n_tup_upd: 1, n_live_tup: 1000 } })));
 		const rejected = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, rejectedAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, rejectedReport]);
+			paths.summary, paths.before, rejectedAfter, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, rejectedReport]);
 		assert.notEqual(rejected.status, 0);
 		assert.equal(existsSync(rejectedReport), true, 'a read run with writes must preserve a rejected report');
 		const writeRejected = JSON.parse(readFileSync(rejectedReport, 'utf8'));
@@ -1756,7 +1816,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			endpoint_poll_member_list_failures: { rate: 0, passes: 0, fails: 2 },
 		} }));
 		const directProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			directSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, directReport]);
+			directSummary, paths.before, paths.after, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, directReport]);
 		assert.notEqual(directProcess.status, 0);
 		assert.equal(JSON.parse(readFileSync(directReport, 'utf8')).measurementStatus, 'conditional-not-adoptable');
 
@@ -1768,7 +1828,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			endpoint_poll_member_list_failures: { values: { rate: 0, passes: 0, fails: 1 } },
 		} }));
 		const zeroProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			zeroSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, zeroReport]);
+			zeroSummary, paths.before, paths.after, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, zeroReport]);
 		assert.notEqual(zeroProcess.status, 0);
 		assert.ok(JSON.parse(readFileSync(zeroReport, 'utf8')).rejectionReasons.includes('non-positive-throughput'));
 
@@ -1784,7 +1844,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 				endpoint_poll_member_list_failures: metric({ rate: 0, passes: 0, fails: 2 }),
 			} }));
 			const invertedProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-				invertedSummary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, invertedReport]);
+				invertedSummary, paths.before, paths.after, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, invertedReport]);
 			assert.notEqual(invertedProcess.status, 0);
 			assert.ok(JSON.parse(readFileSync(invertedReport, 'utf8')).rejectionReasons.includes('invalid-latency-order'));
 		}
@@ -1792,7 +1852,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		const existingReport = join(temporary, 'existing-report.json');
 		writeFileSync(existingReport, 'preserve-existing-evidence\n');
 		const overwriteProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, paths.resources, paths.integrity, paths.metadata, existingReport]);
+			paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, existingReport]);
 		assert.notEqual(overwriteProcess.status, 0);
 		assert.equal(readFileSync(existingReport, 'utf8'), 'preserve-existing-evidence\n');
 
@@ -1806,7 +1866,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			users: { seq_scan: 4, n_tup_ins: 1 }, campuses: { n_tup_upd: 0 },
 		})));
 		const counterProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, counterBefore, counterAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, counterReport]);
+			paths.summary, counterBefore, counterAfter, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, counterReport]);
 		assert.notEqual(counterProcess.status, 0);
 		const counterRejected = JSON.parse(readFileSync(counterReport, 'utf8'));
 		assert.ok(counterRejected.rejectionReasons.includes('snapshot-time-order'));
@@ -1823,7 +1883,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			users: { n_tup_upd: Number.MAX_SAFE_INTEGER + 2 },
 		})));
 		const unsafeProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, unsafeBefore, unsafeAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, unsafeReport]);
+			paths.summary, unsafeBefore, unsafeAfter, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, unsafeReport]);
 		assert.notEqual(unsafeProcess.status, 0, 'unsafe JSON numbers must not collapse a +1 write counter delta to zero');
 		assert.ok(JSON.parse(readFileSync(unsafeReport, 'utf8')).rejectionReasons.includes('invalid-db-table-snapshot'));
 
@@ -1837,7 +1897,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			users: { seq_scan: '9007199254740993', n_tup_upd: '9007199254740993' },
 		})));
 		const exactProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, exactBefore, exactAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, exactReport]);
+			paths.summary, exactBefore, exactAfter, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, exactReport]);
 		assert.notEqual(exactProcess.status, 0);
 		const exactRejected = JSON.parse(readFileSync(exactReport, 'utf8'));
 		assert.ok(exactRejected.rejectionReasons.includes('write-counter-delta:users:n_tup_upd:1'));
@@ -1851,7 +1911,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		missingTableSnapshot.tables.pop();
 		writeFileSync(missingTableAfter, JSON.stringify(missingTableSnapshot));
 		const missingTableProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, missingTableAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, missingTableReport]);
+			paths.summary, paths.before, missingTableAfter, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, missingTableReport]);
 		assert.notEqual(missingTableProcess.status, 0);
 		assert.ok(JSON.parse(readFileSync(missingTableReport, 'utf8')).rejectionReasons.includes('required-table-set-mismatch'));
 
@@ -1866,7 +1926,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			unexpectedHttpClients: [{ pid: 998, command: 'Chrome' }],
 		})}\n`);
 		const integrityProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, analysisAfter, paths.sql, paths.resources, externalIntegrity, paths.metadata, integrityReport]);
+			paths.summary, paths.before, analysisAfter, paths.sql, paths.sqlAttestation, paths.resources, externalIntegrity, paths.metadata, integrityReport]);
 		assert.notEqual(integrityProcess.status, 0);
 		const integrityRejected = JSON.parse(readFileSync(integrityReport, 'utf8'));
 		for (const reason of ['planner-settings-changed', 'analyze-state-changed', 'external-http-activity', 'unexpected-db-session']) {
@@ -1887,7 +1947,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(missingSchemaBefore, JSON.stringify(beforeWithoutSchema));
 		writeFileSync(missingSchemaAfter, JSON.stringify(afterWithoutSchema));
 		const missingSchemaProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, missingSchemaBefore, missingSchemaAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, missingSchemaReport]);
+			paths.summary, missingSchemaBefore, missingSchemaAfter, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, missingSchemaReport]);
 		assert.notEqual(missingSchemaProcess.status, 0, 'identically missing planner/analyze fields must reject');
 		const missingSchemaRejected = JSON.parse(readFileSync(missingSchemaReport, 'utf8'));
 		assert.ok(missingSchemaRejected.rejectionReasons.includes('invalid-planner-settings'));
@@ -1908,7 +1968,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		].join('\n'));
 		writeFileSync(sparseIntegrity, `${integritySample()}\n`);
 		const sparseProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, sparseResources, sparseIntegrity, sparseMetadata, sparseReport]);
+			paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, sparseResources, sparseIntegrity, sparseMetadata, sparseReport]);
 		assert.notEqual(sparseProcess.status, 0, 'a ten-minute window with one sample must reject');
 		assert.ok(JSON.parse(readFileSync(sparseReport, 'utf8')).rejectionReasons.some((reason) => reason.startsWith('insufficient-samples:')));
 
@@ -1925,7 +1985,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		].join('\n'));
 		writeFileSync(gapIntegrity, `${integritySample({ capturedAt: '2026-07-14T00:00:00.000Z' })}\n${integritySample({ capturedAt: '2026-07-14T00:10:00.000Z' })}\n`);
 		const gapProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, paths.after, paths.sql, gapResources, gapIntegrity, sparseMetadata, gapReport]);
+			paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, gapResources, gapIntegrity, sparseMetadata, gapReport]);
 		assert.notEqual(gapProcess.status, 0, 'a long unsampled middle gap must reject');
 		assert.ok(JSON.parse(readFileSync(gapReport, 'utf8')).rejectionReasons.some((reason) => reason.startsWith('sample-gap:')));
 
@@ -1944,7 +2004,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(pgssBeforePath, JSON.stringify(pgssBefore));
 		writeFileSync(pgssAfterPath, JSON.stringify(pgssAfter));
 		spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, pgssBeforePath, pgssAfterPath, paths.sql, paths.resources, paths.integrity, paths.metadata, pgssAvailableReport]);
+			paths.summary, pgssBeforePath, pgssAfterPath, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, pgssAvailableReport]);
 		const pgssAvailable = JSON.parse(readFileSync(pgssAvailableReport, 'utf8'));
 		assert.equal(pgssAvailable.measurementStatus, 'conditional-not-adoptable', 'stable pgss available state remains valid evidence');
 
@@ -1952,7 +2012,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		writeFileSync(pgssAfterPath, JSON.stringify(pgssAfter));
 		const pgssDriftReport = join(temporary, 'pgss-drift-report.json');
 		spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, pgssBeforePath, pgssAfterPath, paths.sql, paths.resources, paths.integrity, paths.metadata, pgssDriftReport]);
+			paths.summary, pgssBeforePath, pgssAfterPath, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, pgssDriftReport]);
 		const pgssDrift = JSON.parse(readFileSync(pgssDriftReport, 'utf8'));
 		assert.equal(pgssDrift.measurementStatus, 'rejected');
 		assert.ok(pgssDrift.rejectionReasons.includes('pgss-state-changed'));
@@ -1963,7 +2023,7 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 			polls: { autovacuum_count: 1, last_autovacuum: '2026-07-14T00:00:01.500Z' },
 		})));
 		const vacuumProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
-			paths.summary, paths.before, vacuumAfter, paths.sql, paths.resources, paths.integrity, paths.metadata, vacuumReport]);
+			paths.summary, paths.before, vacuumAfter, paths.sql, paths.sqlAttestation, paths.resources, paths.integrity, paths.metadata, vacuumReport]);
 		assert.notEqual(vacuumProcess.status, 0, 'vacuum/autovacuum drift must reject');
 		assert.ok(JSON.parse(readFileSync(vacuumReport, 'utf8')).rejectionReasons.includes('vacuum-state-changed'));
 	} finally {

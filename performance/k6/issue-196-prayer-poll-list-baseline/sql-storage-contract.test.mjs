@@ -110,10 +110,19 @@ test('fake Docker follower requires --follow boundaries and propagates incomplet
 		const bin = join(temporary, 'bin');
 		mkdirSync(bin);
 		const docker = join(bin, 'docker');
-		writeFileSync(docker, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "$*" > "$FAKE_DOCKER_ARGS"\nprintf '%s\\n' "$SQL_FIRST_SENTINEL"\nprintf '%s\\n' 'DEBUG org.hibernate.SQL : select 1'\nif [[ "\${FAKE_DOCKER_FAIL:-false}" == true ]]; then exit 42; fi\nprintf '%s\\n' "$SQL_FINAL_SENTINEL"\nif [[ "\${FAKE_DOCKER_FAIL_AFTER_FINAL:-false}" == true ]]; then exit 42; fi\nif [[ "\${FAKE_DOCKER_TERM_143:-false}" == true ]]; then trap 'exit 143' TERM; while :; do sleep 1; done; fi\n`);
+		const nodeLeak = join(temporary, 'node-secret-leak');
+		const dockerLeak = join(temporary, 'docker-secret-leak');
+		writeFileSync(join(bin, 'node'), `#!/usr/bin/env bash\nset -euo pipefail\nif env | grep -Eq '^(PERF_ADMIN_PASSWORD|PERF_DB_PASSWORD|UNKNOWN_CAPTURE_SECRET)='; then : > ${JSON.stringify(nodeLeak)}; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+		writeFileSync(docker, `#!/usr/bin/env bash\nset -euo pipefail\nif env | grep -Eq '^(PERF_ADMIN_PASSWORD|PERF_DB_PASSWORD|UNKNOWN_CAPTURE_SECRET)='; then : > ${JSON.stringify(dockerLeak)}; fi\nprintf '%s\\n' "$*" > ${JSON.stringify(join(temporary, 'docker.args'))}\nprintf '%s\\n' "$SQL_FIRST_SENTINEL"\nprintf '%s\\n' 'DEBUG org.hibernate.SQL : select 1'\nif [[ "\${FAKE_DOCKER_FAIL:-false}" == true ]]; then exit 42; fi\nprintf '%s\\n' "$SQL_FINAL_SENTINEL"\nif [[ "\${FAKE_DOCKER_FAIL_AFTER_FINAL:-false}" == true ]]; then exit 42; fi\nif [[ "\${FAKE_DOCKER_TERM_143:-false}" == true ]]; then trap 'exit 143' TERM; while :; do sleep 1; done; fi\n`);
+		chmodSync(join(bin, 'node'), 0o700);
 		chmodSync(docker, 0o700);
-		const complete = runFollower(temporary, { PATH: `${bin}:${process.env.PATH}` });
+		const complete = runFollower(temporary, {
+			PATH: `${bin}:${process.env.PATH}`, PERF_ADMIN_PASSWORD: 'admin-sentinel',
+			PERF_DB_PASSWORD: 'db-sentinel', UNKNOWN_CAPTURE_SECRET: 'unknown-sentinel',
+		});
 		assert.equal(complete.status, 0, complete.stderr);
+		assert.equal(existsSync(nodeLeak), false, 'capture Node child must not inherit credentials or unknown secrets');
+		assert.equal(existsSync(dockerLeak), false, 'Docker follower must not inherit credentials or unknown secrets');
 		assert.equal(readFileSync(join(temporary, 'docker.args'), 'utf8').trim(),
 			'logs --follow --since 2026-07-17T00:00:00.000Z fake-app');
 		const dockerCliStopDirectory = mkdtempSync(join(tmpdir(), 'faithlog-196-fake-docker-143-'));
