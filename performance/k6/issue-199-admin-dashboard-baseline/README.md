@@ -1,12 +1,24 @@
 # Issue #199 관리자 대시보드 before 시나리오
 
-상태: **scenario-ready/not-measured**
+상태: **production-optimized / integration after pending**
 
 채택 상태: **conditional-not-adoptable**. 공유 stack에서 현재 승인된 증거는 measured 전후 `pg_stat_activity` 경계 snapshot뿐이라, 두 snapshot 사이에 시작·종료한 짧은 외부 요청을 완전히 검출한다고 주장하지 않는다. 승인된 continuous provenance 또는 격리 방식이 추가되기 전 runner는 모든 mode evidence를 수집한 뒤 non-zero로 종료하며 실제 baseline으로 채택하지 않는다.
 
-이 디렉터리는 `GET /api/v1/admin/campuses/{campusId}/dashboard/summary`의 production 집계 구현을 변경하기 전에 사용할 측정 계약만 준비한다. 이번 개발 세션에서는 seed, k6, Docker, PostgreSQL 명령을 실행하지 않았고 실제 baseline 수치나 개선 성과를 기록하지 않는다. production Java/API/권한/응답/오류/트랜잭션/Entity/DB/Flyway/의존성 변경도 없다.
+이 디렉터리의 기존 runner는 `GET /api/v1/admin/campuses/{campusId}/dashboard/summary`의 current-develop before 계약을 보존한다. 2026-07-17부터 이력서용 성능 검증은 핵심 병목, 동일 fixture, before/after 3회, failure 0, p50/p95/p99/throughput, SQL 수에 집중하는 lean protocol을 사용한다. 기존 다중 fixture runner를 production 최적화 완료 조건으로 다시 실행하지 않는다.
 
-성능 이슈의 issue-local test/scenario 보정은 서로 병렬로 수행할 수 있지만, shared stack의 실제 seed/HTTP/k6/Docker/PostgreSQL 부하는 PM 전용 measurement slot에서만 순차 실행한다. 이 문서는 **scenario-ready/not-measured**이며 모든 machine gate는 `automaticAdoption=false`다.
+성능 이슈의 issue-local test/scenario 보정은 서로 병렬로 수행할 수 있지만, shared stack의 실제 HTTP load는 한 서버에 하나씩만 순차 실행한다. 기존 machine gate의 `automaticAdoption=false`는 유지한다.
+
+## 2026-07-17 production 최적화
+
+- 병목: OPEN non-MEAL Poll마다 `countByPollIdAndUserIdIn`을 호출해 Poll 수에 비례하는 N+1이 발생했다.
+- RED: ACTIVE member 1명과 OPEN Poll 25개인 동일 HTTP 통합 fixture에서 dashboard summary 1회가 35 JDBC prepared statements를 실행했다.
+- GREEN: Poll ID와 ACTIVE user ID 집합을 한 번에 전달하고 `poll_id`별 response count를 단일 grouped query로 조회한다.
+- 결과: 단독 focused 실행 10 SQL, 관련 Controller+REST Docs suite 실행 11 SQL 이하. 보수적으로 35→11, 24개 및 68.6% 이상 감소했다.
+- 정확성: `openCount=25`, `missingResponseCount=25`, 기존 aggregate/권한/오류/API DTO를 동일 테스트에서 유지했다.
+- 범위: Controller, DTO, frontend, Entity, Flyway, index, dependency 변경은 없다.
+- HTTP latency/throughput 개선률은 최적화 코드를 integration runtime에 배포하고 동일 조건 before/after 3회를 완료하기 전까지 주장하지 않는다.
+- `current-develop-contract.json`은 before 증거다. verifier는 작업 파일이 아니라 승인 base commit의 Git object를 읽어 before hash를 검증하므로 after 소스와 혼동하지 않는다.
+- 검증: 관련 Controller+REST Docs GREEN, issue-local Node 46/46, 전체 Gradle 88 suites / 556 tests / failures 0 / errors 0 / skipped 3, build/asciidoctor 성공.
 
 ## 실제 API 계약
 

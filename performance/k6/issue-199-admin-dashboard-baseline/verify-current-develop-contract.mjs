@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,14 +12,19 @@ try {
 	const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 	assert.equal(contract.issue, 199);
 	assert.equal(contract.baseCommit, '6796ed146244d8f3f5b5dd7048ebe16865084a97');
+	const readApprovedSource = (relativePath) => execFileSync(
+		'git',
+		['show', `${contract.baseCommit}:${relativePath}`],
+		{cwd: repositoryRoot},
+	);
 	for (const [relativePath, expected] of Object.entries({...contract.sourceFiles, ...Object.fromEntries(
 		Object.entries(contract.flywayMigrations).map(([name, hash]) => [`src/main/resources/db/migration/${name}`, hash]),
 	)})) {
-		const actual = createHash('sha256').update(fs.readFileSync(path.join(repositoryRoot, relativePath))).digest('hex');
+		const actual = createHash('sha256').update(readApprovedSource(relativePath)).digest('hex');
 		assert.equal(actual, expected, `${relativePath} identity drifted from approved current develop.`);
 	}
-	const controller = fs.readFileSync(path.join(repositoryRoot, Object.keys(contract.sourceFiles)[0]), 'utf8');
-	const service = fs.readFileSync(path.join(repositoryRoot, 'src/main/java/com/faithlog/admin/service/AdminDashboardQueryService.java'), 'utf8');
+	const controller = readApprovedSource(Object.keys(contract.sourceFiles)[0]).toString('utf8');
+	const service = readApprovedSource('src/main/java/com/faithlog/admin/service/AdminDashboardQueryService.java').toString('utf8');
 	assert.match(controller, /@RequestParam\(required = false\) LocalDate weekStartDate/);
 	assert.doesNotMatch(controller, /Pageable|PageResponse|includeArchived/);
 	assert.match(service, /MINISTER|ELDER|CAMPUS_LEADER/);

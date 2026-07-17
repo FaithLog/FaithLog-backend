@@ -9,6 +9,17 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-17 - Issue #199 관리자 대시보드 OPEN Poll 응답 집계 N+1 제거
+
+- current-develop call graph에서 OPEN non-MEAL Poll마다 `countByPollIdAndUserIdIn`을 호출하는 N+1을 확인했다.
+- TDD RED: ACTIVE member 1명, OPEN Poll 25개인 HTTP 통합 fixture에서 dashboard summary 1회가 35 JDBC prepared statements를 실행해 constant-query 상한을 실패했다.
+- 최소 GREEN: Poll ID와 ACTIVE user ID 집합을 grouped query 1회로 집계하고 pollId별 Map으로 누락 응답 수를 계산했다.
+- 결과: focused 단독 10 SQL, Controller+REST Docs 관련 suite 11 SQL 이하. 보수적으로 35→11, 24개 및 68.6% 이상 감소했다. `openCount=25`, `missingResponseCount=25`, failure 0과 기존 응답 정확성을 유지했다.
+- API/Controller/DTO/권한/ErrorCode/transaction/Entity/frontend/Flyway/index/dependency 변경은 0이다.
+- 기존 #199 scenario contract 46/46 GREEN. 전체 Gradle은 88 suites / 556 tests / failures 0 / errors 0 / skipped 3이며 build/asciidoctor도 성공했다. before 계약 verifier는 승인 base commit Git object를 검증해 최적화 source와 before source를 분리한다.
+- HTTP p50/p95/p99/throughput 개선률은 integration runtime의 동일 조건 before/after 3회 전까지 이력서 수치로 사용하지 않는다.
+- 이력서 문장 후보: `관리자 대시보드의 OPEN 투표별 응답 수 N+1을 grouped bulk query로 전환해 25개 투표 기준 요청당 SQL을 35개에서 11개 이하로 68.6% 이상 줄이고 API·권한·집계 정확성을 유지했다.`
+
 ## 2026-07-16 - Issue #199 관리자 대시보드 before 시나리오 current-develop 보정
 
 - 상태: `scenario-ready/not-measured`, `conditional-not-adoptable`. 실제 seed/Docker/PostgreSQL/HTTP/k6 실행과 baseline 수치·개선 성과는 0건이며 production/Flyway/dependency 변경도 없다.
