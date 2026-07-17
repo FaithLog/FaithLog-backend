@@ -50,9 +50,12 @@ public class CampusMemberManagementService {
 			ErrorCode.CAMPUS_MEMBER_MANAGE_FORBIDDEN,
 			"캠퍼스 멤버 관리 권한이 없습니다."
 		);
-		return campusMemberRepository.findByCampusIdAndStatusOrderByIdAsc(campusId, CampusMemberStatus.ACTIVE)
-			.stream()
-			.map(member -> AdminCampusMemberResult.of(member, campusAccessPolicy.getUserOrThrow(member.userId())))
+		List<CampusMember> members = campusMemberRepository
+			.findByCampusIdAndStatusOrderByIdAsc(campusId, CampusMemberStatus.ACTIVE);
+		Map<Long, CampusUserLookupResult> users = campusAccessPolicy.getUsers(
+			members.stream().map(CampusMember::userId).toList());
+		return members.stream()
+			.map(member -> AdminCampusMemberResult.of(member, users.get(member.userId())))
 			.toList();
 	}
 
