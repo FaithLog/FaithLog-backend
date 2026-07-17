@@ -179,6 +179,70 @@ class PrayerServiceTest {
 	}
 
 	@Test
+	void season_groups_fetch_member_profiles_without_per_group_or_member_queries() {
+		User manager = saveUser("prayer-groups-query-manager@example.com", UserRole.MANAGER);
+		CampusCreateResult campus = campusService.createCampus(new CreateCampusCommand(
+			manager.id(),
+			"기도 조 쿼리 캠퍼스",
+			"분당",
+			"기도 조 목록 쿼리 evidence"
+		));
+		List<User> members = new ArrayList<>();
+		for (int index = 0; index < 25; index++) {
+			User member = saveUser("prayer-groups-query-member-" + index + "@example.com", UserRole.USER);
+			campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+			members.add(member);
+		}
+		PrayerSeasonResult season = prayerService.createSeason(new CreatePrayerSeasonCommand(
+			campus.campusId(),
+			manager.id(),
+			"2026 조 목록 대규모 시즌",
+			LocalDate.of(2026, 6, 1)
+		));
+		PrayerGroupResult firstGroup = prayerService.createGroup(new CreatePrayerGroupCommand(
+			season.seasonId(),
+			manager.id(),
+			"1조",
+			1
+		));
+		PrayerGroupResult secondGroup = prayerService.createGroup(new CreatePrayerGroupCommand(
+			season.seasonId(),
+			manager.id(),
+			"2조",
+			2
+		));
+		prayerService.replaceGroupMembers(new ReplacePrayerGroupMembersCommand(
+			firstGroup.groupId(),
+			manager.id(),
+			members.subList(0, 13).stream().map(User::id).toList()
+		));
+		prayerService.replaceGroupMembers(new ReplacePrayerGroupMembersCommand(
+			secondGroup.groupId(),
+			manager.id(),
+			members.subList(13, 25).stream().map(User::id).toList()
+		));
+		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+		entityManager.flush();
+		entityManager.clear();
+		statistics.clear();
+
+		List<PrayerGroupResult> groups = prayerService.getSeasonGroups(season.seasonId(), manager.id());
+
+		assertThat(groups).extracting(PrayerGroupResult::groupId)
+			.containsExactly(firstGroup.groupId(), secondGroup.groupId());
+		assertThat(groups.get(0).members()).extracting(PrayerGroupMemberResult::userId)
+			.containsExactlyElementsOf(members.subList(0, 13).stream().map(User::id).toList());
+		assertThat(groups.get(1).members()).extracting(PrayerGroupMemberResult::userId)
+			.containsExactlyElementsOf(members.subList(13, 25).stream().map(User::id).toList());
+		assertThat(groups).flatExtracting(PrayerGroupResult::members)
+			.allSatisfy(member -> {
+				assertThat(member.name()).isNotBlank();
+				assertThat(member.email()).isNotBlank();
+			});
+		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(7);
+	}
+
+	@Test
 	void current_season_returns_active_with_null_end_date_and_excludes_absent_closed_or_inconsistent_rows() {
 		PrayerFixture fixture = createFixture("current-season");
 

@@ -7,6 +7,11 @@ Issue #194의 PostgreSQL 실행계획 before-baseline 준비는
 #192/#193/#195/#196/#197/#198/#199 cross-issue report와 공통 1,000명 fixture를 입력받으며, 실제 DB 측정 승인이
 있기 전에는 정적 계약 테스트만 실행한다. 최신 develop #200/#201/#202/#206 source/schema identity까지 연결했지만 현재
 7개 cross-issue artifact는 모두 approval bridge가 없어 pending이며 상태는 `scenario-ready / not-measured`다.
+## Issue #196 Prayer/Poll Before Scenario
+
+Issue #196 has an independent, local-Docker-only scenario under [`issue-196-prayer-poll-list-baseline/`](issue-196-prayer-poll-list-baseline/README.md). Its current-develop v2 contract prepares a 1,000-active-member Prayer/Poll fixture, runs Prayer, Poll member, Poll admin, and COFFEE/MEAL duty endpoints in separate sequential phases, and contracts endpoint-specific HTTP/app-DB-Redis resource/SQL/table-counter evidence.
+
+Current status is `scenario-ready / not-measured`. Do not quote baseline or improvement numbers until the approved seed, Docker, DB, and k6 measurement session produces reports under ignored `build/reports/k6/issue-196/`.
 
 ## Local Baseline
 
