@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "PERF_1000_EXAMPLE",
+  "fixtureRunId": "fixture-example-run-001",
+  "memberCount": 1000,
+  "issueReports": {
+    "192": "artifacts/issue-192-pending.json",
+    "193": "artifacts/issue-193-pending.json",
+    "195": "artifacts/issue-195-pending.json",
+    "196": "artifacts/issue-196-pending.json",
+    "197": "artifacts/issue-197-pending.json",
+    "198": "artifacts/issue-198-pending.json",
+    "199": "artifacts/issue-199-pending.json"
+  },
+  "anchors": {
+    "campus_id": 1,
+    "poll_id": 1,
+    "meal_poll_id": 2,
+    "member_user_id": 1,
+    "payment_account_id": 1,
+    "prayer_season_id": 1,
+    "prayer_week_id": 1,
+    "week_start_date": "2026-07-13",
+    "archive_cutoff": "2026-06-14T00:00:00Z",
+    "stale_before": "2026-07-14T00:00:00Z",
+    "range_start": "2025-01-01T00:00:00Z",
+    "range_end": "2026-01-01T00:00:00Z",
+    "keyword_pattern": "%PERF_%",
+    "page_size": 20,
+    "page_offset": 0,
+    "expected_state": {
+      "member_status": "ACTIVE",
+      "poll_status": "OPEN",
+      "poll_title": "APPROVED_FIXTURE_POLL_TITLE",
+      "meal_poll_status": "CLOSED",
+      "meal_poll_title": "APPROVED_FIXTURE_MEAL_POLL_TITLE",
+      "payment_account_is_active": true,
+      "payment_account_owner_user_id": 1,
+      "payment_account_nickname": "APPROVED_FIXTURE_ACCOUNT_NICKNAME",
+      "prayer_season_status": "ACTIVE",
+      "prayer_season_name": "APPROVED_FIXTURE_PRAYER_SEASON_NAME",
+      "prayer_week_status": "OPEN"
+    }
+  }
+}

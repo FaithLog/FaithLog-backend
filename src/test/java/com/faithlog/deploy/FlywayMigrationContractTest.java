@@ -26,6 +26,9 @@ class FlywayMigrationContractTest {
 	private static final Path SUPABASE_DATA_API_SECURITY_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V11__secure_supabase_data_api.sql"
 	);
+	private static final Path PERFORMANCE_QUERY_INDEX_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V12__add_performance_query_indexes.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -217,6 +220,23 @@ class FlywayMigrationContractTest {
 		);
 		assertThat(sql).doesNotContain("IF NOT EXISTS");
 		assertThat(v1).doesNotContain("ck_charge_items_amount_positive");
+	}
+
+	@Test
+	void v12MigrationAddsOnlyPlanProvenPerformanceIndexes() throws IOException {
+		assertThat(PERFORMANCE_QUERY_INDEX_MIGRATION).exists();
+		String sql = Files.readString(PERFORMANCE_QUERY_INDEX_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE INDEX idx_charge_items_campus_category_source",
+			"ON charge_items (campus_id, payment_category, source_type, source_id)",
+			"CREATE INDEX idx_charge_items_campus_category_status_user",
+			"ON charge_items (campus_id, payment_category, status, user_id)",
+			"CREATE INDEX idx_campus_members_user_id_id",
+			"ON campus_members (user_id, id)"
+		);
+		assertThat(sql).doesNotContain("IF NOT EXISTS", "CONCURRENTLY");
+		assertThat(sql.lines().filter(line -> line.startsWith("CREATE INDEX "))).hasSize(3);
 	}
 
 	@Test

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "issueNumber": 194,
+  "capturedAt": "2026-07-17",
+  "sourceRevision": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
+  "postgresVersion": "17.10 (Debian 17.10-1.pgdg13+1)",
+  "dataset": {
+    "chargeItems": 749017,
+    "campusMembers": 50603,
+    "pollResponses": 694412,
+    "devotionDailyChecks": 42084
+  },
+  "method": {
+    "statement": "EXPLAIN (ANALYZE, BUFFERS)",
+    "candidateIndexesCreatedInsideTransaction": true,
+    "candidateIndexesRolledBack": true,
+    "candidateIndexesPersistedInSharedDatabase": 0,
+    "cacheResetPerformed": false,
+    "apiLatencyClaim": false
+  },
+  "approvedIndexes": [
+    {
+      "name": "idx_charge_items_campus_category_source",
+      "definition": "charge_items(campus_id, payment_category, source_type, source_id)",
+      "size": "18 MB",
+      "query": "#192 1000 source-id bulk charge lookup",
+      "current": { "executionTimeMs": 14.155, "sharedBuffers": 898 },
+      "candidate": { "executionTimeMs": 0.738, "sharedBuffers": 46 }
+    },
+    {
+      "name": "idx_charge_items_campus_category_status_user",
+      "definition": "charge_items(campus_id, payment_category, status, user_id)",
+      "size": "12 MB",
+      "query": "#193 admin charge summary/member-page/count-distinct",
+      "comparisons": [
+        { "statement": "summary", "currentMs": 47.668, "candidateMs": 16.440 },
+        { "statement": "member-page", "currentMs": 70.738, "candidateMs": 21.592 },
+        { "statement": "count-distinct", "currentMs": 62.711, "candidateMs": 18.165 }
+      ]
+    },
+    {
+      "name": "idx_campus_members_user_id_id",
+      "definition": "campus_members(user_id, id)",
+      "size": "1568 kB",
+      "query": "#195 100-user admin page membership projection",
+      "currentExecutionTimeMs": [6.199, 4.625],
+      "candidateExecutionTimeMs": [1.115, 0.921]
+    }
+  ],
+  "noNewIndex": [
+    {
+      "query": "#197 weekly devotion daily checks",
+      "reason": "uk_devotion_daily_checks_weekly_record_date serves the lookup and ordering",
+      "executionTimeMs": 0.118
+    },
+    {
+      "query": "#199 grouped poll response count",
+      "reason": "uk_poll_responses_poll_user matches pollId and userId filters",
+      "executionTimeMs": 29.873,
+      "rowsAggregated": 17000
+    },
+    {
+      "query": "#196 prayer group members",
+      "reason": "uk_prayer_group_members_group_user already leads with group_id"
+    },
+    {
+      "query": "#198 active FCM tokens",
+      "reason": "isolated workload has only 1000 token rows and the existing user-leading index is sufficient"
+    }
+  ]
+}
