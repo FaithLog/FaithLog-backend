@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +33,36 @@ test('a late bind logger record prevents every previously observed SQL statement
 	assert.equal(result.status, 2, result.stderr);
 	assert.equal(result.stdout, '');
 	assert.doesNotMatch(result.stderr, /redacted-test-value/);
+});
+
+test('SQL evidence aggregation streams an artifact beyond the Node string limit with exact normalized counts', async () => {
+	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-large-sql-evidence-'));
+	const path = join(temporary, 'hibernate-sql.log');
+	const lineBytes = 64 * 1_024;
+	const lineCount = 8_193;
+	const totalBytes = lineBytes * lineCount;
+	const descriptor = openSync(path, 'wx', 0o600);
+	try {
+		ftruncateSync(descriptor, totalBytes);
+		const newline = Buffer.from('\n');
+		for (let index = 1; index <= lineCount; index += 1) {
+			writeSync(descriptor, newline, 0, newline.length, (index * lineBytes) - 1);
+		}
+		const statement = Buffer.from(`${SQL_STATEMENT}\n`);
+		writeSync(descriptor, statement, 0, statement.length, totalBytes - statement.length);
+	} finally {
+		closeSync(descriptor);
+	}
+
+	try {
+		const { collectSqlEvidence } = await import(`./sql-evidence.mjs?test=${Date.now()}`);
+		const evidence = await collectSqlEvidence(path);
+		assert.equal(evidence.queryCount, 1);
+		assert.deepEqual(evidence.repeatedSql, []);
+		assert.deepEqual(evidence.normalizedCounts, [{ sql: 'select u1_0.id from users u1_0 where u1_0.id=?', count: 1 }]);
+	} finally {
+		rmSync(temporary, { recursive: true, force: true });
+	}
 });
 
 async function runFilter({ chunks, leadingLines = [], trailingLines = [] }) {
