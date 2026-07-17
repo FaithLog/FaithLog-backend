@@ -1,5 +1,11 @@
 # FaithLog k6 Performance Tests
 
+## Issue #197 Devotion/Retention Baseline Preparation
+
+`performance/k6/issue-197/` is `scenario-ready / not-measured` against `origin/develop` `6796ed146244d8f3f5b5dd7048ebe16865084a97`. Its devotion write and retention dry-verification contracts are isolated from each other. The approved **two-session / one-load** policy separates the development preparation session from the single exclusive measurement session; no fixture, DB, HTTP, k6 load, cleanup, or scheduler execution belongs in development. The later exclusive measurement session runs the issue-local create-only devotion prepare tool before its one load.
+
+The prepare tool and runners have no runtime identity defaults. They require exact revision, app/DB/Redis image and full container IDs, app JAR/API-contract digest, Compose project/service, applied Flyway identity, Redis run identity, explicit numeric-loopback app/DB/Redis targets, workload/JWT, three-role resource window, database session/maintenance, BigInt counter, and optional `pg_stat_statements` evidence. Exact business rows remain mandatory while shared-stack DB-wide counters are supporting evidence; even a clean before is `conditional-not-adoptable`. The first failure is preserved as mode-600 JSON with `automaticAdoption=false`. Retention remains read-only dry candidate verification and never invokes cleanup. See [`issue-197/README.md`](issue-197/README.md).
+
 Issue #90 uses k6 to collect reproducible local performance numbers. Defaults target local Docker Compose only.
 
 Issue #194의 PostgreSQL 실행계획 before-baseline 준비는
