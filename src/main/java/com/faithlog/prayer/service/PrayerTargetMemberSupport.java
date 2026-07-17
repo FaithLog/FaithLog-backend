@@ -44,6 +44,26 @@ class PrayerTargetMemberSupport {
 		return PrayerGroupResult.of(group, members);
 	}
 
+	List<PrayerGroupResult> toGroupResults(List<PrayerGroup> groups) {
+		if (groups.isEmpty()) {
+			return List.of();
+		}
+		List<Long> groupIds = groups.stream().map(PrayerGroup::id).toList();
+		List<PrayerGroupMember> members = groupMemberRepository.findByGroupIdInAndIsActiveTrueOrderByIdAsc(groupIds);
+		Map<Long, CampusUserLookupResult> usersById = members.isEmpty()
+			? Map.of()
+			: accessSupport.campusUsersById(members.stream().map(PrayerGroupMember::userId).distinct().toList());
+		Map<Long, List<PrayerGroupMemberResult>> resultsByGroupId = new HashMap<>();
+		for (PrayerGroupMember member : members) {
+			CampusUserLookupResult user = usersById.get(member.userId());
+			resultsByGroupId.computeIfAbsent(member.groupId(), ignored -> new ArrayList<>())
+				.add(new PrayerGroupMemberResult(member.userId(), user.name(), user.email()));
+		}
+		return groups.stream()
+			.map(group -> PrayerGroupResult.of(group, resultsByGroupId.getOrDefault(group.id(), List.of())))
+			.toList();
+	}
+
 	PrayerAssignableMemberResult toAssignableMember(
 		Long userId,
 		Map<Long, Long> assignedGroupIdByUserId,

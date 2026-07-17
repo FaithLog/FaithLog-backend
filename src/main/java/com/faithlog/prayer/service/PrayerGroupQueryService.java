@@ -51,10 +51,8 @@ public class PrayerGroupQueryService {
 	public List<PrayerGroupResult> getSeasonGroups(Long seasonId, Long requesterId) {
 		PrayerSeason season = getSeason(seasonId);
 		accessSupport.requirePrayerManager(season.campusId(), requesterId);
-		return groupRepository.findBySeasonIdAndIsActiveTrueOrderBySortOrderAscIdAsc(season.id())
-			.stream()
-			.map(targetMemberSupport::toGroupResult)
-			.toList();
+		List<PrayerGroup> groups = groupRepository.findBySeasonIdAndIsActiveTrueOrderBySortOrderAscIdAsc(season.id());
+		return targetMemberSupport.toGroupResults(groups);
 	}
 
 	@Transactional(readOnly = true)
