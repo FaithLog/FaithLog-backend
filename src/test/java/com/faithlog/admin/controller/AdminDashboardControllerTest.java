@@ -1,5 +1,6 @@
 package com.faithlog.admin.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -26,23 +27,28 @@ import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import org.junit.jupiter.api.Test;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@TestPropertySource(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 class AdminDashboardControllerTest {
 
 	private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
@@ -70,6 +76,9 @@ class AdminDashboardControllerTest {
 
 	@Autowired
 	private PollResponseRepository pollResponseRepository;
+
+	@Autowired
+	private EntityManagerFactory entityManagerFactory;
 
 	@Test
 	void dashboard_summary_allows_service_admin_and_campus_admin_roles_but_rejects_member_other_campus_admin_and_manager_only() throws Exception {
@@ -212,6 +221,37 @@ class AdminDashboardControllerTest {
 			.andExpect(jsonPath("$.data.polls.recentlyClosedCount").value(1))
 			.andExpect(jsonPath("$.data.polls.missingResponseCount").value(5))
 			.andExpect(jsonPath("$.data.polls.recentlyClosedDays").value(7));
+	}
+
+	@Test
+	void dashboard_summary_counts_open_poll_responses_with_constant_query_count() throws Exception {
+		String managerToken = signupAndLogin(
+			"dashboard-query-manager@example.com",
+			UserRole.MANAGER,
+			"쿼리관리자"
+		);
+		JsonNode campus = createCampus(managerToken, "쿼리대시보드캠");
+		long campusId = campus.path("campusId").asLong();
+		for (int index = 0; index < 25; index++) {
+			createPoll(
+				campusId,
+				"쿼리 투표 " + index,
+				PollStatusFixture.OPEN,
+				Instant.now().minusSeconds(60),
+				Instant.now().plusSeconds(3600)
+			);
+		}
+		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+		statistics.clear();
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/dashboard/summary", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("weekStartDate", "2026-06-08"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.polls.openCount").value(25))
+			.andExpect(jsonPath("$.data.polls.missingResponseCount").value(25));
+
+		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(12);
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
