@@ -26,6 +26,7 @@ import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
+import com.faithlog.poll.infrastructure.repository.PollResponseRepository.PollResponseCountProjection;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import java.math.BigDecimal;
@@ -192,11 +193,20 @@ public class AdminDashboardQueryService {
 			now
 		).stream().filter(poll -> poll.pollType() != PollType.MEAL).count();
 		Set<Long> activeUserIds = activeMembers.stream().map(CampusMember::userId).collect(Collectors.toSet());
+		List<Long> openPollIds = openPolls.stream().map(Poll::id).toList();
+		Map<Long, Long> responseCountByPollId = activeUserIds.isEmpty() || openPollIds.isEmpty()
+			? Map.of()
+			: pollResponseRepository.countByPollIdInAndUserIdIn(openPollIds, activeUserIds)
+				.stream()
+				.collect(Collectors.toMap(
+					PollResponseCountProjection::getPollId,
+					PollResponseCountProjection::getResponseCount
+				));
 		long missingResponseCount = activeUserIds.isEmpty()
 			? 0
 			: openPolls.stream().mapToLong(poll -> Math.max(
 				0,
-				activeUserIds.size() - pollResponseRepository.countByPollIdAndUserIdIn(poll.id(), activeUserIds)
+				activeUserIds.size() - responseCountByPollId.getOrDefault(poll.id(), 0L)
 			)).sum();
 		return new PollSummary(openPolls.size(), recentlyClosedCount, missingResponseCount, RECENTLY_CLOSED_DAYS);
 	}

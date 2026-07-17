@@ -104,6 +104,17 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: #198 workload provenance는 사용하지 않는 deployed app image가 아니라 attached clean worktree의 local Gradle test-profile harness에 귀속한다. runtime 승인 HEAD/contract digest, exact `origin/develop`/merge-base `6796ed146244d8f3f5b5dd7048ebe16865084a97`, src/main diff 0, source/harness/Gradle 개별 blob identity를 pre-lock부터 고정한다. build 뒤 main classes/resources와 notification test/support classes/resources 전체 artifact digest를 workload 전/후/final 비교하며 app image는 N/A다. optional `PERF_REPORT_ROOT`는 허용하지만 fixture/run namespace exclusive-create 계약은 유지한다.
 - Decision: runtime target의 full container/service/image identity와 PostgreSQL/Redis credential mode는 fallback 없는 runtime 필수값이다. locked/initial/before/after/final continuity, canonical decimal-string/BigInt cumulative counters, pg_stat_statements available/unavailable continuity, PostgreSQL+Redis exact resource set의 CPU/RAM bytes-percent/cadence-window를 검증한다. 모든 결과는 `accepted=false`, `automaticAdoption=false`이며 최초 machine-readable rejection은 이후 실패가 덮어쓰지 않는다.
 - Impact: test/k6/fixture/validator/docs만 변경하고 `src/main`, API, 권한, transaction, Entity, DB/Flyway, dependency, production response/error를 변경하지 않는다. push/PR/merge와 실제 성능 수치·개선 성과 기록도 수행하지 않는다.
+### 2026-07-17 - Resume Performance Evidence Lean Protocol
+
+- Context: #192~#199 성능 작업에서 runtime identity, collector framing, cumulative-stat publication과 자동 채택 판정 보정이 실제 병목 개선보다 오래 걸렸다. 사용자는 이 작업의 목적이 운영 성능 인증이 아니라 이력서에 재현 가능한 개선 근거를 남기는 것이라고 확인했다.
+- Decision: 각 이슈는 source로 확인된 핵심 병목 API 1~3개만 대상으로 동일 fixture와 동일 부하의 before/after를 각각 3회 측정한다. correctness와 failure 0을 고정하고 p50/p95/p99, throughput, 관련 SQL 또는 repository 호출 수를 기록한다. collector 부가 증거만 실패하고 HTTP correctness/timing/핵심 SQL evidence가 온전하면 전체 suite를 처음부터 반복하지 않는다.
+- Impact: 기존 strict runner와 rejected evidence는 보존하지만 production 최적화 완료 조건으로 재실행하지 않는다. 최종 이력서 문장은 동일 runtime의 통합 after 3회가 끝난 항목만 latency/throughput 개선률을 사용하며, 그 전에는 확정된 SQL/repository 호출 구조 감소만 기록한다.
+
+### 2026-07-17 - Issue #199 Open Poll Response Count Bulk Aggregation
+
+- Context: 관리자 대시보드는 OPEN non-MEAL Poll마다 ACTIVE member response count를 개별 조회했다. ACTIVE member 1명과 OPEN Poll 25개의 HTTP 통합 fixture에서 summary 1회가 35 JDBC prepared statements를 실행했다.
+- Decision: Poll ID와 ACTIVE user ID 집합을 한 번에 전달하는 grouped response-count query를 추가하고, 서비스는 pollId→count Map으로 `missingResponseCount`를 계산한다. empty Poll/user 집합에는 query를 실행하지 않는다.
+- Impact: 관련 suite에서 SQL은 11 이하로 고정되어 35 대비 최소 24개/68.6% 감소했다. API path/query/response, dashboard 권한, ErrorCode, transaction, Entity, frontend, Flyway/index/dependency는 변경하지 않는다. HTTP latency 개선률은 integration after 3회 전까지 미확정이다.
 
 ### 2026-07-16 - Issue #206 Stable Charge Item Pagination Ordering
 
