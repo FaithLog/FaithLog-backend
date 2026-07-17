@@ -1,7 +1,7 @@
 package com.faithlog.notification.infrastructure.fcm;
 
-import com.faithlog.notification.application.port.FcmSendCommand;
-import com.faithlog.notification.application.port.FcmSendPort;
+import com.faithlog.notification.service.port.FcmSendCommand;
+import com.faithlog.notification.service.port.FcmSendPort;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.Notification;
 

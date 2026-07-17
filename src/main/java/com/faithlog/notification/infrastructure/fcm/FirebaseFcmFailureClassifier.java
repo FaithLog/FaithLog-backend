@@ -1,7 +1,7 @@
 package com.faithlog.notification.infrastructure.fcm;
 
-import com.faithlog.notification.application.FcmSendException;
-import com.faithlog.notification.application.port.FcmSendFailureType;
+import com.faithlog.notification.service.FcmSendException;
+import com.faithlog.notification.service.port.FcmSendFailureType;
 import com.google.firebase.ErrorCode;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.MessagingErrorCode;

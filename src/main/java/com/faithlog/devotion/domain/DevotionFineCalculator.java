@@ -1,5 +1,12 @@
 package com.faithlog.devotion.domain;
 
+import com.faithlog.devotion.domain.entity.PenaltyRule;
+import com.faithlog.devotion.domain.type.DevotionFineCalculationInput;
+import com.faithlog.devotion.domain.type.DevotionFineCalculationItemResult;
+import com.faithlog.devotion.domain.type.DevotionFineCalculationResult;
+import com.faithlog.devotion.domain.type.PenaltyRuleType;
+import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import java.util.Comparator;
 import java.util.List;
 import org.springframework.stereotype.Component;
@@ -8,15 +15,20 @@ import org.springframework.stereotype.Component;
 public class DevotionFineCalculator {
 
 	public DevotionFineCalculationResult calculate(DevotionFineCalculationInput input, List<PenaltyRule> rules) {
-		List<DevotionFineCalculationItemResult> items = rules.stream()
-			.filter(PenaltyRule::isActive)
-			.sorted(Comparator.comparing(PenaltyRule::ruleType))
-			.map(rule -> calculateItem(input, rule))
-			.toList();
-		int totalAmount = items.stream()
-			.mapToInt(DevotionFineCalculationItemResult::amount)
-			.sum();
-		return new DevotionFineCalculationResult(totalAmount, items);
+		try {
+			List<DevotionFineCalculationItemResult> items = rules.stream()
+				.filter(PenaltyRule::isActive)
+				.sorted(Comparator.comparing(PenaltyRule::ruleType))
+				.map(rule -> calculateItem(input, rule))
+				.toList();
+			long totalAmount = 0L;
+			for (DevotionFineCalculationItemResult item : items) {
+				totalAmount = Math.addExact(totalAmount, item.amount());
+			}
+			return new DevotionFineCalculationResult(toChargeStorageAmount(totalAmount), items);
+		} catch (ArithmeticException exception) {
+			throw new BusinessException(ErrorCode.DEVOTION_FINE_AMOUNT_OUT_OF_RANGE);
+		}
 	}
 
 	private DevotionFineCalculationItemResult calculateItem(DevotionFineCalculationInput input, PenaltyRule rule) {
@@ -29,7 +41,7 @@ public class DevotionFineCalculator {
 	private DevotionFineCalculationItemResult calculateMissingCount(DevotionFineCalculationInput input, PenaltyRule rule) {
 		int actualCount = checkedCount(input, rule.ruleType());
 		int missingCount = Math.max(rule.requiredCount() - actualCount, 0);
-		int amount = missingCount * rule.amountPerUnit();
+		long amount = Math.multiplyExact((long) missingCount, (long) rule.amountPerUnit());
 		return new DevotionFineCalculationItemResult(
 			rule.ruleType(),
 			rule.calculationType(),
@@ -44,7 +56,12 @@ public class DevotionFineCalculator {
 
 	private DevotionFineCalculationItemResult calculateLateMinute(DevotionFineCalculationInput input, PenaltyRule rule) {
 		int lateMinutes = input.saturdayLateMinutes();
-		int amount = lateMinutes == 0 ? 0 : rule.baseAmount() + lateMinutes * rule.amountPerUnit();
+		long amount = lateMinutes == 0
+			? 0L
+			: Math.addExact(
+				(long) rule.baseAmount(),
+				Math.multiplyExact((long) lateMinutes, (long) rule.amountPerUnit())
+			);
 		return new DevotionFineCalculationItemResult(
 			rule.ruleType(),
 			rule.calculationType(),
@@ -64,5 +81,12 @@ public class DevotionFineCalculator {
 			case BIBLE_READING -> input.bibleReadingCount();
 			case SATURDAY_LATE -> input.saturdayLateMinutes();
 		};
+	}
+
+	private int toChargeStorageAmount(long amount) {
+		if (amount < 0 || amount > Integer.MAX_VALUE) {
+			throw new BusinessException(ErrorCode.DEVOTION_FINE_AMOUNT_OUT_OF_RANGE);
+		}
+		return (int) amount;
 	}
 }

@@ -182,9 +182,9 @@ GET   /api/v1/admin/campuses/{campusId}/charges/my-accounts
 
 `GET /api/v1/admin/campuses/{campusId}/payment-accounts`는 관리자/담당자용 계좌 목록이며 `ownerUserId`, `isActive`, `createdAt`, `deactivatedAt` 같은 관리 메타데이터를 포함한다.
 
-캠퍼스별 활성 계좌는 `account_type`별로 1개만 허용한다.
+활성 `PENALTY` 계좌는 캠퍼스별 1개만 허용한다. 활성 `COFFEE`와 `MEAL` 계좌는 `campusId + accountType + ownerUserId`별 1개만 허용한다.
 
-새 계좌를 활성으로 등록하면 같은 캠퍼스와 같은 `account_type`의 기존 활성 계좌는 자동 비활성화하고, 새 계좌만 활성 상태로 둔다.
+새 `PENALTY` 계좌를 활성으로 등록하면 같은 캠퍼스의 기존 활성 PENALTY 계좌를 비활성화한다. 새 `COFFEE` 또는 `MEAL` 계좌는 같은 소유자의 기존 활성 동일 유형 계좌만 비활성화한다.
 
 계좌 조회 응답은 납부에 필요하므로 계좌번호를 전체 노출한다. 단, 일반 멤버 조회 응답에는 관리용 정보가 필요 이상으로 노출되지 않게 한다.
 
@@ -198,10 +198,9 @@ payment_accounts.campus_id = 현재 campusId
 payment_accounts.is_active = true
 ```
 
-커피 청구는 CLOSED 커피 투표 정산 시 투표 또는 투표 템플릿에 연결된 계좌를 사용한다.
+COFFEE 투표 템플릿은 계좌 중립으로 `poll_templates.payment_account_id = null`을 유지한다. 커피 청구는 실제 COFFEE 투표 생성 시 담당자가 선택한 본인 소유 활성 계좌를 `polls.payment_account_id`에 저장하고 CLOSED 정산에서 사용한다.
 
 ```text
-poll_templates.payment_account_id
 polls.payment_account_id
 ```
 
@@ -225,6 +224,7 @@ Issue #34는 청구 기반 서비스까지만 구현하고, 실제 경건생활 
 ```text
 PENALTY
 COFFEE
+MEAL
 ```
 
 사용 가능한 `chargeSourceType`:
@@ -258,11 +258,15 @@ PAYMENT_REQUESTED
 
 사용자가 계좌이체 후 앱에서 `납부했어요`를 누르면 즉시 `PAID` 처리한다.
 
-`UNPAID -> PAID`는 사용자 납부 API에서만 가능하다.
+사용자 납부 API는 본인의 `UNPAID -> PAID`를 즉시 처리하는 기존 의미를 유지한다.
 
-관리자는 청구를 `PAID`로 변경할 수 없다.
+관리자는 기존 청구 관리 권한 범위의 `UNPAID` 청구를 `PAID`로 변경할 수 있고, `paidAt`은 서버 현재 시각을 사용한다. terminal 상태에서 `PAID`로의 전환은 409로 실패한다.
 
 관리자는 청구를 `WAIVED`, `CANCELED`로 변경할 수 있다.
+
+`PENALTY + DEVOTION_RECORD` 청구를 `UNPAID -> CANCELED`로 변경하면 같은 transaction에서 같은 campus/user의 source weekly record `submitted_at`을 null로 재오픈하고 daily checks는 보존한다. `WAIVED`, `COFFEE`, `POLL_RESPONSE`는 경건생활을 재오픈하지 않는다.
+
+재제출 벌금이 양수이면 기존 CANCELED source charge row를 같은 row로 `UNPAID` 재사용해 현재 금액과 계좌 snapshot을 갱신한다. 0원이면 CANCELED row를 유지하고 새 row를 생성하지 않는다.
 
 관리자는 잘못 처리된 `PAID`, `WAIVED`, `CANCELED` 청구를 `UNPAID`로 되돌릴 수 있다.
 
@@ -449,14 +453,11 @@ MVP seed 기준:
 
 컴포즈커피 전체 메뉴 seed 목록과 가격은 개발 전에 공식 메뉴판 또는 사용자가 승인한 최신 자료로 검증해야 하며, Codex가 임의로 추측해서 채우지 않는다.
 
-커피 담당자는 기본 커피 투표 템플릿의 아래 시간을 설정할 수 있다.
-
-- 매주 커피 투표가 자동 생성되는 시간
-- 생성된 커피 투표가 마감되는 시간
+COFFEE 투표는 scheduler 자동 생성 대상에서 제외한다. 기존 템플릿의 시간 필드와 API 계약은 삭제하거나 변경하지 않지만 `autoCreateEnabled=true`인 COFFEE 템플릿도 자동 투표를 만들지 않는다. ACTIVE COFFEE 담당자가 투표를 수동 생성하며, 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산은 유지한다.
 
 COFFEE 투표와 COFFEE 투표 템플릿 생성/수정은 현재 활성 COFFEE 담당자만 수행할 수 있다. 캠퍼스 관리자 또는 전역 ADMIN이라도 현재 활성 COFFEE 담당자가 아니면 `pollType=COFFEE`, `paymentCategory=COFFEE`, 또는 `chargeGenerationType=OPTION_PRICE`와 `paymentCategory=COFFEE` 생성/수정은 403으로 거절한다.
 
-선택한 `paymentAccountId`는 요청자가 사용할 수 있는 활성 같은 캠퍼스 COFFEE 계좌여야 한다.
+COFFEE 템플릿의 호환 `paymentAccountId` 요청값은 저장하지 않고 응답은 null이다. 직접 또는 템플릿 기반 COFFEE 투표 생성에서 선택한 `paymentAccountId`는 요청자가 소유한 활성 같은 캠퍼스 COFFEE 계좌여야 한다.
 
 구현 시 실제 DB 칼럼명은 Notion ERD의 `poll_templates`/`polls` 설계를 따른다. Codex는 칼럼명을 추측해서 새로 정하지 않는다.
 
@@ -551,7 +552,7 @@ CampusDutyAssignment
 DutyType.COFFEE
 ```
 
-캠퍼스당 활성 `DutyType.COFFEE` 담당자는 1명만 둔다.
+캠퍼스에는 여러 ACTIVE `DutyType.COFFEE` 담당자를 둘 수 있다. 동일 캠퍼스·담당 유형·사용자의 ACTIVE 중복 지정만 금지하며, 기존 `PUT` 지정 API는 다른 담당자를 해제하지 않는 additive/idempotent 동작이다.
 
 Issue #30 커피 담당자 API 기준:
 
@@ -1001,6 +1002,29 @@ tags:
 10. 카드 상태 변경 권한이 없으면 최종 보고에 남긴다.
 11. 변경 파일 목록을 정리한다.
 12. 실행한 테스트와 결과를 보고한다.
+
+### 10.1 PM 코드리뷰 완료 게이트
+
+1. 개발 세션은 현재 이슈와 사용자 승인 정책이 요구하는 구현, 테스트, 빌드, 문서, Obsidian 기록, 작업 단위 커밋까지 완료한다. Docker QA의 실행 또는 통합 단계 이관 여부는 현재 대화와 `docs/decision-log.md`의 승인 결정을 따른다.
+2. 개발 세션은 push, PR 생성, merge를 수행하지 않는다.
+3. 커밋 완료 즉시 원본 PM 세션에 `origin/develop...HEAD` 전체 diff 기준 상세 코드리뷰 보고서를 보낸다.
+4. 상세 보고서에는 다음을 모두 포함한다.
+   - issue, branch, worktree, base, HEAD, clean 상태
+   - `origin/develop` 대비 전체 커밋과 diff 범위
+   - 구현 API, 권한, 트랜잭션, DB, Flyway, 의존성
+   - TDD RED 명령과 실패 원인, GREEN 결과
+   - 현재 이슈와 사용자 승인 정책이 요구한 검증 결과
+   - Docker QA의 실행 또는 통합 단계 이관 상태와 이미 관찰한 Docker 오류가 있으면 그 사실
+   - API/DTO/ErrorCode/기존 기능 회귀와 변경하지 않은 범위
+   - REST Docs와 `index.adoc`
+   - 저장소 문서와 Obsidian 기록
+   - 발견한 리스크, pending decision, 미검증 항목
+5. PM 세션은 `origin/develop...HEAD` 전체 diff를 독립 코드리뷰한다.
+6. PM finding이 있으면 개발 세션은 finding별 실패 재현 또는 근거를 확인하고 최소 수정한다. 필수 전체 검증과 작업 단위 커밋을 다시 완료한 뒤 새 상세 코드리뷰 보고서를 보낸다.
+7. 여러 feature를 하나의 통합 대상으로 묶은 경우, 대상 전체가 finding 0건이고 필수 검증을 통과한 뒤에만 PM 세션이 사용자 승인 base와 integration branch에 승인된 feature branch들을 병합한다.
+8. 통합 단계로 이관된 Docker QA의 대상, 순서, 정리 명령은 해당 작업의 사용자 승인 결정을 따른다.
+9. 개발 세션은 feature branch 또는 기본 브랜치에 직접 PR/merge하지 않는다. integration CI 실패나 충돌이 있으면 완료 처리하지 않고 원인을 수정, 재검증, 재리뷰한다.
+10. PM의 승인된 통합과 Issue 종료 또는 완료 상태가 실제 확인되어야 이슈를 최종 완료한다.
 
 ## 11. 보고 형식
 

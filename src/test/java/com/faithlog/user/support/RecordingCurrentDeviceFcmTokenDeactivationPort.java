@@ -1,7 +1,7 @@
 package com.faithlog.user.support;
 
-import com.faithlog.user.application.port.CurrentDeviceFcmTokenDeactivationCommand;
-import com.faithlog.user.application.port.CurrentDeviceFcmTokenDeactivationPort;
+import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationCommand;
+import com.faithlog.user.service.port.CurrentDeviceFcmTokenDeactivationPort;
 import java.util.ArrayList;
 import java.util.List;
 

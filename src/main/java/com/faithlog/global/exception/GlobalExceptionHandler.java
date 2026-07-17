@@ -38,4 +38,5 @@ public class GlobalExceptionHandler {
 			.badRequest()
 			.body(ApiResponse.failure(ErrorCode.GLOBAL_INVALID_JSON.name(), ErrorCode.GLOBAL_INVALID_JSON.message()));
 	}
+
 }

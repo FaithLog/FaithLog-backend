@@ -1,6 +1,6 @@
 package com.faithlog.notification.infrastructure.fcm;
 
-import com.faithlog.notification.application.port.FcmSendPort;
+import com.faithlog.notification.service.port.FcmSendPort;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;

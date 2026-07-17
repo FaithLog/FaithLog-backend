@@ -1,12 +1,15 @@
 package com.faithlog.deploy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Test;
@@ -34,6 +37,7 @@ class PostgresFlywayMigrationTest {
 		assertThat(result.migrationsExecuted).isGreaterThanOrEqualTo(2);
 		assertThat(flyway.info().current()).isNotNull();
 		assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(MigrationVersion.fromVersion("6"));
+		assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(MigrationVersion.fromVersion("7"));
 		assertTableExists(jdbcUrl, username, password, "users");
 		assertTableExists(jdbcUrl, username, password, "poll_response_options");
 		assertTableExists(jdbcUrl, username, password, "flyway_schema_history");
@@ -45,6 +49,128 @@ class PostgresFlywayMigrationTest {
 		assertConstraintExists(jdbcUrl, username, password, "poll_options", "fk_poll_options_created_by_user");
 		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_token");
 		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_user_client");
+		assertIndexExists(
+			jdbcUrl, username, password,
+			"charge_items", "idx_charge_items_campus_category_source"
+		);
+		assertIndexExists(
+			jdbcUrl, username, password,
+			"charge_items", "idx_charge_items_campus_category_status_user"
+		);
+		assertIndexExists(jdbcUrl, username, password, "campus_members", "idx_campus_members_user_id_id");
+		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
+		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
+		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
+		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v7FailsClosedWhenLegacyInvalidRowsExist() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway flyway = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("6")
+			.load();
+
+		flyway.clean();
+		assertThat(flyway.migrate().success).isTrue();
+		insertLegacyInvalidCharge(jdbcUrl, username, password);
+
+		Flyway v7 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.load();
+
+		assertThatThrownBy(v7::migrate)
+			.isInstanceOf(FlywayException.class)
+			.hasMessageContaining("V7__enforce_positive_charge_amount.sql")
+			.hasMessageContaining("ck_charge_items_amount_positive");
+		assertFlywayVersionMissing(jdbcUrl, username, password, "7");
+		assertLegacyInvalidChargePreserved(jdbcUrl, username, password);
+	}
+
+	private static void assertConstraintValidated(
+		String jdbcUrl, String username, String password, String tableName, String constraintName
+	) throws Exception {
+		assertExists(
+			jdbcUrl, username, password,
+			"select exists (select 1 from pg_constraint c join pg_class t on t.oid = c.conrelid "
+				+ "where t.relname = ? and c.conname = ? and c.convalidated)",
+			tableName, constraintName
+		);
+	}
+
+	private static void insertLegacyInvalidCharge(String jdbcUrl, String username, String password) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement session = connection.createStatement()
+		) {
+			session.execute("set session_replication_role = replica");
+			try (PreparedStatement statement = connection.prepareStatement(
+				"insert into charge_items (campus_id, user_id, payment_category, payment_account_id, "
+					+ "bank_name_snapshot, account_number_snapshot, account_holder_snapshot, source_type, source_id, "
+					+ "title, amount, status, created_at, updated_at) values "
+					+ "(1, 1, 'PENALTY', 1, 'bank', 'account', 'holder', 'DEVOTION_RECORD', 8999, "
+					+ "'legacy-invalid', 0, 'UNPAID', now(), now())"
+			)) {
+				statement.executeUpdate();
+			} finally {
+				session.execute("set session_replication_role = origin");
+			}
+		}
+	}
+
+	private static void assertFlywayVersionMissing(String jdbcUrl, String username, String password, String version)
+		throws Exception {
+		assertThat(exists(
+			jdbcUrl,
+			username,
+			password,
+			"select exists (select 1 from flyway_schema_history where version = ?)",
+			version
+		)).isFalse();
+	}
+
+	private static void assertLegacyInvalidChargePreserved(String jdbcUrl, String username, String password)
+		throws Exception {
+		assertThat(exists(
+			jdbcUrl,
+			username,
+			password,
+			"select exists (select 1 from charge_items where title = ? and amount = 0 and status = 'UNPAID')",
+			"legacy-invalid"
+		)).isTrue();
+	}
+
+	private static void assertInvalidChargeAmountRejected(
+		String jdbcUrl, String username, String password, int amount
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement session = connection.createStatement()
+		) {
+			session.execute("set session_replication_role = replica");
+			try (PreparedStatement statement = connection.prepareStatement(
+				"insert into charge_items (campus_id, user_id, payment_category, payment_account_id, "
+					+ "bank_name_snapshot, account_number_snapshot, account_holder_snapshot, source_type, source_id, "
+					+ "title, amount, status, created_at, updated_at) values "
+					+ "(1, 1, 'PENALTY', 1, 'bank', 'account', 'holder', 'DEVOTION_RECORD', ?, "
+					+ "'invalid', ?, 'UNPAID', now(), now())"
+			)) {
+				statement.setLong(1, 9_000L + Math.abs(amount));
+				statement.setInt(2, amount);
+				assertThatThrownBy(statement::executeUpdate)
+					.isInstanceOf(java.sql.SQLException.class)
+					.hasMessageContaining("ck_charge_items_amount_positive");
+			} finally {
+				session.execute("set session_replication_role = origin");
+			}
+		}
 	}
 
 	private static String envOrDefault(String name, String defaultValue) {
@@ -105,6 +231,11 @@ class PostgresFlywayMigrationTest {
 
 	private static void assertExists(String jdbcUrl, String username, String password, String sql, String... params)
 		throws Exception {
+		assertThat(exists(jdbcUrl, username, password, sql, params)).isTrue();
+	}
+
+	private static boolean exists(String jdbcUrl, String username, String password, String sql, String... params)
+		throws Exception {
 		try (
 			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
 			PreparedStatement statement = connection.prepareStatement(sql)
@@ -114,7 +245,7 @@ class PostgresFlywayMigrationTest {
 			}
 			try (ResultSet resultSet = statement.executeQuery()) {
 				assertThat(resultSet.next()).isTrue();
-				assertThat(resultSet.getBoolean(1)).isTrue();
+				return resultSet.getBoolean(1);
 			}
 		}
 	}

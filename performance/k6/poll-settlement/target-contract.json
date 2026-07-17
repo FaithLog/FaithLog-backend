@@ -1,0 +1,69 @@
+{
+  "contractType": "before",
+  "sourceCommit": "355f79df5b2e47636b7d1a17dea029da6c93c62d",
+  "baseUrl": "http://127.0.0.1:28080",
+  "flywayVersion": "11",
+  "containers": {
+    "app": {
+      "name": "faithlog-latest-app",
+      "id": "901dbab3949fc669e7902e6c1471f4d60ffc80b049efa0f9a5203343710a7868",
+      "imageId": "sha256:759dbf31b1a3ae2261ccc6e409af3a1c82f64c487b53bfe7f1af74d5bd2f4d07",
+      "startedAt": "2026-07-15T14:04:40.111829595Z",
+      "composeProject": "faithlog-frontend-latest",
+      "composeService": "app",
+      "configHash": "8e3a96480c352d3c75483cdf0464ee475f2ded3a4ae89638db7e386e5a37a42a",
+      "health": "none",
+      "publishedPorts": ["0.0.0.0:28080->8080/tcp", "[::]:28080->8080/tcp"]
+    },
+    "postgres": {
+      "name": "faithlog-latest-postgres",
+      "id": "81aa74ca1b491b45eb691b3d65de9e42eb47ef64a6bcb961d0b627b030139ae9",
+      "imageId": "sha256:48d29282d2b43c402465c28f8572021b59aaf43574056faaad2fd7bb85ffdd4e",
+      "startedAt": "2026-07-15T08:32:51.579933554Z",
+      "composeProject": "faithlog-frontend-latest",
+      "composeService": "postgres",
+      "configHash": "7fcf2990eb679ea34a2e967e9681619bf0ae68996b5c53b28d68cc9dc370899d",
+      "health": "healthy",
+      "publishedPorts": ["0.0.0.0:25432->5432/tcp", "[::]:25432->5432/tcp"]
+    },
+    "redis": {
+      "name": "faithlog-latest-redis",
+      "id": "4109f6525948d12d1e5377fb6160c8955f6c3fcd7816e02786b2dd8031e23de9",
+      "imageId": "sha256:80dd823f4d2bf93dd5e418a0ae2817319a1ba279953e234082e54a5a18306223",
+      "startedAt": "2026-07-15T08:32:51.569151095Z",
+      "composeProject": "faithlog-frontend-latest",
+      "composeService": "redis",
+      "configHash": "3b6fc0c308c2aea4ea23975c12bc8055d15e976856d0a6cc799f715f2cbd521b",
+      "health": "healthy",
+      "publishedPorts": ["0.0.0.0:26379->6379/tcp", "[::]:26379->6379/tcp"]
+    }
+  },
+  "database": {
+    "name": "faithlog",
+    "user": "faithlog",
+    "serverAddress": null,
+    "serverPort": null,
+    "postmasterStartedAt": "2026-07-15T08:32:56.137385+00:00",
+    "statsReset": null
+  },
+  "redis": {
+    "runId": "77684c2eb9ea13438a15e81e190b3fec43e60c6c",
+    "serverPort": 6379
+  },
+  "resourceSampling": {
+    "minSamples": 2,
+    "samplingIntervalMs": 1000,
+    "maxGapMs": 3000
+  },
+  "maintenanceReadiness": {
+    "pollIntervalSeconds": 5,
+    "quietSeconds": 30,
+    "timeoutSeconds": 180,
+    "expectedChargeWrites": {
+      "coffee-sequential": 11000,
+      "meal-sequential": 11000,
+      "coffee-concurrent": 6000,
+      "meal-concurrent": 6000
+    }
+  }
+}

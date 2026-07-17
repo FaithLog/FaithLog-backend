@@ -1,6 +1,6 @@
 package com.faithlog.user.infrastructure.redis;
 
-import com.faithlog.user.application.port.AccessTokenBlacklistStore;
+import com.faithlog.user.service.port.AccessTokenBlacklistStore;
 import java.time.Duration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.core.StringRedisTemplate;

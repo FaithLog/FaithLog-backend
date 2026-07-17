@@ -1,9 +1,9 @@
 package com.faithlog.notification.infrastructure.redis;
 
-import com.faithlog.notification.application.NotificationLockKey;
-import com.faithlog.notification.application.NotificationLockLease;
-import com.faithlog.notification.application.port.NotificationLockPort;
-import com.faithlog.notification.application.port.NotificationRedisOperationException;
+import com.faithlog.notification.service.NotificationLockKey;
+import com.faithlog.notification.service.NotificationLockLease;
+import com.faithlog.notification.service.port.NotificationLockPort;
+import com.faithlog.notification.service.port.NotificationRedisOperationException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -19,6 +19,10 @@ public class RedisNotificationLockAdapter implements NotificationLockPort {
 
 	private static final DefaultRedisScript<Long> RELEASE_SCRIPT = new DefaultRedisScript<>(
 		"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+		Long.class
+	);
+	private static final DefaultRedisScript<Long> RENEW_SCRIPT = new DefaultRedisScript<>(
+		"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end",
 		Long.class
 	);
 
@@ -39,6 +43,21 @@ public class RedisNotificationLockAdapter implements NotificationLockPort {
 			return Optional.of(new NotificationLockLease(key, ownerToken));
 		} catch (RuntimeException exception) {
 			throw new NotificationRedisOperationException("Notification lock Redis operation failed", exception);
+		}
+	}
+
+	@Override
+	public boolean renew(NotificationLockLease lease, Duration ttl) {
+		try {
+			Long renewed = redisTemplate.execute(
+				RENEW_SCRIPT,
+				List.of(lease.key().value()),
+				lease.ownerToken(),
+				Long.toString(ttl.toMillis())
+			);
+			return renewed != null && renewed > 0;
+		} catch (RuntimeException exception) {
+			throw new NotificationRedisOperationException("Notification lock renewal Redis operation failed", exception);
 		}
 	}
 

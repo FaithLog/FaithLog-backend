@@ -1,7 +1,15 @@
 package com.faithlog.devotion.domain;
 
+import com.faithlog.devotion.domain.entity.PenaltyRule;
+import com.faithlog.devotion.domain.type.DevotionFineCalculationInput;
+import com.faithlog.devotion.domain.type.DevotionFineCalculationItemResult;
+import com.faithlog.devotion.domain.type.DevotionFineCalculationResult;
+import com.faithlog.devotion.domain.type.PenaltyCalculationType;
+import com.faithlog.devotion.domain.type.PenaltyRuleType;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.faithlog.global.exception.BusinessException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -117,5 +125,57 @@ class DevotionFineCalculatorTest {
 		assertThat(result.totalAmount()).isEqualTo(500);
 		assertThat(result.items()).extracting(DevotionFineCalculationItemResult::ruleType)
 			.containsExactly(PenaltyRuleType.QUIET_TIME);
+	}
+
+	@Test
+	void calculates_saturday_late_maximum_with_long_exact_arithmetic() {
+		PenaltyRule lateRule = PenaltyRule.create(
+			1L, PenaltyRuleType.SATURDAY_LATE, PenaltyCalculationType.LATE_MINUTE, 0, 1000, 100
+		);
+
+		DevotionFineCalculationResult result = calculator.calculate(
+			new DevotionFineCalculationInput(5, 5, 5, 1440),
+			List.of(lateRule)
+		);
+
+		assertThat(result.totalAmount()).isEqualTo(145_000);
+	}
+
+	@Test
+	void rejects_rule_multiplication_result_outside_charge_storage_range() {
+		PenaltyRule rule = PenaltyRule.create(
+			1L, PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT,
+			Integer.MAX_VALUE, 0, Integer.MAX_VALUE
+		);
+
+		assertThatThrownBy(() -> calculator.calculate(
+			new DevotionFineCalculationInput(0, 0, 0, 0),
+			List.of(rule)
+		))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("계산된 벌금 금액이 허용 범위를 초과했습니다.");
+	}
+
+	@Test
+	void rejects_exact_total_addition_overflow() {
+		PenaltyRule first = PenaltyRule.create(
+			1L, PenaltyRuleType.QUIET_TIME, PenaltyCalculationType.MISSING_COUNT,
+			Integer.MAX_VALUE, 0, Integer.MAX_VALUE
+		);
+		PenaltyRule second = PenaltyRule.create(
+			1L, PenaltyRuleType.PRAYER, PenaltyCalculationType.MISSING_COUNT,
+			Integer.MAX_VALUE, 0, Integer.MAX_VALUE
+		);
+		PenaltyRule third = PenaltyRule.create(
+			1L, PenaltyRuleType.BIBLE_READING, PenaltyCalculationType.MISSING_COUNT,
+			Integer.MAX_VALUE, 0, Integer.MAX_VALUE
+		);
+
+		assertThatThrownBy(() -> calculator.calculate(
+			new DevotionFineCalculationInput(0, 0, 0, 0),
+			List.of(first, second, third)
+		))
+			.isInstanceOf(BusinessException.class)
+			.hasMessage("계산된 벌금 금액이 허용 범위를 초과했습니다.");
 	}
 }

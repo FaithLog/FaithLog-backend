@@ -1,6 +1,6 @@
 package com.faithlog.global.security;
 
-import com.faithlog.user.domain.User;
+import com.faithlog.user.domain.entity.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;

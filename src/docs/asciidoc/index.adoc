@@ -238,7 +238,7 @@ include::{snippets}/users-me-inactive-user-unauthorized/response-fields.adoc[]
 
 `DELETE /api/v1/users/me`
 
-회원 탈퇴는 App Store 계정 삭제 요건 대응 API다. 사용자는 앱 안에서 본인 비밀번호와 확인 문구 `회원탈퇴`를 입력해 계정 삭제를 완료한다. 서버는 `users` row를 soft delete로 유지하지만 개인정보를 익명화하고, 캠퍼스 멤버십/FCM token/session/tokenVersion을 정리한다.
+회원 탈퇴는 App Store 계정 삭제 요건 대응 API다. 사용자는 앱 안에서 본인 비밀번호와 확인 문구 `회원탈퇴`를 입력해 계정 삭제를 완료한다. 서버는 `users` row를 soft delete로 유지하지만 개인정보를 익명화하고, 캠퍼스 멤버십/FCM token/session/tokenVersion을 정리한다. 어느 캠퍼스든 ACTIVE COFFEE/MEAL 담당 배정이 남아 있으면 자동 해제하지 않고 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 탈퇴를 거부하며, 캠퍼스 관리자가 담당 해제를 먼저 완료해야 한다.
 
 ==== Request
 
@@ -267,6 +267,18 @@ include::{snippets}/users-me-delete-password-mismatch/http-request.adoc[]
 include::{snippets}/users-me-delete-password-mismatch/http-response.adoc[]
 
 include::{snippets}/users-me-delete-password-mismatch/response-fields.adoc[]
+
+==== Error: Active Duty Conflict
+
+include::{snippets}/users-me-delete-active-duty-conflict/http-request.adoc[]
+
+include::{snippets}/users-me-delete-active-duty-conflict/request-headers.adoc[]
+
+include::{snippets}/users-me-delete-active-duty-conflict/request-fields.adoc[]
+
+include::{snippets}/users-me-delete-active-duty-conflict/http-response.adoc[]
+
+include::{snippets}/users-me-delete-active-duty-conflict/response-fields.adoc[]
 
 == Notifications
 
@@ -342,6 +354,86 @@ include::{snippets}/notification-send-admin-notification/http-response.adoc[]
 
 include::{snippets}/notification-send-admin-notification/response-fields.adoc[]
 
+=== Send Coffee Charge Reminders
+
+`POST /api/v1/campuses/{campusId}/coffee/charge-reminders`
+
+요청 body 없이 호출하며, ACTIVE `COFFEE` 담당자 본인 소유 계좌에 연결된 모든 `UNPAID` 커피 청구를 계좌·수신자별로 합산해 알림을 큐잉한다. 알림 본문은 청구 제목별 건수·금액을 최대 5종까지 표시하고 초과 항목은 `외 N종` 패턴으로 줄이며 전체 미납 합계를 포함한다. 같은 계좌·수신자는 `Asia/Seoul` 날짜 기준 하루 1회만 생성한다.
+
+==== Request
+
+include::{snippets}/notification-send-coffee-charge-reminders/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/notification-send-coffee-charge-reminders/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/notification-send-coffee-charge-reminders/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/notification-send-coffee-charge-reminders/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/notification-send-coffee-charge-reminders/response-fields.adoc[]
+
+==== Forbidden Response (`403`)
+
+include::{snippets}/notification-send-coffee-charge-reminders-forbidden/http-response.adoc[]
+
+include::{snippets}/notification-send-coffee-charge-reminders-forbidden/response-fields.adoc[]
+
+=== Send Meal Charge Reminders
+
+`POST /api/v1/campuses/{campusId}/meal/charge-reminders`
+
+요청 body 없이 호출하며, ACTIVE `MEAL` 담당자 본인 소유 계좌에 연결된 모든 `UNPAID` 밥 청구를 계좌·수신자별로 합산해 알림을 큐잉한다. 알림 본문은 청구 제목별 건수·금액을 최대 5종까지 표시하고 초과 항목은 `외 N종` 패턴으로 줄이며 전체 미납 합계를 포함한다. 같은 계좌·수신자는 `Asia/Seoul` 날짜 기준 하루 1회만 생성한다.
+
+==== Request
+
+include::{snippets}/notification-send-meal-charge-reminders/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/notification-send-meal-charge-reminders/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/notification-send-meal-charge-reminders/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/notification-send-meal-charge-reminders/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/notification-send-meal-charge-reminders/response-fields.adoc[]
+
+==== Forbidden Response (`403`)
+
+include::{snippets}/notification-send-meal-charge-reminders-forbidden/http-response.adoc[]
+
+include::{snippets}/notification-send-meal-charge-reminders-forbidden/response-fields.adoc[]
+
+==== Concurrent Request Conflict (`409`)
+
+동일 담당자의 같은 범주 미납 알림 요청이 처리 중이면 `NOTIFICATION_LOCK_ALREADY_RUNNING`을 반환한다.
+
+include::{snippets}/notification-send-charge-reminders-conflict/http-response.adoc[]
+
+include::{snippets}/notification-send-charge-reminders-conflict/response-fields.adoc[]
+
+==== Redis Unavailable (`503`)
+
+중복 방지와 실행 잠금의 필수 Redis 작업을 수행할 수 없으면 `NOTIFICATION_REDIS_UNAVAILABLE`을 반환하고 알림 요청을 만들지 않는다.
+
+include::{snippets}/notification-send-charge-reminders-redis-unavailable/http-response.adoc[]
+
+include::{snippets}/notification-send-charge-reminders-redis-unavailable/response-fields.adoc[]
+
 === List Admin Notification Logs
 
 `GET /api/v1/admin/campuses/{campusId}/notification-logs`
@@ -402,7 +494,7 @@ include::{snippets}/campus-create-success/response-fields.adoc[]
 
 `POST /api/v1/campuses/join`
 
-초대코드 가입은 승인 대기 없이 즉시 `MEMBER + ACTIVE` 멤버십을 생성한다. 같은 사용자는 같은 캠퍼스에 중복 가입할 수 없다.
+초대코드 가입은 승인 대기 없이 즉시 `MEMBER + ACTIVE` 멤버십을 생성한다. 같은 사용자는 같은 캠퍼스에 중복 가입할 수 없다. 과거 INACTIVE 멤버십에 ACTIVE COFFEE/MEAL 담당 배정이 남아 있으면 과거 capability를 자동 복원하지 않고 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 재가입을 거부한다. 관리자는 담당 목록의 `staleOnly=true` 조회로 과거 배정 ID를 확인해 기존 담당 해제를 완료한 뒤 재가입시켜야 한다.
 
 ==== Request
 
@@ -435,6 +527,20 @@ include::{snippets}/campus-join-invalid-invite-code/request-fields.adoc[]
 include::{snippets}/campus-join-invalid-invite-code/http-response.adoc[]
 
 include::{snippets}/campus-join-invalid-invite-code/response-fields.adoc[]
+
+=== Join Campus Active Duty Conflict
+
+과거 INACTIVE 멤버십에 ACTIVE 담당 배정이 남아 있는 사용자의 재가입은 거부한다. 서버가 담당을 자동 해제하거나 책임을 이전하지 않는다.
+
+include::{snippets}/campus-rejoin-active-duty-conflict/http-request.adoc[]
+
+include::{snippets}/campus-rejoin-active-duty-conflict/request-headers.adoc[]
+
+include::{snippets}/campus-rejoin-active-duty-conflict/request-fields.adoc[]
+
+include::{snippets}/campus-rejoin-active-duty-conflict/http-response.adoc[]
+
+include::{snippets}/campus-rejoin-active-duty-conflict/response-fields.adoc[]
 
 === Get My Campuses
 
@@ -490,7 +596,7 @@ include::{snippets}/campus-detail-admin-success/response-fields.adoc[]
 
 `DELETE /api/v1/campuses/{campusId}/members/{membershipId}`
 
-`ADMIN`, `MINISTER`, `ELDER`, `CAMPUS_LEADER`는 캠퍼스 멤버를 삭제할 수 있다. 일반 `MEMBER`는 캠퍼스 멤버를 삭제할 수 없다. 삭제는 물리 삭제가 아니라 멤버십 상태를 `INACTIVE`로 바꾸는 soft delete로 처리한다.
+`ADMIN`, `MINISTER`, `ELDER`, `CAMPUS_LEADER`는 캠퍼스 멤버를 삭제할 수 있다. 일반 `MEMBER`는 캠퍼스 멤버를 삭제할 수 없다. 삭제는 물리 삭제가 아니라 멤버십 상태를 `INACTIVE`로 바꾸는 soft delete로 처리한다. ACTIVE COFFEE/MEAL 담당 배정이 하나라도 남은 회원은 `409 CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT`로 거부하며, 프론트는 개별 담당 해제를 먼저 수행해야 한다. 담당자 소유 계좌에 UNPAID가 있으면 기존 category별 409로 담당 해제 자체가 차단된다.
 
 ==== Request
 
@@ -507,6 +613,12 @@ include::{snippets}/campus-member-delete-success/path-parameters.adoc[]
 ==== Response
 
 include::{snippets}/campus-member-delete-success/http-response.adoc[]
+
+==== Active Duty Conflict (`409`)
+
+include::{snippets}/campus-member-delete-active-duty-conflict/http-response.adoc[]
+
+include::{snippets}/campus-member-delete-active-duty-conflict/response-fields.adoc[]
 
 == Admin Campuses
 
@@ -570,7 +682,7 @@ include::{snippets}/admin-campus-role-change-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/duty-assignments`
 
-캠퍼스의 활성 담당자 배정 목록을 조회한다.
+캠퍼스의 활성 담당자 배정 목록을 조회한다. 기본 `staleOnly=false`에서는 담당 배정이 ACTIVE여도 캠퍼스 멤버십이 INACTIVE인 과거 불일치 row를 반환하지 않는다. `staleOnly=true`를 지정하면 반대로 해당 과거 배정만 반환하므로 관리자가 응답의 `assignmentId`로 기존 COFFEE/MEAL 해제 API를 호출할 수 있다. 응답 구조는 기본 조회와 같다.
 
 ==== Request
 
@@ -592,11 +704,37 @@ include::{snippets}/admin-duty-assignments-list-success/http-response.adoc[]
 
 include::{snippets}/admin-duty-assignments-list-success/response-fields.adoc[]
 
+==== Stale Assignment Recovery Request
+
+include::{snippets}/admin-stale-duty-assignments-list-success/http-request.adoc[]
+
+include::{snippets}/admin-stale-duty-assignments-list-success/request-headers.adoc[]
+
+include::{snippets}/admin-stale-duty-assignments-list-success/path-parameters.adoc[]
+
+include::{snippets}/admin-stale-duty-assignments-list-success/query-parameters.adoc[]
+
+==== Stale Assignment Recovery Response
+
+include::{snippets}/admin-stale-duty-assignments-list-success/http-response.adoc[]
+
+include::{snippets}/admin-stale-duty-assignments-list-success/response-fields.adoc[]
+
+==== Invalid `staleOnly` (400)
+
+include::{snippets}/admin-duty-assignments-invalid-stale-only/http-request.adoc[]
+
+include::{snippets}/admin-duty-assignments-invalid-stale-only/query-parameters.adoc[]
+
+include::{snippets}/admin-duty-assignments-invalid-stale-only/http-response.adoc[]
+
+include::{snippets}/admin-duty-assignments-invalid-stale-only/response-fields.adoc[]
+
 === Assign Coffee Duty
 
 `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee`
 
-캠퍼스당 활성 `DutyType.COFFEE` 담당자는 1명만 유지한다. 새 담당자를 지정하면 기존 활성 커피 담당자 배정은 inactive 처리된다.
+캠퍼스에 여러 ACTIVE `DutyType.COFFEE` 담당자를 둘 수 있다. 이 `PUT`은 기존 담당자를 해제하지 않는 additive 지정이며, 같은 캠퍼스·사용자·업무 유형의 ACTIVE 배정이 이미 있으면 기존 배정을 그대로 반환하는 idempotent 요청이다.
 
 ==== Request
 
@@ -626,7 +764,7 @@ include::{snippets}/admin-coffee-duty-assign-success/response-fields.adoc[]
 
 `DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}`
 
-커피 담당자 배정을 inactive 처리하고 `204 No Content`를 반환한다.
+커피 담당자 배정을 inactive 처리하고 `204 No Content`를 반환한다. 담당자 본인 소유 COFFEE 계좌(비활성 포함)에 연결된 `UNPAID` 청구가 하나라도 있으면 `409 CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT`로 해제를 거부한다.
 
 ==== Request
 
@@ -643,6 +781,12 @@ include::{snippets}/admin-coffee-duty-revoke-success/path-parameters.adoc[]
 ==== Response
 
 include::{snippets}/admin-coffee-duty-revoke-success/http-response.adoc[]
+
+==== Unpaid Charge Conflict (`409`)
+
+include::{snippets}/admin-coffee-duty-revoke-unpaid-conflict/http-response.adoc[]
+
+include::{snippets}/admin-coffee-duty-revoke-unpaid-conflict/response-fields.adoc[]
 
 === Get My Coffee Duty Assignment
 
@@ -706,7 +850,7 @@ include::{snippets}/devotion-daily-check-success/response-fields.adoc[]
 
 `PUT /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`
 
-`weekStartDate`는 월요일만 허용한다. 주간 저장/제출은 월요일부터 일요일까지 7일치 daily row를 생성 또는 수정하고, 요청에 없는 날짜는 false 기본값으로 채운다. `dailyChecks[].recordDate`는 요청 주차 안의 날짜만 허용하고, `saturdayLateMinutes`는 0 이상만 허용한다. #31에서는 `submit = true`일 때 `submittedAt`과 주간 요약값만 갱신하며, 실제 `PENALTY` 청구 생성/갱신은 #33 범위로 분리한다.
+`weekStartDate`는 월요일만 허용한다. 주간 저장/제출은 월요일부터 일요일까지 7일치 daily row를 생성 또는 수정하고, 요청에 없는 날짜는 false 기본값으로 채운다. `dailyChecks[].recordDate`는 요청 주차 안의 날짜만 허용하고, `saturdayLateMinutes`는 0 이상 1,440 이하만 허용한다. 최종 제출의 벌금 계산은 `long` exact arithmetic을 사용하며 산술 overflow 또는 청구 저장 범위 초과를 400 오류로 거부한다.
 
 ==== Request
 
@@ -835,6 +979,54 @@ include::{snippets}/devotion-admin-missing-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/devotion-admin-missing-success/response-fields.adoc[]
+
+=== Get Admin Weekly Devotion Members
+
+`GET /api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/members`
+
+전역 `ADMIN` 또는 해당 캠퍼스의 ACTIVE `MINISTER`, `ELDER`, `CAMPUS_LEADER`가 현재 ACTIVE 멤버의 주간 경건생활과 실제 저장된 `PENALTY` 청구를 조회한다. 제출자와 미제출자를 분리하며, 미제출자는 응답 하단에 둔다. `totalPenaltyAmount`는 실제 청구 중 `PAID`와 `UNPAID`를 합산하고 `WAIVED`, `CANCELED`는 제외한다.
+
+==== Request
+
+include::{snippets}/devotion-admin-weekly-members-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-admin-weekly-members-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-admin-weekly-members-success/path-parameters.adoc[]
+
+==== Response
+
+include::{snippets}/devotion-admin-weekly-members-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/devotion-admin-weekly-members-success/response-fields.adoc[]
+
+=== Export Admin Weekly Devotion Workbook
+
+`GET /api/v1/admin/campuses/{campusId}/devotions/weeks/{weekStartDate}/export`
+
+JSON 조회와 동일한 권한·주차·ACTIVE 멤버·벌금 집계 query model로 XLSX 파일을 생성한다. 파일명은 `faithlog-devotion-{campusId}-{weekStartDate}.xlsx`이며, 첫 시트는 `주간 요약`, 두 번째 시트는 `일별 상세`다. 두 시트 모두 제출자를 먼저 표시하고 미제출자를 하단 별도 구역에 둔다.
+
+==== Request
+
+include::{snippets}/devotion-admin-weekly-export-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/devotion-admin-weekly-export-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/devotion-admin-weekly-export-success/path-parameters.adoc[]
+
+==== Response Headers
+
+include::{snippets}/devotion-admin-weekly-export-success/response-headers.adoc[]
 
 === Get My Monthly Devotion Summary
 
@@ -1028,7 +1220,7 @@ include::{snippets}/penalty-rule-invalid-negative-value/response-fields.adoc[]
 
 `POST /api/v1/admin/campuses/{campusId}/payment-accounts`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`은 `PENALTY` 계좌를 등록할 수 있다. `PENALTY`의 `ownerUserId`는 등록자/관리 담당자 메타데이터이며 생략 시 requester userId를 저장하고, 명시하면 해당 값을 저장한다. 캠퍼스 관리자와 활성 `COFFEE` 담당자는 본인 소유 `COFFEE` 계좌를 등록할 수 있다. `PENALTY` 활성 계좌는 캠퍼스 단위로 1개만 유지하고, `COFFEE` 활성 계좌는 `campusId + accountType + ownerUserId` 기준으로 유지한다. 같은 사용자가 새 `COFFEE` 계좌를 등록하면 그 사용자의 기존 active `COFFEE` 계좌만 비활성화되며, 다른 사용자의 `COFFEE` 계좌와 기존 COFFEE 청구는 재연결하지 않는다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`은 `PENALTY` 계좌를 등록할 수 있다. `PENALTY`의 `ownerUserId`는 등록자/관리 담당자 메타데이터이며 생략 시 requester userId를 저장하고, 명시하면 해당 값을 저장한다. `COFFEE` 계좌 등록은 ACTIVE `COFFEE` 담당자만 가능하며 본인 소유 계좌만 등록할 수 있다. `PENALTY` 활성 계좌는 캠퍼스 단위로 1개만 유지하고, `COFFEE` 활성 계좌는 `campusId + accountType + ownerUserId` 기준으로 유지한다. 같은 사용자가 새 `COFFEE` 계좌를 등록하면 그 사용자의 기존 active `COFFEE` 계좌만 비활성화되며, 다른 사용자의 `COFFEE` 계좌와 기존 COFFEE 청구는 재연결하지 않는다.
 
 ==== Request
 
@@ -1174,7 +1366,7 @@ include::{snippets}/payment-account-admin-list-include-inactive-success/response
 
 `PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate`
 
-캠퍼스 관리자는 기존 미납 청구가 있어도 납부 계좌를 비활성화할 수 있다. 활성 `COFFEE` 담당자는 본인 소유 `COFFEE` 계좌만 비활성화할 수 있고, `PENALTY` 계좌 비활성화는 기존 캠퍼스 관리자/전역 ADMIN 권한을 유지한다. 새 `PENALTY` 활성 계좌 등록 시 기존 `UNPAID` PENALTY 청구는 새 계좌로 재연결되고 snapshot이 갱신되며, `PAID`, `WAIVED`, `CANCELED` 청구 snapshot은 과거 기록으로 유지된다. 새 `COFFEE` 계좌 등록은 기존 `UNPAID` COFFEE 청구를 재연결하지 않는다.
+활성 `COFFEE` 담당자는 본인 소유 `COFFEE` 계좌만 비활성화할 수 있다. 비담당 캠퍼스 관리자와 전역 `ADMIN`은 COFFEE 계좌를 변경할 수 없고, `PENALTY` 계좌 비활성화는 기존 캠퍼스 관리자/전역 ADMIN 권한을 유지한다. 새 `PENALTY` 활성 계좌 등록 시 기존 `UNPAID` PENALTY 청구는 새 계좌로 재연결되고 snapshot이 갱신되며, `PAID`, `WAIVED`, `CANCELED` 청구 snapshot은 과거 기록으로 유지된다. 새 `COFFEE` 계좌 등록은 기존 `UNPAID` COFFEE 청구를 재연결하지 않는다.
 
 ==== Request
 
@@ -1274,7 +1466,7 @@ include::{snippets}/payment-account-delete-success/http-response.adoc[]
 
 `GET /api/v1/campuses/{campusId}/charges/me`
 
-해당 캠퍼스의 ACTIVE 멤버 본인이 자신의 청구 목록을 조회한다. `startDate`/`endDate` 기간 필터는 사용하지 않고, 전체 이력을 `page`, `size`, `sort`, `paymentCategory`, `status`로 조회한다. 앱 화면에서 최근 납부 항목 노출 범위를 조정하더라도 백엔드는 과거 이력을 보존한다.
+해당 캠퍼스의 ACTIVE 멤버 본인이 자신의 청구 목록을 조회한다. 기본 페이지 크기는 10이고 최대 100이다. `includeArchived=false`에서는 `UNPAID`를 기간 제한 없이 포함하고, `PAID`는 `paidAt`, `WAIVED`/`CANCELED`는 `updatedAt` 기준 최근 1개월만 포함한다. `includeArchived=true`이면 이전 완료 기록도 조회하며 데이터는 삭제하지 않는다. 응답은 기존 `items`와 함께 `page`, `size`, `totalElements`, `totalPages`를 반환한다. 허용된 primary 정렬 값이 같으면 요청한 방향과 같은 `id` secondary 정렬을 적용해 페이지 순서를 안정화한다.
 
 ==== Request
 
@@ -1364,7 +1556,7 @@ include::{snippets}/charge-my-paid-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/charges`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 캠퍼스 청구 집계를 조회한다. 서비스 `MANAGER` 역할만으로는 권한이 없다. `paymentAccountId`가 있으면 해당 계좌에 연결된 청구만 `summary + members[]`로 집계하며, `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 캠퍼스 관리자와 활성 `COFFEE` 담당자의 COFFEE 계좌 필터 조회는 본인 소유 COFFEE 계좌 범위로 제한되고, 전역 `ADMIN`은 전체 접근할 수 있다. `PENALTY` 조회는 기존 관리자 권한을 요구한다. 응답은 `summary + members[]` 집계만 포함하고 개별 청구 item 목록은 포함하지 않는다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 캠퍼스 청구 집계를 조회한다. 서비스 `MANAGER` 역할만으로는 권한이 없다. `paymentAccountId`가 있으면 해당 계좌에 연결된 청구만 `summary + members[]`로 집계하며, `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 캠퍼스 관리자와 전역 `ADMIN`은 캠퍼스 내 전체 COFFEE 계좌를 필터 조회할 수 있고, 활성 `COFFEE` 담당자는 본인 소유 COFFEE 계좌 범위로 제한된다. `PENALTY` 조회는 기존 관리자 권한을 요구한다. 기본 페이지 크기는 기존대로 20이며 응답은 `summary + members[] + page + size + totalElements + totalPages`를 포함하고 개별 청구 item 목록은 포함하지 않는다. `includeArchived`의 기본 1개월 완료 기록 정책은 내 청구 목록과 동일하다.
 
 ==== Request
 
@@ -1394,7 +1586,7 @@ include::{snippets}/charge-admin-campus-summary-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`
 
-캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`)와 전역 `ADMIN`은 active `PENALTY` 계좌를 `ownerUserId` 일치 여부와 무관하게 포함해 `summary + members[]`로 집계한다. 기존 `ownerUserId = null` active `PENALTY` 계좌도 포함한다. `COFFEE`는 계속 현재 로그인 사용자가 owner인 active `COFFEE` 계좌에 연결된 청구만 포함한다. 활성 `COFFEE` 담당자는 본인이 owner인 active `COFFEE` 계좌 범위만 조회할 수 있고 `PENALTY` 데이터는 조회할 수 없다. `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다.
+캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`)와 전역 `ADMIN`은 active `PENALTY` 계좌를 `ownerUserId` 일치 여부와 무관하게 포함해 `summary + members[]`로 집계한다. 기존 `ownerUserId = null` active `PENALTY` 계좌도 포함한다. `COFFEE`는 계속 현재 로그인 사용자가 owner인 active `COFFEE` 계좌에 연결된 청구만 포함한다. 활성 `COFFEE` 담당자는 본인이 owner인 active `COFFEE` 계좌 범위만 조회할 수 있고 `PENALTY` 데이터는 조회할 수 없다. `paymentCategory`, `status`, `userId`, `keyword`, pagination 필터와 함께 사용할 수 있다. 기본 페이지 크기는 20이며 `includeArchived`와 페이지 메타데이터 계약은 캠퍼스 청구 집계와 동일하다.
 
 ==== Request
 
@@ -1424,7 +1616,7 @@ include::{snippets}/charge-admin-my-accounts-summary-success/response-fields.ado
 
 `GET /api/v1/admin/campuses/{campusId}/members/{userId}/charges`
 
-캠퍼스 관리자 또는 전역 `ADMIN`이 특정 회원의 청구 상세를 조회한다. 활성 `COFFEE` 담당자는 `paymentCategory=COFFEE`로 제한된 회원 청구 상세만 조회할 수 있다. 응답에는 대상 회원의 `userId`, `name`, `email`이 포함되며, 청구 item은 내 청구 목록과 동일한 `account`/`source` 구조를 사용한다.
+캠퍼스 관리자 또는 전역 `ADMIN`이 특정 회원의 청구 상세를 조회한다. 활성 `COFFEE` 담당자는 `paymentCategory=COFFEE`로 제한된 회원 청구 상세만 조회할 수 있다. 응답에는 대상 회원의 `userId`, `name`, `email`이 포함되며, 청구 item은 내 청구 목록과 동일한 `account`/`source` 구조를 사용한다. 기본 페이지 크기는 20이며 `includeArchived`와 `page`, `size`, `totalElements`, `totalPages`, 동일 방향 `id` secondary 정렬 계약을 내 청구 목록과 동일하게 적용한다.
 
 ==== Request
 
@@ -1454,7 +1646,9 @@ include::{snippets}/charge-admin-member-detail-success/response-fields.adoc[]
 
 `PATCH /api/v1/admin/charges/{chargeItemId}/status`
 
-캠퍼스 관리자 또는 전역 `ADMIN`은 `UNPAID` 청구를 `WAIVED`/`CANCELED`로 변경하거나, 종료된 청구를 `UNPAID`로 되돌릴 수 있다. 관리자는 `PAID`로 변경할 수 없고, `PAID` 청구를 `UNPAID`로 되돌릴 때는 `paidAt`을 비운다.
+`PENALTY`는 기존 캠퍼스 청구 관리자 권한으로 상태를 변경한다. `COFFEE`는 ACTIVE COFFEE 담당자가 본인 소유 계좌의 청구만 상태를 변경할 수 있다. `MEAL`은 일반 상태 변경 대상이 아니며 stale-duty 복구 예외에만 이 endpoint를 사용한다. 서비스 전역 `ADMIN`도 정상 ACTIVE COFFEE/MEAL 청구를 우회할 수 없다. 허용된 일반 관리 범위에서는 `UNPAID` 청구를 `PAID` / `WAIVED` / `CANCELED`로 변경하거나 종료된 청구를 `UNPAID`로 되돌릴 수 있다. `UNPAID -> PAID` 전환은 서버 현재 시각을 `paidAt` 필드에 저장하고, terminal 상태에서 `PAID`로의 전환은 409로 실패한다. `PAID`를 `UNPAID`로 되돌릴 때는 `paidAt` 필드를 비운다.
+
+`PENALTY + DEVOTION_RECORD` 청구를 `UNPAID -> CANCELED`로 변경하면 같은 transaction에서 source weekly record의 `submittedAt`을 null로 재오픈한다. source weekly record는 청구와 같은 campus/user여야 하며, 기존 daily checks는 삭제하지 않는다. `WAIVED`, `COFFEE`, `POLL_RESPONSE` 취소는 경건생활을 재오픈하지 않는다. 재제출 벌금이 양수이면 기존 CANCELED source charge row를 UNPAID로 재사용해 현재 금액과 계좌 snapshot을 갱신하고, 0원이면 CANCELED row를 유지하며 새 row를 만들지 않는다.
 
 ==== Request
 
@@ -1479,6 +1673,98 @@ include::{snippets}/charge-admin-status-change-success/http-response.adoc[]
 ==== Response Fields
 
 include::{snippets}/charge-admin-status-change-success/response-fields.adoc[]
+
+==== Stale Duty Charge Recovery By Service ADMIN
+
+INACTIVE 캠퍼스 멤버십에 같은 category의 ACTIVE COFFEE/MEAL 담당 배정이 남아 있고, 해당 담당자가 소유한 계좌의 UNPAID 청구인 경우에만 서비스 전역 `ADMIN`이 기존 상태 변경 API로 `PAID`, `WAIVED`, `CANCELED` 중 하나를 명시해 복구할 수 있다. 정상 ACTIVE 담당자의 청구나 다른 계좌에는 이 예외가 적용되지 않으며, 일반 관리자 우회 권한도 추가되지 않는다.
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/http-request.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/request-headers.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/path-parameters.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/request-fields.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/http-response.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-success/response-fields.adoc[]
+
+==== Campus Manager Recovery Forbidden (403)
+
+include::{snippets}/charge-admin-stale-duty-recovery-manager-forbidden/http-request.adoc[]
+
+include::{snippets}/charge-admin-stale-duty-recovery-manager-forbidden/http-response.adoc[]
+
+==== Stale MEAL Duty Recovery Example
+
+include::{snippets}/charge-admin-stale-meal-duty-recovery-success/http-request.adoc[]
+
+include::{snippets}/charge-admin-stale-meal-duty-recovery-success/request-headers.adoc[]
+
+include::{snippets}/charge-admin-stale-meal-duty-recovery-success/path-parameters.adoc[]
+
+include::{snippets}/charge-admin-stale-meal-duty-recovery-success/request-fields.adoc[]
+
+include::{snippets}/charge-admin-stale-meal-duty-recovery-success/http-response.adoc[]
+
+include::{snippets}/charge-admin-stale-meal-duty-recovery-success/response-fields.adoc[]
+
+==== ACTIVE MEAL Duty Is Not A Recovery Target (404)
+
+include::{snippets}/charge-admin-active-meal-duty-recovery-not-found/http-request.adoc[]
+
+include::{snippets}/charge-admin-active-meal-duty-recovery-not-found/http-response.adoc[]
+
+==== Terminal To Paid Conflict (409)
+
+include::{snippets}/charge-admin-status-change-conflict/http-request.adoc[]
+
+===== Request Headers
+
+include::{snippets}/charge-admin-status-change-conflict/request-headers.adoc[]
+
+===== Path Parameters
+
+include::{snippets}/charge-admin-status-change-conflict/path-parameters.adoc[]
+
+===== Request Fields
+
+include::{snippets}/charge-admin-status-change-conflict/request-fields.adoc[]
+
+===== Response
+
+include::{snippets}/charge-admin-status-change-conflict/http-response.adoc[]
+
+===== Response Fields
+
+include::{snippets}/charge-admin-status-change-conflict/response-fields.adoc[]
+
+==== Devotion Penalty Cancel And Reopen Example
+
+===== Request
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/http-request.adoc[]
+
+===== Request Headers
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/request-headers.adoc[]
+
+===== Path Parameters
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/path-parameters.adoc[]
+
+===== Request Fields
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/request-fields.adoc[]
+
+===== Response
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/http-response.adoc[]
+
+===== Response Fields
+
+include::{snippets}/charge-admin-devotion-cancel-reopen-success/response-fields.adoc[]
 
 == Campus Admin Dashboard
 
@@ -1746,7 +2032,7 @@ include::{snippets}/coffee-brand-menus-list-success/response-fields.adoc[]
 
 `POST /api/v1/admin/campuses/{campusId}/poll-templates`
 
-커피 메뉴를 선택지로 사용할 때는 생성 당시의 메뉴 코드, 이름, 가격을 템플릿 선택지 snapshot으로 저장한다.
+`COFFEE` 템플릿은 같은 캠퍼스의 모든 ACTIVE COFFEE 담당자가 공동 관리하는 계좌 중립 템플릿이다. `paymentAccountId` 필드는 호환을 위해 받을 수 있지만 저장하지 않으며 응답은 null이다. 모든 선택지는 active backend catalog `menuId`가 필수다. 요청의 `content`와 `priceAmount`는 호환을 위해 받을 수 있지만, 저장 snapshot은 항상 catalog의 메뉴명, 메뉴 코드, 가격을 사용한다. persisted `COFFEE` 템플릿 수정에도 동일한 정책을 적용한다. 기존 요청 필드 호환을 위해 `autoCreateEnabled`와 시간 필드는 유지하지만, scheduler는 COFFEE 템플릿으로 투표를 자동 생성하지 않는다. ACTIVE COFFEE 담당자가 투표를 수동 생성하며, 이때 requester 본인 소유 active COFFEE `paymentAccountId`를 요청에 지정한다. 수동 생성된 COFFEE 투표의 예정 마감과 CLOSED 정산은 유지한다.
 
 ==== Request
 
@@ -1776,6 +2062,8 @@ include::{snippets}/poll-template-create-success/response-fields.adoc[]
 
 `GET /api/v1/admin/campuses/{campusId}/poll-templates`
 
+캠퍼스 관리자와 전역 ADMIN은 기존처럼 전체 템플릿을 읽을 수 있다. ACTIVE COFFEE 담당자는 COFFEE 템플릿 목록을 읽을 수 있다.
+
 ==== Request
 
 include::{snippets}/poll-template-list-success/http-request.adoc[]
@@ -1795,6 +2083,8 @@ include::{snippets}/poll-template-list-success/http-response.adoc[]
 === Get Poll Template
 
 `GET /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+
+캠퍼스 관리자와 전역 ADMIN은 기존 읽기 권한을 유지한다. ACTIVE COFFEE 담당자는 COFFEE 템플릿 상세를 읽을 수 있다.
 
 ==== Request
 
@@ -1840,6 +2130,8 @@ include::{snippets}/poll-template-detail-campus-scope-mismatch/response-fields.a
 
 `PATCH /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
 
+persisted COFFEE 템플릿은 ACTIVE COFFEE 담당자만 수정할 수 있으며 모든 담당자가 공동 관리한다. 비담당 관리자의 write bypass는 없다.
+
 ==== Request
 
 include::{snippets}/poll-template-update-success/http-request.adoc[]
@@ -1864,6 +2156,8 @@ include::{snippets}/poll-template-update-success/http-response.adoc[]
 
 `DELETE /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
 
+persisted COFFEE 템플릿은 ACTIVE COFFEE 담당자만 비활성화할 수 있다. 비담당 관리자는 `403 POLL_TEMPLATE_MANAGE_FORBIDDEN`으로 실패한다.
+
 ==== Request
 
 include::{snippets}/poll-template-deactivate-success/http-request.adoc[]
@@ -1880,11 +2174,15 @@ include::{snippets}/poll-template-deactivate-success/path-parameters.adoc[]
 
 include::{snippets}/poll-template-deactivate-success/http-response.adoc[]
 
+==== Non-duty Manager Error
+
+include::{snippets}/poll-template-deactivate-non-duty-forbidden/http-response.adoc[]
+
 === Create Poll
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
 
-`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. 캠퍼스 관리자와 활성 `COFFEE` 담당자는 `pollType=COFFEE` 투표를 생성할 수 있다. 단, `COFFEE` 투표는 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`가 필수다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한을 유지한다.
+`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. `pollType=COFFEE` 투표 생성은 ACTIVE `COFFEE` 담당자만 가능하다. 직접 생성과 계좌 중립 COFFEE 템플릿 기반 생성 모두 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`가 필수다. 직접 COFFEE 투표의 각 선택지는 active backend catalog `menuId`가 필수이며 요청의 `content`/`priceAmount`와 무관하게 catalog 메뉴명/코드/가격만 snapshot한다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한과 custom content/0원 계약을 유지한다.
 
 ==== Request
 
@@ -1910,11 +2208,37 @@ include::{snippets}/poll-create-direct-success/http-response.adoc[]
 
 include::{snippets}/poll-create-direct-success/response-fields.adoc[]
 
+==== Account-neutral Template Request
+
+include::{snippets}/poll-create-template-success/http-request.adoc[]
+
+==== Account-neutral Template Response
+
+include::{snippets}/poll-create-template-success/http-response.adoc[]
+
+=== Reject Coffee Poll Option Without Menu ID
+
+`POST /api/v1/admin/campuses/{campusId}/polls`
+
+직접 `COFFEE` Poll 또는 `COFFEE` PollTemplate 생성/수정에서 선택지 `menuId`가 없으면 `400 POLL_COFFEE_OPTION_MENU_REQUIRED`와 `커피 투표 선택지는 menuId가 필요합니다.`를 반환하며 Poll/template/option/charge row를 생성하거나 변경하지 않는다.
+
+==== Request
+
+include::{snippets}/poll-create-coffee-menu-required-error/http-request.adoc[]
+
+==== Response
+
+include::{snippets}/poll-create-coffee-menu-required-error/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-create-coffee-menu-required-error/response-fields.adoc[]
+
 === Create Coffee Poll As Coffee Duty
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
 
-캠퍼스 관리자 또는 활성 `COFFEE` 담당자가 직접 `COFFEE` 투표를 생성한다. `paymentAccountId`는 필수이며 requester 본인 소유 active `COFFEE` 계좌여야 한다. 직접 `COFFEE` 투표를 생성할 때 `allowUserOptionAdd`를 생략하면 기본값은 `true`이며, 명시적으로 `false`를 보내면 사용자 항목 추가를 비활성화한다.
+ACTIVE `COFFEE` 담당자가 직접 `COFFEE` 투표를 생성한다. `paymentAccountId`는 필수이며 requester 본인 소유 active `COFFEE` 계좌여야 한다. 직접 `COFFEE` 투표를 생성할 때 `allowUserOptionAdd`를 생략하면 기본값은 `true`이며, 명시적으로 `false`를 보내면 사용자 항목 추가를 비활성화한다.
 
 ==== Request
 
@@ -2058,7 +2382,7 @@ include::{snippets}/poll-user-option-add-coffee-content-only-error/response-fiel
 
 `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/close`
 
-관리자가 OPEN 투표를 수동 종료한다. CUSTOM 등 커피 외 투표는 종료만 수행한다. COFFEE 투표는 종료 후 같은 트랜잭션에서 CLOSED 커피 투표 정산을 실행해 최종 응답 기준 `COFFEE` 청구를 생성 또는 갱신한다.
+OPEN 투표를 수동 종료한다. CUSTOM 등 커피 외 투표는 기존 관리자 권한으로 종료한다. COFFEE 투표는 해당 투표를 만든 ACTIVE `COFFEE` 담당자만 종료할 수 있고, 종료 후 같은 트랜잭션에서 CLOSED 커피 투표 정산을 실행해 최종 응답 기준 `COFFEE` 청구를 생성 또는 갱신한다.
 
 ==== Request
 
@@ -2176,6 +2500,8 @@ include::{snippets}/poll-response-empty-selection-count-error/response-fields.ad
 
 `GET /api/v1/campuses/{campusId}/polls`
 
+각 항목의 `manageableByMe`는 현재 요청자가 이 투표의 관리 command를 실행할 수 있는지 나타낸다. COFFEE 투표는 생성자인 ACTIVE COFFEE 담당자만 `true`, MEAL 투표는 ACTIVE MEAL 담당자만 `true`, 그 외 투표는 기존 관리자 command 권한이 있을 때 `true`다. 투표 생성자 사용자 ID는 공개하지 않으며, 프론트는 역할을 재조합하지 않고 `manageableByMe`로 관리 버튼을 제어한다.
+
 ==== Request
 
 include::{snippets}/poll-list-success/http-request.adoc[]
@@ -2199,6 +2525,8 @@ include::{snippets}/poll-list-success/response-fields.adoc[]
 === Get Poll Detail
 
 `GET /api/v1/campuses/{campusId}/polls/{pollId}`
+
+목록과 동일한 규칙으로 계산한 `manageableByMe`만 반환하며 투표 생성자 사용자 ID는 공개하지 않는다.
 
 ==== Request
 
@@ -2667,3 +2995,88 @@ include::{snippets}/prayer-submissions-save-version-conflict/http-request.adoc[]
 include::{snippets}/prayer-submissions-save-version-conflict/http-response.adoc[]
 
 include::{snippets}/prayer-submissions-save-version-conflict/response-fields.adoc[]
+
+== Meal Duty, Poll, and Post-settlement Billing
+
+MEAL 운영 API는 같은 캠퍼스의 현재 ACTIVE MEAL 담당자만 사용할 수 있다. service ADMIN 또는 캠퍼스 관리자도 MEAL duty가 없으면 `403`이다. 일반 사용자의 투표 목록·상세·응답과 사용자 옵션 추가는 기존 캠퍼스 멤버 정책을 유지한다.
+
+=== Assign and Revoke Meal Duty
+
+한 캠퍼스에 여러 ACTIVE MEAL duty를 둘 수 있고, 같은 사용자의 재지정은 기존 ACTIVE assignment를 반환한다. duty 지정은 서비스 role이나 캠퍼스 role을 변경하지 않는다.
+
+include::{snippets}/admin-meal-duty-assign-success/http-request.adoc[]
+include::{snippets}/admin-meal-duty-assign-success/http-response.adoc[]
+include::{snippets}/my-meal-duty-assignment-success/http-request.adoc[]
+include::{snippets}/my-meal-duty-assignment-success/http-response.adoc[]
+include::{snippets}/admin-meal-duty-revoke-success/http-request.adoc[]
+include::{snippets}/admin-meal-duty-revoke-success/http-response.adoc[]
+
+본인 소유 MEAL 계좌에 `UNPAID` 청구가 남아 있으면 `409 CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT`로 해제를 거부한다.
+
+include::{snippets}/admin-meal-duty-revoke-unpaid-conflict/http-response.adoc[]
+include::{snippets}/admin-meal-duty-revoke-unpaid-conflict/response-fields.adoc[]
+
+=== My Meal Payment Accounts
+
+MEAL 담당자는 본인 소유 계좌만 생성·조회·비활성화할 수 있다. 새 계좌를 만들면 같은 캠퍼스의 기존 본인 ACTIVE MEAL 계좌는 비활성화된다. 다른 담당자의 계좌는 이 API에 노출되지 않는다.
+
+include::{snippets}/meal-payment-account-create-success/http-request.adoc[]
+include::{snippets}/meal-payment-account-create-success/http-response.adoc[]
+include::{snippets}/meal-payment-accounts-my-list-success/http-request.adoc[]
+include::{snippets}/meal-payment-accounts-my-list-success/http-response.adoc[]
+include::{snippets}/meal-payment-account-deactivate-success/http-request.adoc[]
+include::{snippets}/meal-payment-account-deactivate-success/http-response.adoc[]
+
+=== Create Meal Poll
+
+MEAL poll은 `SINGLE`로 생성되며 서버가 하나의 현재 시각을 `startsAt`과 `createdAt`에 사용하고 즉시 `OPEN`으로 저장한다. 요청은 미래 `endsAt`만 받는다. `startsAt`, `paymentAccountId`, payment category, charge generation type, 가격 또는 금액 필드는 `400`으로 거절하며 조용히 무시하지 않는다.
+
+include::{snippets}/meal-poll-create-success/http-request.adoc[]
+include::{snippets}/meal-poll-create-success/http-response.adoc[]
+include::{snippets}/meal-poll-create-forbidden-field-bad-request/http-request.adoc[]
+include::{snippets}/meal-poll-create-forbidden-field-bad-request/http-response.adoc[]
+
+=== Add User Meal Option
+
+`allowUserOptionAdd=true`인 OPEN MEAL poll은 기존 `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`를 사용한다. content는 trim하고, 대소문자 무시 중복은 `409`다. 옵션 추가만으로 response, settlement, charge는 생성되지 않으며 실제 응답은 기존 `optionIds`와 `poll_response_options` 계약을 사용한다.
+
+include::{snippets}/meal-poll-user-option-add-success/http-request.adoc[]
+include::{snippets}/meal-poll-user-option-add-success/http-response.adoc[]
+include::{snippets}/meal-poll-user-option-duplicate-conflict/http-response.adoc[]
+
+=== Manage and Close Meal Poll
+
+관리 목록은 MEAL poll만 기본 10개씩 pagination한다. `includeArchived=false`에서는 `OPEN`/`SCHEDULED`를 기간 제한 없이 포함하고 `CLOSED`는 최근 90일만 반환한다. `includeArchived=true`이면 이전 마감 기록도 조회하며 데이터는 삭제하지 않는다. `settlementStatus`는 `NOT_CHARGED` 또는 `CHARGED`다. 수동 종료는 OPEN MEAL poll의 상태만 CLOSED로 바꾸며 기존 `endsAt`을 유지하고 settlement나 charge를 만들지 않는다. 전용 종료 API에서 다른 캠퍼스와 non-MEAL poll은 모두 `404 POLL_NOT_FOUND`로 숨기며, 일반 관리자 종료 API로도 MEAL poll을 우회할 수 없다.
+
+include::{snippets}/meal-polls-management-list-success/http-request.adoc[]
+include::{snippets}/meal-polls-management-list-success/http-response.adoc[]
+include::{snippets}/meal-polls-management-list-forbidden/http-response.adoc[]
+include::{snippets}/meal-poll-close-success/http-request.adoc[]
+include::{snippets}/meal-poll-close-success/http-response.adoc[]
+include::{snippets}/meal-poll-close-non-meal-not-found/http-response.adoc[]
+include::{snippets}/meal-poll-close-cross-campus-not-found/http-response.adoc[]
+include::{snippets}/meal-poll-generic-admin-close-not-found/http-response.adoc[]
+
+=== Create Poll-level Meal Charges
+
+요청의 `paymentAccountId` 하나가 모든 option group에 공통으로 적용된다. 응답자가 있는 모든 option을 정확히 한 번 포함해야 하며, 0명인 option은 제외한다. `PER_MEMBER`는 입력한 1인당 금액을 곱하고, `GROUP_TOTAL`은 `ceil(enteredAmount / responseCount)`를 정수 연산으로 계산한다. `requestedTotalAmount`, `actualTotalAmount`, `roundingAdjustment`를 분리한다. 전체 settlement/group/charge는 단일 transaction이며 같은 poll 재청구는 `409`다.
+
+include::{snippets}/meal-poll-charges-create-success/http-request.adoc[]
+include::{snippets}/meal-poll-charges-create-success/http-response.adoc[]
+include::{snippets}/meal-poll-charges-per-member-success/http-response.adoc[]
+include::{snippets}/meal-poll-charges-write-rollback-conflict/http-response.adoc[]
+include::{snippets}/meal-poll-charges-retry-conflict/http-response.adoc[]
+
+=== Meal Poll Management Detail and Account Redaction
+
+각 option은 최종 `responseCount`와 charge 계산 snapshot을 반환한다. 요청자가 settlement에 사용한 계좌의 소유자일 때만 `paymentAccountId`를 반환한다. 다른 ACTIVE MEAL 담당자가 조회하면 `chargedByMe=false`이고 계좌 ID/상세는 null이지만 청구 상태·금액·인원은 확인할 수 있다.
+
+include::{snippets}/meal-poll-management-detail-charged-by-me-success/http-response.adoc[]
+include::{snippets}/meal-poll-management-detail-other-duty-redacted-success/http-response.adoc[]
+
+=== Charges Connected to My Meal Accounts
+
+본인이 소유한 MEAL 계좌에 연결된 MEAL charge만 조회·집계하며 다른 담당자 계좌의 청구는 반환하지 않는다. 기본 페이지 크기는 10이다. `includeArchived=false`에서는 `UNPAID`를 모두 포함하고 완료 청구는 최근 1개월만 포함하며, `includeArchived=true`이면 이전 완료 기록도 조회한다. 응답은 `members`와 함께 `page`, `size`, `totalElements`, `totalPages`를 반환한다.
+
+include::{snippets}/meal-charges-my-accounts-success/http-request.adoc[]
+include::{snippets}/meal-charges-my-accounts-success/http-response.adoc[]

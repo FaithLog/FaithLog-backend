@@ -88,6 +88,23 @@ Use two connection modes intentionally:
 
 The JDBC URL must include Supabase-required SSL settings when the selected connection string requires them. Use placeholders in docs and issues; never paste the real connection string.
 
+## Supabase Data API Security
+
+FaithLog uses direct PostgreSQL JDBC only. Supabase Auth, PostgREST, GraphQL, publishable/anon keys, and service-role keys are not application data paths.
+
+- Keep the Supabase Data API disabled in the project settings when the setting is available.
+- Flyway `V11__secure_supabase_data_api.sql` enables RLS on every application table in `public` without creating permissive policies.
+- V11 revokes public-schema and object access from `PUBLIC`, `anon`, `authenticated`, and `service_role` when those Supabase roles exist.
+- V11 revokes matching default privileges for the current Flyway role so future Flyway tables are not automatically exposed.
+- V11 does not use `FORCE ROW LEVEL SECURITY`; the table-owning JDBC role remains able to run the backend.
+- V11 cannot alter `flyway_schema_history` while Flyway holds its migration lock. On hosted Supabase, apply this after Flyway completes:
+
+```sql
+ALTER TABLE public.flyway_schema_history ENABLE ROW LEVEL SECURITY;
+```
+
+After any hosted migration, run the Supabase Security Advisor and verify all public tables have RLS, no Data API role has schema/table privileges, and no permissive policy exists. A table created by a managed role other than the application Flyway role must be audited separately.
+
 ## Upstash Redis Connection Mode
 
 Use Spring Boot 3.5 Redis auto-configuration with explicit host, port, password, and SSL settings:
@@ -112,10 +129,11 @@ Local and Docker profiles use Docker/local Redis host and port only. They do not
 
 ## Flyway Migration
 
-The repository contains the initial migration:
+The repository migrations begin with the initial schema and include the Supabase Data API deny-all migration:
 
 ```text
 src/main/resources/db/migration/V1__initial_schema.sql
+src/main/resources/db/migration/V11__secure_supabase_data_api.sql
 ```
 
 The V1 strategy is a clean initial schema for a new Supabase database. Existing-data deployments require a separate PM-approved baseline plan before migration.
@@ -180,7 +198,8 @@ Use Cloud Run secret injection for sensitive values rather than `--set-env-vars`
 - `./gradlew build`
 - `./gradlew asciidoctor`
 - Docker image build succeeds.
-- Docker PostgreSQL clean database runs Flyway V1 successfully.
+- Docker PostgreSQL clean database runs Flyway through V12 successfully.
+- Supabase Security Advisor has no Critical `rls_disabled_in_public` or `sensitive_columns_exposed` findings.
 - Docker QA starts with Docker PostgreSQL and Docker Redis only.
 - App starts with deployment-like DB/Flyway/JPA settings against the migrated PostgreSQL schema and `ddl-auto=validate`.
 - `/api/v1/health` returns `status=UP`.

@@ -1,0 +1,74 @@
+package com.faithlog.billing.service.port;
+
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.service.query.ChargeSearchCriteria;
+import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.ChargeStatus;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
+public interface ChargeItemRepositoryPort {
+
+	ChargeItem save(ChargeItem chargeItem);
+
+	List<ChargeItem> saveAllCharges(List<ChargeItem> chargeItems);
+
+	void flush();
+
+	Optional<ChargeItem> findChargeItemById(Long chargeItemId);
+
+	Optional<ChargeItemLockScope> findChargeItemLockScopeById(Long chargeItemId);
+
+	Optional<ChargeItem> findChargeItemByIdForUpdate(Long chargeItemId);
+
+	Page<ChargeItem> searchCharges(ChargeSearchCriteria criteria, Pageable pageable);
+
+	List<ChargeItem> searchCharges(ChargeSearchCriteria criteria);
+
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndStatus(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status
+	);
+
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAsc(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
+	);
+
+	boolean existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
+	);
+
+	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceId(
+		Long campusId,
+		Long userId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		Long sourceId
+	);
+
+	Optional<ChargeItem> findByCampusIdAndUserIdAndPaymentCategoryAndSourceTypeAndSourceIdForUpdate(
+		Long campusId,
+		Long userId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		Long sourceId
+	);
+
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndSourceTypeAndSourceIdInForUpdate(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeSourceType sourceType,
+		List<Long> sourceIds
+	);
+}

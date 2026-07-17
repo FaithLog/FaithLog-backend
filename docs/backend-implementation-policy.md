@@ -2,6 +2,15 @@
 
 This document records the current backend implementation source of truth.
 
+## Dependency Security Baseline
+
+- The backend Spring Boot plugin/BOM maintenance baseline is `3.5.15`.
+- Spring Security config/core/crypto/web/test must resolve to `6.5.11` or later within the approved Spring Boot 3.5.x managed line.
+- Do not override individual Spring Security transitive modules. Upgrade through the official Spring Boot BOM unless the user approves a separate BOM/property strategy.
+- The dependency contract must fail if any Spring Security runtime/test module resolves to the vulnerable 6.5.0-6.5.10 range.
+- A maintenance dependency upgrade must preserve the existing API, authentication/authorization meaning, database schema, and infrastructure policy. Unexpected compatibility fixes require user approval before production changes.
+- Do not add an eager-header workaround or change servlet `ERROR` dispatch/`/error` authorization policy without an explicit user decision.
+
 ## Auth
 
 - Refresh Token is stored in Redis, not in the database.
@@ -14,8 +23,12 @@ This document records the current backend implementation source of truth.
 - Token version mismatch uses the existing authentication failure policy (`AUTH_UNAUTHORIZED`); Issue #76 does not add a separate ErrorCode.
 - Refresh Token reissue must create a new Access Token using the latest persisted user role and token version.
 - Refresh Token Rotation is required.
-- Refresh success must issue a new Refresh Token and immediately revoke the previous one.
-- Reuse of an old Refresh Token must fail and revoke at least the current session.
+- One Redis Lua or equivalent CAS execution must own the complete rotate-or-revoke state transition. A matching expected JTI is replaced with the new JTI and rotation TTL; a mismatch deletes `auth:refresh:{userId}:{sessionId}` and stores the fixed marker key `auth:session:revoked:{userId}:{sessionId}` with the revocation TTL in that same atomic execution.
+- Parallel requests using the same old Refresh Token allow exactly one rotation winner. A CAS loser or sequential reuse returns `401 AUTH_UNAUTHORIZED` after the atomic script has revoked that `userId + sessionId` session.
+- If the revoked marker already exists, rotation is rejected without extending the marker TTL. The authentication filter rejects Access Tokens whose session marker exists.
+- Session revocation is scoped to one `userId + sessionId`; another session belonging to the same user and sessions belonging to other users remain valid.
+- The session revocation marker TTL is the configured Refresh Token lifetime plus 60 seconds. Redis failures during refresh CAS, session revoke, or authentication marker lookup fail closed.
+- Normal logout keeps its existing current-access blacklist plus current-refresh deletion meaning and does not create a session revocation marker solely because of Issue #176.
 - Redis must not store raw tokens. Store a hash or token identifier.
 - Access Token must include `jti`, `userId`, `role`, `sessionId`, and `tokenVersion`.
 - Refresh Token must include `userId`, `sessionId`, and `refreshJti`.
@@ -50,6 +63,7 @@ Recommended Redis keys:
 
 - `auth:refresh:{userId}:{sessionId}`
 - `auth:access:blacklist:{jti}`
+- `auth:session:revoked:{userId}:{sessionId}`
 - Optional reuse detection: `auth:refresh:used:{refreshJti}` or current `refreshJti` comparison within the session.
 
 Redis TTL policy:
@@ -58,6 +72,7 @@ Redis TTL policy:
 - Refresh token lifetime: 14 days.
 - `auth:access:blacklist:{jti}` TTL is the access token remaining lifetime plus 60 seconds.
 - `auth:refresh:{userId}:{sessionId}` TTL is the refresh token expiration.
+- `auth:session:revoked:{userId}:{sessionId}` TTL is the configured refresh token lifetime plus 60 seconds.
 - Reuse-detection keys, when used, live until the refresh token expiration.
 
 ## Pagination And Sorting
@@ -172,9 +187,10 @@ Redis TTL policy:
 
 - Coffee duty is not a `CampusRole`.
 - Coffee duty uses `CampusDutyAssignment` with `DutyType.COFFEE`.
-- A campus has at most one active `DutyType.COFFEE` assignee.
-- Issue #30 assigns or replaces the active coffee assignee with `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee`.
+- A campus can have multiple active `DutyType.COFFEE` assignees; only duplicate active rows for the same campus, duty type, and user are prohibited.
+- `PUT /api/v1/admin/campuses/{campusId}/duty-assignments/coffee` adds an assignee idempotently without revoking other active assignees.
 - Issue #30 revokes the active coffee assignee with `DELETE /api/v1/admin/campuses/{campusId}/duty-assignments/coffee/{assignmentId}`.
+- COFFEE or MEAL duty revocation fails with `409` when an owned account, including an inactive account, still has an `UNPAID` charge.
 - Active campus members can check their own coffee duty status with `GET /api/v1/campuses/{campusId}/duty-assignments/me`.
 - The my-duty response is `userId`, `campusId`, `dutyType=COFFEE`, and `isActive`.
 - A non-duty ACTIVE member receives `200 OK` with `isActive=false`; non-members and inactive members are forbidden.
@@ -190,6 +206,16 @@ Admin notification APIs:
 
 - `POST /api/v1/admin/campuses/{campusId}/notifications`
 - `GET /api/v1/admin/campuses/{campusId}/notification-logs`
+
+Duty charge reminder APIs:
+
+- `POST /api/v1/campuses/{campusId}/coffee/charge-reminders`
+- `POST /api/v1/campuses/{campusId}/meal/charge-reminders`
+- The request has no body and returns `202 Accepted` with `notificationRequestId`, `queuedCount`, and `skippedCount`.
+- Only the matching ACTIVE duty assignee may request reminders. Admin and campus-manager roles do not bypass duty authorization.
+- The server selects every `UNPAID` charge linked to an account owned by the requester in the matching category; clients do not submit charge IDs.
+- The server groups by owned account and recipient, groups charge titles into count and amount details, shows at most five distinct titles followed by `외 N종`, always includes the recipient's unpaid total, and deduplicates each account-recipient pair once per `Asia/Seoul` date.
+- COFFEE/MEAL settlement and matching duty revocation share a pessimistic write lock on the ACTIVE duty assignment so a concurrent settlement cannot create an unpaid charge after revocation validation.
 
 Do not use:
 
@@ -306,6 +332,8 @@ Penalty table:
 - Bible reading: 300 KRW per missing day.
 - Saturday lateness: 1,000 KRW base plus 100 KRW per late minute.
 - Saturday lateness is 0 KRW when `saturdayLateMinutes = 0`; when `saturdayLateMinutes > 0`, calculate `1,000 + saturdayLateMinutes * 100`.
+- `saturdayLateMinutes` accepts only 0 through 1,440 inclusive. Out-of-range input uses `DEVOTION_INVALID_SATURDAY_LATE_MINUTES` with HTTP 400.
+- Fine multiplication and item-total addition use `long` exact arithmetic. Arithmetic overflow or a total outside the persisted PostgreSQL `INTEGER` range uses `DEVOTION_FINE_AMOUNT_OUT_OF_RANGE` with HTTP 400.
 - A weekly devotion submission creates one combined `PENALTY` charge for the weekly record, not separate charges per penalty category.
 
 Penalty rule APIs for issue #32:
@@ -357,8 +385,9 @@ Issue #39 is P0.
 - One poll settlement must be all-or-nothing in a single transaction.
 - Duplicate charge prevention must be covered by a unique index test.
 - Poll must not directly reference Billing Entity. Keep the flow in the application layer.
-- COFFEE poll setup no longer requires the requester to be the active `DutyType.COFFEE` assignee when the requester is a campus manager. It does require a selected active same-campus `COFFEE` account owned by the requester.
-- The account used for settlement is `polls.payment_account_id`; it must belong to the same campus, have `account_type = COFFEE`, be active at poll/template creation time, and be owned by the requester who creates the paid COFFEE poll/template.
+- COFFEE poll setup requires the requester to be an active `DutyType.COFFEE` assignee. Campus-manager and service-admin roles do not bypass this write boundary.
+- COFFEE templates are account-neutral and persist `poll_templates.payment_account_id = null`. The requester selects an owned active same-campus COFFEE account when creating the actual poll, and settlement uses that poll's `polls.payment_account_id`.
+- Scheduler poll creation excludes every `poll_type = COFFEE` template even when `auto_create_enabled = true`. Existing template fields remain compatible; active COFFEE duty assignees create COFFEE polls manually. Scheduled close and CLOSED settlement remain enabled for manually created COFFEE polls.
 - Issue #37 provides the coffee brand/menu catalog used by coffee poll templates.
 - MVP coffee ordering is limited to Compose Coffee.
 - Coffee menu names and prices must not be frontend-only data or Java enum constants because they affect billing.
@@ -369,6 +398,10 @@ Issue #39 is P0.
 - New campus creation must not automatically create a default COFFEE poll template or recurring coffee poll. Existing auto-created COFFEE templates are not deleted or deactivated by Issue #112.
 - Additional coffee template options are selected from the backend menu catalog and copied into `poll_template_options`.
 - `poll_template_options` and `poll_options` keep copied `composeMenuCode`, display name, and `priceAmount` snapshots so later catalog price changes do not mutate existing templates, polls, or charges.
+- Every option in direct `pollType=COFFEE` Poll creation and persisted `pollType=COFFEE` PollTemplate creation/update requires an active backend `coffee_menu_catalog` `menuId`.
+- COFFEE option snapshots always use `content = catalog.name`, `composeMenuCode = catalog.menuCode`, and `priceAmount = catalog.priceAmount`. Client `content` and `priceAmount` fields remain accepted for request compatibility but are never authoritative for COFFEE snapshots.
+- Missing COFFEE option `menuId` fails with `400 POLL_COFFEE_OPTION_MENU_REQUIRED`; missing and inactive menu rows reuse `POLL_MENU_NOT_FOUND` and `POLL_MENU_INACTIVE`.
+- Non-COFFEE Poll/template custom content and zero-price behavior remains separate from COFFEE catalog validation.
 - Brand/menu admin CRUD and additional brand onboarding are outside Issue #37 unless the user approves a separate issue.
 
 ## Payment Account And Charge Foundation
@@ -385,13 +418,13 @@ Issue #34 is P0.
   - `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts`
 - All active campus members can list payment accounts for their campus.
 - Campus admin roles and service-level `ADMIN` can create or deactivate `PENALTY` payment accounts.
-- Campus admin roles and active COFFEE duty assignees can create their own `COFFEE` payment accounts. Normal members without active COFFEE duty cannot create `COFFEE` accounts.
+- Only active COFFEE duty assignees can create their own `COFFEE` payment accounts. Campus-manager and service-admin roles do not bypass this write boundary.
 - PENALTY account `ownerUserId` is registration/management metadata. If `ownerUserId` is null when creating a PENALTY account, store the requester user ID; if present, store the supplied value.
 - COFFEE account creation is requester-owned. If `ownerUserId` is null, the owner is the requester. If `ownerUserId` is present and different from the requester, reject the request with `403 BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN`.
-- Non-service-admin users can deactivate only their own `COFFEE` payment account. Active COFFEE duty alone must not create or deactivate `PENALTY` accounts.
+- Active COFFEE duty assignees can deactivate only their own `COFFEE` payment account. Campus managers and service admins without the matching active duty cannot change COFFEE accounts. Active COFFEE duty alone must not create or deactivate `PENALTY` accounts.
 - `PENALTY` payment account creation/deactivation keeps the existing campus admin or service admin permission.
 - `GET /api/v1/admin/campuses/{campusId}/payment-accounts` returns manager-facing metadata including `ownerUserId`, `isActive`, `createdAt`, and `deactivatedAt`. Campus managers and service-level `ADMIN` can see all campus accounts. Active COFFEE duty users can see only active COFFEE accounts they own.
-- `GET /api/v1/admin/campuses/{campusId}/charges` supports optional `paymentAccountId`; when present, `summary + members[]` must include only charge items linked to that payment account and must compose with existing filters. Campus managers and COFFEE duty users can filter COFFEE accounts only when the account is their own; service-level `ADMIN` can access all.
+- `GET /api/v1/admin/campuses/{campusId}/charges` supports optional `paymentAccountId`; when present, `summary + members[]` must include only charge items linked to that payment account and must compose with existing filters. Campus managers and service-level `ADMIN` can filter any COFFEE account in the campus, while COFFEE duty users remain limited to their own COFFEE accounts.
 - `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts` includes active PENALTY accounts for campus managers and service-level `ADMIN` regardless of `ownerUserId`, including legacy active PENALTY accounts whose owner is null. COFFEE remains limited to active COFFEE accounts owned by the current user. Active COFFEE duty users are limited to owned active COFFEE accounts and cannot see PENALTY data.
 - PENALTY account and charge views require service-level `ADMIN` or a campus manager role (`MINISTER`, `ELDER`, `CAMPUS_LEADER`). Active COFFEE duty alone must not expose PENALTY account or charge data.
 - Account numbers are fully visible in account list responses because members need them for bank transfer payment. Do not expose unnecessary admin-only metadata in member-facing responses.
@@ -402,16 +435,24 @@ Issue #34 is P0.
 - Payment accounts can be deactivated even if unpaid charge items are linked to them.
 - When a new active `PENALTY` account replaces the previous active account, existing `UNPAID` PENALTY charge items for that campus must be re-linked to the new active account and their account snapshots updated. Already terminal `PAID`, `WAIVED`, and `CANCELED` charge items keep their historical snapshots.
 - Creating a new active `COFFEE` account must not re-link existing `UNPAID` COFFEE charge items. COFFEE charges remain linked to the `polls.payment_account_id` selected when the poll was created.
-- `PaymentCategory` values are `PENALTY` and `COFFEE`.
+- `PaymentCategory` values are `PENALTY`, `COFFEE`, and `MEAL`.
 - `ChargeSourceType` values are `DEVOTION_RECORD` and `POLL_RESPONSE`.
 - `ChargeStatus` values are `UNPAID`, `PAID`, `WAIVED`, and `CANCELED`.
-- User payment completion is the only path from `UNPAID` to `PAID`.
-- Administrators must not mark a charge as `PAID`.
+- User payment completion marks the authenticated member's own `UNPAID` charge as `PAID` immediately and remains unchanged.
+- Administrators with the existing charge-management permission may mark any manageable category's `UNPAID` charge as `PAID`; `paidAt` uses server current time.
+- Administrator attempts to move `PAID`, `WAIVED`, or `CANCELED` terminal charges to `PAID` fail with HTTP 409.
 - Administrators may change a charge to `WAIVED` or `CANCELED`.
 - Administrators may revert an incorrectly handled `PAID`, `WAIVED`, or `CANCELED` charge back to `UNPAID`.
 - When an administrator reverts `PAID` to `UNPAID`, clear `paidAt`.
+- Canceling an `UNPAID` `PENALTY + DEVOTION_RECORD` charge must set the matching same-campus/same-user weekly devotion record's `submittedAt` to null in the same transaction. Preserve all daily checks.
+- `WAIVED`, `COFFEE`, and `POLL_RESPONSE` status changes must not reopen weekly devotion records. Source mismatch or reopen failure must roll back the charge cancellation.
+- A positive devotion resubmission reuses the existing CANCELED unique-source charge row as `UNPAID`, refreshing amount, title/reason, due date, payment account, account snapshots, and clearing `paidAt`. A zero-amount resubmission leaves the existing row CANCELED and creates no row.
+- Billing entities must not reference Devotion entities directly; cancellation/reopen uses an application port and adapter under the Billing-owned transaction boundary.
+- User and administrator charge-status writes, and existing-source charge update/reactivation, must acquire the same charge-row write lock before validating and applying a transition. Concurrent attempts against one charge must serialize so the later request observes the committed state and applies the existing transition rules instead of overwriting it; this can produce either the existing conflict response or a valid follow-up transition. This source-key locking applies to both `PENALTY` and `COFFEE` upserts.
 - Do not store administrator status-change reasons in Issue #35.
 - Charge creation must save `payment_account_id`, `bank_name_snapshot`, `account_number_snapshot`, and `account_holder_snapshot`.
+- Billing domain creation and unpaid-charge updates require `amount > 0`. Zero and negative charge rows are invalid for `PENALTY`, `COFFEE`, and `MEAL`.
+- Flyway V7 adds `ck_charge_items_amount_positive` and validates it during migration. If any legacy `amount <= 0` row exists, the migration must fail closed and roll back; migration must not edit or delete historical rows automatically.
 - Do not create incomplete `charge_items` rows when a required account is missing.
 - If the active `PENALTY` account is missing during positive-amount penalty charge creation, fail with the user-facing message `관리자에게 문의하세요`.
 - Manual admin charge creation is not part of the MVP.
@@ -430,13 +471,14 @@ Issue #34 is P0.
 - Compose Coffee menu catalog seed data should come from official Compose Coffee sources first. If official verification is not possible, a latest menu/price source explicitly approved by the user may be used; Issue #37 used the user-approved 2026 Compose Coffee menu/price source.
 - Poll results are visible to all active campus members.
 - Poll result lookup is a single poll-level API: `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`.
-- Active COFFEE duty assignees can create and manage only `pollType=COFFEE` polls in their own campus.
+- Active COFFEE duty assignees can create and manage only their own `pollType=COFFEE` polls in their campus.
 - Coffee-external poll types such as `CUSTOM`, `WED_SERVICE`, and `SATURDAY_LEADER` keep the existing campus admin or service admin permission.
-- COFFEE poll and COFFEE poll template creation/update allow campus managers or active `DutyType.COFFEE` assignees.
-- Selected COFFEE `paymentAccountId` values are required and must point to an active same-campus COFFEE account owned by the requester. Null, inactive, other-campus, PENALTY, and another user's COFFEE account must fail with a clear billing account error.
+- COFFEE poll and COFFEE poll template creation/update require an active `DutyType.COFFEE` assignment. COFFEE templates are jointly managed by all active COFFEE duty assignees in the campus, while each COFFEE poll is managed only by its creator.
+- COFFEE templates are account-neutral, ignore the compatibility `paymentAccountId` request field, and return it as null. Direct or template-based COFFEE poll creation requires `paymentAccountId` pointing to an active same-campus COFFEE account owned by the requester; null, inactive, other-campus, PENALTY, and another user's COFFEE account must fail with a clear billing account error.
 - New campus creation must not automatically provision default COFFEE poll templates or recurring coffee polls. Existing auto-created templates are retained unless a separate cleanup issue is approved.
-- When a direct `pollType=COFFEE` poll omits `allowUserOptionAdd`, the backend defaults it to true regardless of whether the requester is the active COFFEE duty assignee. Explicit `allowUserOptionAdd=false` is preserved. Other direct poll creation defaults omitted `allowUserOptionAdd` to false.
-- The current user-option-add API accepts only `{ "content": "새 항목" }`; user-added options have no menu catalog snapshot and use `priceAmount=0`. Coffee poll menu-catalog-based option addition needs a separate user-approved API/schema decision before implementing.
+- Scheduler poll creation excludes COFFEE templates even when `autoCreateEnabled=true`. This does not change the template API fields, and manually created COFFEE polls keep scheduled close and CLOSED settlement behavior.
+- When an active COFFEE duty assignee creates a direct `pollType=COFFEE` poll and omits `allowUserOptionAdd`, the backend defaults it to true. Explicit `allowUserOptionAdd=false` is preserved. Other direct poll creation defaults omitted `allowUserOptionAdd` to false.
+- The user-option-add API keeps `{ "content": "새 항목" }` for non-COFFEE polls and requires `menuId` without client `content` for COFFEE polls. COFFEE user-added options snapshot the active catalog name, menu code, and price.
 - Do not create option-level poll result endpoints for MVP.
 - For non-anonymous polls, result responses may expose who voted for each option.
 - For anonymous polls, result responses must expose aggregate counts only and must not expose voter user IDs, names, emails, or option-level respondent identity to any user.
@@ -463,15 +505,27 @@ Issue #34 is P0.
 - GitHub Project Board Status is the source of truth.
 - Do not keep manual status lines such as `칸반 상태: To Do` in issue bodies.
 
+## Meal Duty, Poll, And Post-settlement Billing
+
+- `MEAL` is a separate duty, payment category, and poll type. A campus may have multiple ACTIVE MEAL duties; assigning duty never changes service or campus roles.
+- Every MEAL operational endpoint requires a same-campus ACTIVE member with an ACTIVE MEAL duty. Service ADMIN and campus managers receive 403 when they do not hold that duty.
+- MEAL accounts are requester-owned. Only the owner may create, list, deactivate, select, or aggregate charges for those accounts. Generic admin account/charge APIs must not expose MEAL accounts or charges.
+- MEAL polls are `SINGLE`, use a server-generated shared `startsAt`/`createdAt`, and are immediately `OPEN`. The client supplies only a future `endsAt`; account and amount fields are rejected.
+- Existing active-campus-member poll list/detail/response and `optionIds`/`poll_response_options` contracts remain available to ordinary poll participants. `allowUserOptionAdd` reuses the #97 API, and user-added MEAL options have no catalog, price, or account snapshot until settlement.
+- Closing a MEAL poll only transitions OPEN to CLOSED. It must create zero settlement and charge rows.
+- A CLOSED MEAL poll is charged by one poll-level request with one requester-owned ACTIVE MEAL account shared across all groups. Every option with final responses appears exactly once; zero-response options are excluded.
+- `PER_MEMBER` uses the entered per-member amount. `GROUP_TOTAL` uses exact integer ceiling division. Store entered, per-member, requested total, actual total, and rounding adjustment snapshots. Convert all overflow to a 400 business error before persistence.
+- Persist `meal_poll_settlements`, `meal_poll_charge_groups`, and all MEAL charge items in one transaction. Use a poll row lock plus DB unique constraints to reject retry/races with 409 and roll back every row when any group or charge fails.
+- Management detail exposes another duty's charged state/count/calculation but returns that duty's payment account ID/details as null.
+
 ## MVP Exclusions
 
 Keep these out of MVP scope:
 
-- Lunch polls
-- Lunch group orders
-- Lunch amount splitting
-- Lunch manager
-- Lunch account
+- Recurring or scheduled MEAL polls
+- MULTIPLE-selection MEAL polls
+- MEAL menu catalog and automatic price snapshots
+- MEAL settlement edit, cancellation, or re-charge
 - Admin payment approval/rejection
 - Deposit proof photo
 - Payment API integration

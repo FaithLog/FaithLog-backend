@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 2,
+  "issue": 199,
+  "exampleOnly": true,
+  "currentDevelopBase": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
+  "datasetId": "PERFORMANCE_SHARED_1000_EXAMPLE",
+  "fixtureNamespace": {
+    "namespaceId": "RUNTIME_APPROVAL_REQUIRED",
+    "preparedAt": "RUNTIME_APPROVAL_REQUIRED",
+    "expiresAt": "RUNTIME_APPROVAL_REQUIRED",
+    "immutable": true
+  },
+  "runtimeTarget": {
+    "app": {
+      "service": "app",
+      "containerPort": 8080,
+      "imageId": "RUNTIME_REQUIRED",
+      "imageRef": "RUNTIME_REQUIRED",
+      "sourceProvenance": {
+        "sourceWorktree": "RUNTIME_REQUIRED_ABSOLUTE_PATH",
+        "revision": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
+        "apiContractSha256": "RUNTIME_REQUIRED_SHA256"
+      }
+    },
+    "postgres": {"service": "postgres", "containerPort": 5432, "imageId": "RUNTIME_REQUIRED", "imageRef": "RUNTIME_REQUIRED"},
+    "redis": {"service": "redis", "containerPort": 6379, "imageId": "RUNTIME_REQUIRED", "imageRef": "RUNTIME_REQUIRED"}
+  },
+  "modes": {
+    "empty": {
+      "mode": "empty",
+      "fixtureRunId": "ISSUE_199_EMPTY_EXAMPLE",
+      "campusId": 10001,
+      "isolationCampusId": 10002,
+      "weekStartDate": "2026-07-13",
+      "expected": {
+        "campus": {
+          "campusId": 10001,
+          "campusName": "PERFORMANCE_EMPTY_EXAMPLE",
+          "region": "PERFORMANCE"
+        },
+        "members": {
+          "activeCount": 1,
+          "inactiveCount": 0,
+          "adminCount": 1
+        },
+        "devotion": {
+          "weekStartDate": "2026-07-13",
+          "submittedCount": 0,
+          "missingCount": 1,
+          "submitRate": 0
+        },
+        "charges": {
+          "statusBasis": ["UNPAID"],
+          "unpaidAmount": 0,
+          "unpaidMemberCount": 0,
+          "byCategory": [
+            {"paymentCategory": "PENALTY", "unpaidAmount": 0},
+            {"paymentCategory": "COFFEE", "unpaidAmount": 0}
+          ]
+        },
+        "polls": {
+          "openCount": 0,
+          "recentlyClosedCount": 0,
+          "missingResponseCount": 0,
+          "recentlyClosedDays": 7
+        },
+        "pollResponseCounts": []
+      },
+      "fixtureReferences": {}
+    },
+    "small": {
+      "mode": "small",
+      "fixtureRunId": "ISSUE_199_SMALL_EXAMPLE",
+      "campusId": 11001,
+      "isolationCampusId": 11002,
+      "weekStartDate": "2026-07-13",
+      "expected": {
+        "campus": {
+          "campusId": 11001,
+          "campusName": "PERFORMANCE_SMALL_EXAMPLE",
+          "region": "PERFORMANCE"
+        },
+        "members": {
+          "activeCount": 30,
+          "inactiveCount": 2,
+          "adminCount": 3
+        },
+        "devotion": {
+          "weekStartDate": "2026-07-13",
+          "submittedCount": 20,
+          "missingCount": 10,
+          "submitRate": 66.7
+        },
+        "charges": {
+          "statusBasis": ["UNPAID"],
+          "unpaidAmount": 120000,
+          "unpaidMemberCount": 12,
+          "byCategory": [
+            {"paymentCategory": "PENALTY", "unpaidAmount": 80000},
+            {"paymentCategory": "COFFEE", "unpaidAmount": 40000}
+          ]
+        },
+        "polls": {
+          "openCount": 2,
+          "recentlyClosedCount": 1,
+          "missingResponseCount": 25,
+          "recentlyClosedDays": 7
+        },
+        "pollResponseCounts": [
+          {"pollId": 11101, "responseCount": 20},
+          {"pollId": 11102, "responseCount": 15}
+        ]
+      },
+      "fixtureReferences": {}
+    },
+    "thousand": {
+      "mode": "thousand",
+      "fixtureRunId": "ISSUE_199_THOUSAND_EXAMPLE",
+      "campusId": 12001,
+      "isolationCampusId": 12002,
+      "weekStartDate": "2026-07-13",
+      "expected": {
+        "campus": {
+          "campusId": 12001,
+          "campusName": "PERFORMANCE_SHARED_1000_EXAMPLE",
+          "region": "PERFORMANCE"
+        },
+        "members": {
+          "activeCount": 1000,
+          "inactiveCount": 25,
+          "adminCount": 3
+        },
+        "devotion": {
+          "weekStartDate": "2026-07-13",
+          "submittedCount": 700,
+          "missingCount": 300,
+          "submitRate": 70
+        },
+        "charges": {
+          "statusBasis": ["UNPAID"],
+          "unpaidAmount": 4500000,
+          "unpaidMemberCount": 650,
+          "byCategory": [
+            {"paymentCategory": "PENALTY", "unpaidAmount": 3000000},
+            {"paymentCategory": "COFFEE", "unpaidAmount": 1500000}
+          ]
+        },
+        "polls": {
+          "openCount": 2,
+          "recentlyClosedCount": 3,
+          "missingResponseCount": 700,
+          "recentlyClosedDays": 7
+        },
+        "pollResponseCounts": [
+          {"pollId": 12101, "responseCount": 600},
+          {"pollId": 12102, "responseCount": 700}
+        ]
+      },
+      "fixtureReferences": {
+        "devotion": {"fixtureRunId": "DEVOTION_FIXTURE_EXAMPLE", "manifestPath": "reports/shared/devotion/manifest.json"},
+        "penalty": {"fixtureRunId": "PENALTY_FIXTURE_EXAMPLE", "manifestPath": "reports/shared/penalty/manifest.json"},
+        "coffee": {"fixtureRunId": "COFFEE_FIXTURE_EXAMPLE", "manifestPath": "reports/shared/coffee/manifest.json"},
+        "meal": {"fixtureRunId": "MEAL_FIXTURE_EXAMPLE", "manifestPath": "reports/shared/meal/manifest.json"},
+        "poll": {"fixtureRunId": "POLL_FIXTURE_EXAMPLE", "manifestPath": "reports/shared/poll/manifest.json"},
+        "prayer": {"fixtureRunId": "PRAYER_FIXTURE_EXAMPLE", "manifestPath": "reports/shared/prayer/manifest.json"}
+      }
+    }
+  }
+}

@@ -1,7 +1,9 @@
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+
 plugins {
 	java
 	jacoco
-	id("org.springframework.boot") version "3.5.0"
+	id("org.springframework.boot") version "3.5.15"
 	id("io.spring.dependency-management") version "1.1.7"
 	id("org.asciidoctor.jvm.convert") version "4.0.5"
 }
@@ -21,6 +23,30 @@ repositories {
 }
 
 val snippetsDir = layout.buildDirectory.dir("generated-snippets")
+val runtimeSpringSecurityManifest = providers.provider {
+	configurations.getByName("runtimeClasspath")
+		.incoming
+		.artifacts
+		.artifacts
+		.asSequence()
+		.mapNotNull { it.id.componentIdentifier as? ModuleComponentIdentifier }
+		.filter { it.group == "org.springframework.security" }
+		.map { "${it.module}=${it.version}" }
+		.sorted()
+		.joinToString(",")
+}
+val testRuntimeSpringSecurityManifest = providers.provider {
+	configurations.getByName("testRuntimeClasspath")
+		.incoming
+		.artifacts
+		.artifacts
+		.asSequence()
+		.mapNotNull { it.id.componentIdentifier as? ModuleComponentIdentifier }
+		.filter { it.group == "org.springframework.security" }
+		.map { "${it.module}=${it.version}" }
+		.sorted()
+		.joinToString(",")
+}
 
 configurations.configureEach {
 	resolutionStrategy.eachDependency {
@@ -40,6 +66,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.flywaydb:flyway-core")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.14")
+	implementation("org.apache.poi:poi-ooxml:5.5.1")
 	implementation("com.google.firebase:firebase-admin:9.9.0")
 	implementation("org.apache.commons:commons-lang3:3.20.0")
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
@@ -57,6 +84,18 @@ dependencies {
 tasks.withType<Test> {
 	useJUnitPlatform()
 	outputs.dir(snippetsDir)
+	inputs.property("springSecurityRuntimeClasspathManifest", runtimeSpringSecurityManifest)
+	inputs.property("springSecurityTestRuntimeClasspathManifest", testRuntimeSpringSecurityManifest)
+	doFirst {
+		systemProperty(
+			"faithlog.spring-security.runtime-classpath-manifest",
+			runtimeSpringSecurityManifest.get()
+		)
+		systemProperty(
+			"faithlog.spring-security.test-runtime-classpath-manifest",
+			testRuntimeSpringSecurityManifest.get()
+		)
+	}
 	finalizedBy(tasks.jacocoTestReport)
 }
 

@@ -1,32 +1,57 @@
 package com.faithlog.user.support;
 
-import com.faithlog.user.application.port.RefreshTokenStore;
+import com.faithlog.global.security.SessionRevocationChecker;
+import com.faithlog.user.service.port.RefreshTokenRotationResult;
+import com.faithlog.user.service.port.RefreshTokenStore;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class InMemoryRefreshTokenStore implements RefreshTokenStore {
+public class InMemoryRefreshTokenStore implements RefreshTokenStore, SessionRevocationChecker {
 
 	private final Map<String, String> currentRefreshJtiBySession = new ConcurrentHashMap<>();
+	private final Map<String, Boolean> revokedSessions = new ConcurrentHashMap<>();
 
 	@Override
-	public void saveCurrent(Long userId, String sessionId, String refreshJti, Duration ttl) {
+	public synchronized void saveCurrent(Long userId, String sessionId, String refreshJti, Duration ttl) {
 		currentRefreshJtiBySession.put(key(userId, sessionId), refreshJti);
 	}
 
 	@Override
-	public boolean matchesCurrent(Long userId, String sessionId, String refreshJti) {
-		return refreshJti.equals(currentRefreshJtiBySession.get(key(userId, sessionId)));
+	public synchronized RefreshTokenRotationResult rotate(
+		Long userId,
+		String sessionId,
+		String expectedRefreshJti,
+		String newRefreshJti,
+		Duration rotationTtl,
+		Duration revocationTtl
+	) {
+		String key = key(userId, sessionId);
+		if (isRevoked(userId, sessionId)) {
+			return RefreshTokenRotationResult.REJECTED;
+		}
+		if (!expectedRefreshJti.equals(currentRefreshJtiBySession.get(key))) {
+			currentRefreshJtiBySession.remove(key);
+			revokedSessions.put(key, Boolean.TRUE);
+			return RefreshTokenRotationResult.REJECTED;
+		}
+		currentRefreshJtiBySession.put(key, newRefreshJti);
+		return RefreshTokenRotationResult.ROTATED;
 	}
 
 	@Override
-	public void deleteSession(Long userId, String sessionId) {
+	public synchronized void deleteSession(Long userId, String sessionId) {
 		currentRefreshJtiBySession.remove(key(userId, sessionId));
 	}
 
 	@Override
-	public void deleteAllSessions(Long userId) {
+	public synchronized void deleteAllSessions(Long userId) {
 		currentRefreshJtiBySession.keySet().removeIf(key -> key.startsWith(userId + ":"));
+	}
+
+	@Override
+	public boolean isRevoked(Long userId, String sessionId) {
+		return Boolean.TRUE.equals(revokedSessions.get(key(userId, sessionId)));
 	}
 
 	public boolean contains(Long userId, String sessionId, String refreshJti) {

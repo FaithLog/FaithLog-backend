@@ -11,6 +11,24 @@ import org.junit.jupiter.api.Test;
 class FlywayMigrationContractTest {
 
 	private static final Path MIGRATION = Path.of("src/main/resources/db/migration/V1__initial_schema.sql");
+	private static final Path POSITIVE_CHARGE_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V7__enforce_positive_charge_amount.sql"
+	);
+	private static final Path MEAL_SETTLEMENT_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V8__add_meal_poll_settlement.sql"
+	);
+	private static final Path MULTIPLE_COFFEE_DUTY_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V9__allow_multiple_active_coffee_duties.sql"
+	);
+	private static final Path COFFEE_TEMPLATE_ACCOUNT_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V10__neutralize_coffee_template_accounts.sql"
+	);
+	private static final Path SUPABASE_DATA_API_SECURITY_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V11__secure_supabase_data_api.sql"
+	);
+	private static final Path PERFORMANCE_QUERY_INDEX_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V12__add_performance_query_indexes.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -186,5 +204,130 @@ class FlywayMigrationContractTest {
 			"SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}"
 		);
 		assertThat(compose).doesNotContain("upstash");
+	}
+
+	@Test
+	void v7MigrationAddsPositiveChargeAmountConstraintWithoutEditingV1() throws IOException {
+		assertThat(POSITIVE_CHARGE_MIGRATION).exists();
+		String sql = Files.readString(POSITIVE_CHARGE_MIGRATION);
+		String v1 = Files.readString(MIGRATION);
+
+		assertThat(sql).contains(
+			"ck_charge_items_amount_positive",
+			"CHECK (amount > 0)",
+			"NOT VALID",
+			"VALIDATE CONSTRAINT"
+		);
+		assertThat(sql).doesNotContain("IF NOT EXISTS");
+		assertThat(v1).doesNotContain("ck_charge_items_amount_positive");
+	}
+
+	@Test
+	void v12MigrationAddsOnlyPlanProvenPerformanceIndexes() throws IOException {
+		assertThat(PERFORMANCE_QUERY_INDEX_MIGRATION).exists();
+		String sql = Files.readString(PERFORMANCE_QUERY_INDEX_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE INDEX idx_charge_items_campus_category_source",
+			"ON charge_items (campus_id, payment_category, source_type, source_id)",
+			"CREATE INDEX idx_charge_items_campus_category_status_user",
+			"ON charge_items (campus_id, payment_category, status, user_id)",
+			"CREATE INDEX idx_campus_members_user_id_id",
+			"ON campus_members (user_id, id)"
+		);
+		assertThat(sql).doesNotContain("IF NOT EXISTS", "CONCURRENTLY");
+		assertThat(sql.lines().filter(line -> line.startsWith("CREATE INDEX "))).hasSize(3);
+	}
+
+	@Test
+	void v8MigrationAddsMealDutyAccountPollAndNormalizedSettlementWithoutEditingV1ToV7() throws IOException {
+		assertThat(MEAL_SETTLEMENT_MIGRATION).exists();
+		String sql = Files.readString(MEAL_SETTLEMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"'MEAL'",
+			"meal_poll_settlements",
+			"meal_poll_charge_groups",
+			"requested_total_amount BIGINT",
+			"actual_total_amount BIGINT",
+			"rounding_adjustment BIGINT",
+			"response_count_snapshot",
+			"amount_per_member INTEGER",
+			"UNIQUE (poll_id)",
+			"UNIQUE (poll_id, option_id)",
+			"uk_campus_duty_assignments_active_coffee",
+			"uk_campus_duty_assignments_active_meal_user",
+			"uk_payment_accounts_active_meal_owner"
+		);
+		assertThat(sql).doesNotContain("DELETE FROM", "UPDATE ");
+		assertThat(Files.readString(MIGRATION)).doesNotContain("MEAL");
+		assertThat(Files.readString(POSITIVE_CHARGE_MIGRATION)).doesNotContain("MEAL");
+	}
+
+	@Test
+	void v9MigrationAllowsMultipleCoffeeDutiesAndKeepsPerUserActiveIdempotency() throws IOException {
+		assertThat(MULTIPLE_COFFEE_DUTY_MIGRATION).exists();
+		String sql = Files.readString(MULTIPLE_COFFEE_DUTY_MIGRATION);
+
+		assertThat(sql).contains(
+			"DROP INDEX uk_campus_duty_assignments_active_coffee",
+			"CREATE UNIQUE INDEX uk_campus_duty_assignments_active_coffee_user",
+			"(campus_id, duty_type, user_id)",
+			"WHERE is_active = TRUE AND duty_type = 'COFFEE'"
+		);
+		assertThat(sql).doesNotContain("DELETE FROM", "UPDATE ");
+	}
+
+	@Test
+	void v10MigrationMakesValidCoffeeTemplatesAccountNeutralAndQuarantinesLegacyMixedRows() throws IOException {
+		assertThat(COFFEE_TEMPLATE_ACCOUNT_MIGRATION).exists();
+		String sql = Files.readString(COFFEE_TEMPLATE_ACCOUNT_MIGRATION);
+
+		assertThat(sql).contains(
+			"UPDATE poll_templates",
+			"SET payment_account_id = NULL",
+			"WHERE poll_type = 'COFFEE'",
+			"AND payment_account_id IS NOT NULL",
+			"SET is_active = FALSE",
+			"auto_create_enabled = FALSE",
+			"poll_type = 'COFFEE'",
+			"charge_generation_type = 'OPTION_PRICE'",
+			"payment_category = 'COFFEE'",
+			"AND NOT ("
+		);
+		assertThat(sql).doesNotContain("DELETE FROM", "DROP ", "ALTER TABLE");
+	}
+
+	@Test
+	void v11MigrationBlocksSupabaseDataApiAccessWithoutChangingApplicationRows() throws IOException {
+		assertThat(SUPABASE_DATA_API_SECURITY_MIGRATION).exists();
+		String sql = Files.readString(SUPABASE_DATA_API_SECURITY_MIGRATION);
+
+		assertThat(sql).contains(
+			"ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY",
+			"n.nspname = 'public'",
+			"c.relkind IN ('r', 'p')",
+			"c.relname <> 'flyway_schema_history'",
+			"REVOKE USAGE, CREATE ON SCHEMA public FROM PUBLIC",
+			"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC",
+			"REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC",
+			"REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC",
+			"ARRAY['anon', 'authenticated', 'service_role']",
+			"FROM pg_roles",
+			"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I",
+			"REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I",
+			"REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM %I",
+			"ALTER DEFAULT PRIVILEGES IN SCHEMA public",
+			"REVOKE ALL PRIVILEGES ON TABLES FROM %I",
+			"REVOKE ALL PRIVILEGES ON SEQUENCES FROM %I",
+			"REVOKE EXECUTE ON FUNCTIONS FROM %I"
+		);
+		assertThat(sql).doesNotContain(
+			"CREATE POLICY",
+			"FORCE ROW LEVEL SECURITY",
+			"DELETE FROM",
+			"INSERT INTO",
+			"UPDATE "
+		);
 	}
 }

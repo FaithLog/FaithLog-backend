@@ -5,9 +5,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.faithlog.notification.application.NotificationDeduplicationKey;
-import com.faithlog.notification.application.NotificationLockKey;
-import com.faithlog.notification.application.NotificationLockLease;
+import com.faithlog.notification.service.NotificationDeduplicationKey;
+import com.faithlog.notification.service.NotificationLockKey;
+import com.faithlog.notification.service.NotificationLockLease;
 import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -32,12 +32,13 @@ class RedisNotificationConcurrencyAdapterTest {
 		NotificationDeduplicationKey key = NotificationDeduplicationKey.of("notification:dedup:test");
 		Duration ttl = Duration.ofHours(25);
 		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-		when(valueOperations.setIfAbsent(key.value(), "reserved", ttl)).thenReturn(true);
+		when(valueOperations.setIfAbsent(eq(key.value()), org.mockito.ArgumentMatchers.anyString(), eq(ttl)))
+			.thenReturn(true);
 
-		boolean reserved = adapter.reserve(key, ttl);
+		var reservation = adapter.reserve(key, ttl);
 
-		assertThat(reserved).isTrue();
-		verify(valueOperations).setIfAbsent(key.value(), "reserved", ttl);
+		assertThat(reservation).isPresent();
+		verify(valueOperations).setIfAbsent(eq(key.value()), eq(reservation.orElseThrow().ownerToken()), eq(ttl));
 	}
 
 	@Test

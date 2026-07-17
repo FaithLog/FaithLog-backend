@@ -1,0 +1,320 @@
+{
+  "schemaVersion": 1,
+  "issueNumber": 193,
+  "sourceBranch": "perf/193-admin-charge-query-optimization-v2",
+  "sourceRevision": "01faf929c24746e3a300e40d11171fc7d473954d",
+  "sourceBaseRevision": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
+  "sourceReviewStatus": "finding-zero",
+  "status": "exact-production-branch-candidate-not-measured",
+  "automaticAdoption": false,
+  "productionBeforeEligible": false,
+  "requiresIntegrationAndRuntimeSqlCapture": true,
+  "requiresUserIndexFlywayApproval": true,
+  "sourceHashes": {
+    "src/main/java/com/faithlog/billing/infrastructure/repository/AdminChargeAggregationQueryRepository.java": "8235f4c3837a45df87e04e929048e49236cd19886fd7410856dfcc6e9d340aeb",
+    "src/main/java/com/faithlog/billing/service/AdminChargeQueryService.java": "eacb66d9bc4c893d0297f4651e6e3489a873bbd32ba3908e5e6a76f97721f1bb",
+    "src/main/java/com/faithlog/billing/service/query/AdminChargeAggregationCriteria.java": "d9e6b0cf21b03fc6a83c36210a06c755fa4b04a5d5aba211d34c46e52f79a564",
+    "src/main/java/com/faithlog/billing/service/port/AdminChargeAggregationQueryPort.java": "b9bc5b083e0569622a328968403c4d53f8b79b53847dd7cfaf495251762c3c86"
+  },
+  "sqlBuilder": {
+    "file": "i193-production-candidate-sql.mjs",
+    "sha256": "2f258e6077e89e41f7a218c718ce2b2570259e98b29c42ee06d2dbe9d394722f",
+    "sourceMethodMapping": {
+      "summary": "AdminChargeAggregationQueryRepository.summarize",
+      "memberPage": "AdminChargeAggregationQueryRepository.findMemberPage contentSql",
+      "countDistinct": "AdminChargeAggregationQueryRepository.findMemberPage countSql"
+    },
+    "executionOrder": ["summary", "memberPage", "countDistinct"],
+    "transaction": "read-only REPEATABLE_READ"
+  },
+  "apiCaseExplainMatrix": [
+    {
+      "caseName": "my_initial_penalty_unpaid",
+      "endpointScope": "my-accounts",
+      "requestFilters": ["paymentCategory=PENALTY", "status=UNPAID"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "status", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "resolved manager-owned active PENALTY account set",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "my_payment_category",
+      "endpointScope": "my-accounts",
+      "requestFilters": ["paymentCategory=COFFEE", "status=UNPAID"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "status", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "resolved requester-owned active COFFEE account set",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "my_status",
+      "endpointScope": "my-accounts",
+      "requestFilters": ["paymentCategory=COFFEE", "status=PAID"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "status", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "resolved requester-owned active COFFEE account set",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "my_user_id",
+      "endpointScope": "my-accounts",
+      "requestFilters": ["paymentCategory=COFFEE", "userId=targetUserId"],
+      "criteriaPredicates": ["campusId", "userId", "paymentCategory", "excludedPaymentCategory", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "resolved requester-owned active COFFEE account set",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "my_keyword",
+      "endpointScope": "my-accounts",
+      "requestFilters": ["paymentCategory=COFFEE", "keyword=targetKeyword"],
+      "criteriaPredicates": ["campusId", "keyword", "paymentCategory", "excludedPaymentCategory", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "resolved requester-owned active COFFEE account set",
+      "leadingWildcard": true,
+      "indexCandidateApproved": false,
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "my_payment_account_unknown_param_ignored",
+      "endpointScope": "my-accounts",
+      "requestFilters": ["paymentCategory=COFFEE", "unknown paymentAccountId ignored by controller"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "resolved requester-owned active COFFEE account set; request account ID is not bound",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "my_pagination_page_0",
+      "endpointScope": "my-accounts",
+      "requestFilters": ["paymentCategory=COFFEE", "unknown paymentAccountId ignored by controller"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "resolved requester-owned active COFFEE account set; request account ID is not bound",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "my_pagination_page_1",
+      "endpointScope": "my-accounts",
+      "requestFilters": ["paymentCategory=COFFEE", "unknown paymentAccountId ignored by controller"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "resolved requester-owned active COFFEE account set; request account ID is not bound",
+      "page": 1,
+      "offset": 10,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "admin_initial_penalty_unpaid",
+      "endpointScope": "admin",
+      "requestFilters": ["paymentCategory=PENALTY", "status=UNPAID"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "status", "terminalCompletedAtFrom"],
+      "accountScope": "all authorized campus accounts; paymentAccountIds predicate absent",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "admin_payment_category",
+      "endpointScope": "admin",
+      "requestFilters": ["paymentCategory=COFFEE", "status=UNPAID"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "status", "terminalCompletedAtFrom"],
+      "accountScope": "all authorized campus accounts; paymentAccountIds predicate absent",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "admin_status",
+      "endpointScope": "admin",
+      "requestFilters": ["paymentCategory=COFFEE", "status=PAID"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "status", "terminalCompletedAtFrom"],
+      "accountScope": "all authorized campus accounts; paymentAccountIds predicate absent",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "admin_user_id",
+      "endpointScope": "admin",
+      "requestFilters": ["paymentCategory=COFFEE", "userId=targetUserId"],
+      "criteriaPredicates": ["campusId", "userId", "paymentCategory", "excludedPaymentCategory", "terminalCompletedAtFrom"],
+      "accountScope": "all authorized campus accounts; paymentAccountIds predicate absent",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "admin_keyword",
+      "endpointScope": "admin",
+      "requestFilters": ["paymentCategory=COFFEE", "keyword=targetKeyword"],
+      "criteriaPredicates": ["campusId", "keyword", "paymentCategory", "excludedPaymentCategory", "terminalCompletedAtFrom"],
+      "accountScope": "all authorized campus accounts; paymentAccountIds predicate absent",
+      "leadingWildcard": true,
+      "indexCandidateApproved": false,
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "admin_payment_account",
+      "endpointScope": "admin",
+      "requestFilters": ["paymentCategory=COFFEE", "paymentAccountId=fixtureAccountId"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "validated same-campus singleton account ID",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "admin_pagination_page_0",
+      "endpointScope": "admin",
+      "requestFilters": ["paymentCategory=COFFEE", "paymentAccountId=fixtureAccountId"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "validated same-campus singleton account ID",
+      "page": 0,
+      "offset": 0,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    },
+    {
+      "caseName": "admin_pagination_page_1",
+      "endpointScope": "admin",
+      "requestFilters": ["paymentCategory=COFFEE", "paymentAccountId=fixtureAccountId"],
+      "criteriaPredicates": ["campusId", "paymentCategory", "excludedPaymentCategory", "paymentAccountIds", "terminalCompletedAtFrom"],
+      "accountScope": "validated same-campus singleton account ID",
+      "page": 1,
+      "offset": 10,
+      "pageSize": 10,
+      "sort": "createdAt,desc",
+      "includeArchived": false,
+      "statements": ["summary", "member-page", "count-distinct"],
+      "productionBeforeEligible": false
+    }
+  ],
+  "indexCandidates": [
+    {
+      "definition": "charge_items(campus_id, payment_category, status, user_id)",
+      "approved": false,
+      "disposition": "candidate-requires-before-plan-and-user-approval",
+      "existingIndexComparison": {
+        "name": "uk_charge_items_source",
+        "definition": "UNIQUE(campus_id, user_id, payment_category, source_type, source_id)"
+      },
+      "statementApplicability": {
+        "summary": "Potentially narrows campus/category/status scans when no account filter exists; does not prove aggregate cost or archive-OR selectivity.",
+        "member-page": "Potentially feeds grouped user rows after campus/category/status filtering; does not satisfy max(created_at) ordering or pagination by itself.",
+        "count-distinct": "Potentially narrows the same filtered user-id stream; distinct aggregation cost still requires the actual plan."
+      },
+      "duplicationRisk": "Shares only the campus_id leading prefix with uk_charge_items_source; the existing unique index places user_id second and may already serve user-scoped cases, so all three statement plans must show incremental value.",
+      "writeCost": "Adds one wide secondary entry per charge and rewrites entries on status transitions; storage, insert, and update cost must be measured before adoption.",
+      "partialIndexAssessment": "A non-MEAL or status partial form could reduce size but would not cover all 16 criteria uniformly; no partial predicate is approved without before evidence."
+    },
+    {
+      "definition": "charge_items(campus_id, payment_account_id, payment_category, status, user_id)",
+      "approved": false,
+      "disposition": "candidate-requires-before-plan-and-user-approval",
+      "existingIndexComparison": {
+        "name": "uk_charge_items_source",
+        "definition": "UNIQUE(campus_id, user_id, payment_category, source_type, source_id)"
+      },
+      "statementApplicability": {
+        "summary": "Potentially narrows my-accounts and explicit admin-account summary scans; admin cases without paymentAccountIds can use only the campus prefix.",
+        "member-page": "Potentially narrows account-scoped grouping before page aggregation; it does not satisfy max(created_at) ordering and may be wider than the no-account candidate.",
+        "count-distinct": "Potentially narrows account-scoped distinct-user input; benefit for unscoped admin cases is unproven."
+      },
+      "duplicationRisk": "Shares the campus_id prefix and several non-leading columns with uk_charge_items_source but changes the second column from user_id to payment_account_id; compare account-scoped and unscoped plans separately.",
+      "writeCost": "Adds the widest proposed charge index; every charge insert and status transition maintains it, with additional cache and storage pressure.",
+      "partialIndexAssessment": "An account/category partial predicate cannot represent runtime account IDs; a non-MEAL partial form remains unapproved until coverage and write savings are demonstrated."
+    },
+    {
+      "definition": "campus_members(campus_id, status, user_id)",
+      "approved": false,
+      "disposition": "conditional-plan-proof-required",
+      "existingIndexComparison": {
+        "name": "uk_campus_members_campus_user",
+        "definition": "UNIQUE(campus_id, user_id)"
+      },
+      "statementApplicability": {
+        "summary": "The existing unique index can probe the charge join by campus_id and user_id before filtering ACTIVE; status-leading scan value is unproven.",
+        "member-page": "The same unique join probe applies before grouped pagination; no independent member ordering benefit is assumed.",
+        "count-distinct": "The same unique join probe applies to the distinct-user count; no separate benefit is assumed."
+      },
+      "duplicationRisk": "Duplicates campus_id and user_id from the existing unique index while inserting status between them.",
+      "writeCost": "Adds a second membership index and rewrites it when membership status changes.",
+      "partialIndexAssessment": "An ACTIVE partial index might be smaller, but the existing unique join probe may already be sufficient and no partial index is approved.",
+      "conditionalEvidenceRequired": "Keep only if status filtering benefit beyond uk_campus_members_campus_user is proven by actual plan comparison and the measured read benefit justifies added write cost."
+    }
+  ],
+  "leadingWildcardKeyword": {
+    "predicate": "lower(name/email) LIKE '%escaped-keyword%'",
+    "approved": false,
+    "requiresSeparateExtensionOrIndexApproval": true,
+    "reason": "A leading-wildcard predicate is not adopted as a B-tree candidate; extension or expression/index design needs separate user approval and evidence."
+  }
+}
