@@ -839,6 +839,26 @@ test('k6 scenario exposes exact Prayer and member/admin Poll read modes', () => 
 	assert.match(scenario, /poll_member_isolation_campus_detail/);
 });
 
+test('Prayer isolation rejects only users exclusive to the isolation campus', async () => {
+	const contract = await import(`${pathToFileURL(join(ROOT, 'fixture-contract.mjs')).href}?isolation=${Date.now()}`);
+	const primaryMembers = [{ userId: 101 }, { userId: 102 }, { userId: 103 }];
+	const isolationMembers = [{ userId: 101 }, { userId: 201 }, { userId: 202 }];
+
+	assert.deepEqual(
+		contract.exclusiveIsolationUserIds(primaryMembers, isolationMembers),
+		[201, 202],
+		'the shared campus creator must remain valid while isolation-only users are rejected',
+	);
+	assert.deepEqual(contract.exclusiveIsolationUserIds(primaryMembers, [{ userId: 101 }]), []);
+
+	const scenario = read('scenario.js');
+	assert.equal(
+		(scenario.match(/exclusiveIsolationUserIds\(/g) || []).length,
+		2,
+		'assignable and weekly-board validators must share the isolation-only contract',
+	);
+});
+
 test('correctness checks lock count, ordering, editable, myGroup, isolation, and poll windows', () => {
 	const scenario = read('scenario.js');
 	for (const marker of [
