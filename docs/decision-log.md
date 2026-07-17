@@ -16,6 +16,29 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Use the R bundle as the authoritative before evidence for the identical integration-after protocol. Replace per-response COFFEE/MEAL payment-account and existing-charge repository lookups with one account validation, one source-ID-set pessimistic lock lookup ordered by charge ID, and one collection-save boundary per settlement. Keep all existing scalar charge APIs compatible.
 - Decision: Preserve the outer settlement transactions, COFFEE UNPAID update and terminal-charge preservation, MEAL duplicate `409` and final flush/rollback behavior, #200 creator/duty/account ownership and lock order, amount/source/snapshot correctness, and the existing unique constraint as the final concurrent-insert defense.
 - Impact: Controller paths, request/response DTOs, HTTP/ErrorCode contracts, frontend, dependencies, Flyway, and indexes do not change. `saveAll` is a repository collection boundary only; the project does not claim JDBC insert batching or fewer required charge INSERT rows. Issue #194 retains the execution-plan candidate `charge_items(campus_id, payment_category, source_type, source_id)` for later independent validation. Actual after measurement remains a one-server/one-load PM integration step.
+### 2026-07-16 - Issue #193 Measured Login Update Counter ACK
+
+- Context: Actual-before L은 fresh measured login 뒤 users VACUUM(ANALYZE)을 완료했지만 users `nModSinceAnalyze`가 before 0, after 1로 바뀌어 rejected됐다. Login commit은 `06:00:28.808644Z`, VACUUM start는 약 166ms 뒤인 `06:00:28.974009Z`, ANALYZE는 `06:00:29.394557Z`여서 app backend의 login UPDATE 통계가 flush되기 전에 maintenance를 시작한 것이 원인이었다.
+- Decision: Measured login 직전에 `pg_stat_user_tables.users.n_tup_upd`를 canonical decimal string으로 캡처한다. Login 뒤 immutable PostgreSQL container ID의 read-only polling으로 counter가 정확히 `before + 1`이 될 때만 ACK하고 users VACUUM(ANALYZE)을 실행한다. `+0`은 기존 pre-boundary 1초/최대 5회 상수 안에서만 pending이며 감소, `>+1`, timeout, malformed, PostgreSQL bigint 범위 초과는 fail-closed한다.
+- Impact: ACK와 users VACUUM은 PostgreSQL before evidence·stable pair·counter·resource sampler·measured window보다 앞선다. Existing fixture 3-table VACUUM, users stable-pair, measured strict maintenance continuity는 완화하지 않는다. Measured 6,000 GET 자체의 users write 증거로 해석하지 않으며 `src/main`/Flyway는 변경하지 않는다. 다음 actual은 fresh M namespace만 사용한다.
+
+### 2026-07-16 - Issue #193 Fresh Measured Login Users Statistics Boundary
+
+- Context: Actual-before K는 fixture와 exact 3-table VACUUM(ANALYZE), warmup, measured 16 cases/6,000 HTTP를 failure 0으로 완료했다. 그러나 fresh measured login의 `users.last_login_at` UPDATE 통계가 1초 간격 stable pair의 72/72 뒤에 늦게 반영돼 after 73으로 나타났고 strict integrity가 false contamination으로 측정을 거부했다.
+- Decision: Fresh measured login 직후, PostgreSQL before evidence·stable pair·counter·resource sampler·measured window보다 앞서 immutable PostgreSQL container ID의 psql stdin으로 exact `VACUUM (ANALYZE) users;`를 실행한다. `pg_stat_clear_snapshot()`은 관측 backend snapshot만 비우고 `pg_stat_force_next_flush()`는 호출 backend 자체 통계만 대상으로 하므로 app login backend의 지연 통계를 확실히 정리하는 대안으로 채택하지 않는다.
+- Impact: Users-only completion evidence를 남기며 다른 table, `VACUUM FULL`, `FREEZE`, 데이터/schema/index/Flyway/config/reset/extension 변경은 금지한다. Fixture COMMIT 직후 exact 3-table VACUUM(ANALYZE), measured-login 뒤 stable-pair, measured before/after strict maintenance continuity는 모두 유지한다. 다음 actual은 fresh L namespace만 사용한다.
+
+### 2026-07-16 - Performance Measurement Code Approval Boundary
+
+- Context: 반복되는 before 측정에서 fixture, k6, validator, fake/static test와 evidence 문서의 measurement-boundary 결함을 PM 리뷰로 보정해야 했지만, 매 보정마다 별도 사용자 승인을 기다리면 유효 baseline 확보가 지연됐다. 반면 production backend와 Flyway 변경은 실제 제품·데이터 계약에 영향을 줄 수 있어 사용자 결정권을 유지해야 한다.
+- Decision: 이 성능 개선 목표에서는 k6, fixture, validator, test, docs 같은 측정·테스트 코드 수정은 별도 사용자 승인 없이 TDD와 PM 리뷰로 진행한다. `src/main` production backend 또는 Flyway 변경은 실제 편집 직전에 사용자 승인을 받는다. 실제 Docker/DB/k6 실행 권한은 각 실행 지시를 따르며, 이 승인 경계 변경만으로 개발 세션이 load를 실행할 수는 없다.
+- Impact: 측정 harness 보정은 RED→최소 GREEN→정적/fake 검증→PM finding 0 절차로 진행한다. Production 최적화와 migration은 유효 before baseline 중간보고 후에도 사용자 승인 전에는 편집하지 않는다.
+
+### 2026-07-16 - Issue #193 Pre-measurement Fixture VACUUM ANALYZE Boundary
+
+- Context: Actual-before J는 fixture COMMIT 뒤 exact 3-table ANALYZE로 `charge_items` autoanalyze 오염을 막았지만, measured 시작 약 45초 뒤 `campus_members` insert-triggered autovacuum이 실행돼 strict measurement-integrity에서 rejected됐다.
+- Decision: 기존 ANALYZE-only command를 fixture COMMIT 직후, dataset binding·expectations·preflight·warmup보다 앞서 immutable PostgreSQL container ID의 psql stdin으로 실행하는 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체한다. `users`나 다른 table, `VACUUM FULL`, `FREEZE`, 데이터 삭제, schema/index/Flyway/config/reset/extension 변경은 허용하지 않는다.
+- Impact: Completion evidence에는 exact 3-table 목록을 유지한다. 이 command는 `prepare-fixture.sql` transaction 밖에서만 실행하고 measured before/after의 vacuum/analyze/auto-maintenance continuity 검증은 완화하지 않는다. 다음 실제 실행은 재사용하지 않는 fresh K namespace만 사용할 수 있다.
 
 ### 2026-07-16 - Issue #206 Stable Charge Item Pagination Ordering
 
@@ -791,6 +814,20 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Do not run Docker build/up/API QA in the #189 feature worktree. Complete focused/full Gradle tests, build, asciidoctor, REST Docs, `git diff --check`, repository docs, Obsidian, and PM review in the feature branch. After #188/#189/#190 all receive PM approval, merge them only into `integration/188-190-devotion-meal-billing` created from latest `origin/develop`, then run the single isolated PostgreSQL/Redis/backend Docker health and connected HTTP QA there.
 - Impact: Docker QA absence is an explicit user-approved deferral, not a hidden omission or feature failure. No Docker command was started in the #189 session. PM approval remains required before push, PR, or merge.
 
+### 2026-07-16 - Issue #193 Initial Login Token Reuse Measurement Boundary
+
+- Context: Actual-before N completed fixture maintenance, preflight, and warmup, but the second ADMIN login immediately before measured load never appeared in `users.n_tup_upd` during the bounded five-second ACK poll. This left an unstable pre-window write and prevented the measured boundary from opening.
+- Decision: The runner reuses the initial ADMIN access token for preflight, warmup, and measured load. It requires initial token coverage for warmup maximum duration plus measured duration plus safety, and retains the final measured-duration-plus-safety TTL gate. It captures `users.n_tup_upd` before the only two initial ADMIN and DUTY logins, then after fixture/preflight/warmup requires exact `before+2` before users VACUUM(ANALYZE), stable-pair, and strict measured boundaries. No second ADMIN authentication or HTTP write is allowed immediately before measured load.
+- Decision: Once an execution report exists, the first non-zero exit is preserved in an exclusive-create machine-readable rejection containing only an approved stage, exit status, `measurementStatus=rejected`, `evidenceIntegrity=incomplete`, and `automaticAdoption=false`. Credentials, tokens, raw commands, and host paths are excluded. Existing source/API/Flyway/runtime, k6 math, PostgreSQL/pgss, resource, fixture, correctness, final continuity, and non-adoption gates remain strict.
+- Impact: N is partial rejected evidence with measured k6 0 and no performance metric. Fresh O is the only next proposal. This changes only Issue #193 test/measurement tooling; `src/main`, Flyway, dependencies, schema, index, Docker lifecycle, and production behavior are unchanged.
+
+### 2026-07-16 - Issue #193 Fresh O Before Baseline Manual Adoption
+
+- Context: Fresh O completed the exact Issue #193 fixture, correctness, workload, metric, PostgreSQL, resource, and immutable runtime continuity gates. The runner correctly emitted `conditional-shared-stack` with `automaticAdoption=false`, so adoption required an independent PM exclusive-window review.
+- Decision: PM manually adopts `I193_BEFORE_20260716_O / I193_FIXTURE_20260716_O / EXEC193_BEFORE_20260716_O` on source `6796ed146244d8f3f5b5dd7048ebe16865084a97` as the valid before baseline. The adopted workload is 16 cases × 484 requests, 7,744 HTTP total, failure 0, and `42.483669 req/s`; latency and resource values remain tied to this immutable evidence set.
+- Decision: Production optimization may proceed only through test-only RED first. `src/main` and Flyway remain unchanged until the user approves the proposed production files and query design. Index/Flyway work stays in #194 and is proposal-only in #193. API paths, query parameters, response DTOs, authorization, archive cutoff, pagination, and ordering remain compatible.
+- Impact: O is the sole adopted Issue #193 before baseline. B~N and M remain rejected or conditional evidence. Individual after measurement and attribution remain deferred to the PM integration branch under identical fixture/workload/runtime conditions.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope
@@ -833,7 +870,6 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Recommendation: Provide one stable local transcript source path or leave transcript analysis disabled.
 - Current action: No transcript source was provided, so conversation transcripts were not inspected.
 <!-- daily-resume-monitor:end:decision-log:2026-06-16 -->
-
 ### 2026-07-16 - Issue #192 Latest-develop Scenario Compatibility
 
 - User decision: Performance issues may correct k6/fixture/validator/test/docs code in parallel, while all actual fixture/DB/HTTP/k6 loads remain PM-owned and execute sequentially on one server.
@@ -843,3 +879,14 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Status: scenario-ready / not measured. Actual Docker/DB/HTTP/fixture/k6 and production/Flyway/dependency changes were zero in this compatibility pass.
 - Integrity audit: The runner now validates the exact target top-level schema, source commit, Flyway version, immutable service/image/runtime identity, resource metadata, and approved workload before runtime capture or fixture work. No implicit target fallback is allowed.
 - k6 evidence decision: Metadata-bearing v2 wrappers must match their Counter/Rate/Trend type and contains identity. Wrapped Counter rate must be finite, and wrapped Rate passes/fails totals and ratio must match the exact measured request/check counts. Approved metadata-free direct/values fixtures remain supported.
+## 2026-07-16 - Issue #193 관리자 청구 집계 production 최적화 승인 및 snapshot 경계
+
+- 사용자는 O actual-before 수동 채택 뒤 `listAdminCampusCharges`와 `listAdminCampusChargesForMyAccounts`의 production 최적화를 승인했다.
+- 두 endpoint는 전용 `AdminChargeAggregationQueryPort`를 사용하며 DB summary 1회, member aggregate/page 1회, distinct member count 1회의 고정 query 구조를 사용한다.
+- `charge_items`를 ACTIVE `campus_members`와 active `users`에 결합하고 status별 합계, 최신 생성 시각, user/category/status/account/archive/keyword predicate, 기존 정렬과 pagination을 DB에서 처리한다.
+- 멤버별 User lookup과 전체 `ChargeItem` entity materialization은 두 endpoint에서 제거한다. API path/query/response/page metadata, 권한, account ownership, archive cutoff 의미는 변경하지 않는다.
+- 세 statement가 동시 write 사이에서 서로 다른 `READ_COMMITTED` snapshot을 볼 수 있는 반례가 재현됐으므로, 승인된 두 public endpoint에만 read-only `REPEATABLE_READ`를 적용한다. 다른 query service와 member-detail/MEAL 경로의 isolation은 변경하지 않는다.
+- 금액 projection은 long으로 보존한 뒤 기존 API int 경계에서 exact 변환하고 overflow는 fail-fast한다. Nullable latest-created projection과 기존 primary 방향 + userId asc tie 계약을 유지한다.
+- Issue #193에서는 index/Flyway/dependency/schema/API 변경을 금지한다. index 후보와 PostgreSQL EXPLAIN 실행계획은 #194 통합 단계에만 전달한다.
+- After 성능 측정은 개별 branch에서 실행하지 않고 PM integration branch에서 before와 동일 조건으로 수행한다. 그 전에는 production 구현 완료를 성능 개선 수치로 해석하지 않는다.
+- PM 독립 검증은 전체 build `BUILD SUCCESSFUL in 3m16s`, asciidoctor `BUILD SUCCESSFUL in 17s`, Node scenario/runner 36/36, issue-local node/diff check 통과를 확인했다. 현재 test XML은 tests 561, failures 0, errors 0, skipped 3이다.

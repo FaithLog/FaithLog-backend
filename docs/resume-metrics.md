@@ -1386,3 +1386,156 @@ Metric candidates:
 - Optimization: Settlement services now pass one command collection to billing. Billing validates the account once, loads existing source charges once with a deterministic pessimistic lock query, preserves COFFEE UNPAID/terminal semantics, rejects existing MEAL charges, and uses one repository collection-save boundary. No JDBC insert batching or latency improvement is claimed before integration after measurement.
 - TDD/verification: RED `compileTestJava` 8 missing batch symbols; self-review RED 1/1 reproduced a batch-save unique conflict bypassing the MEAL duplicate error mapping; batch focused GREEN 5/5; related billing/poll/#200/#201 regression 113/113; full Gradle 560 tests with 0 failures, 0 errors, 3 skipped; build and asciidoctor passed.
 - Change exclusions: API/controller/DTO/ErrorCode/frontend, Flyway/index, dependencies, and Docker were unchanged. The development session ran no actual after load. The bulk-query index candidate remains assigned to #194.
+### 2026-07-16 Issue #193 actual-before attempt B rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_B / I193_FIXTURE_20260716_B / EXEC193_BEFORE_20260716_B`.
+- 검증된 준비 범위: 사용자 승인 계정 2개, 임시 ADMIN 로그인, immutable app/PostgreSQL/Redis 및 DB/binding continuity, canonical lock, quiet boundary, fresh fixture prepare.
+- fixture 결과: campus ID 17, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- 거부 원인: `psql -c` SQL의 `:'dataset_id'`가 psql variable substitution을 거치지 않아 PostgreSQL `syntax error at or near ":"` 발생.
+- 측정 결과: k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
+- 복구/보존: 외부 cleanup trap이 임시 ADMIN을 USER로 복구했고 memory-only credential은 폐기됐다. B namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: dataset binding SQL을 issue-local read-only stdin 파일로 분리하고 `psql -v dataset_id=...`로만 치환한다. fake psql harness가 `-c` 실패와 stdin 성공을 고정한다.
+
+### 2026-07-16 Issue #193 actual-before attempt C rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_C / I193_FIXTURE_20260716_C / EXEC193_BEFORE_20260716_C`.
+- 검증된 준비 범위: dataset binding, immutable app/PostgreSQL/Redis 및 DB/binding continuity, canonical lock, quiet boundary, fresh fixture prepare, ADMIN/duty 인증과 member-detail expectation 직전 preflight.
+- fixture 결과: campus ID 19, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- 거부 원인: 실제 SQL의 `createdAt`은 `...37.542110`, `...37.542109`, `...37.542108` 순으로 정확했지만 JS `Date`가 millisecond로 절삭해 서로 다른 microsecond instant를 동률로 오판하고 전체 ID 내림차순을 요구했다.
+- 측정 결과: k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
+- 복구/보존: 외부 cleanup trap이 임시 ADMIN을 USER로 복구했고 memory-only credential은 폐기됐다. C namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: RFC3339 timestamp를 최대 9자리 fraction 및 `Z`/offset까지 strict parse한 lossless epoch nanoseconds로 비교하고 exact instant tie에서만 ID 내림차순을 적용한다. malformed/date-only/invalid calendar/`24:00`은 fail-closed며 설치된 k6의 정적 `inspect`로 module 호환성을 검증한다.
+
+### 2026-07-16 Issue #193 actual-before attempt D rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_D / I193_FIXTURE_20260716_D / EXEC193_BEFORE_20260716_D`.
+- fixture 결과: campus ID 21, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- 거부 원인: 요청은 `sort=createdAt,desc`였고 DB의 일부 charge item은 `created_at`이 exact tie였다. current develop API 응답은 해당 status pair들에서 ID 오름차순과 내림차순이 혼재했다. Spring `Pageable`에는 primary `createdAt` sort만 있어 tie를 안정화하는 secondary sort가 없다. PM 독립 대조 결과 이는 scenario 오판이 아니라 실제 API pagination/order 경계다.
+- 측정 결과: correctness preflight에서 중단되어 k6 warmup 0건, measured 0건, summary 없음. 따라서 baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
+- 보존: D namespace/DB rows/report는 partial rejected evidence로만 보존하며 재사용하지 않는다. 후속 E는 별도 fresh namespace로만 실행됐다.
+- 후속 해결: 사용자가 모든 charge-item pageable endpoint에 primary sort와 같은 방향의 `id` secondary sort를 자동 추가하는 정책(`createdAt,desc → id,desc`, `createdAt,asc → id,asc`)을 승인했고, Issue #206/PR #207이 develop commit `6796ed146244d8f3f5b5dd7048ebe16865084a97`로 병합됐다. Scenario는 exact tie의 `id,desc` 검증을 유지하며 fixture timestamp를 인위적으로 벌리지 않는다. D 자체는 계속 rejected evidence이며, E는 별도 fresh namespace로 실행된 뒤 아래 validator 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt E rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_E / I193_FIXTURE_20260716_E / EXEC193_BEFORE_20260716_E`.
+- fixture 결과: campus ID 23, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- warmup 결과: 5 iterations, HTTP request 80개, HTTP failure 0. 이 warmup은 성능 baseline이나 성과 수치로 채택하지 않는다.
+- 거부 원인: 실제 k6 v2 custom Rate의 무오류 shape `{"passes":0,"fails":5,"value":0}`에서 `passes`는 true count, `fails`는 false/total count지만 validator가 존재하지 않는 `rate` 필드를 읽어 16개 case를 모두 거부했다.
+- 미실행 범위: measured k6 0건, measured DB/resource boundary 0건, measured summary/classification 없음. `accepted=false`와 `automaticAdoption=false` 경계를 유지한다.
+- 복구/보존: 측정 계정 15016/15017은 모두 USER로 복구됐고 canonical lock 제거를 확인했다. E namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: direct metric과 `metric.values` wrapper를 모두 지원하되 `value=0`, `passes=0`, `fails=expected count`만 무오류로 허용한다. positive value, passes 증가, fails/count mismatch, malformed/nonfinite field는 warmup/measured 양 phase에서 fail-closed다.
+- 후속 F는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 resource validator 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt F rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_F / I193_FIXTURE_20260716_F / EXEC193_BEFORE_20260716_F`.
+- report: `build/reports/k6/issue-193/I193_BEFORE_20260716_F/I193_FIXTURE_20260716_F/EXEC193_BEFORE_20260716_F`.
+- fixture 결과: campus ID 25, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- warmup 결과: 5 iterations, HTTP request 80개, failure 0. 이 warmup은 성능 baseline이나 성과 수치로 채택하지 않는다.
+- 거부 원인: measured load 전 첫 resource normalization에서 Docker Desktop의 정상 반올림 표기 `501.7MiB`를 exact integer bytes 한 점으로 환산하려 해 `Docker memory size must resolve to an integer byte value`로 중단됐다.
+- 미실행 범위: measured k6 summary 0건, adoption/classification 없음. baseline, latency, throughput 또는 개선 성과로 집계하지 않는다.
+- 복구/보존: 측정 계정 15018/15019는 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. F namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: scalar byte 수치를 제거하고 `MemUsage` used/limit를 표시 정밀도의 inclusive integer-byte min/max decimal-string으로, `MemPerc`를 exact rational rounding interval로 보존한다. 가능한 used/limit ratio와 MemPerc 구간 교집합, full ID/role/set, positive limit, used≤limit, CPU, percent 0..100, safe magnitude와 unit schema를 `BigInt` 기반으로 fail-closed 검증한다.
+- 후속 G는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 resource cadence validator 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt G rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_G / I193_FIXTURE_20260716_G / EXEC193_BEFORE_20260716_G`.
+- fixture 결과: campus ID 27, ACTIVE membership 1,000개, charge item 35,000개 COMMIT.
+- warmup 결과: 5 iterations, HTTP request 80개, failure 0. 이 warmup은 성능 baseline이나 성과 수치로 채택하지 않는다.
+- measured 진행: 16 cases 각각 request count 239, custom failure value 0. Resource sample 90개가 `2026-07-16T04:54:06.025Z`부터 `2026-07-16T04:57:16.941Z`까지 수집됐고 관찰 gap은 최소 1.869초, 최대 4.807초였다.
+- 거부 원인: blocking `docker stats --no-stream` capture가 약 1.37~4.31초 걸리는데 runner가 각 capture 뒤 nominal interval의 절반인 0.5초 sleep을 추가하고, nominal `DOCKER_STATS_SAMPLING_INTERVAL_SECONDS=1`을 maximum gap으로도 사용해 1초 gate를 구조적으로 만족할 수 없었다.
+- evidence 경계: measured summary, counter-after, measurement-state-after, PostgreSQL-after는 존재하지만 resource validator에서 중단됐다. runtime-final과 adoption/classification은 생성되지 않았으므로 G의 measured 요청 수, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15020/15021은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. G namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: runtime-required `DOCKER_STATS_MAX_GAP_SECONDS=5`를 별도 추가하고 nominal interval 1초와 함께 run conditions/validator output에 기록한다. Sampler는 blocking capture를 back-to-back으로 수행하고 unconditional post-capture sleep을 제거한다. maxGap 누락·비정상 값·nominal 미만·실제 gap 초과는 fail-closed다.
+- 후속 H는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 pre-boundary cumulative stats 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt H rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_H / I193_FIXTURE_20260716_H / EXEC193_BEFORE_20260716_H`.
+- 실행 범위: fresh campus fixture COMMIT, measured 16 cases 각각 request count 320, HTTP/custom failure 0, resource validation 통과.
+- 거부 원인: measurement-integrity에서 `users.nModSinceAnalyze`가 before 51, after 52로 보여 중단됐다. Fresh measured ADMIN login의 `last_login_at=2026-07-16T05:07:13.053898Z` UPDATE 후 약 478ms인 `measurement-state-before capturedAt=2026-07-16T05:07:13.531998Z`에 단일 snapshot을 채택해 PostgreSQL cumulative stats flush가 아직 반영되지 않은 false contamination이었다. Measured GET workload 자체의 users write로 해석하지 않는다.
+- evidence 경계: runtime-final과 adoption/classification은 생성되지 않았다. H의 request count, latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15022/15023은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. H namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: issue-local 상수로 최대 5회 `capture → 1초 sleep → capture`를 수행한다. DB identity/postmaster/stats reset, planner settings, 4개 table maintenance state가 exact 일치한 pair의 두 번째 snapshot만 counter-before/window 이전 `measurement-state-before.json`으로 사용한다. 안정화되지 않으면 fail-closed하며 measured 이후 기존 exact continuity는 유지한다.
+- 후속 I는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 measured-window autoanalyze 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt I rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_I / I193_FIXTURE_20260716_I / EXEC193_BEFORE_20260716_I`.
+- 실행 범위: measured 16 cases 완료, failure 0. Pre-boundary users `nModSinceAnalyze`는 59→59로 안정적이었다.
+- 거부 원인: `charge_items` before는 `nModSinceAnalyze=70000`, `lastAutoanalyze=2026-07-16T04:54:17.632105Z`, `autoanalyzeCount=10`이었지만 after는 `nModSinceAnalyze=0`, `lastAutoanalyze=2026-07-16T05:20:17.275926Z`, `autoanalyzeCount=11`이었다. Measured start 후 autoanalyze가 실행돼 기존 strict maintenance continuity가 measurement-integrity를 거부했다.
+- 채택 경계: I의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15024/15025는 모두 USER로 복구됐고 canonical lock free가 확인됐다. I namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 승인된 재발 방지: fixture COMMIT 직후, expectations/preflight/warmup 전에 별도 stdin SQL로 exact `ANALYZE campus_members, payment_accounts, charge_items;`를 실행하고 completion marker를 남긴다. users, 다른 table, VACUUM, reset/config/extension, schema/index/Flyway는 변경하지 않는다. Measured before/after analyze/autoanalyze continuity는 완화하지 않는다.
+- 후속 J는 PM 독립 리뷰와 사용자 승인 후 별도 fresh namespace로 실행됐고 아래 measured-window insert-triggered autovacuum 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt J rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_J / I193_FIXTURE_20260716_J / EXEC193_BEFORE_20260716_J`.
+- 실행 범위: 승인된 exact 3-table ANALYZE를 warmup 전에 완료했고 measured 16 cases를 failure 0으로 완료했다. `charge_items` analyzeCount/autoanalyzeCount/lastAnalyze는 안정적이어서 I의 autoanalyze 문제는 해소됐다.
+- 거부 원인: `campus_members` before는 `lastAnalyze=2026-07-16T05:31:18.323492Z`, `autovacuumCount=5`, `lastAutovacuum=2026-07-16T02:50:09.214337Z`, `nModSinceAnalyze=0`이었지만 after는 `autovacuumCount=6`, `lastAutovacuum=2026-07-16T05:32:16.798376Z`, `nModSinceAnalyze=0`이었다. Measurement-state before `2026-07-16T05:31:31.009787Z`, after `2026-07-16T05:34:40.811198Z` 사이에서 insert-triggered autovacuum이 measured 시작 약 45초 뒤 실행돼 strict integrity가 거부했다.
+- read-only 근거: `autovacuum_naptime=60s`, `autovacuum_vacuum_insert_threshold=1000`, `autovacuum_vacuum_insert_scale_factor=0.2`. J autovacuum 완료 뒤 `campus_members.n_ins_since_vacuum=0`; 현재 `charge_items.n_ins_since_vacuum=105000`, live row 534011이므로 다음 fresh 35,000-row fixture도 insert-triggered vacuum을 유발할 수 있다.
+- 채택 경계: J의 latency, throughput, resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15026/15027은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. J namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 승인된 재발 방지: 기존 ANALYZE-only command를 fixture COMMIT 직후 exact `VACUUM (ANALYZE) campus_members, payment_accounts, charge_items;`로 교체한다. Immutable PostgreSQL ID의 psql stdin으로 transaction 밖에서 실행하고 dataset binding/expectations/preflight/warmup보다 앞서 `fixture-vacuum-analyze.txt`와 exact table completion marker를 남긴다. `users`/다른 table, `VACUUM FULL`, `FREEZE`, 데이터 삭제/schema/index/Flyway/config/reset/extension 변경은 없고 measured before/after strict maintenance continuity도 유지한다.
+- Fresh K 제안: `I193_BEFORE_20260716_K / I193_FIXTURE_20260716_K / EXEC193_BEFORE_20260716_K`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_K/I193_FIXTURE_20260716_K/EXEC193_BEFORE_20260716_K`. 개발 세션은 실제 Docker/DB/k6를 실행하지 않으며 PM finding 0 뒤 PM만 단독 실행한다.
+
+### 2026-07-16 Issue #193 actual-before attempt K rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_K / I193_FIXTURE_20260716_K / EXEC193_BEFORE_20260716_K`.
+- 실행 범위: campus/fixture와 exact 3-table VACUUM(ANALYZE), warmup, measured 16 cases를 완료했다. Measured HTTP 6,000건, failure 0이며 exact window는 `2026-07-16T05:48:51Z`~`2026-07-16T05:52:00Z` 부근이다.
+- 거부 원인: `charge_items`, `campus_members`, `payment_accounts`는 `nModSinceAnalyze=0`과 maintenance state가 안정적이었고 users analyze/vacuum/auto-maintenance timestamp/count도 안정적이었다. 그러나 users `nModSinceAnalyze`가 before 72, after 73으로 바뀌어 strict validator가 거부했다. Fresh measured login의 `last_login_at` UPDATE 통계가 기존 1초 stable pair 72/72 뒤에 늦게 반영된 false contamination이며 measured GET workload write로 해석하지 않는다.
+- 채택 경계: K latency/throughput/resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15028/15029는 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. K namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: fresh measured login 직후, before evidence/stable-pair/counter/window보다 앞서 immutable PostgreSQL ID의 stdin으로 exact `VACUUM (ANALYZE) users;`를 실행하고 users-only completion marker를 남긴다. 다른 table, `VACUUM FULL`, `FREEZE`, 데이터/schema/index/Flyway/config/reset/extension 변경은 없고 fixture 3-table VACUUM 및 measured strict continuity는 유지한다.
+- Fresh L 제안: `I193_BEFORE_20260716_L / I193_FIXTURE_20260716_L / EXEC193_BEFORE_20260716_L`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_L/I193_FIXTURE_20260716_L/EXEC193_BEFORE_20260716_L`. 개발 세션 actual 실행은 금지한다.
+
+### 2026-07-16 Issue #193 actual-before attempt L rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_L / I193_FIXTURE_20260716_L / EXEC193_BEFORE_20260716_L`.
+- 실행 범위: fresh measured login 뒤 users VACUUM(ANALYZE)을 완료했고 measured 16 cases summary가 생성됐다. 최초 validator는 users `nModSinceAnalyze` 변경에서 중단했다.
+- 거부 원인: users before `nModSinceAnalyze=0`, after 1이며 lastVacuum/lastAnalyze와 vacuum/analyze counts는 안정적이었다. Login `last_login_at` commit `2026-07-16T06:00:28.808644Z`에서 약 166ms 뒤 `2026-07-16T06:00:28.974009Z`에 VACUUM이 시작되고 ANALYZE는 `2026-07-16T06:00:29.394557Z`에 실행돼 app backend의 login UPDATE counter flush 전에 maintenance가 시작됐다. 지연된 login 통계가 measured 중 +1로 반영된 false contamination이다.
+- 해석 경계: JWT tokenVersion checker는 read-only `findById`이며 measured 6,000 GET 자체의 users write 증거는 없다. L latency/throughput/resource 수치는 baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15030/15031은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. L namespace/DB rows/report는 partial rejected evidence로 보존하며 재사용하지 않는다.
+- 재발 방지: measured login 직전 users `n_tup_upd` canonical decimal counter를 캡처하고, login 뒤 immutable PostgreSQL ID read-only polling에서 exact `before+1`을 ACK한 뒤에만 users VACUUM을 실행한다. `+0`은 기존 1초/최대 5회 안에서 pending이며 감소, `>+1`, timeout, malformed/bigint 범위 초과는 fail-closed한다. Stable-pair와 measured strict continuity는 유지한다.
+- Fresh M 제안: `I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_M/I193_FIXTURE_20260716_M/EXEC193_BEFORE_20260716_M`. 개발 세션 actual 실행은 금지한다.
+
+### 2026-07-16 Issue #193 actual-before attempt M conditional supporting evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_M / I193_FIXTURE_20260716_M / EXEC193_BEFORE_20260716_M`.
+- technical 결과: exact login `n_tup_upd +1` ACK, users VACUUM 뒤 strict users `nModSinceAnalyze` 안정성, 모든 metric/DB/resource/runtime/final continuity validator 통과. `measurement-classification=conditional-shared-stack`, `automaticAdoption=false`.
+- 관찰값: measured HTTP 2,720건, failure 0, 16 cases 각각 170건. Whole avg `673.748ms`, p50 `583.891ms`, p95 `1378.754ms`, p99 `2085.566ms`, max `4763.404ms`, throughput `14.678 req/s`.
+- PM 거부 원인: 같은 host에서 #192/#194~#199 개발 세션들이 병렬 static/Node 작업을 시작해 host CPU exclusive-use provenance를 입증할 수 없었다. 위 수치는 conditional supporting evidence일 뿐 valid before baseline 또는 개선 성과로 채택하지 않는다.
+- 복구/보존: 측정 계정 15032/15033은 모두 USER로 복구됐고 canonical lock free와 running k6 없음이 확인됐다. M namespace/DB rows/report를 보존하며 재사용하지 않는다.
+- 후속 N은 위 M과 다른 fresh namespace로 host-exclusive actual을 단독 실행했고 아래 ACK timeout 사유로 rejected됐다.
+
+### 2026-07-16 Issue #193 actual-before attempt N rejected evidence
+
+- 실행 식별자: `I193_BEFORE_20260716_N / I193_FIXTURE_20260716_N / EXEC193_BEFORE_20260716_N`.
+- 실행 범위: fixture, exact 3-table VACUUM(ANALYZE), preflight, warmup 완료. Measured login 직전 users `n_tup_upd=113`, login 뒤 attempts 1~5 모두 113으로 exact `+1` ACK가 없었다.
+- 중단 범위: measured k6 0건. `measurement-state-before`, counter/resource, measured summary, classification은 생성되지 않았다.
+- 해석 경계: app login backend의 cumulative stats가 단순 5초 sleep으로 flush된다는 보장이 없어서 measured 직전 두 번째 login이 불안정한 pre-window write가 됐다. Product 6,000 GET이 users를 쓴 문제로 해석하지 않는다. N latency/throughput/baseline/성과 수치는 없다.
+- 복구/보존: 측정 계정 15034/15035는 모두 USER로 복구됐다. N namespace/DB rows/report를 보존하며 재사용하지 않는다.
+- 재발 방지: 두 번째 ADMIN authenticate를 제거하고 최초 ADMIN token을 preflight/warmup/measured까지 재사용한다. 최초 ADMIN·DUTY login 전에 users counter를 캡처하고 두 login, fixture, preflight, warmup 뒤 exact `before+2`를 ACK한 경우에만 users VACUUM(ANALYZE), stable-pair, strict measured boundary를 진행한다. `+0/+1` pending, 감소/`>+2`/malformed/timeout은 fail-closed한다. Report 생성 뒤 실패는 최초 `measurement-rejection.json`을 `automaticAdoption=false`로 exclusive-create한다.
+- Fresh O 제안: `I193_BEFORE_20260716_O / I193_FIXTURE_20260716_O / EXEC193_BEFORE_20260716_O`, report `build/reports/k6/issue-193/I193_BEFORE_20260716_O/I193_FIXTURE_20260716_O/EXEC193_BEFORE_20260716_O`. 개발 세션 actual 실행은 금지한다.
+
+### 2026-07-16 Issue #193 actual-before baseline O manually adopted
+
+- 실행 식별자: `I193_BEFORE_20260716_O / I193_FIXTURE_20260716_O / EXEC193_BEFORE_20260716_O`, source `origin/develop 6796ed146244d8f3f5b5dd7048ebe16865084a97`.
+- workload: measured 16 cases 각각 484건, 총 HTTP 7,744건, checks 23,232건, failure 0. Window `2026-07-16T07:27:07.498Z~07:30:10.197Z`.
+- before 성능: 전체 throughput `42.483669 req/s`; case별 p50 `109.60~251.62ms`, p95 `208.54~423.45ms`, worst max `1293.83ms`.
+- resource: 93 samples valid. App peak CPU `286.51%`, RAM displayed `756MiB`; PostgreSQL peak CPU `241.69%`, RAM displayed `277MiB`; Redis peak CPU `21.93%`, RAM displayed `19.56MiB`.
+- DB/runtime integrity: externalActiveCount before/after 0, shared-stack activeQueries 0/0, planner와 table vacuum/analyze/auto-maintenance exact stable, pgss unavailable continuity, app/PostgreSQL/Redis runtime·DB·postmaster·numeric loopback binding exact stable.
+- correctness/security: ACTIVE member 1,000명, account 5개, charge 35,000개 exact fixture; pagination/archive/#200 duty ownership/#206 ordering gate 통과; users delta exact `+2`; 임시 ADMIN USER 복구; rejection artifact와 credential-pattern report hit 없음.
+- 채택 해석: runner classification은 `conditional-shared-stack`, `automaticAdoption=false`를 유지한다. PM이 exclusive window를 독립 검증해 O를 유효 before baseline으로 수동 채택했으며, 이는 자동 채택 경계를 완화하지 않는다. After는 PM integration branch에서 동일 조건으로만 비교한다.
+
+### 2026-07-16 Issue #193 production optimization implemented, after pending
+
+- Production commit `93bbe64`는 승인된 두 관리자 캠퍼스 집계 endpoint만 DB projection으로 전환했다. Summary/member page/distinct count는 동일 read-only `REPEATABLE_READ` transaction의 3개 고정 query로 실행된다.
+- 제거한 병목: ACTIVE membership을 순회하는 멤버별 User lookup과 조건에 맞는 전체 `ChargeItem` entity load/JVM group-sum-sort-page. 실행형 Hibernate 통계 테스트에서 두 endpoint의 `ChargeItem` entity load 0과 requester 외 member User load 0을 고정했다.
+- 정합성: 2-transaction/latch 테스트로 `READ_COMMITTED` statement snapshot 불일치를 RED 재현하고 endpoint-local `REPEATABLE_READ`로 GREEN 처리했다. Result/filter/account/archive/9개 승인 sort/page metadata/권한 service 회귀도 통과했다.
+- 검증: focused 23/23, 현재 전체 test XML tests 561/failures 0/errors 0/skipped 3. PM 독립 `./gradlew build`는 `BUILD SUCCESSFUL in 3m16s`, asciidoctor는 `BUILD SUCCESSFUL in 17s`였고, issue-local Node contract 36/36, 모든 JS/MJS `node --check`, `bash -n`, k6 static inspect와 `git diff --check`가 통과했다.
+- 변경 제외: API/DTO/ErrorCode/REST Docs path와 schema, Flyway, dependency, index, DB write, `listAdminMemberCharges`, MEAL 경로는 변경하지 않았다.
+- 성과 해석: 실제 after는 아직 수집하지 않았다. O before 대비 latency/throughput/CPU/RAM 개선률은 PM integration branch의 동일 조건 after가 채택되기 전까지 이력서 수치로 사용하지 않는다.
+- #194 handoff: `charge_items`의 campus/account/category/status/user filter-group 축과 `campus_members(campus_id,status,user_id)` 후보를 실제 PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)`로 검증한다. 이번 브랜치에는 index/Flyway가 없다.
