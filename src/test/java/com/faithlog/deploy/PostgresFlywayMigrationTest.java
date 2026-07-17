@@ -49,6 +49,15 @@ class PostgresFlywayMigrationTest {
 		assertConstraintExists(jdbcUrl, username, password, "poll_options", "fk_poll_options_created_by_user");
 		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_token");
 		assertIndexExists(jdbcUrl, username, password, "user_fcm_tokens", "uk_user_fcm_tokens_active_user_client");
+		assertIndexExists(
+			jdbcUrl, username, password,
+			"charge_items", "idx_charge_items_campus_category_source"
+		);
+		assertIndexExists(
+			jdbcUrl, username, password,
+			"charge_items", "idx_charge_items_campus_category_status_user"
+		);
+		assertIndexExists(jdbcUrl, username, password, "campus_members", "idx_campus_members_user_id_id");
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);

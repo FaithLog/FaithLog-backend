@@ -1,6 +1,26 @@
 # FaithLog k6 Performance Tests
 
+## Issue #197 Devotion/Retention Baseline Preparation
+
+`performance/k6/issue-197/` is `scenario-ready / not-measured` against `origin/develop` `6796ed146244d8f3f5b5dd7048ebe16865084a97`. Its devotion write and retention dry-verification contracts are isolated from each other. The approved **two-session / one-load** policy separates the development preparation session from the single exclusive measurement session; no fixture, DB, HTTP, k6 load, cleanup, or scheduler execution belongs in development. The later exclusive measurement session runs the issue-local create-only devotion prepare tool before its one load.
+
+The prepare tool and runners have no runtime identity defaults. They require exact revision, app/DB/Redis image and full container IDs, app JAR/API-contract digest, Compose project/service, applied Flyway identity, Redis run identity, explicit numeric-loopback app/DB/Redis targets, workload/JWT, three-role resource window, database session/maintenance, BigInt counter, and optional `pg_stat_statements` evidence. Exact business rows remain mandatory while shared-stack DB-wide counters are supporting evidence; even a clean before is `conditional-not-adoptable`. The first failure is preserved as mode-600 JSON with `automaticAdoption=false`. Retention remains read-only dry candidate verification and never invokes cleanup. See [`issue-197/README.md`](issue-197/README.md).
+Issue-specific internal service scenarios:
+
+- [Issue #198 notification batch before scenario](notification-batch/README.md) — scenario-ready / not-measured; external FCM prohibited; baseline summarizer disabled pending approved cumulative-state strategy and exact sample counts
+
 Issue #90 uses k6 to collect reproducible local performance numbers. Defaults target local Docker Compose only.
+
+Issue #194의 PostgreSQL 실행계획 before-baseline 준비는
+[`postgresql-explain-index-baseline/README.md`](postgresql-explain-index-baseline/README.md)를 따른다. 이 시나리오는
+#192/#193/#195/#196/#197/#198/#199 cross-issue report와 공통 1,000명 fixture를 입력받으며, 실제 DB 측정 승인이
+있기 전에는 정적 계약 테스트만 실행한다. 최신 develop #200/#201/#202/#206 source/schema identity까지 연결했지만 현재
+7개 cross-issue artifact는 모두 approval bridge가 없어 pending이며 상태는 `scenario-ready / not-measured`다.
+## Issue #196 Prayer/Poll Before Scenario
+
+Issue #196 has an independent, local-Docker-only scenario under [`issue-196-prayer-poll-list-baseline/`](issue-196-prayer-poll-list-baseline/README.md). Its current-develop v2 contract prepares a 1,000-active-member Prayer/Poll fixture, runs Prayer, Poll member, Poll admin, and COFFEE/MEAL duty endpoints in separate sequential phases, and contracts endpoint-specific HTTP/app-DB-Redis resource/SQL/table-counter evidence.
+
+Current status is `scenario-ready / not-measured`. Do not quote baseline or improvement numbers until the approved seed, Docker, DB, and k6 measurement session produces reports under ignored `build/reports/k6/issue-196/`.
 
 ## Local Baseline
 

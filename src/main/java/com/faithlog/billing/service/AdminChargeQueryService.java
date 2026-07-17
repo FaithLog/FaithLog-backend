@@ -6,10 +6,14 @@ import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.service.policy.BillingAccessPolicy;
 import com.faithlog.billing.service.policy.ChargeArchivePolicy;
+import com.faithlog.billing.service.port.AdminChargeAggregationQueryPort;
+import com.faithlog.billing.service.port.AdminChargeAggregationSummary;
+import com.faithlog.billing.service.port.AdminChargeMemberAggregate;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.billing.service.query.AdminCampusChargeListQuery;
 import com.faithlog.billing.service.query.AdminMemberChargeListQuery;
+import com.faithlog.billing.service.query.AdminChargeAggregationCriteria;
 import com.faithlog.billing.service.query.ChargeSearchCriteria;
 import com.faithlog.billing.service.result.AdminCampusChargeMemberResult;
 import com.faithlog.billing.service.result.AdminCampusChargesResult;
@@ -44,6 +48,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -52,6 +57,7 @@ public class AdminChargeQueryService {
 	private static final String ADMIN_CHARGE_LIST_FORBIDDEN = "캠퍼스 청구 조회 권한이 없습니다.";
 
 	private final ChargeItemRepositoryPort chargeItemRepository;
+	private final AdminChargeAggregationQueryPort adminChargeAggregationQueryPort;
 	private final CampusRepositoryPort campusRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
@@ -62,6 +68,7 @@ public class AdminChargeQueryService {
 
 	public AdminChargeQueryService(
 		ChargeItemRepositoryPort chargeItemRepository,
+		AdminChargeAggregationQueryPort adminChargeAggregationQueryPort,
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusUserLookupPort userLookupPort,
@@ -71,6 +78,7 @@ public class AdminChargeQueryService {
 		Clock clock
 	) {
 		this.chargeItemRepository = chargeItemRepository;
+		this.adminChargeAggregationQueryPort = adminChargeAggregationQueryPort;
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
@@ -80,7 +88,7 @@ public class AdminChargeQueryService {
 		this.clock = clock;
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	public AdminCampusChargesResult listAdminCampusCharges(AdminCampusChargeListQuery query) {
 		if (query.paymentCategory() == PaymentCategory.MEAL) {
 			throw forbidden();
@@ -92,37 +100,10 @@ public class AdminChargeQueryService {
 			query.paymentCategory(),
 			query.paymentAccountId()
 		);
-		List<CampusUserLookupResult> targetUsers = targetUsers(query.campusId(), query.userId(), query.keyword());
-		Set<Long> targetUserIds = targetUsers.stream()
-			.map(CampusUserLookupResult::userId)
-			.collect(Collectors.toSet());
-		Map<Long, CampusUserLookupResult> usersById = targetUsers.stream()
-			.collect(Collectors.toMap(CampusUserLookupResult::userId, Function.identity()));
-
-		List<ChargeItem> charges = chargeItemRepository.searchCharges(new ChargeSearchCriteria(
-			query.campusId(),
-			targetUserIds,
-			query.paymentCategory(),
-			query.status(),
-			paymentAccountIds,
-			PaymentCategory.MEAL,
-			ChargeArchivePolicy.terminalCompletedAtFrom(clock, query.includeArchived())
-		));
-		MemberPage members = aggregateMembers(charges, usersById, query.pageable());
-		return new AdminCampusChargesResult(
-			campus.id(),
-			campus.name(),
-			campus.region(),
-			summarize(charges),
-			members.content(),
-			members.page(),
-			members.size(),
-			members.totalElements(),
-			members.totalPages()
-		);
+		return aggregateCampusCharges(campus, query, paymentAccountIds);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	public AdminCampusChargesResult listAdminCampusChargesForMyAccounts(AdminCampusChargeListQuery query) {
 		if (query.paymentCategory() == PaymentCategory.MEAL) {
 			throw forbidden();
@@ -134,33 +115,63 @@ public class AdminChargeQueryService {
 			query.paymentCategory(),
 			query.paymentAccountId()
 		);
-		List<CampusUserLookupResult> targetUsers = targetUsers(query.campusId(), query.userId(), query.keyword());
-		Set<Long> targetUserIds = targetUsers.stream()
-			.map(CampusUserLookupResult::userId)
-			.collect(Collectors.toSet());
-		Map<Long, CampusUserLookupResult> usersById = targetUsers.stream()
-			.collect(Collectors.toMap(CampusUserLookupResult::userId, Function.identity()));
+		return aggregateCampusCharges(campus, query, paymentAccountIds);
+	}
 
-		List<ChargeItem> charges = chargeItemRepository.searchCharges(new ChargeSearchCriteria(
+	private AdminCampusChargesResult aggregateCampusCharges(
+		Campus campus,
+		AdminCampusChargeListQuery query,
+		Set<Long> paymentAccountIds
+	) {
+		AdminChargeAggregationCriteria criteria = new AdminChargeAggregationCriteria(
 			query.campusId(),
-			targetUserIds,
+			query.userId(),
+			query.keyword(),
 			query.paymentCategory(),
 			query.status(),
 			paymentAccountIds,
 			PaymentCategory.MEAL,
 			ChargeArchivePolicy.terminalCompletedAtFrom(clock, query.includeArchived())
-		));
-		MemberPage members = aggregateMembers(charges, usersById, query.pageable());
+		);
+		AdminChargeAggregationSummary summary = adminChargeAggregationQueryPort.summarize(criteria);
+		Page<AdminChargeMemberAggregate> members = adminChargeAggregationQueryPort.findMemberPage(
+			criteria,
+			query.pageable()
+		);
 		return new AdminCampusChargesResult(
 			campus.id(),
 			campus.name(),
 			campus.region(),
-			summarize(charges),
-			members.content(),
-			members.page(),
-			members.size(),
-			members.totalElements(),
-			members.totalPages()
+			toSummaryResult(summary),
+			members.stream().map(this::toMemberResult).toList(),
+			members.getNumber(),
+			members.getSize(),
+			members.getTotalElements(),
+			members.getTotalPages()
+		);
+	}
+
+	private ChargeAmountSummaryResult toSummaryResult(AdminChargeAggregationSummary summary) {
+		return new ChargeAmountSummaryResult(
+			Math.toIntExact(summary.totalAmount()),
+			Math.toIntExact(summary.unpaidAmount()),
+			Math.toIntExact(summary.paidAmount()),
+			Math.toIntExact(summary.waivedAmount()),
+			Math.toIntExact(summary.canceledAmount())
+		);
+	}
+
+	private AdminCampusChargeMemberResult toMemberResult(AdminChargeMemberAggregate member) {
+		return new AdminCampusChargeMemberResult(
+			member.userId(),
+			member.name(),
+			member.email(),
+			Math.toIntExact(member.totalAmount()),
+			Math.toIntExact(member.unpaidAmount()),
+			Math.toIntExact(member.paidAmount()),
+			Math.toIntExact(member.waivedAmount()),
+			Math.toIntExact(member.canceledAmount()),
+			member.latestChargeCreatedAt()
 		);
 	}
 

@@ -1,6 +1,5 @@
 package com.faithlog.poll.service;
 
-import com.faithlog.poll.domain.entity.PollResponse;
 import com.faithlog.poll.service.CoffeePollSettlementSupport.SettlementContext;
 import com.faithlog.poll.service.port.CoffeePollChargePort;
 import org.springframework.stereotype.Service;
@@ -26,8 +25,8 @@ public class CoffeePollSettlementCommandService {
 		if (context == null) {
 			return;
 		}
-		for (PollResponse response : context.responses()) {
-			coffeePollChargePort.createOrUpdateCoffeeCharge(settlementSupport.chargeCommand(context, response));
-		}
+		coffeePollChargePort.createOrUpdateCoffeeCharges(context.responses().stream()
+			.map(response -> settlementSupport.chargeCommand(context, response))
+			.toList());
 	}
 }

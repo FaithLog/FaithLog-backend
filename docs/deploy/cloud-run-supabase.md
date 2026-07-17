@@ -198,7 +198,7 @@ Use Cloud Run secret injection for sensitive values rather than `--set-env-vars`
 - `./gradlew build`
 - `./gradlew asciidoctor`
 - Docker image build succeeds.
-- Docker PostgreSQL clean database runs Flyway through V11 successfully.
+- Docker PostgreSQL clean database runs Flyway through V12 successfully.
 - Supabase Security Advisor has no Critical `rls_disabled_in_public` or `sensitive_columns_exposed` findings.
 - Docker QA starts with Docker PostgreSQL and Docker Redis only.
 - App starts with deployment-like DB/Flyway/JPA settings against the migrated PostgreSQL schema and `ddl-auto=validate`.

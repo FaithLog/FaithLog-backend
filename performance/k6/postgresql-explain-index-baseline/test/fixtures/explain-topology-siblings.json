@@ -1,0 +1,28 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Append",
+      "Plan Rows": 20,
+      "Actual Rows": 19,
+      "Actual Loops": 2,
+      "Plans": [
+        {
+          "Node Type": "Result",
+          "Plan Rows": 10,
+          "Actual Rows": 10,
+          "Actual Loops": 1
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "users",
+          "Alias": "u",
+          "Plan Rows": 10,
+          "Actual Rows": 9,
+          "Actual Loops": 1
+        }
+      ]
+    },
+    "Planning Time": 0.3,
+    "Execution Time": 0.9
+  }
+]

@@ -25,6 +25,11 @@ import org.springframework.data.repository.query.Param;
 public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, JpaSpecificationExecutor<ChargeItem>, ChargeItemRepositoryPort {
 
 	@Override
+	default List<ChargeItem> saveAllCharges(List<ChargeItem> chargeItems) {
+		return saveAll(chargeItems);
+	}
+
+	@Override
 	default Optional<ChargeItem> findChargeItemById(Long chargeItemId) {
 		return findById(chargeItemId);
 	}
@@ -157,6 +162,23 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		@Param("paymentCategory") PaymentCategory paymentCategory,
 		@Param("sourceType") ChargeSourceType sourceType,
 		@Param("sourceId") Long sourceId
+	);
+
+	@Override
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select charge from ChargeItem charge
+		where charge.campusId = :campusId
+			and charge.paymentCategory = :paymentCategory
+			and charge.sourceType = :sourceType
+			and charge.sourceId in :sourceIds
+		order by charge.id asc
+		""")
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndSourceTypeAndSourceIdInForUpdate(
+		@Param("campusId") Long campusId,
+		@Param("paymentCategory") PaymentCategory paymentCategory,
+		@Param("sourceType") ChargeSourceType sourceType,
+		@Param("sourceIds") List<Long> sourceIds
 	);
 
 	@Modifying(flushAutomatically = true, clearAutomatically = true)

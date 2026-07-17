@@ -1,12 +1,14 @@
 package com.faithlog.campus.infrastructure.repository;
 
 import com.faithlog.admin.service.port.AdminCampusMemberRepositoryPort;
+import com.faithlog.admin.service.result.AdminUserCampusRow;
 import com.faithlog.campus.service.result.CampusMembershipRow;
 import com.faithlog.campus.service.port.CampusMemberLockScope;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.domain.type.CampusMemberStatus;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -100,4 +102,22 @@ public interface CampusMemberRepository extends JpaRepository<CampusMember, Long
 	);
 
 	List<CampusMember> findByUserIdOrderByIdAsc(Long userId);
+
+	@Override
+	@Query("""
+		select new com.faithlog.admin.service.result.AdminUserCampusRow(
+			member.userId,
+			member.id,
+			campus.id,
+			campus.name,
+			campus.region,
+			member.campusRole,
+			member.status
+		)
+		from CampusMember member
+		left join Campus campus on campus.id = member.campusId
+		where member.userId in :userIds
+		order by member.userId asc, member.id asc
+		""")
+	List<AdminUserCampusRow> findAdminUserCampusRowsByUserIds(@Param("userIds") Collection<Long> userIds);
 }

@@ -1,0 +1,539 @@
+{
+  "schemaVersion": 1,
+  "issueNumber": 194,
+  "issueNumbers": [192, 193, 195, 196, 197, 198, 199],
+  "status": "scenario-ready-not-measured",
+  "currentDevelopContract": {
+    "revision": "6796ed146244d8f3f5b5dd7048ebe16865084a97",
+    "integratedIssues": [200, 201, 202, 206],
+    "repositorySourceRefs": [
+      "docker-compose.yml",
+      "src/main/resources/application-docker.yml",
+      "src/main/resources/db/migration/V9__allow_multiple_active_coffee_duties.sql",
+      "src/main/resources/db/migration/V10__neutralize_coffee_template_accounts.sql",
+      "src/main/resources/db/migration/V11__secure_supabase_data_api.sql",
+      "src/main/java/com/faithlog/billing/controller/BillingPageRequests.java",
+      "src/main/java/com/faithlog/billing/service/policy/ChargeArchivePolicy.java",
+      "src/main/java/com/faithlog/poll/service/CoffeeOperationClassifier.java"
+    ],
+    "schemaContract": {
+      "flywayCurrentVersion": "11",
+      "requiredIndexes": ["uk_campus_duty_assignments_active_coffee_user"],
+      "forbiddenIndexes": ["uk_campus_duty_assignments_active_coffee"],
+      "requireCoffeeTemplateAccountNeutrality": true,
+      "requireAllPublicApplicationTablesRls": true,
+      "requireRlsNotForced": true,
+      "requireNoRlsPolicies": true,
+      "requireNoDataApiOrPublicExposure": true,
+      "requireEffectiveJdbcSelect": true
+    }
+  },
+  "productionCandidateHandoffs": [
+    {
+      "issueNumber": 193,
+      "manifestFile": "i193-production-candidate-handoff.json",
+      "status": "exact-production-branch-candidate-not-measured",
+      "productionBeforeEligible": false
+    }
+  ],
+  "datasetContract": {
+    "memberCount": 1000,
+    "datasetIdField": "datasetId",
+    "fixtureRunIdField": "fixtureRunId",
+    "crossIssueReportField": "issueReports",
+    "existingRowsMutationAllowed": false
+  },
+  "observedTables": [
+    "users",
+    "campuses",
+    "campus_members",
+    "campus_duty_assignments",
+    "payment_accounts",
+    "weekly_devotion_records",
+    "devotion_daily_checks",
+    "poll_templates",
+    "poll_template_options",
+    "polls",
+    "poll_options",
+    "poll_responses",
+    "poll_response_options",
+    "poll_comments",
+    "charge_items",
+    "meal_poll_settlements",
+    "meal_poll_charge_groups",
+    "prayer_seasons",
+    "prayer_groups",
+    "prayer_group_members",
+    "prayer_weeks",
+    "prayer_submissions",
+    "user_fcm_tokens",
+    "notification_logs"
+  ],
+  "queries": [
+    {
+      "id": "i192-coffee-response-graph",
+      "issueNumber": 192,
+      "title": "COFFEE settlement response-option graph",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/poll/service/CoffeePollSettlementCommandService.java", "src/main/java/com/faithlog/poll/service/CoffeePollSettlementSupport.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollResponseRepository.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollResponseOptionRepository.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollOptionRepository.java"],
+      "sqlFile": "sql/i192-coffee-response-graph.sql",
+      "expectedAccess": {
+        "predicateColumns": ["poll_responses.poll_id"],
+        "orderColumns": ["poll_responses.id", "poll_response_options.id"],
+        "joinColumns": ["poll_response_options.response_id", "poll_response_options.option_id", "poll_options.id"]
+      },
+      "candidateIndexes": [
+        "poll_responses(poll_id, id)",
+        "poll_response_options(response_id, id)",
+        "poll_options(id)"
+      ],
+      "correctnessChecks": ["one row per final response-option selection", "all rows belong to the selected poll"]
+    },
+    {
+      "id": "i192-existing-settlement-charges",
+      "issueNumber": 192,
+      "title": "Existing COFFEE charges for settlement source responses",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/poll/service/CoffeePollSettlementCommandService.java", "src/main/java/com/faithlog/poll/service/CoffeePollSettlementSupport.java", "src/main/java/com/faithlog/poll/infrastructure/adapter/BillingCoffeePollChargeAdapter.java", "src/main/java/com/faithlog/billing/service/ChargeCreationService.java", "src/main/java/com/faithlog/billing/infrastructure/repository/ChargeItemRepository.java"],
+      "sqlFile": "sql/i192-existing-settlement-charges.sql",
+      "expectedAccess": {
+        "predicateColumns": ["charge_items.campus_id", "charge_items.payment_category", "charge_items.source_type", "poll_responses.poll_id"],
+        "orderColumns": ["charge_items.id"],
+        "joinColumns": ["charge_items.source_id", "poll_responses.id"]
+      },
+      "candidateIndexes": ["charge_items(campus_id, payment_category, source_type, source_id, id)"],
+      "correctnessChecks": ["only source responses from the selected poll", "terminal status remains observable"]
+    },
+    {
+      "id": "i192-due-coffee-polls",
+      "issueNumber": 192,
+      "title": "Due OPEN COFFEE polls before settlement",
+      "statementClass": "SELECT",
+      "evidenceClass": "reconstructed-current-query",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/batch/service/DueCoffeePollClosureService.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollRepository.java"],
+      "sqlFile": "sql/i192-due-coffee-polls.sql",
+      "expectedAccess": {
+        "predicateColumns": ["polls.poll_type", "polls.status", "polls.ends_at"],
+        "orderColumns": ["polls.id"],
+        "joinColumns": []
+      },
+      "candidateIndexes": [
+        "polls(status, ends_at, id)",
+        "polls(ends_at, id) WHERE poll_type = 'COFFEE' AND status = 'OPEN'"
+      ],
+      "correctnessChecks": ["COFFEE and OPEN only", "inclusive due threshold and stable id order"],
+      "currentFlowGuards": [
+        "consistent COFFEE poll configuration",
+        "creator has ACTIVE campus membership",
+        "creator has ACTIVE COFFEE duty",
+        "poll payment account is active, COFFEE, same-campus, and creator-owned"
+      ]
+    },
+    {
+      "id": "i192-meal-settlement-groups",
+      "issueNumber": 192,
+      "title": "MEAL settlement and charge-group detail",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/poll/service/MealPollSettlementService.java", "src/main/java/com/faithlog/poll/infrastructure/repository/MealPollSettlementRepository.java", "src/main/java/com/faithlog/poll/infrastructure/repository/MealPollChargeGroupRepository.java"],
+      "sqlFile": "sql/i192-meal-settlement-groups.sql",
+      "expectedAccess": {
+        "predicateColumns": ["meal_poll_settlements.poll_id"],
+        "orderColumns": ["meal_poll_charge_groups.id"],
+        "joinColumns": ["meal_poll_charge_groups.settlement_id", "meal_poll_settlements.id"]
+      },
+      "candidateIndexes": ["meal_poll_charge_groups(settlement_id, id)"],
+      "correctnessChecks": ["one settlement per poll", "requested plus rounding equals actual for every group"]
+    },
+    {
+      "id": "i193-admin-charge-filter-page",
+      "issueNumber": 193,
+      "title": "Admin charge filter, keyword, order, and page",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/billing/service/AdminChargeQueryService.java", "src/main/java/com/faithlog/billing/infrastructure/repository/ChargeItemRepository.java"],
+      "sqlFile": "sql/i193-admin-charge-filter-page.sql",
+      "expectedAccess": {
+        "predicateColumns": ["charge_items.campus_id", "charge_items.status", "charge_items.payment_account_id", "users.name", "users.email"],
+        "orderColumns": ["charge_items.created_at", "charge_items.id"],
+        "joinColumns": ["charge_items.user_id", "users.id"]
+      },
+      "candidateIndexes": [
+        "charge_items(campus_id, status, payment_account_id, created_at DESC, id DESC)",
+        "users(id)"
+      ],
+      "correctnessChecks": ["campus isolation", "stable latest-first page", "keyword applies to the charge owner", "UNPAID remains visible regardless of the default archive cutoff"],
+      "apiVariant": {
+        "status": "UNPAID",
+        "includeArchived": false,
+        "paymentAccountFilter": true,
+        "keywordFilter": true,
+        "databasePaginationRepresentsProduction": false
+      }
+    },
+    {
+      "id": "i193-my-account-aggregate",
+      "issueNumber": 193,
+      "title": "Owned active payment-account charge aggregate",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/billing/service/AdminChargeQueryService.java", "src/main/java/com/faithlog/billing/infrastructure/repository/PaymentAccountRepository.java", "src/main/java/com/faithlog/billing/infrastructure/repository/ChargeItemRepository.java"],
+      "sqlFile": "sql/i193-my-account-aggregate.sql",
+      "expectedAccess": {
+        "predicateColumns": ["payment_accounts.campus_id", "payment_accounts.owner_user_id", "payment_accounts.is_active", "payment_accounts.deleted_at"],
+        "orderColumns": ["payment_accounts.id"],
+        "joinColumns": ["charge_items.payment_account_id", "payment_accounts.id"]
+      },
+      "candidateIndexes": [
+        "payment_accounts(campus_id, owner_user_id, id) WHERE is_active = TRUE AND deleted_at IS NULL",
+        "charge_items(payment_account_id, status)"
+      ],
+      "correctnessChecks": ["ACTIVE COFFEE duty requester-owned active COFFEE accounts only", "accounts with zero visible charges remain present", "default archive window keeps every UNPAID and only recent terminal charges"],
+      "apiVariant": {
+        "requesterRole": "ACTIVE_COFFEE_DUTY",
+        "paymentCategory": "COFFEE",
+        "includeArchived": false,
+        "archiveWindow": "P1M"
+      }
+    },
+    {
+      "id": "i193-member-charge-history",
+      "issueNumber": 193,
+      "title": "Admin member charge history",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/billing/service/AdminChargeQueryService.java", "src/main/java/com/faithlog/billing/infrastructure/repository/ChargeItemRepository.java"],
+      "sqlFile": "sql/i193-member-charge-history.sql",
+      "expectedAccess": {
+        "predicateColumns": ["charge_items.campus_id", "charge_items.user_id", "charge_items.payment_category", "charge_items.status", "charge_items.paid_at", "charge_items.updated_at"],
+        "orderColumns": ["charge_items.created_at", "charge_items.id"],
+        "joinColumns": []
+      },
+      "candidateIndexes": ["charge_items(campus_id, user_id, created_at DESC, id DESC)"],
+      "correctnessChecks": ["selected campus and member only", "stable pagination", "default archive window keeps every UNPAID and only recent terminal charges"],
+      "apiVariant": {
+        "includeArchived": false,
+        "archiveWindow": "P1M",
+        "paidCompletionColumn": "charge_items.paid_at",
+        "waivedCanceledCompletionColumn": "charge_items.updated_at",
+        "sort": "createdAt,desc",
+        "stableSecondarySort": "id,desc"
+      }
+    },
+    {
+      "id": "i195-admin-campus-list",
+      "issueNumber": 195,
+      "title": "Admin campus page with active member and manager counts",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/admin/service/AdminCampusManagementService.java", "src/main/java/com/faithlog/campus/infrastructure/repository/CampusRepository.java", "src/main/java/com/faithlog/campus/infrastructure/repository/CampusMemberRepository.java"],
+      "sqlFile": "sql/i195-admin-campus-list.sql",
+      "expectedAccess": {
+        "predicateColumns": ["campus_members.status", "campus_members.campus_role"],
+        "orderColumns": ["campuses.created_at", "campuses.id"],
+        "joinColumns": ["campus_members.campus_id", "campuses.id"]
+      },
+      "candidateIndexes": ["campuses(created_at DESC, id DESC)", "campus_members(campus_id, status, campus_role)"],
+      "correctnessChecks": ["active and paused campuses remain eligible", "one row per paged campus", "active member and campus-manager counts are not duplicated", "stable latest-first page"]
+    },
+    {
+      "id": "i195-admin-user-page",
+      "issueNumber": 195,
+      "title": "Admin user page with campus membership graph",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/admin/service/AdminUserManagementService.java", "src/main/java/com/faithlog/user/infrastructure/repository/UserRepository.java", "src/main/java/com/faithlog/campus/infrastructure/repository/CampusMemberRepository.java"],
+      "sqlFile": "sql/i195-admin-user-page.sql",
+      "expectedAccess": {
+        "predicateColumns": ["users.name", "users.email"],
+        "orderColumns": ["users.created_at", "users.id", "campus_members.id"],
+        "joinColumns": ["campus_members.user_id", "campus_members.campus_id", "users.id", "campuses.id"]
+      },
+      "candidateIndexes": ["users(created_at DESC, id DESC)", "campus_members(user_id, id)", "campuses(id)"],
+      "correctnessChecks": ["active and inactive users remain eligible", "pagination applies to users before membership expansion", "all membership statuses and campus identities remain present"]
+    },
+    {
+      "id": "i195-campus-member-list",
+      "issueNumber": 195,
+      "title": "Campus member list with user fields",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/campus/service/CampusMemberManagementService.java", "src/main/java/com/faithlog/campus/infrastructure/repository/CampusMemberRepository.java"],
+      "sqlFile": "sql/i195-campus-member-list.sql",
+      "expectedAccess": {
+        "predicateColumns": ["campus_members.campus_id", "campus_members.status"],
+        "orderColumns": ["campus_members.id"],
+        "joinColumns": ["campus_members.user_id", "users.id"]
+      },
+      "candidateIndexes": ["campus_members(campus_id, status, id)", "users(id)"],
+      "correctnessChecks": ["campus isolation", "member order matches API order"]
+    },
+    {
+      "id": "i195-duty-assignment-list",
+      "issueNumber": 195,
+      "title": "Active campus duty assignment list",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/campus/service/CampusDutyAssignmentService.java", "src/main/java/com/faithlog/campus/infrastructure/repository/CampusDutyAssignmentRepository.java"],
+      "sqlFile": "sql/i195-duty-assignment-list.sql",
+      "expectedAccess": {
+        "predicateColumns": ["campus_duty_assignments.campus_id", "campus_duty_assignments.is_active"],
+        "orderColumns": ["campus_duty_assignments.id"],
+        "joinColumns": ["campus_duty_assignments.user_id", "users.id"]
+      },
+      "candidateIndexes": ["campus_duty_assignments(campus_id, id) WHERE is_active = TRUE"],
+      "correctnessChecks": ["active assignments only", "ACTIVE membership only", "COFFEE and MEAL identities preserved"],
+      "apiVariant": {
+        "staleOnly": false,
+        "membershipStatus": "ACTIVE",
+        "staleOnlyTrueVariantMeasured": false
+      }
+    },
+    {
+      "id": "i196-prayer-group-list",
+      "issueNumber": 196,
+      "title": "Active prayer group and member list",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/prayer/service/PrayerGroupQueryService.java", "src/main/java/com/faithlog/prayer/infrastructure/repository/PrayerGroupRepository.java", "src/main/java/com/faithlog/prayer/infrastructure/repository/PrayerGroupMemberRepository.java"],
+      "sqlFile": "sql/i196-prayer-group-list.sql",
+      "expectedAccess": {
+        "predicateColumns": ["prayer_groups.season_id", "prayer_groups.is_active", "prayer_group_members.is_active"],
+        "orderColumns": ["prayer_groups.sort_order", "prayer_groups.id"],
+        "joinColumns": ["prayer_group_members.group_id", "prayer_group_members.user_id", "prayer_groups.id", "users.id"]
+      },
+      "candidateIndexes": ["prayer_groups(season_id, is_active, sort_order, id)", "prayer_group_members(group_id, is_active, id)", "users(id)"],
+      "correctnessChecks": ["active groups only", "groups without members remain present", "inactive group members excluded", "member order preserved"]
+    },
+    {
+      "id": "i196-prayer-assignable-members",
+      "issueNumber": 196,
+      "title": "Active campus members with prayer-season assignment state",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/prayer/service/PrayerGroupQueryService.java", "src/main/java/com/faithlog/prayer/infrastructure/repository/PrayerGroupRepository.java", "src/main/java/com/faithlog/prayer/infrastructure/repository/PrayerGroupMemberRepository.java"],
+      "sqlFile": "sql/i196-prayer-assignable-members.sql",
+      "expectedAccess": {
+        "predicateColumns": ["campus_members.campus_id", "campus_members.status", "prayer_groups.season_id", "prayer_groups.is_active", "prayer_group_members.is_active"],
+        "orderColumns": ["campus_members.id"],
+        "joinColumns": ["campus_members.user_id", "users.id", "prayer_group_members.user_id", "prayer_group_members.group_id", "prayer_groups.id"]
+      },
+      "candidateIndexes": ["campus_members(campus_id, status, id, user_id)", "prayer_group_members(user_id, is_active, group_id)", "prayer_groups(id, season_id, is_active)"],
+      "correctnessChecks": ["campus isolation", "all active members remain present", "assigned group identity and assignable flag match the current season"]
+    },
+    {
+      "id": "i196-prayer-board-graph",
+      "issueNumber": 196,
+      "title": "Prayer group, member, and weekly submission graph",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/prayer/service/PrayerWeekBoardQueryService.java", "src/main/java/com/faithlog/prayer/infrastructure/repository/PrayerGroupRepository.java", "src/main/java/com/faithlog/prayer/infrastructure/repository/PrayerSubmissionRepository.java"],
+      "sqlFile": "sql/i196-prayer-board-graph.sql",
+      "expectedAccess": {
+        "predicateColumns": ["prayer_groups.season_id", "prayer_groups.is_active", "prayer_weeks.id"],
+        "orderColumns": ["prayer_groups.sort_order", "prayer_groups.id", "prayer_group_members.id"],
+        "joinColumns": ["prayer_group_members.group_id", "prayer_submissions.group_id", "prayer_submissions.user_id", "users.id"]
+      },
+      "candidateIndexes": [
+        "prayer_groups(season_id, is_active, sort_order, id)",
+        "prayer_group_members(group_id, is_active, id)",
+        "prayer_submissions(prayer_week_id, group_id, user_id)"
+      ],
+      "correctnessChecks": ["active groups and members only", "zero or one submission per week/member"]
+    },
+    {
+      "id": "i196-poll-missing-responders",
+      "issueNumber": 196,
+      "title": "Active campus members missing a poll response",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/poll/service/PollResultQueryService.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollResponseRepository.java", "src/main/java/com/faithlog/campus/infrastructure/repository/CampusMemberRepository.java"],
+      "sqlFile": "sql/i196-poll-missing-responders.sql",
+      "expectedAccess": {
+        "predicateColumns": ["campus_members.campus_id", "campus_members.status", "poll_responses.poll_id"],
+        "orderColumns": ["campus_members.id"],
+        "joinColumns": ["campus_members.user_id", "users.id", "poll_responses.user_id"]
+      },
+      "candidateIndexes": ["campus_members(campus_id, status, id, user_id)", "poll_responses(poll_id, user_id)"],
+      "correctnessChecks": ["campus isolation", "active members only", "responded users excluded exactly once"]
+    },
+    {
+      "id": "i196-poll-result-graph",
+      "issueNumber": 196,
+      "title": "Poll option, response, and respondent graph",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/poll/service/PollResultQueryService.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollOptionRepository.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollResponseRepository.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollResponseOptionRepository.java"],
+      "sqlFile": "sql/i196-poll-result-graph.sql",
+      "expectedAccess": {
+        "predicateColumns": ["poll_options.poll_id", "poll_responses.poll_id"],
+        "orderColumns": ["poll_options.sort_order", "poll_options.id", "poll_responses.id"],
+        "joinColumns": ["poll_response_options.option_id", "poll_response_options.response_id", "users.id"]
+      },
+      "candidateIndexes": [
+        "poll_options(poll_id, sort_order, id)",
+        "poll_responses(poll_id, id)",
+        "poll_response_options(option_id, response_id)"
+      ],
+      "correctnessChecks": ["all poll options remain present", "respondent identity can be removed for anonymous result assembly"]
+    },
+    {
+      "id": "i196-poll-comments",
+      "issueNumber": 196,
+      "title": "Visible poll comments with author fields",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/poll/service/PollCommentQueryService.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollCommentRepository.java"],
+      "sqlFile": "sql/i196-poll-comments.sql",
+      "expectedAccess": {
+        "predicateColumns": ["poll_comments.poll_id"],
+        "orderColumns": ["poll_comments.id"],
+        "joinColumns": ["poll_comments.user_id", "users.id"]
+      },
+      "candidateIndexes": ["poll_comments(poll_id, id)", "users(id)"],
+      "correctnessChecks": ["selected poll only", "deleted comments remain with placeholder content and deletion flag", "stable id order"]
+    },
+    {
+      "id": "i196-poll-template-options",
+      "issueNumber": 196,
+      "title": "Active poll templates and ordered options",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/poll/service/PollTemplateQueryService.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollTemplateRepository.java"],
+      "sqlFile": "sql/i196-poll-template-options.sql",
+      "expectedAccess": {
+        "predicateColumns": ["poll_templates.campus_id", "poll_templates.is_active"],
+        "orderColumns": ["poll_templates.id", "poll_template_options.sort_order", "poll_template_options.id"],
+        "joinColumns": ["poll_template_options.template_id", "poll_templates.id"]
+      },
+      "candidateIndexes": ["poll_templates(campus_id, id) WHERE is_active = TRUE", "poll_template_options(template_id, sort_order, id)"],
+      "correctnessChecks": ["active campus templates only", "option order preserved"]
+    },
+    {
+      "id": "i197-weekly-devotion-daily-graph",
+      "issueNumber": 197,
+      "title": "Weekly devotion row and seven daily rows",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/devotion/service/MyWeeklyDevotionQueryService.java", "src/main/java/com/faithlog/devotion/infrastructure/repository/WeeklyDevotionRecordRepository.java", "src/main/java/com/faithlog/devotion/infrastructure/repository/DevotionDailyCheckRepository.java"],
+      "sqlFile": "sql/i197-weekly-devotion-daily-graph.sql",
+      "expectedAccess": {
+        "predicateColumns": ["weekly_devotion_records.campus_id", "weekly_devotion_records.user_id", "weekly_devotion_records.week_start_date"],
+        "orderColumns": ["devotion_daily_checks.record_date"],
+        "joinColumns": ["devotion_daily_checks.weekly_record_id", "weekly_devotion_records.id"]
+      },
+      "candidateIndexes": ["weekly_devotion_records(campus_id, user_id, week_start_date)", "devotion_daily_checks(weekly_record_id, record_date)"],
+      "correctnessChecks": ["at most one weekly row", "zero through seven unique daily dates"]
+    },
+    {
+      "id": "i197-retention-candidate-counts",
+      "issueNumber": 197,
+      "title": "Read-only retention candidate counts",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/batch/service/DataRetentionCleanupService.java", "src/main/java/com/faithlog/prayer/infrastructure/repository/PrayerSubmissionRepository.java", "src/main/java/com/faithlog/billing/infrastructure/repository/ChargeItemRepository.java"],
+      "sqlFile": "sql/i197-retention-candidate-counts.sql",
+      "expectedAccess": {
+        "predicateColumns": ["prayer_submissions.created_at", "charge_items.status", "charge_items.created_at"],
+        "orderColumns": [],
+        "joinColumns": []
+      },
+      "candidateIndexes": ["prayer_submissions(created_at)", "charge_items(status, created_at)"],
+      "correctnessChecks": ["UNPAID charges excluded", "count only; no cleanup mutation"]
+    },
+    {
+      "id": "i198-sendable-fcm-token-bulk",
+      "issueNumber": 198,
+      "title": "Sendable FCM tokens for active campus members",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/notification/service/NotificationDeliveryWorker.java", "src/main/java/com/faithlog/notification/infrastructure/repository/UserFcmTokenRepository.java"],
+      "sqlFile": "sql/i198-sendable-fcm-token-bulk.sql",
+      "expectedAccess": {
+        "predicateColumns": ["campus_members.campus_id", "campus_members.status", "user_fcm_tokens.is_active", "user_fcm_tokens.last_seen_at", "user_fcm_tokens.last_refreshed_at"],
+        "orderColumns": ["user_fcm_tokens.id"],
+        "joinColumns": ["user_fcm_tokens.user_id", "campus_members.user_id"]
+      },
+      "candidateIndexes": ["campus_members(campus_id, status, user_id)", "user_fcm_tokens(user_id, id) WHERE is_active = TRUE"],
+      "correctnessChecks": ["active campus members only", "inactive and stale tokens excluded"]
+    },
+    {
+      "id": "i198-pending-notification-recovery",
+      "issueNumber": 198,
+      "title": "PENDING notification recovery window",
+      "statementClass": "SELECT",
+      "evidenceClass": "reconstructed-current-query",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/batch/service/PendingNotificationRecoveryService.java", "src/main/java/com/faithlog/notification/infrastructure/repository/NotificationLogRepository.java"],
+      "sqlFile": "sql/i198-pending-notification-recovery.sql",
+      "expectedAccess": {
+        "predicateColumns": ["notification_logs.send_status", "notification_logs.created_at"],
+        "orderColumns": ["notification_logs.id"],
+        "joinColumns": []
+      },
+      "candidateIndexes": ["notification_logs(send_status, created_at, id)"],
+      "correctnessChecks": ["PENDING only", "inclusive stale threshold and stable id order"]
+    },
+    {
+      "id": "i199-dashboard-summary",
+      "issueNumber": 199,
+      "title": "Campus dashboard member, devotion, and unpaid charge aggregate",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/admin/service/AdminDashboardQueryService.java"],
+      "sqlFile": "sql/i199-dashboard-summary.sql",
+      "expectedAccess": {
+        "predicateColumns": ["campus_members.campus_id", "weekly_devotion_records.campus_id", "weekly_devotion_records.week_start_date", "charge_items.campus_id", "charge_items.status"],
+        "orderColumns": [],
+        "joinColumns": ["weekly_devotion_records.user_id", "campus_members.user_id"]
+      },
+      "candidateIndexes": [
+        "campus_members(campus_id, status, user_id)",
+        "weekly_devotion_records(campus_id, week_start_date, user_id)",
+        "charge_items(campus_id, status, payment_category, user_id)"
+      ],
+      "correctnessChecks": ["MEAL excluded from legacy dashboard billing", "submitted users must be active campus members"]
+    },
+    {
+      "id": "i199-open-poll-response-counts",
+      "issueNumber": 199,
+      "title": "OPEN poll response counts for dashboard missing total",
+      "statementClass": "SELECT",
+      "evidenceClass": "synthetic-candidate",
+      "productionBeforeEligible": false,
+      "productionSourceRefs": ["src/main/java/com/faithlog/admin/service/AdminDashboardQueryService.java", "src/main/java/com/faithlog/poll/infrastructure/repository/PollResponseRepository.java"],
+      "sqlFile": "sql/i199-open-poll-response-counts.sql",
+      "expectedAccess": {
+        "predicateColumns": ["polls.campus_id", "polls.status"],
+        "orderColumns": ["polls.id"],
+        "joinColumns": ["poll_responses.poll_id", "polls.id"]
+      },
+      "candidateIndexes": ["polls(campus_id, status, id)", "poll_responses(poll_id, user_id)"],
+      "correctnessChecks": ["one row per OPEN poll", "distinct responded users"]
+    }
+  ]
+}

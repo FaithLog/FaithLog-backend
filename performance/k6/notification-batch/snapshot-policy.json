@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "expectedWarmupSamples": 1,
+  "expectedMeasuredSamples": 10,
+  "cumulativeStateStrategy": "snapshot-restore",
+  "fixturePreparationCount": 1,
+  "snapshotCaptureCount": 1,
+  "snapshotRestoreCount": 11,
+  "automaticAdoption": false
+}

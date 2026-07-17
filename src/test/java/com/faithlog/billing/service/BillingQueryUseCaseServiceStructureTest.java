@@ -151,7 +151,7 @@ class BillingQueryUseCaseServiceStructureTest {
 
 	private Pattern readOnlyTransactionalMethod(String method) {
 		return Pattern.compile(
-			"@Transactional\\(readOnly\\s*=\\s*true\\)\\s+public\\s+[^\\{]+?\\s+"
+			"@Transactional\\([^)]*readOnly\\s*=\\s*true[^)]*\\)\\s+public\\s+[^\\{]+?\\s+"
 				+ Pattern.quote(method)
 				+ "\\s*\\("
 		);

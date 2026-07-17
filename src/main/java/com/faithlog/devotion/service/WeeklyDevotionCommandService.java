@@ -25,6 +25,7 @@ import com.faithlog.global.exception.ErrorCode;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -95,21 +96,12 @@ public class WeeklyDevotionCommandService {
 				(first, second) -> second
 			));
 
-		weekDates(command.weekStartDate()).forEach(recordDate -> {
-			DevotionDailyCheckCommand dailyCommand = requestedChecks.getOrDefault(
-				recordDate,
-				new DevotionDailyCheckCommand(recordDate, false, false, false)
-			);
-			upsertDailyCheck(
-				targetWeeklyRecord.id(),
-				recordDate,
-				dailyCommand.quietTimeChecked(),
-				dailyCommand.prayerChecked(),
-				dailyCommand.bibleReadingChecked()
-			);
-		});
-
-		List<DevotionDailyCheck> dailyChecks = refreshWeeklySummary(targetWeeklyRecord, command.saturdayLateMinutes());
+		List<DevotionDailyCheck> dailyChecks = upsertDailyChecks(
+			targetWeeklyRecord.id(),
+			command.weekStartDate(),
+			requestedChecks
+		);
+		targetWeeklyRecord.updateSummary(dailyChecks, command.saturdayLateMinutes());
 		if (command.submit()) {
 			targetWeeklyRecord.submit(Instant.now());
 			createPenaltyCharge(command, requester.userId(), targetWeeklyRecord);
@@ -153,28 +145,48 @@ public class WeeklyDevotionCommandService {
 		));
 	}
 
-	private DevotionDailyCheck upsertDailyCheck(
+	private List<DevotionDailyCheck> upsertDailyChecks(
 		Long weeklyRecordId,
-		LocalDate recordDate,
-		boolean quietTimeChecked,
-		boolean prayerChecked,
-		boolean bibleReadingChecked
+		LocalDate weekStartDate,
+		Map<LocalDate, DevotionDailyCheckCommand> requestedChecks
 	) {
-		DevotionDailyCheck dailyCheck = dailyCheckRepository.findByWeeklyRecordIdAndRecordDate(weeklyRecordId, recordDate)
-			.orElseGet(() -> dailyCheckRepository.save(DevotionDailyCheck.create(
-				weeklyRecordId,
-				recordDate,
-				false,
-				false,
-				false
-			)));
-		dailyCheck.update(quietTimeChecked, prayerChecked, bibleReadingChecked);
-		return dailyCheck;
-	}
-
-	private List<DevotionDailyCheck> refreshWeeklySummary(WeeklyDevotionRecord weeklyRecord, int saturdayLateMinutes) {
-		List<DevotionDailyCheck> dailyChecks = dailyCheckRepository.findByWeeklyRecordIdOrderByRecordDateAsc(weeklyRecord.id());
-		weeklyRecord.updateSummary(dailyChecks, saturdayLateMinutes);
+		Map<LocalDate, DevotionDailyCheck> dailyChecksByDate = dailyCheckRepository
+			.findByWeeklyRecordIdOrderByRecordDateAsc(weeklyRecordId)
+			.stream()
+			.collect(Collectors.toMap(
+				DevotionDailyCheck::recordDate,
+				Function.identity(),
+				(first, second) -> second
+			));
+		List<DevotionDailyCheck> missingDailyChecks = new ArrayList<>();
+		List<DevotionDailyCheck> dailyChecks = weekDates(weekStartDate).stream()
+			.map(recordDate -> {
+				DevotionDailyCheckCommand dailyCommand = requestedChecks.getOrDefault(
+					recordDate,
+					new DevotionDailyCheckCommand(recordDate, false, false, false)
+				);
+				DevotionDailyCheck dailyCheck = dailyChecksByDate.get(recordDate);
+				if (dailyCheck == null) {
+					dailyCheck = DevotionDailyCheck.create(
+						weeklyRecordId,
+						recordDate,
+						false,
+						false,
+						false
+					);
+					missingDailyChecks.add(dailyCheck);
+				}
+				dailyCheck.update(
+					dailyCommand.quietTimeChecked(),
+					dailyCommand.prayerChecked(),
+					dailyCommand.bibleReadingChecked()
+				);
+				return dailyCheck;
+			})
+			.toList();
+		if (!missingDailyChecks.isEmpty()) {
+			dailyCheckRepository.saveAll(missingDailyChecks);
+		}
 		return dailyChecks;
 	}
 

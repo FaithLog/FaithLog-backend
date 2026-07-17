@@ -6,6 +6,7 @@ import com.faithlog.admin.service.port.AdminCampusMemberRepositoryPort;
 import com.faithlog.admin.service.port.AdminUserRepositoryPort;
 import com.faithlog.admin.service.query.AdminUserSearchCriteria;
 import com.faithlog.admin.service.result.AdminUserCampusResult;
+import com.faithlog.admin.service.result.AdminUserCampusRow;
 import com.faithlog.admin.service.result.AdminUserResult;
 import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.service.port.CampusRepositoryPort;
@@ -13,6 +14,7 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -42,8 +44,12 @@ public class AdminUserManagementService {
 	@Transactional(readOnly = true)
 	public Page<AdminUserResult> searchUsers(Long requesterId, AdminUserSearchCriteria criteria, Pageable pageable) {
 		requireAdmin(requesterId);
-		return userRepository.searchAdminUsers(criteria, pageable)
-			.map(user -> AdminUserResult.of(user, userCampuses(user.id())));
+		Page<User> users = userRepository.searchAdminUsers(criteria, pageable);
+		Map<Long, List<AdminUserCampusResult>> campusesByUserId = userCampusesByUserId(users.getContent());
+		return users.map(user -> AdminUserResult.of(
+			user,
+			campusesByUserId.getOrDefault(user.id(), List.of())
+		));
 	}
 
 	@Transactional(readOnly = true)
@@ -97,6 +103,33 @@ public class AdminUserManagementService {
 			.stream()
 			.map(member -> AdminUserCampusResult.of(member, getCampusOrThrow(member.campusId())))
 			.toList();
+	}
+
+	private Map<Long, List<AdminUserCampusResult>> userCampusesByUserId(List<User> users) {
+		if (users.isEmpty()) {
+			return Map.of();
+		}
+		return adminCampusMemberRepository.findAdminUserCampusRowsByUserIds(
+			users.stream().map(User::id).toList()
+		).stream().collect(Collectors.groupingBy(
+			AdminUserCampusRow::userId,
+			LinkedHashMap::new,
+			Collectors.mapping(this::adminUserCampusResult, Collectors.toList())
+		));
+	}
+
+	private AdminUserCampusResult adminUserCampusResult(AdminUserCampusRow row) {
+		if (row.resolvedCampusId() == null) {
+			throw new BusinessException(ErrorCode.CAMPUS_NOT_FOUND);
+		}
+		return new AdminUserCampusResult(
+			row.membershipId(),
+			row.resolvedCampusId(),
+			row.campusName(),
+			row.region(),
+			row.campusRole().name(),
+			row.status().name()
+		);
 	}
 
 	private User requireAdmin(Long requesterId) {
