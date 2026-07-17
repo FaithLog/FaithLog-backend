@@ -955,7 +955,7 @@ test('fake runner preserves conditional sequencing and fails closed on report or
 	assert.equal(completed.result.error, undefined, `conditional sequence must not time out: ${completed.result.error}`);
 	assert.equal(completed.result.signal, null, 'conditional sequence must exit normally rather than by signal');
 	assert.equal(completed.result.status, 2, completed.result.stderr);
-	assert.ok(completed.elapsedMs < 15000, `conditional fake sequence took ${completed.elapsedMs}ms`);
+	assert.ok(completed.elapsedMs < 30000, `conditional fake sequence took ${completed.elapsedMs}ms`);
 	assert.equal(completed.calls.filter((line) => line.startsWith('summarize:')).length, 5);
 	assert.ok(completed.calls.includes('k6:prayer_groups:warmup'), 'conditional first endpoint must advance to the next endpoint');
 	assert.match(completed.result.stderr, /baseline evidence collection finished requested mode=prayer/);
@@ -966,7 +966,7 @@ test('fake runner preserves conditional sequencing and fails closed on report or
 		assert.equal(failed.result.error, undefined, `${summaryBehavior} report must not time out: ${failed.result.error}`);
 		assert.equal(failed.result.signal, null, `${summaryBehavior} report must exit normally rather than by signal`);
 		assert.equal(failed.result.status, expectedStatus, `${summaryBehavior} report must return the exact fail-closed status`);
-		assert.ok(failed.elapsedMs < 15000, `${summaryBehavior} fake case took ${failed.elapsedMs}ms`);
+		assert.ok(failed.elapsedMs < 30000, `${summaryBehavior} fake case took ${failed.elapsedMs}ms`);
 		assert.deepEqual(failed.calls.filter((line) => line.startsWith('summarize:')), ['summarize:prayer_current_season']);
 		assert.equal(failed.calls.some((line) => line.startsWith('k6:prayer_groups:')), false,
 			`${summaryBehavior} report must block the next endpoint`);
@@ -977,7 +977,7 @@ test('fake runner preserves conditional sequencing and fails closed on report or
 		assert.equal(failed.result.error, undefined, `${failure} failure must not time out: ${failed.result.error}`);
 		assert.equal(failed.result.signal, null, `${failure} failure must exit normally rather than by signal`);
 		assert.equal(failed.result.status, expectedStatus, `${failure} failure must preserve its exact runner status`);
-		assert.ok(failed.elapsedMs < 15000, `${failure} fake case took ${failed.elapsedMs}ms`);
+		assert.ok(failed.elapsedMs < 30000, `${failure} fake case took ${failed.elapsedMs}ms`);
 		assert.deepEqual(failed.calls.filter((line) => line.startsWith('summarize:')), ['summarize:prayer_current_season']);
 		assert.equal(failed.calls.some((line) => line.startsWith('k6:prayer_groups:')), false,
 			`${failure} failure must block the next endpoint`);

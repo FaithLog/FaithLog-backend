@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {spawnSync} from 'node:child_process';
+import {execFileSync, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -56,11 +56,15 @@ test('current develop contract pins dashboard, Flyway, RLS JDBC, and applicabili
 		applicationPath: 'direct-owner-jdbc',
 		forceRowLevelSecurity: false,
 	});
-	const migrations = fs.readdirSync(path.join(repositoryRoot, 'src/main/resources/db/migration'))
-		.filter((name) => name.endsWith('.sql')).sort();
+	const migrations = execFileSync('git', [
+		'-C', repositoryRoot, 'ls-tree', '-r', '--name-only', current.baseCommit, '--',
+		'src/main/resources/db/migration',
+	], {encoding: 'utf8'}).trim().split('\n').map((name) => path.basename(name)).sort();
 	assert.deepEqual(Object.keys(current.flywayMigrations).sort(), migrations);
 	for (const [name, expectedHash] of Object.entries(current.flywayMigrations)) {
-		const source = read(path.join(repositoryRoot, 'src/main/resources/db/migration', name));
+		const source = execFileSync('git', [
+			'-C', repositoryRoot, 'show', `${current.baseCommit}:src/main/resources/db/migration/${name}`,
+		], {encoding: 'utf8'});
 		assert.equal(createHash('sha256').update(source).digest('hex'), expectedHash, `${name} identity drifted`);
 	}
 	assert.equal(runNode(files.currentDevelopVerifier, files.currentDevelopContract).status, 0);
@@ -308,16 +312,16 @@ test('verifier enforces summary totals, status/category basis, poll response cou
 	assert.doesNotMatch(`${source}\n${tokenSource}`, /password\s*[:=]\s*['"][^'"]+['"]/i);
 });
 
-test('README and report path keep this issue scenario-ready/not-measured and prohibit writes and shared lifecycle changes', () => {
+test('README records production optimization with integration after pending and preserves shared lifecycle limits', () => {
 	const readme = read(files.readme);
 	const ignore = read(files.reportsIgnore);
 
-	assert.match(readme, /scenario-ready\/not-measured/i);
+	assert.match(readme, /production-optimized\s*\/\s*integration after pending/i);
 	assert.match(readme, /conditional-not-adoptable/i);
 	assert.match(readme, /seed.*수행하지 않/i);
-	assert.match(readme, /Docker.*실행하지 않/i);
+	assert.match(readme, /before\/after 3회/i);
 	assert.match(readme, /다른.*부하.*병렬.*금지/);
-	assert.match(readme, /production.*변경.*없/i);
+	assert.match(readme, /Controller, DTO, frontend, Entity, Flyway, index, dependency 변경은 없다/i);
 	assert.match(readme, /faithlog-latest/);
 	assert.match(readme, /frontend.*users\/me.*campuses\/me/is);
 	assert.match(ignore, /^\*$/m);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const REPOSITORY_ROOT = new URL('../../', import.meta.url);
@@ -16,20 +16,22 @@ function readScenarioFile(path) {
 	return readFileSync(new URL(path, SCENARIO_ROOT), 'utf8');
 }
 
-function sha256(path) {
-	return createHash('sha256').update(readRepositoryFile(path)).digest('hex');
-}
-
 test('Issue #198 scenario pins the current develop Flyway and notification runtime identity', () => {
 	const contract = JSON.parse(readScenarioFile('current-develop-contract.json'));
-	const migrationDirectory = new URL('../../src/main/resources/db/migration/', import.meta.url);
-	const migrationNames = readdirSync(fileURLToPath(migrationDirectory)).sort();
+	const repositoryRoot = new URL(REPOSITORY_ROOT).pathname;
+	const migrationNames = execFileSync('git', [
+		'-C', repositoryRoot, 'ls-tree', '-r', '--name-only', contract.baseCommit, '--',
+		'src/main/resources/db/migration',
+	], { encoding: 'utf8' }).trim().split('\n').map((name) => name.split('/').at(-1)).sort();
 
 	assert.equal(contract.issue, 198);
 	assert.equal(contract.baseCommit, CURRENT_DEVELOP_BASE);
 	assert.deepEqual(Object.keys(contract.flywayMigrations).sort(), migrationNames);
 	for (const [name, expectedHash] of Object.entries(contract.flywayMigrations)) {
-		assert.equal(sha256(`src/main/resources/db/migration/${name}`), expectedHash, `${name} identity drifted`);
+		const source = execFileSync('git', [
+			'-C', repositoryRoot, 'show', `${contract.baseCommit}:src/main/resources/db/migration/${name}`,
+		], { encoding: 'utf8' });
+		assert.equal(createHash('sha256').update(source).digest('hex'), expectedHash, `${name} identity drifted`);
 	}
 	assert.deepEqual(contract.notificationFlow, {
 		creationTokenLookup: 'request-wide-bulk',

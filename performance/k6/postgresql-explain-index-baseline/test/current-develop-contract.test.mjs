@@ -11,6 +11,20 @@ const repositoryRoot = path.resolve(scenarioRoot, '../../..');
 const moduleUrl = (file) => pathToFileURL(path.join(scenarioRoot, file)).href;
 const readScenario = (file) => fs.readFileSync(path.join(scenarioRoot, file), 'utf8');
 const sha256 = (file) => createHash('sha256').update(fs.readFileSync(path.join(repositoryRoot, file))).digest('hex');
+const expectedIntegrationDrift = [
+	'src/main/java/com/faithlog/admin/service/AdminDashboardQueryService.java',
+	'src/main/java/com/faithlog/admin/service/AdminUserManagementService.java',
+	'src/main/java/com/faithlog/billing/infrastructure/repository/ChargeItemRepository.java',
+	'src/main/java/com/faithlog/billing/service/AdminChargeQueryService.java',
+	'src/main/java/com/faithlog/billing/service/ChargeCreationService.java',
+	'src/main/java/com/faithlog/campus/infrastructure/repository/CampusMemberRepository.java',
+	'src/main/java/com/faithlog/campus/service/CampusMemberManagementService.java',
+	'src/main/java/com/faithlog/poll/infrastructure/adapter/BillingCoffeePollChargeAdapter.java',
+	'src/main/java/com/faithlog/poll/infrastructure/repository/PollResponseRepository.java',
+	'src/main/java/com/faithlog/poll/service/CoffeePollSettlementCommandService.java',
+	'src/main/java/com/faithlog/poll/service/MealPollSettlementService.java',
+	'src/main/java/com/faithlog/prayer/service/PrayerGroupQueryService.java',
+];
 
 test('current develop source identity binds #200/#201/#202/#206 API, Flyway, and runtime contract files', async () => {
 	const inventory = JSON.parse(readScenario('inventory.json'));
@@ -60,8 +74,8 @@ test('current develop source identity binds #200/#201/#202/#206 API, Flyway, and
 		reportContractPath: 'report-contract.json',
 		expected: { productionSourceRefs: manifest.productionSourceRefs },
 	});
-	assert.deepEqual(identity.sourceHashMismatches, []);
-	assert.equal(validateSourceIdentity(identity).adoptable, true);
+	assert.deepEqual(identity.sourceHashMismatches, expectedIntegrationDrift);
+	assert.equal(validateSourceIdentity(identity).adoptable, false);
 });
 
 test('24-query inventory records current archive, stable pagination, duty visibility, and coffee ownership variants', () => {

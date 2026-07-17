@@ -11,6 +11,20 @@ const scenarioRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const repositoryRoot = path.resolve(scenarioRoot, '..', '..', '..');
 const moduleUrl = (name) => pathToFileURL(path.join(scenarioRoot, name)).href;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+const expectedIntegrationDrift = [
+	'src/main/java/com/faithlog/admin/service/AdminDashboardQueryService.java',
+	'src/main/java/com/faithlog/admin/service/AdminUserManagementService.java',
+	'src/main/java/com/faithlog/billing/infrastructure/repository/ChargeItemRepository.java',
+	'src/main/java/com/faithlog/billing/service/AdminChargeQueryService.java',
+	'src/main/java/com/faithlog/billing/service/ChargeCreationService.java',
+	'src/main/java/com/faithlog/campus/infrastructure/repository/CampusMemberRepository.java',
+	'src/main/java/com/faithlog/campus/service/CampusMemberManagementService.java',
+	'src/main/java/com/faithlog/poll/infrastructure/adapter/BillingCoffeePollChargeAdapter.java',
+	'src/main/java/com/faithlog/poll/infrastructure/repository/PollResponseRepository.java',
+	'src/main/java/com/faithlog/poll/service/CoffeePollSettlementCommandService.java',
+	'src/main/java/com/faithlog/poll/service/MealPollSettlementService.java',
+	'src/main/java/com/faithlog/prayer/service/PrayerGroupQueryService.java',
+];
 
 const anchors = {
 	campus_id: 10,
@@ -193,8 +207,8 @@ test('source identity binds SQL bytes, inventory, report contract, production re
 		inventoryPath: 'inventory.json', reportContractPath: 'report-contract.json',
 		expected: { productionSourceRefs: manifest.productionSourceRefs },
 	});
-	assert.deepEqual(realIdentity.sourceHashMismatches, []);
-	assert.equal(validateSourceIdentity(realIdentity).adoptable, true);
+	assert.deepEqual(realIdentity.sourceHashMismatches, expectedIntegrationDrift);
+	assert.equal(validateSourceIdentity(realIdentity).adoptable, false);
 });
 
 test('schema identity canonicalizes Flyway, columns, constraints and indexes and rejects changes', async () => {

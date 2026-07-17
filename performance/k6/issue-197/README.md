@@ -282,7 +282,7 @@ current source call graph에서 weekly submit 한 건은 동일 `weeklyRecordId`
 
 API path/request/response, ACTIVE membership authorization, ErrorCode, weekly pessimistic lock, transaction/rollback, submitted state, daily 7행, penalty amount/source/account snapshot, charge uniqueness는 변경하지 않는다. frontend 변경, Flyway/index/dependency 변경은 없다. 인덱스는 #194 EXPLAIN 근거가 생긴 뒤 별도로 판단한다. after는 수정 서버를 별도 integration runtime에 배포한 뒤 PM의 단일 load로만 측정한다.
 
-J before runtime의 approved revision/digest `6796ed146244d8f3f5b5dd7048ebe16865084a97` / `625bc9e8f83561c67f8f8d5bc26c68bdf172c191d57fec01aca4423e7c2b2a9d`는 J evidence에 그대로 결속한다. 최적화가 반영된 after source의 같은 154-entry API tree digest는 `ce0393dc632abba1e1e629785d5305fbbbbc638e80e1cc461d3ba600831be626`다. integration image/JAR/final revision은 새 배포에서 별도로 산출하고 이 digest와 함께 runtime input으로 명시해야 하며, before identity를 after에 재사용하지 않는다.
+J before runtime의 approved revision/digest `6796ed146244d8f3f5b5dd7048ebe16865084a97` / `625bc9e8f83561c67f8f8d5bc26c68bdf172c191d57fec01aca4423e7c2b2a9d`는 J evidence에 그대로 결속한다. V12와 최적화가 반영된 integration source의 155-entry API tree digest는 `a18e00c86b8cba92297f51b5082e54253b0b53df423970d538eeec81000e15bd`다. integration image/JAR/final revision은 새 배포에서 별도로 산출하고 이 digest와 함께 runtime input으로 명시해야 하며, before identity를 after에 재사용하지 않는다.
 
 ## SQL/query counter 해석 한계
 

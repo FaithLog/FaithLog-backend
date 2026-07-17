@@ -201,7 +201,7 @@ test('PostgreSQL cumulative and pgss contracts retain decimal-string BigInt and 
 test('latest source/Flyway and related fixture correctness remain anchored without unrelated pagination coupling', async () => {
 	const migrations = fs.readdirSync(path.join(REPOSITORY_ROOT, 'src/main/resources/db/migration')).filter((name) => /^V\d+__/.test(name));
 	const latest = migrations.sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1])).at(-1);
-	assert.equal(latest, 'V11__secure_supabase_data_api.sql');
+	assert.equal(latest, 'V12__add_performance_query_indexes.sql');
 	assert.match(issueFile('README.md'), /6796ed146244d8f3f5b5dd7048ebe16865084a97/);
 	const { isAnnualTerminalRetentionCandidate } = await import('../lib/current-develop-contract.mjs');
 	assert.equal(isAnnualTerminalRetentionCandidate({ status: 'UNPAID', createdAt: '2025-01-02T00:00:00.000Z', paymentAccountDeletedAt: '2026-01-01T00:00:00.000Z' }, {
@@ -268,8 +268,8 @@ test('API contract digest requires every current devotion, notification, batch, 
 		assert.match(inventory, new RegExp(`\\t${requiredPath.replaceAll('/', '\\/')}(?:\\/|$)`));
 	}
 	const digest = crypto.createHash('sha256').update(`${inventory}\n`).digest('hex');
-	assert.equal(inventory.split('\n').length, 154);
-	assert.equal(digest, 'ce0393dc632abba1e1e629785d5305fbbbbc638e80e1cc461d3ba600831be626');
+	assert.equal(inventory.split('\n').length, 155);
+	assert.equal(digest, 'a18e00c86b8cba92297f51b5082e54253b0b53df423970d538eeec81000e15bd');
 	assert.match(issueFile('README.md'), new RegExp(digest));
 });
 
