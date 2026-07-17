@@ -348,3 +348,11 @@ node --test performance/k6/issue-196-prayer-poll-list-baseline/sql-storage-contr
 ```
 
 This session syntax-checks `scenario.js` without executing k6; the contract test separately fixes its endpoint, metric, sequencing, correctness, current-develop source/Flyway/RLS identity, app/DB/Redis continuity, pgss state, BigInt counter, and resource evidence markers. Test-code auditing across performance issues may run in parallel, but actual shared-stack seed/load measurement remains PM-controlled and strictly sequential.
+
+## h05 checkpoint and targeted-after policy
+
+Fresh `h05` completed the five Prayer endpoints plus `poll_member_list`, `poll_member_detail`, and the HTTP/SQL work for `poll_member_results`, all with HTTP/custom failure rate `0`. The run then stopped because runtime integrity and all three resource streams contained the same one-second backward wall-clock correction (`02:32:19` to `02:32:18`). `poll_member_results` itself completed 26,798 requests, p95 29.907 ms, throughput 226.976 requests/s, and 10 SQL statements per request. The artifact is immutable, conditional, and not reusable; this collector-only classification does not justify another full 27-endpoint run.
+
+The actionable before is `prayer_groups`: 2,035 requests, p50 250.586 ms, p95 536.956 ms, p99 925.874 ms, max 2,798.857 ms, throughput 16.927 requests/s, failure rate `0`, and about 586 SQL statements per request. Scalar user lookup dominated the captured SQL. A focused integration RED reproduced 32 prepared statements for 25 users in two groups against a maximum of 7. Production now loads all active group members once and all member users once, preserving API, authorization, errors, transaction, group order, and member order. No Flyway, index, dependency, controller, DTO, or frontend change is needed. Full Gradle test/build/asciidoctor is GREEN with 556 tests, 0 failures/errors and 3 skipped; issue-local Node contracts are 53/53 GREEN.
+
+Per the user-approved resume-oriented policy, `h05` is the last full 27-endpoint attempt. After verification targets only one to three confirmed bottleneck endpoints with the same fixture/workload, correctness and zero failures, and three before plus three after runs. The comparison reports p50/p95/p99, throughput, and SQL count. No improvement percentage is claimed until that after measurement is complete.

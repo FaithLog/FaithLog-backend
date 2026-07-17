@@ -851,3 +851,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Recommendation: Provide one stable local transcript source path or leave transcript analysis disabled.
 - Current action: No transcript source was provided, so conversation transcripts were not inspected.
 <!-- daily-resume-monitor:end:decision-log:2026-06-16 -->
+
+### 2026-07-17 - Resume Performance Measurement Uses A Lean Targeted Protocol
+
+- Context: The issue-local performance harnesses had grown into production-forensics systems. Repeated full-scope runs were spending more time on collector portability and evidence-boundary failures than on finding and removing backend bottlenecks.
+- Decision: Preserve the existing strict before evidence, but do not repeat full endpoint inventories for resume claims. Select only one to three source-confirmed bottleneck endpoints, keep one fixed fixture and identical runtime workload, require correctness and zero failures, and compare three before runs with three after runs. Record p50/p95/p99, throughput, and the relevant SQL/repository-call count. A collector-only failure does not require a full rerun when HTTP correctness, failure rate, timing, and SQL evidence for the target endpoint are intact; server or correctness failures still invalidate the run.
+- Impact: The current #196 `h05` run is the last 27-endpoint full-scope attempt. Future #196/#199 and integration-after work uses targeted runs. Resume wording remains blocked until the optimized code is deployed and the same target endpoints complete the three-run after comparison.
+
+### 2026-07-17 - Issue #196 Prayer Group List Bulk Lookup
+
+- Context: The preserved #196 `h05` `prayer_groups` endpoint completed 2,035 requests with zero failures, p95 536.956 ms, throughput 16.927 requests/s, and about 586 SQL statements per request. The dominant query was a scalar `users.id` lookup repeated for group members.
+- Decision: Keep the API, authorization, ordering, transaction, error, and DTO contracts unchanged. Load active members for all returned groups once and resolve all member users once, then assemble results in existing group and member order. No Flyway, index, dependency, or frontend change is required.
+- Impact: The regression test reproduced 32 prepared statements for 25 users across two groups against a maximum of 7. The bulk implementation passes that contract and the Prayer service/structure/REST Docs regression suite. After latency and throughput are not yet measured.

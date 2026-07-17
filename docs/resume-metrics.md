@@ -1387,3 +1387,12 @@ Metric candidates:
 - Health check success rate: run `docker compose up -d postgres redis app` and repeat `curl /api/v1/health` against one approved runtime.
 - API response time: measure `GET /api/v1/health` or another user-approved endpoint with a fixed local or deployed target.
 <!-- daily-resume-monitor:end:resume-metrics:2026-06-17 -->
+
+## 2026-07-17 Issue #196 Prayer Group Query Optimization
+
+- The fresh `h05` run completed the five Prayer endpoints and three Poll-member endpoints with HTTP/custom failure rate `0` before stopping at `poll_member_results` evidence classification.
+- `prayer_groups` is the confirmed bottleneck candidate: 2,035 requests, p50 250.586 ms, p95 536.956 ms, p99 925.874 ms, max 2,798.857 ms, throughput 16.927 requests/s, and 1,193,245 captured SQL statements, about 586 per request. These are conditional before values, not an improvement claim.
+- `poll_member_results` itself completed 26,798 requests with failure rate `0`, p95 29.907 ms, throughput 226.976 requests/s, and exactly 10 SQL statements per request. Its report was rejected because the host wall clock moved backward by about one second at the same instant in runtime and all three resource streams. The report is preserved and the full run is not repeated.
+- A focused integration RED measured 32 prepared statements for 25 members across two groups. The bulk group-member/user lookup implementation now satisfies the maximum-7 contract while preserving group order, member order, profile fields, authorization, errors, transactions, API, and DTOs.
+- Focused and Prayer service/structure/REST Docs regression tests are GREEN. Full `./gradlew test build asciidoctor` completed with 556 tests, 0 failures/errors, 3 skipped; issue-local Node contracts are 53/53 GREEN. Flyway, schema, index, dependency, controller, DTO, and frontend changes are zero.
+- Resume claim remains pending a same-runtime targeted after measurement. The approved protocol is three before and three after runs on the bottleneck endpoint, reporting p50/p95/p99, throughput, failure rate, and SQL count rather than repeating a 27-endpoint forensic suite.

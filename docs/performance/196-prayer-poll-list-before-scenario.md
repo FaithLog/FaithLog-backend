@@ -169,3 +169,12 @@ Fresh 후보는 dataset `issue-196-prayer-poll-list-v2`, fixture `i196-20260716-
 - 최종 계약: pending automatic adoption, seed/shape/run/direct k6 runtime-required target, current-develop pagination/archive/#200/#202 ordering, numeric loopback 결속, lock 전후 app/DB/Redis와 PostgreSQL/Redis process continuity, pgss 두 정상 state와 drift, k6 v2 direct/values 수학, strict memory/full ID/cadence, decimal-string/BigInt, namespace/rejection 보존, conditional 전체 순차 수집과 first rejected/operational-failure stop fake/static evidence를 포함한 `23 tests / 0 failures` GREEN
 - report artifact는 기본 ignored 경로 또는 optional `PERF_REPORT_ROOT` 아래에 항상 `{fixtureRunId}/{executionRunId}`를 붙인다. 실행형 fake 계약은 temp base를 사용해 repository `build/reports` 권한이나 잔존 artifact에 의존하지 않는다.
 - Node/Bash syntax와 `git diff --check`를 수행한다. 이 검증은 실제 seed/k6/Docker/DB를 실행하지 않는다.
+
+## 2026-07-17 h05와 기도조 목록 최적화
+
+- `h05`는 Prayer 5개와 Poll member 3개 경로의 HTTP/SQL 작업까지 완료했으며 모두 HTTP/custom failure `0`이었다.
+- `prayer_groups` before는 2,035 requests, p50 250.586 ms, p95 536.956 ms, p99 925.874 ms, max 2,798.857 ms, throughput 16.927 requests/s였다. 수집 SQL은 1,193,245개, 요청당 약 586개였고 멤버별 `users.id` 단건 조회가 지배적이었다.
+- `poll_member_results`는 26,798 requests, p95 29.907 ms, throughput 226.976 requests/s, 요청당 SQL 10개, failure `0`으로 완료됐다. 이후 host wall clock이 runtime/세 resource stream에서 동시에 약 1초 역행해 evidence classification이 거부됐다. 서버/정합성 실패가 아니므로 evidence는 보존하고 전체 27 endpoint를 재실행하지 않는다.
+- focused integration RED는 25명·2개 조 목록에 32 prepared statements를 재현했다. Production은 모든 조의 활성 멤버를 1회, 모든 사용자 profile을 1회 조회하도록 변경했고 최대 7 statements 계약을 통과했다.
+- API, DTO, 권한, ErrorCode, transaction, 조 정렬, 멤버 ID 정렬, Flyway, index, dependency, frontend 변경은 없다. Prayer service/structure/REST Docs 회귀와 전체 `./gradlew test build asciidoctor` 556 tests(0 failures/errors, 3 skipped), issue-local Node 53/53이 GREEN이다.
+- 사용자 결정에 따라 이후 이력서 측정은 병목 endpoint 1~3개만 같은 fixture/workload로 before 3회와 after 3회 수행한다. failure `0`과 correctness를 전제로 p50/p95/p99, throughput, SQL count를 비교하며 after 전에는 개선률을 주장하지 않는다.
