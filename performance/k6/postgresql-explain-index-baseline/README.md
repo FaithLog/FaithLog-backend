@@ -198,7 +198,22 @@ evidence class는 다음 세 가지다.
 
 `lower(name/email) LIKE '%keyword%'`는 leading wildcard다. extension 또는 별도 expression/index 설계에 대한 사용자 승인이 없으므로 이번 후보에 포함하지 않는다.
 
-candidate는 검토 기대치일 뿐 DDL 승인이나 성능 개선 결론이 아니다. 특히 아래 Issue #194 후보는 실제 before evidence 후 PM에 제안할 수 있을 뿐, 이 시나리오에서는 생성하지 않는다.
+기존 candidate 표는 2026-07-16 scenario-only 단계의 검토 기대치였다. 이후 사용자가 성능 테스트와 backend 최적화를 별도 승인 없이 계속 진행하도록 승인했고, 이력서용 측정은 핵심 병목·동일 조건·Before/After 3회 중심의 간결한 계약으로 축소했다.
+
+### 2026-07-17 실제 plan 결정
+
+[`actual-plan-evidence-20260717.json`](actual-plan-evidence-20260717.json)은 PostgreSQL 17.10, `charge_items` 749,017행과 `campus_members` 50,603행인 current-develop fixture에서 수집한 `EXPLAIN (ANALYZE, BUFFERS)` 결과다. 후보 index는 transaction 안에서만 생성하고 모든 비교 직후 rollback했으며 shared DB는 Flyway V11/index 0 상태를 유지했다. cache reset은 수행하지 않았고 아래 수치는 API latency가 아니라 SQL plan 비교다.
+
+- #192 1,000개 source ID bulk 조회: 기존 unique index `14.155ms / 898 buffers`, `(campus_id,payment_category,source_type,source_id)` 후보 `0.738ms / 46 buffers`.
+- #193 exact 5-status 집계: summary `47.668 -> 16.440ms`, member-page `70.738 -> 21.592ms`, count-distinct `62.711 -> 18.165ms`.
+- #195 100-user membership projection warm 비교: 기존 `6.199/4.625ms`, `(user_id,id)` 후보 `1.115/0.921ms`.
+- 후보 크기: charge source 18MB, charge aggregation 12MB, campus member 1,568kB. 기존 `uk_charge_items_source`는 59MB다.
+
+따라서 V12는 위 세 index만 추가한다. #197 daily lookup은 기존 weekly/date unique로 `0.118ms`, #199 17,000 response grouped count는 기존 poll/user unique로 `29.873ms`였고, #196 group-member 및 #198 1,000-token workload도 기존 index와 cardinality가 충분해 새 index를 추가하지 않는다. leading-wildcard keyword, account-scoped wide index, partial/include index도 근거 부족으로 제외한다.
+
+V12 migration은 별도 임시 PostgreSQL DB에서 V1부터 clean 적용해 세 index의 실제 definition을 확인한다. 공유 DB에는 integration 배포 전까지 V12를 적용하지 않는다.
+
+아래 후보들은 이번 결정에 포함하지 않는다.
 
 - `polls(status, ends_at, id)`와 `COFFEE + OPEN` partial 방향
 - `weekly_devotion_records(campus_id, week_start_date, user_id)`
