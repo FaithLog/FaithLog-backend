@@ -1685,6 +1685,26 @@ test('summarizer materializes endpoint latency, throughput, SQL loop, table, and
 		assert.equal(approvedSamplingResult.automaticAdoption, false);
 		assert.equal(approvedSamplingResult.rejectionReasons.includes('invalid-sampling-contract'), false);
 
+		const latePostBoundaryResources = join(temporary, 'late-post-boundary-resources.tsv');
+		const latePostBoundaryReport = join(temporary, 'late-post-boundary-report.json');
+		writeFileSync(latePostBoundaryResources, [
+			...readFileSync(paths.resources, 'utf8').trim().split('\n'),
+			'2026-07-14T00:00:03Z\tfaithlog-backend\tapp-container-id\t11.0%\t101MiB / 1GiB\t9.9%',
+			'2026-07-14T00:00:03Z\tfaithlog-postgres\tdb-container-id\t21.0%\t201MiB / 1GiB\t19.6%',
+			'2026-07-14T00:00:03Z\tfaithlog-redis\tredis-container-id\t6.0%\t51MiB / 1GiB\t5.0%',
+			'2026-07-14T00:00:05Z\tfaithlog-backend\tapp-container-id\t12.0%\t102MiB / 1GiB\t10.0%',
+			'2026-07-14T00:00:05Z\tfaithlog-postgres\tdb-container-id\t22.0%\t202MiB / 1GiB\t19.7%',
+			'2026-07-14T00:00:05Z\tfaithlog-redis\tredis-container-id\t7.0%\t52MiB / 1GiB\t5.1%',
+		].join('\n'));
+		const latePostBoundaryProcess = spawnSync(process.execPath, [join(ROOT, 'summarize-run.mjs'), endpoint,
+			paths.summary, paths.before, paths.after, paths.sql, paths.sqlAttestation, latePostBoundaryResources,
+			paths.integrity, paths.metadata, latePostBoundaryReport]);
+		assert.notEqual(latePostBoundaryProcess.status, 0, 'automatic adoption must remain disabled');
+		const latePostBoundaryResult = JSON.parse(readFileSync(latePostBoundaryReport, 'utf8'));
+		assert.equal(latePostBoundaryResult.measurementStatus, 'conditional-not-adoptable');
+		assert.equal(latePostBoundaryResult.rejectionReasons.some((reason) => reason.startsWith('sample-window-coverage:resource:')), false,
+			'the nearest post-end sample must define boundary coverage even when later valid cadence samples exist');
+
 		for (const [name, resourceLines, expectedReason] of [
 			['negative', [
 				'2026-07-14T00:00:00Z\tfaithlog-backend\tapp-container-id\t-1.0%\t100MiB / 1GiB\t9.8%',
