@@ -17,6 +17,7 @@ test('runner uses one exact-ID three-role snapshot, continuous stream, stop mark
 	const runner = readFileSync(RUNNER, 'utf8');
 	assert.match(runner, /docker stats --no-stream --no-trunc[\s\S]*"\$\{app_container_id\}" "\$\{db_container_id\}" "\$\{redis_container_id\}"/);
 	assert.match(runner, /docker stats --no-trunc[\s\S]*"\$\{app_container_id\}" "\$\{db_container_id\}" "\$\{redis_container_id\}"[\s\S]*stream-samples/);
+	assert.match(runner, /resource-sampler\.ready[\s\S]*wait_for_file_or_child "\$\{sampler_pid\}" "\$\{resource_ready_file\}"[\s\S]*k6 run/);
 	assert.match(runner, /resource-sampler\.stop[\s\S]*kill -0 "\$\{sampler_pid\}"[\s\S]*wait "\$\{sampler_pid\}"/);
 	assert.match(runner, /append-snapshot[\s\S]*log_since=.*rfc3339_now/);
 	assert.match(runner, /log_until=.*rfc3339_now[\s\S]*: > "\$\{resource_stop_file\}"/);
@@ -25,13 +26,15 @@ test('runner uses one exact-ID three-role snapshot, continuous stream, stop mark
 test('streaming sampler preserves ANSI-framed exact three-role ticks and one complete final tick after stop', async () => {
 	const directory = mkdtempSync(join(tmpdir(), 'faithlog-196-resource-stream-'));
 	const output = join(directory, 'samples.tsv');
+	const ready = join(directory, 'ready');
 	const stop = join(directory, 'stop');
-	const child = spawn(process.execPath, [SAMPLER, 'stream-samples', output, stop, '2',
+	const child = spawn(process.execPath, [SAMPLER, 'stream-samples', output, ready, stop, '2',
 		'faithlog-app', APP_ID, 'faithlog-db', DB_ID, 'faithlog-redis', REDIS_ID], { stdio: ['pipe', 'pipe', 'pipe'] });
 	let stderr = '';
 	child.stderr.setEncoding('utf8');
 	child.stderr.on('data', (chunk) => { stderr += chunk; });
 	try {
+		await waitFor(() => existsSync(ready));
 		child.stdin.write(`${initialSnapshot().join('\n')}\n`);
 		await waitFor(() => existsSync(output) && rows(output).length === 3);
 		writeFileSync(stop, 'stop\n');
@@ -55,7 +58,8 @@ test('sampler rejects incomplete identities, unsupported framing, and stream ter
 	const directory = mkdtempSync(join(tmpdir(), 'faithlog-196-resource-reject-'));
 	try {
 		const incomplete = spawnSync(process.execPath, [SAMPLER, 'stream-samples', join(directory, 'incomplete.tsv'),
-			join(directory, 'missing.stop'), '0.05', 'faithlog-app', APP_ID, 'faithlog-db', DB_ID, 'faithlog-redis', REDIS_ID],
+			join(directory, 'incomplete.ready'), join(directory, 'missing.stop'), '0.05',
+			'faithlog-app', APP_ID, 'faithlog-db', DB_ID, 'faithlog-redis', REDIS_ID],
 		{ encoding: 'utf8', input: `${initialSnapshot()[0]}\n` });
 		assert.notEqual(incomplete.status, 0);
 		assert.match(incomplete.stderr, /incomplete three-role snapshot|before the stop marker|exceeded maxGapSeconds/);
