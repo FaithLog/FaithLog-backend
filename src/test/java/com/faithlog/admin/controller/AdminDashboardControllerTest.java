@@ -251,7 +251,7 @@ class AdminDashboardControllerTest {
 			.andExpect(jsonPath("$.data.polls.openCount").value(25))
 			.andExpect(jsonPath("$.data.polls.missingResponseCount").value(25));
 
-		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(12);
+		assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(11);
 	}
 
 	private JsonNode createCampus(String accessToken, String name) throws Exception {
