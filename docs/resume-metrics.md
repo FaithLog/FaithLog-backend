@@ -1663,6 +1663,17 @@ Metric candidates:
 - 변경 제외: API/DTO/ErrorCode/REST Docs path와 schema, Flyway, dependency, index, DB write, `listAdminMemberCharges`, MEAL 경로는 변경하지 않았다.
 - 성과 해석: 실제 after는 아직 수집하지 않았다. O before 대비 latency/throughput/CPU/RAM 개선률은 PM integration branch의 동일 조건 after가 채택되기 전까지 이력서 수치로 사용하지 않는다.
 - #194 handoff: `charge_items`의 campus/account/category/status/user filter-group 축과 `campus_members(campus_id,status,user_id)` 후보를 실제 PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)`로 검증한다. 이번 브랜치에는 index/Flyway가 없다.
+
+## 2026-07-17 Issues #192-#199 integration lean after
+
+- Integration source: `integration/192-199-performance` at `bcbc017`, with all seven production optimizations and Flyway V12. The app health check was UP and V12 was applied successfully while the existing PostgreSQL/Redis containers were retained.
+- Verification before load: full Gradle test/build/asciidoctor passed with 556 tests, 0 failures/errors, 3 skipped. All performance Node contracts passed: 467 tests, 466 pass, 0 fail, 1 intentional skip.
+- Workload: #195 preserved 1,000-user fixture, 10 VUs for 2 minutes, three sequential after repetitions per endpoint. Across six runs, 99,873 requests and every correctness check passed with failure rate 0.
+- `admin_users/large_page`: G before p95 `339.366 ms`, throughput `42.156 req/s`. Integration after median p95 `125.903 ms`, throughput `113.935 req/s`; p95 decreased `62.9%` and throughput increased `170.3%` (`2.70x`). The three after p95 values were `124.799 / 125.903 / 178.719 ms`.
+- `campus_members/full_list`: G before p95 `338.119 ms`, throughput `42.910 req/s`. Integration after median p95 `98.682 ms`, throughput `169.126 req/s`; p95 decreased `70.8%` and throughput increased `294.1%` (`3.94x`). The three after p95 values were `98.682 / 86.699 / 103.321 ms`.
+- Query structure: focused integration tests reduced the admin-list fixture from 8 SQL statements to 3 and the campus-member fixture from 6 to 3 while preserving pagination metadata, ACTIVE filtering, ordering, authorization, errors, and response schemas.
+- Evidence boundary: G is a manually reviewed conditional shared-stack before run and after is a three-run lean shared-stack measurement. These numbers support a resume case study, not an SLO or production capacity guarantee.
+- Raw after summaries: `/private/tmp/faithlog-lean-after-20260717-130434/lean-results.json`. The temporary ADMIN was restored to USER; remaining matching ADMIN count was 0.
 ## 2026-07-17 Issue #196 Prayer Group Query Optimization
 
 - The fresh `h05` run completed the five Prayer endpoints and three Poll-member endpoints with HTTP/custom failure rate `0` before stopping at `poll_member_results` evidence classification.

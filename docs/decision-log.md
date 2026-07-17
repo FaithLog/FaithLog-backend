@@ -1081,6 +1081,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Recommendation: Provide one stable local transcript source path or leave transcript analysis disabled.
 - Current action: No transcript source was provided, so conversation transcripts were not inspected.
 <!-- daily-resume-monitor:end:decision-log:2026-06-16 -->
+
+## 2026-07-17 - Resume-oriented performance validation protocol
+
+- The user decided that the performance work is for a resume case study and does not require product-grade forensic harness development for every endpoint.
+- The final protocol uses the same fixture and workload, three after repetitions, zero HTTP/correctness failures, p50/p95/p99/throughput, and a source- or test-backed SQL/repository call count.
+- Historical collector-only failures do not force a full workload rerun when the core k6 summary and correctness evidence are intact.
+- Representative integration after measurement is limited to the two #195 N+1 paths. The other optimizations retain focused SQL/query-count tests and #194 EXPLAIN evidence instead of repeating all issue-local runners.
 ### 2026-07-16 - Issue #192 Latest-develop Scenario Compatibility
 
 - User decision: Performance issues may correct k6/fixture/validator/test/docs code in parallel, while all actual fixture/DB/HTTP/k6 loads remain PM-owned and execute sequentially on one server.

@@ -274,3 +274,14 @@ Authoring verification: the first PM-finding contract failed `6/8` before passin
 - Docker, seed, DB, HTTP, and k6 load execution are deferred; this development session runs only non-secret `k6 inspect` initialization validation.
 - production Java/API/authorization/response/error/transaction/Entity/DB/Flyway/dependency 변경 금지.
 - G may be cited only as a conditional shared-stack before baseline. It must not be described as automatically adoptable, an optimization result, or a resume performance achievement.
+
+## 2026-07-17 integration lean after
+
+The user replaced further forensic harness work with a resume-oriented lean comparison. The integration app at `bcbc017` included the #195 bulk lookups and Flyway V12, retained the same PostgreSQL/Redis data, and was healthy before measurement. The preserved G fixture was measured with the same `10 VU / 2m` workload for three sequential after repetitions per representative endpoint.
+
+| Endpoint | G before p95 | After p95 median | p95 change | G before throughput | After median throughput | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `admin_users/large_page` | 339.366 ms | 125.903 ms | -62.9% | 42.156 req/s | 113.935 req/s | +170.3% |
+| `campus_members/full_list` | 338.119 ms | 98.682 ms | -70.8% | 42.910 req/s | 169.126 req/s | +294.1% |
+
+All six after runs had failure rate 0 and exact cardinality/order/ACTIVE checks passed, totaling 99,873 requests. Focused integration tests separately fixed the SQL structure at 8 to 3 and 6 to 3 statements. G remains a conditional shared-stack before and the after values are a lean resume comparison rather than an SLO or production capacity claim. Raw summaries are preserved under `/private/tmp/faithlog-lean-after-20260717-130434/`.
