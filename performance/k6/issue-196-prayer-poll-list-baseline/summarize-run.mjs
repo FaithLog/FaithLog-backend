@@ -544,11 +544,20 @@ function validateSampleTimeline(timestamps, runtime, evidenceName, requireBounda
 	}
 	const maxGapMs = maxGapSeconds * 1000;
 	const intervalMs = intervalSeconds * 1000;
+	let coveredTimes = times;
+	let boundaryInvalid;
+	if (requireBoundaryCoverage) {
+		const preStartIndex = times.findLastIndex((time) => time <= started);
+		const postEndIndex = times.findIndex((time) => time >= ended);
+		boundaryInvalid = preStartIndex < 0 || postEndIndex < 0
+			|| started - times[preStartIndex] > maxGapMs || times[postEndIndex] - ended > maxGapMs;
+		if (!boundaryInvalid) coveredTimes = times.slice(preStartIndex, postEndIndex + 1);
+	} else {
+		boundaryInvalid = times[0] < started || times[0] - started > maxGapMs
+			|| times.at(-1) > ended || ended - times.at(-1) > maxGapMs;
+	}
 	const expectedMinimum = Math.max(2, Math.floor((ended - started) / intervalMs));
-	if (times.length < expectedMinimum) reasons.push(`insufficient-samples:${evidenceName}`);
-	const boundaryInvalid = requireBoundaryCoverage
-		? times[0] > started || started - times[0] > maxGapMs || times.at(-1) < ended || times.at(-1) - ended > maxGapMs
-		: times[0] < started || times[0] - started > maxGapMs || times.at(-1) > ended || ended - times.at(-1) > maxGapMs;
+	if (coveredTimes.length < expectedMinimum) reasons.push(`insufficient-samples:${evidenceName}`);
 	if (boundaryInvalid) {
 		reasons.push(`sample-window-coverage:${evidenceName}`);
 	}
