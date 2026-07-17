@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -35,6 +35,7 @@ test('streaming sampler preserves ANSI-framed exact three-role ticks and one com
 	child.stderr.on('data', (chunk) => { stderr += chunk; });
 	try {
 		await waitFor(() => existsSync(ready));
+		assert.equal(statSync(ready).mode & 0o777, 0o600);
 		child.stdin.write(`${initialSnapshot().join('\n')}\n`);
 		await waitFor(() => existsSync(output) && rows(output).length === 3);
 		writeFileSync(stop, 'stop\n');

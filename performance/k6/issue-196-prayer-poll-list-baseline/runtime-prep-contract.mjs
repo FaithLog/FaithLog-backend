@@ -6,7 +6,7 @@ import { APPROVED_INSTRUMENTATION_ENV } from './runtime-env-attestation.mjs';
 const ROOT_KEYS = [
 	'contractVersion', 'issue', 'attemptId', 'createdAt', 'attemptReceipt', 'tooling', 'source', 'compose',
 	'previousApp', 'instrumentedApp', 'preservedDatabase', 'preservedRedis', 'evidenceLogging',
-	'environmentAttestation',
+	'environmentAttestation', 'daemonLogRetention',
 ];
 const CONTAINER_KEYS = [
 	'containerName', 'service', 'configuredImage', 'imageId', 'containerId', 'startedAt', 'configHash',
@@ -46,6 +46,7 @@ export function validateRuntimePrepManifest(manifest, expectations = {}) {
 	}
 	validateEvidenceLogging(manifest.evidenceLogging);
 	validateEnvironmentAttestation(manifest.environmentAttestation);
+	validateDaemonLogRetention(manifest.daemonLogRetention);
 	assertNoSensitiveKeys(manifest);
 
 	if (manifest.previousApp.containerId === manifest.instrumentedApp.containerId
@@ -110,7 +111,30 @@ export function assertRuntimePreparationMatches(manifest, runtime) {
 	assertRuntimeContainer(manifest.instrumentedApp, runtime, 'app');
 	assertRuntimeContainer(manifest.preservedDatabase, runtime, 'db');
 	assertRuntimeContainer(manifest.preservedRedis, runtime, 'redis');
+	const retention = manifest.daemonLogRetention;
+	if (runtime.appLogDriver !== retention.driver
+		|| runtime.appLogMaxSize !== retention.maxSize
+		|| runtime.appLogMaxFile !== retention.maxFile
+		|| runtime.appLogCompress !== String(retention.compress)) {
+		throw new Error('Runtime preparation app daemon log retention mismatch.');
+	}
 	return manifest;
+}
+
+function validateDaemonLogRetention(retention) {
+	assertObject(retention, 'daemonLogRetention');
+	assertExactKeys(retention, ['driver', 'maxSize', 'maxFile', 'compress', 'maximumRetainedBytes'], 'daemonLogRetention');
+	if (retention.driver !== 'local' || !/^[1-9][0-9]*[kmg]$/.test(retention.maxSize || '')
+		|| !/^[1-9][0-9]*$/.test(retention.maxFile || '') || retention.compress !== true
+		|| !/^[1-9][0-9]*$/.test(retention.maximumRetainedBytes || '')) {
+		throw new Error('App daemon log retention contract is invalid.');
+	}
+	const match = /^([1-9][0-9]*)([kmg])$/.exec(retention.maxSize);
+	const unit = { k: 1024n, m: 1024n ** 2n, g: 1024n ** 3n }[match[2]];
+	const expected = BigInt(match[1]) * unit * BigInt(retention.maxFile);
+	if (expected.toString() !== retention.maximumRetainedBytes) {
+		throw new Error('App daemon log retention byte bound is inconsistent.');
+	}
 }
 
 function validateSource(source) {

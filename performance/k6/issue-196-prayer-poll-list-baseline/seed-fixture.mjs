@@ -552,6 +552,7 @@ function verifyComposeRuntime() {
 	const appContainerId = dockerInspect(APP_CONTAINER, '{{.Id}}');
 	const appImageId = dockerInspect(APP_CONTAINER, '{{.Image}}');
 	const appContainerStartedAt = dockerInspect(APP_CONTAINER, '{{.State.StartedAt}}');
+	const appLogConfig = JSON.parse(dockerInspect(APP_CONTAINER, '{{json .HostConfig.LogConfig}}'));
 	const dbContainerId = dockerInspect(DB_CONTAINER, '{{.Id}}');
 	const dbImageId = dockerInspect(DB_CONTAINER, '{{.Image}}');
 	const dbContainerStartedAt = dockerInspect(DB_CONTAINER, '{{.State.StartedAt}}');
@@ -604,6 +605,10 @@ function verifyComposeRuntime() {
 		appContainerId,
 		appImageId,
 		appContainerStartedAt,
+		appLogDriver: appLogConfig.Type,
+		appLogMaxSize: appLogConfig.Config?.['max-size'],
+		appLogMaxFile: appLogConfig.Config?.['max-file'],
+		appLogCompress: appLogConfig.Config?.compress,
 		dbContainerId,
 		dbImageId,
 		dbContainerStartedAt,

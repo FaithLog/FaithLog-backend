@@ -15,7 +15,7 @@ Status: `scenario-ready / not-measured`
 - Installed k6 v2 requires explicit `-e` propagation into `__ENV`. The runner therefore creates a report-external atomic `/tmp` runtime directory with mode `0700`, writes one phase-scoped credentials JSON with mode `0600`, and passes only its absolute path as `-e CREDENTIALS_FILE=...`. The file has an exact five-token schema; scenario init validates it and uses the tokens directly, while `setup()` performs no login and returns no token material. Raw token names/values never enter k6 argv, stdout/stderr, summaries, logs, or reports. Each phase file is removed immediately after the child exits, and EXIT/INT/TERM cleanup removes any remaining files and the runtime directory.
 - After app/DB/Redis label attestation, seed, shaping, and load all acquire the same canonical `/tmp/faithlog-performance-{actualComposeProject}.lock`. The path has no caller override, and the runner also refuses to start while another k6 process exists. Each entrypoint captures all three containers' full ID, image ID, `StartedAt`, Compose labels/config hash, the published app endpoint, PostgreSQL identity, and Redis process `run_id` before lock acquisition, then requires an exact post-lock match before login, fixture mutation, or k6. The runner repeats this continuity gate before warmup, before/after measured, and before final report creation.
 - Seed, shaping, the baseline runner, and the direct k6 entrypoint have no target defaults. They require an explicit numeric loopback `BASE_URL` (`127.0.0.1` or `[::1]`), app/DB/Redis container names, exact Compose service labels, exact image tags and immutable image IDs, source revision, Flyway version, Redis port, credentials, and workload inputs at runtime. `localhost` and implicit host resolution are rejected pending a separate approved resolution rule. A shared validator requires exactly one same-address-family exact/wildcard Docker binding on the requested host port. Seed records the immutable runtime and published target; shaping and baseline require the same identity before touching the fixture or measuring it.
-- The runner never starts, stops, rebuilds, or prunes Docker resources. It uses only `inspect`, `logs`, `stats`, and read-only PostgreSQL statistics queries.
+- The measurement runner never starts, stops, rebuilds, or prunes Docker resources. The separate PM-only runtime-prep entrypoint recreates only `app`; seed/shape/run never change the PostgreSQL or Redis lifecycle.
 - Every measurement requires an explicit immutable `executionRunId`. Reports are written to a new ignored `build/reports/k6/issue-196/{fixtureRunId}/{executionRunId}/` directory by default. Optional `PERF_REPORT_ROOT` may select another local ignored artifact base; the runner still appends `{fixtureRunId}/{executionRunId}` and never deletes, reuses, or overwrites an existing path.
 - Sampling can detect observed conflicts but cannot prove that a short transient request never occurred. No exclusive-window boolean or sampling values have user approval as an adoption method yet, so every otherwise-clean report remains `accepted=false`, `automaticAdoption=false`, and `measurementStatus=conditional-not-adoptable` until a separate user decision changes that policy.
 - `BASE_URL`, app/DB/Redis container names, expected Compose service labels, expected image tags/IDs, source/Flyway/Redis identity, credentials, date, load, sampling, execution, and mode values are runtime-required approval inputs at their relevant entrypoints. Missing input fails before Docker/API/DB/k6 work; actual labels/images/ports/process identities and the seed manifest must match exactly. Redis currently has no scenario credential because the current Compose source config has no Redis authentication input; the scenario does not invent one.
@@ -92,6 +92,7 @@ Each endpoint report includes:
 - exact endpoint custom request Counter: positive count and positive throughput/second;
 - exact endpoint custom failure Rate equal to zero, accepting direct or `values` wrappers and `rate` or `value` while requiring exact agreement when both are present; `passes + fails` must equal the separate request Counter, and zero-failure evidence must be exactly `passes=0`, `fails=requestCount`;
 - application/PostgreSQL/Redis CPU and RAM samples whose container set and full immutable IDs are exactly the three attested runtime identities. CPU is finite/nonnegative; memory usage and limit use strict Docker byte units, are safe nonnegative byte counts with `limit > 0` and `used <= limit`, and reported memory percentage is finite in `0..100`. Reports derive canonical memory percent and exact decimal byte totals from parsed usage/limit rather than inventing a tolerance;
+- a full-fidelity statement-only `hibernate-sql.log.gz` plus its compressed SHA-256 and decimal compressed/uncompressed byte, line, and statement counts; validation and SQL aggregation gunzip line-by-line without loading the artifact as one string;
 - Hibernate SQL log query count and `queriesPerRequest`;
 - repeated normalized SQL patterns as loop/N+1 evidence;
 - per-table PostgreSQL estimated row counts plus monotonic `seq_scan`, `seq_tup_read`, `idx_scan`, `idx_tup_fetch`, and individually zero write-counter deltas;
@@ -115,7 +116,15 @@ LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_EXTRACT=OFF
 FAITHLOG_SCHEDULER_ENABLED=false
 ```
 
-The runner pipes the measured Docker log window through `filter-sql-log.mjs` and persists only `org.hibernate.SQL` statement lines. Any bind/extract logger marker rejects the artifact without echoing the offending value. Credentials, tokens, and bind values are not written to the prep manifest, receipt, or SQL artifact.
+Runtime prep also binds the app to Docker's `local` log driver with runtime-required `PERF_APP_LOG_MAX_SIZE` and `PERF_APP_LOG_MAX_FILE`, compression enabled, and the exact maximum retained bytes recorded in the immutable prep manifest. Seed, shape, and runner re-attest that full log configuration; drift rejects before mutation or load.
+
+For each measured endpoint, the runner starts `docker logs --follow --since` before the first statement-only sentinel, waits until that sentinel is observed, then starts resource/integrity sampling and k6. After k6 exits it emits a distinct final sentinel and waits a bounded time for the follower to stop. The collector gzip-streams only exact `org.hibernate.SQL` statement lines directly to a create-only 0600 artifact. Missing/duplicate/out-of-order sentinels, Docker child failure, truncated/corrupt gzip, compressed-size overflow, or any bind/extract logger marker preserves a secret-free rejection and makes the endpoint non-adoptable without printing the offending line. The summarizer independently streams gunzip validation and requires the artifact digest/count attestation to equal the metadata copy.
+
+The resource stream also creates a fresh 0600 ready marker after validating its inputs and stop-marker absence. The runner waits for that marker or the sampler child to exit before starting measured k6, preventing a short phase or host scheduling delay from creating the stop marker before the sampler has initialized.
+
+The streaming resource sampler validates its exact three-role arguments and fresh stop state, initializes its stdin reader, then creates a 0600 ready marker with exclusive create. The runner waits boundedly on that marker or the sampler child exit before starting measured k6. A delayed startup, child failure, timeout, stale marker, or stop-before-ready therefore starts zero measured requests; the existing final complete tick and cadence/max-gap gates remain unchanged.
+
+The runner launches both the capture entrypoint and sentinel `docker exec` with an empty environment, restoring only `PATH`, `HOME`, `TMPDIR`, optional Docker client connection variables, and the required non-secret capture/sentinel fields. The capture entrypoint repeats this boundary before Node, and Node constructs the same allowlist for the Docker logs follower. Runtime credentials, tokens, caller-defined unknown variables, and report data never reach these children.
 
 Before lifecycle work, a fresh `${PERF_RUNTIME_PREP_REPORT_ROOT}/${PERF_RUNTIME_PREP_ATTEMPT_ID}` directory and 0600 `runtime-prep-attempt.json` are exclusively created. After recreation starts, any health, continuity, environment, tooling, or manifest failure also writes a non-overwritable `runtime-prep-rejected.json` with previous/current app identity, observed DB/Redis identity, failed stage, `reusable=false`, `automaticCleanup=false`, and the manual restore handoff. The failed attempt ID is never reused. Success writes only `runtime-prep-manifest.json` in that attempt namespace; seed, shape, and runner re-attest its tooling digest and full runtime identity.
 
@@ -132,6 +141,8 @@ PERF_BASE_COMPOSE_FILE='<deploy-dir>/docker-compose.yml' \
 PERF_BASE_OVERRIDE_FILE='<absolute-approved-current-runtime-override>' \
 PERF_COMPOSE_ENV_FILE='<absolute-0600-approved-compose-interpolation-env>' \
 PERF_APP_READY_TIMEOUT_SECONDS='<approved-timeout-seconds>' \
+PERF_APP_LOG_MAX_SIZE='<approved-local-driver-max-size, e.g. integer k/m/g>' \
+PERF_APP_LOG_MAX_FILE='<approved-positive-max-file-count>' \
 BASE_URL='<approved-numeric-loopback-url-on-port-28080>' \
 APP_CONTAINER='<approved-current-app-container>' \
 DB_CONTAINER='<approved-current-db-container>' \
@@ -259,6 +270,10 @@ SAMPLING_INTERVAL_SECONDS='<approved-sampling-interval>' \
 SAMPLING_MAX_GAP_SECONDS='<approved-sampling-max-gap>' \
 PERF_MAINTENANCE_QUIET_SECONDS='30' \
 PERF_QUIESCENCE_TIMEOUT_SECONDS='180' \
+PERF_SQL_GZIP_MAX_BYTES='<approved-compressed-SQL-cap-per-endpoint>' \
+PERF_NON_SQL_EVIDENCE_MAX_BYTES='<approved-non-SQL-cap-per-endpoint>' \
+PERF_STORAGE_SAFETY_HEADROOM_BYTES='<approved-bytes-at-least-2147483648>' \
+PERF_SQL_CAPTURE_TIMEOUT_SECONDS='<approved-follower-boundary-timeout>' \
 PERF_ADMIN_EMAIL='<runtime-admin-email>' \
 PERF_ADMIN_PASSWORD='<runtime-admin-password>' \
 PERF_MEMBER_PASSWORD='<runtime-generated-member-password>' \
@@ -268,11 +283,23 @@ PERF_DB_PASSWORD='<runtime-db-password>' \
 bash performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh all
 ```
 
+Before the first endpoint and before/after every later endpoint, the runner records a machine-readable storage projection. For `N` remaining endpoints it requires
+`available >= N * (SQL gzip cap + non-SQL cap) + bounded daemon-log bytes + safety headroom`.
+The safety headroom input must be at least 2 GiB; caps and rotation values have no defaults. Each finished endpoint is also measured against its declared non-SQL cap. If any projection or cap fails, no next endpoint starts.
+
+The live follower treats only its own post-final-sentinel shutdown as successful. Installed Docker Desktop can translate that intentional `SIGTERM` into CLI exit code `143`, so the collector accepts exact `143` only after it has issued the stop itself; a natural/nonzero exit before the final sentinel, any other exit, timeout, or missing boundary remains rejected. A 2026-07-17 installed-Docker smoke preserved two rejected attempts that exposed this distinction and one final complete artifact with both sentinels, one statement, exact gzip digest/count validation, and no forbidden value logger. The smoke issued no HTTP, DB, seed, shape, k6, or lifecycle operation.
+
 The mode argument is required. Pass `all` explicitly for the complete sequential scope, or `prayer`, `poll-member`, `poll-admin`, or `poll-duty` only when the PM explicitly wants that partial scope. Partial reports must not be presented as a complete baseline.
 
 ### PM execution and stop/restore handoff
 
 One exclusive slot runs, in order: read-only target re-attestation → app-only runtime prep → fresh namespace seed → one-shot shape → explicit `all` mode (Prayer, Poll member, Poll admin, Poll duty; 27 endpoints sequentially). Expected elapsed time is about 2–3.5 hours, driven by the separately approved warmup/measured values. Runtime prep writes the app lifecycle plus its receipts; seed creates only fresh fixture rows; shape updates only the eight rows owned by that fresh fixture; endpoint phases are read-only apart from application/runtime statistics. Stop immediately on the first prep rejection, seed/shape nonzero, runtime/tooling continuity drift, credential/bind logger evidence, rejected/malformed report, or operational child failure. Preserve every receipt/report and do not reuse IDs.
+
+The preserved `g02` attempt proved the previous post-phase plain-log design structurally unsafe: two endpoint directories consumed about 1.6 GiB and one Prayer SQL artifact about 1.3 GiB before the attempt rejected. A read-only, no-output-file gzip projection reduced the preserved 256,925,424-byte and 1,444,835,575-byte SQL files to 3,477,768 and 12,842,803 bytes; their non-SQL endpoint evidence was 509,406 and 422,261 bytes. These are storage observations, not performance results. An initial conservative 64 MiB compressed-SQL reference projected 4,387,241,984 bytes and correctly blocked the then-insufficient disk.
+
+PM subsequently approved explicit fresh-actual inputs from the observed maxima: `PERF_SQL_GZIP_MAX_BYTES=33554432` (32 MiB per endpoint), `PERF_NON_SQL_EVIDENCE_MAX_BYTES=8388608` (8 MiB per endpoint), app `local` logging `PERF_APP_LOG_MAX_SIZE=64m` and `PERF_APP_LOG_MAX_FILE=3`, and `PERF_STORAGE_SAFETY_HEADROOM_BYTES=2147483648` (2 GiB). The exact 27-endpoint projection is 3,481,272,320 bytes. The final pre-commit check found 4,108,783,616 bytes available, leaving 627,511,296 bytes above that projection, so a fresh run may enter only if its immediate runtime gate independently records at least the same safe condition. Any per-endpoint cap or later projection breach still stops before the next endpoint. These values do not adopt `g02`, relax correctness/evidence gates, or enable automatic adoption.
+
+`g01`, `g02`, and every earlier namespace remain immutable and non-reusable. Those partial reports are not a baseline and no latency/query improvement is adopted; status remains `scenario-ready / not-measured` until a fresh run passes the storage projection and all 27 endpoint gates.
 
 No automatic cleanup or rollback is authorized. After a partial prep failure, follow the rejection receipt's restore handoff: recreate only the app from the same approved base Compose files without `runtime-evidence.override.yml`, then re-attest the restored app and unchanged PostgreSQL/Redis. After a successful baseline, PM may either retain the instrumented app for the final integration measurement or perform the same app-only restore; `down`, DB/Redis recreation, and prune remain forbidden.
 
@@ -298,12 +325,16 @@ node --check performance/k6/issue-196-prayer-poll-list-baseline/runtime-prep-con
 node --check performance/k6/issue-196-prayer-poll-list-baseline/runtime-env-attestation.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/tooling-provenance.mjs
 node --check performance/k6/issue-196-prayer-poll-list-baseline/filter-sql-log.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/sql-evidence.mjs
+node --check performance/k6/issue-196-prayer-poll-list-baseline/storage-budget.mjs
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/prepare-runtime.sh
+bash -n performance/k6/issue-196-prayer-poll-list-baseline/capture-sql-window.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh
 bash -n performance/k6/issue-196-prayer-poll-list-baseline/run-baseline.sh
 node --test performance/k6/issue-196-prayer-poll-list-baseline/runtime-prep-orchestration.test.mjs
 node --test performance/k6/issue-196-prayer-poll-list-baseline/k6-rate-contract.test.mjs
 node --test performance/k6/issue-196-prayer-poll-list-baseline/docker-db-identity.test.mjs
+node --test performance/k6/issue-196-prayer-poll-list-baseline/sql-storage-contract.test.mjs
 ```
 
 This session syntax-checks `scenario.js` without executing k6; the contract test separately fixes its endpoint, metric, sequencing, correctness, current-develop source/Flyway/RLS identity, app/DB/Redis continuity, pgss state, BigInt counter, and resource evidence markers. Test-code auditing across performance issues may run in parallel, but actual shared-stack seed/load measurement remains PM-controlled and strictly sequential.

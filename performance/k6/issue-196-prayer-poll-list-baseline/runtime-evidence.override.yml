@@ -1,4 +1,10 @@
 services:
   app:
+    logging:
+      driver: local
+      options:
+        max-size: "${PERF_APP_LOG_MAX_SIZE:?PERF_APP_LOG_MAX_SIZE is required}"
+        max-file: "${PERF_APP_LOG_MAX_FILE:?PERF_APP_LOG_MAX_FILE is required}"
+        compress: "true"
     environment:
       SPRING_APPLICATION_JSON: '{"logging":{"level":{"org.hibernate.SQL":"DEBUG","org.hibernate.orm.jdbc.bind":"OFF","org.hibernate.orm.jdbc.extract":"OFF"}},"spring":{"jpa":{"show-sql":false,"properties":{"hibernate":{"format_sql":false}}}}}'

@@ -18,6 +18,8 @@ PERF_BASE_OVERRIDE_FILE="${PERF_BASE_OVERRIDE_FILE:?PERF_BASE_OVERRIDE_FILE is r
 PERF_COMPOSE_ENV_FILE="${PERF_COMPOSE_ENV_FILE:?PERF_COMPOSE_ENV_FILE is required at runtime}"
 PERF_RUNTIME_PREP_MANIFEST="${PERF_RUNTIME_PREP_MANIFEST:?PERF_RUNTIME_PREP_MANIFEST is required at runtime}"
 PERF_APP_READY_TIMEOUT_SECONDS="${PERF_APP_READY_TIMEOUT_SECONDS:?PERF_APP_READY_TIMEOUT_SECONDS is required at runtime}"
+PERF_APP_LOG_MAX_SIZE="${PERF_APP_LOG_MAX_SIZE:?PERF_APP_LOG_MAX_SIZE is required at runtime}"
+PERF_APP_LOG_MAX_FILE="${PERF_APP_LOG_MAX_FILE:?PERF_APP_LOG_MAX_FILE is required at runtime}"
 BASE_URL="${BASE_URL:?BASE_URL is required at runtime}"
 APP_CONTAINER="${APP_CONTAINER:?APP_CONTAINER is required at runtime}"
 DB_CONTAINER="${DB_CONTAINER:?DB_CONTAINER is required at runtime}"
@@ -77,6 +79,18 @@ READY_TIMEOUT_VALUE="${PERF_APP_READY_TIMEOUT_SECONDS}" node -e '
 	const value = Number(process.env.READY_TIMEOUT_VALUE);
 	if (!Number.isInteger(value) || value < 1 || value > 600) process.exit(1);
 ' || fail "PERF_APP_READY_TIMEOUT_SECONDS must be an integer from 1 through 600."
+APP_LOG_MAX_SIZE_VALUE="${PERF_APP_LOG_MAX_SIZE}" APP_LOG_MAX_FILE_VALUE="${PERF_APP_LOG_MAX_FILE}" node -e '
+	const size = process.env.APP_LOG_MAX_SIZE_VALUE;
+	const files = process.env.APP_LOG_MAX_FILE_VALUE;
+	if (!/^[1-9][0-9]*[kmg]$/.test(size || "") || !/^[1-9][0-9]*$/.test(files || "")
+		|| Number(files) > 100) process.exit(1);
+' || fail "App local log rotation requires runtime-approved max-size and max-file values."
+daemon_log_maximum_retained_bytes="$(APP_LOG_MAX_SIZE_VALUE="${PERF_APP_LOG_MAX_SIZE}" \
+	APP_LOG_MAX_FILE_VALUE="${PERF_APP_LOG_MAX_FILE}" node -e '
+	const match = /^([1-9][0-9]*)([kmg])$/.exec(process.env.APP_LOG_MAX_SIZE_VALUE);
+	const unit = { k: 1024n, m: 1024n ** 2n, g: 1024n ** 3n }[match[2]];
+	process.stdout.write((BigInt(match[1]) * unit * BigInt(process.env.APP_LOG_MAX_FILE_VALUE)).toString());
+')"
 
 capture_tooling_provenance() {
 	node "${TOOLING_PROVENANCE}" --capture "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}"
@@ -245,6 +259,7 @@ fi
 prep_stage="app-recreate"
 lifecycle_started=true
 env -i PATH="${PATH}" HOME="${HOME:-}" DOCKER_CONFIG="${DOCKER_CONFIG:-}" TMPDIR="${TMPDIR:-/tmp}" \
+	PERF_APP_LOG_MAX_SIZE="${PERF_APP_LOG_MAX_SIZE}" PERF_APP_LOG_MAX_FILE="${PERF_APP_LOG_MAX_FILE}" \
 	docker compose --env-file "${PERF_COMPOSE_ENV_FILE}" --project-name "${EXPECTED_COMPOSE_PROJECT}" \
 	--project-directory "${PERF_DEPLOY_DIR}" -f "${PERF_BASE_COMPOSE_FILE}" -f "${PERF_BASE_OVERRIDE_FILE}" \
 	-f "${EVIDENCE_OVERRIDE}" up -d --build --no-deps --force-recreate app
@@ -288,6 +303,19 @@ post_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${pos
 
 prep_stage="environment-attestation"
 app_environment_json="$(docker inspect --format '{{json .Config.Env}}' "${APP_CONTAINER}")"
+app_log_config_json="$(docker inspect --format '{{json .HostConfig.LogConfig}}' "${APP_CONTAINER}")"
+APP_LOG_CONFIG_JSON="${app_log_config_json}" APP_LOG_MAX_SIZE_VALUE="${PERF_APP_LOG_MAX_SIZE}" \
+	APP_LOG_MAX_FILE_VALUE="${PERF_APP_LOG_MAX_FILE}" node -e '
+	const actual = JSON.parse(process.env.APP_LOG_CONFIG_JSON);
+	const expected = { Type: "local", Config: {
+		"max-size": process.env.APP_LOG_MAX_SIZE_VALUE,
+		"max-file": process.env.APP_LOG_MAX_FILE_VALUE,
+		compress: "true",
+	} };
+	if (actual.Type !== expected.Type
+		|| JSON.stringify(Object.keys(actual.Config || {}).sort()) !== JSON.stringify(Object.keys(expected.Config).sort())
+		|| Object.entries(expected.Config).some(([key, value]) => actual.Config[key] !== value)) process.exit(1);
+' || fail "Instrumented app local log rotation differs from the approved bounded contract."
 environment_attestation="$(PREVIOUS_APP_ENV_JSON="${previous_app_environment_json}" CURRENT_APP_ENV_JSON="${app_environment_json}" \
 	node "${ENV_ATTESTATION}")" || fail "Instrumented app has unrelated environment drift."
 APP_ENVIRONMENT_JSON="${app_environment_json}" node -e '
@@ -314,6 +342,8 @@ image_created_at="$(docker image inspect --format '{{.Created}}' "${instrumented
 attempt_receipt_json="$(node -e 'const fs=require("node:fs");process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(process.argv[1],"utf8"))))' "${attempt_receipt_path}")"
 manifest_json="$(ATTEMPT_ID_VALUE="${PERF_RUNTIME_PREP_ATTEMPT_ID}" ATTEMPT_RECEIPT_JSON="${attempt_receipt_json}" TOOLING_JSON="${tooling_final}" \
 	ENVIRONMENT_ATTESTATION_JSON="${environment_attestation}" \
+	APP_LOG_MAX_SIZE_VALUE="${PERF_APP_LOG_MAX_SIZE}" APP_LOG_MAX_FILE_VALUE="${PERF_APP_LOG_MAX_FILE}" \
+	DAEMON_LOG_MAXIMUM_RETAINED_BYTES_VALUE="${daemon_log_maximum_retained_bytes}" \
 	SOURCE_REVISION_VALUE="${source_revision}" DEPLOY_DIR_VALUE="${PERF_DEPLOY_DIR}" \
 	SOURCE_COMMITTED_AT_VALUE="${source_committed_at}" IMAGE_CREATED_AT_VALUE="${image_created_at}" \
 	PROJECT_VALUE="${compose_project}" CONFIG_FILES_VALUE="${post_config_files}" TARGET_PORT_VALUE="${target_port}" \
@@ -347,6 +377,13 @@ manifest_json="$(ATTEMPT_ID_VALUE="${PERF_RUNTIME_PREP_ATTEMPT_ID}" ATTEMPT_RECE
 		preservedDatabase: JSON.parse(process.env.PRESERVED_DB_JSON),
 		preservedRedis: JSON.parse(process.env.PRESERVED_REDIS_JSON),
 		environmentAttestation: JSON.parse(process.env.ENVIRONMENT_ATTESTATION_JSON),
+		daemonLogRetention: {
+			driver: "local",
+			maxSize: process.env.APP_LOG_MAX_SIZE_VALUE,
+			maxFile: process.env.APP_LOG_MAX_FILE_VALUE,
+			compress: true,
+			maximumRetainedBytes: process.env.DAEMON_LOG_MAXIMUM_RETAINED_BYTES_VALUE,
+		},
 		evidenceLogging: {
 			sqlLogger: "DEBUG",
 			formatSql: false,

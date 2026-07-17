@@ -13,6 +13,8 @@ DB_RUNTIME_IDENTITY_SQL="${ROOT_DIR}/db-runtime-identity.sql"
 VALIDATE_RUNTIME_IDENTITY="${ROOT_DIR}/validate-runtime-identity.mjs"
 PARSE_REDIS_IDENTITY="${ROOT_DIR}/redis-runtime-identity.mjs"
 FILTER_SQL_LOG="${ROOT_DIR}/filter-sql-log.mjs"
+SQL_WINDOW_CAPTURE="${ROOT_DIR}/capture-sql-window.sh"
+STORAGE_BUDGET="${ROOT_DIR}/storage-budget.mjs"
 TOOLING_PROVENANCE="${ROOT_DIR}/tooling-provenance.mjs"
 RESOURCE_WINDOW_SAMPLER="${ROOT_DIR}/resource-window-sampler.mjs"
 PERF_SCENARIO_WORKTREE="${PERF_SCENARIO_WORKTREE:?PERF_SCENARIO_WORKTREE is required at runtime}"
@@ -31,6 +33,10 @@ SAMPLING_INTERVAL_SECONDS="${SAMPLING_INTERVAL_SECONDS:?SAMPLING_INTERVAL_SECOND
 SAMPLING_MAX_GAP_SECONDS="${SAMPLING_MAX_GAP_SECONDS:?SAMPLING_MAX_GAP_SECONDS requires explicit user approval}"
 PERF_MAINTENANCE_QUIET_SECONDS="${PERF_MAINTENANCE_QUIET_SECONDS:?PERF_MAINTENANCE_QUIET_SECONDS is required at runtime}"
 PERF_QUIESCENCE_TIMEOUT_SECONDS="${PERF_QUIESCENCE_TIMEOUT_SECONDS:?PERF_QUIESCENCE_TIMEOUT_SECONDS is required at runtime}"
+PERF_SQL_GZIP_MAX_BYTES="${PERF_SQL_GZIP_MAX_BYTES:?PERF_SQL_GZIP_MAX_BYTES is required at runtime}"
+PERF_NON_SQL_EVIDENCE_MAX_BYTES="${PERF_NON_SQL_EVIDENCE_MAX_BYTES:?PERF_NON_SQL_EVIDENCE_MAX_BYTES is required at runtime}"
+PERF_STORAGE_SAFETY_HEADROOM_BYTES="${PERF_STORAGE_SAFETY_HEADROOM_BYTES:?PERF_STORAGE_SAFETY_HEADROOM_BYTES is required at runtime}"
+PERF_SQL_CAPTURE_TIMEOUT_SECONDS="${PERF_SQL_CAPTURE_TIMEOUT_SECONDS:?PERF_SQL_CAPTURE_TIMEOUT_SECONDS is required at runtime}"
 PERF_ADMIN_EMAIL="${PERF_ADMIN_EMAIL:?PERF_ADMIN_EMAIL is required at runtime}"
 PERF_ADMIN_PASSWORD="${PERF_ADMIN_PASSWORD:?PERF_ADMIN_PASSWORD is required at runtime}"
 PERF_MEMBER_PASSWORD="${PERF_MEMBER_PASSWORD:?PERF_MEMBER_PASSWORD is required at runtime}"
@@ -61,6 +67,10 @@ export -n PERF_ADMIN_EMAIL PERF_ADMIN_PASSWORD PERF_MEMBER_PASSWORD PERF_DB_USER
 unset PERF_ACCESS_TOKEN PERF_ADMIN_ACCESS_TOKEN PERF_MEMBER_ACCESS_TOKEN \
 	PERF_COFFEE_CREATOR_ACCESS_TOKEN PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN PERF_MEAL_DUTY_ACCESS_TOKEN
 
+DOCKER_CHILD_ENV=(env -i "PATH=${PATH}" "HOME=${HOME:-}" "TMPDIR=${TMPDIR:-/tmp}")
+[[ -z "${DOCKER_CONFIG:-}" ]] || DOCKER_CHILD_ENV+=("DOCKER_CONFIG=${DOCKER_CONFIG}")
+[[ -z "${DOCKER_HOST:-}" ]] || DOCKER_CHILD_ENV+=("DOCKER_HOST=${DOCKER_HOST}")
+
 if [[ ! "${FIXTURE_RUN_ID}" =~ ^[a-z0-9][a-z0-9_-]{7,31}$ ]]; then
 	echo "FIXTURE_RUN_ID must be 8-32 lowercase characters." >&2
 	exit 1
@@ -76,13 +86,20 @@ for command in node k6 docker lsof; do
 done
 SAMPLING_INTERVAL_VALUE="${SAMPLING_INTERVAL_SECONDS}" SAMPLING_MAX_GAP_VALUE="${SAMPLING_MAX_GAP_SECONDS}" \
 	MAINTENANCE_QUIET_VALUE="${PERF_MAINTENANCE_QUIET_SECONDS}" \
-	QUIESCENCE_TIMEOUT_VALUE="${PERF_QUIESCENCE_TIMEOUT_SECONDS}" node -e '
+	QUIESCENCE_TIMEOUT_VALUE="${PERF_QUIESCENCE_TIMEOUT_SECONDS}" \
+	SQL_GZIP_MAX_VALUE="${PERF_SQL_GZIP_MAX_BYTES}" NON_SQL_MAX_VALUE="${PERF_NON_SQL_EVIDENCE_MAX_BYTES}" \
+	STORAGE_SAFETY_VALUE="${PERF_STORAGE_SAFETY_HEADROOM_BYTES}" \
+	SQL_CAPTURE_TIMEOUT_VALUE="${PERF_SQL_CAPTURE_TIMEOUT_SECONDS}" node -e '
 	const interval = Number(process.env.SAMPLING_INTERVAL_VALUE);
 	const maxGap = Number(process.env.SAMPLING_MAX_GAP_VALUE);
 	const quiet = Number(process.env.MAINTENANCE_QUIET_VALUE);
 	const timeout = Number(process.env.QUIESCENCE_TIMEOUT_VALUE);
+	const decimal = /^(0|[1-9][0-9]*)$/;
+	const byteValues = [process.env.SQL_GZIP_MAX_VALUE, process.env.NON_SQL_MAX_VALUE, process.env.STORAGE_SAFETY_VALUE];
+	const captureTimeout = Number(process.env.SQL_CAPTURE_TIMEOUT_VALUE);
 	if (!Number.isFinite(interval) || interval <= 0 || !Number.isFinite(maxGap) || maxGap < interval
-		|| quiet !== 30 || timeout !== 180) process.exit(1);
+		|| quiet !== 30 || timeout !== 180 || byteValues.some((value) => !decimal.test(value) || BigInt(value) <= 0n)
+		|| !Number.isSafeInteger(captureTimeout) || captureTimeout <= 0) process.exit(1);
 ' || { echo "Sampling values or the approved 30/180 maintenance quiet contract are invalid." >&2; exit 1; }
 [[ -f "${FIXTURE_MANIFEST}" ]] || { echo "Fixture manifest not found: ${FIXTURE_MANIFEST}" >&2; exit 1; }
 node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
@@ -170,6 +187,7 @@ db_config_hash="$(label "${DB_CONTAINER}" com.docker.compose.config-hash)"
 redis_config_hash="$(label "${REDIS_CONTAINER}" com.docker.compose.config-hash)"
 app_image="$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")"
 app_image_id="$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")"
+app_log_config="$(docker inspect --format '{{json .HostConfig.LogConfig}}' "${APP_CONTAINER}")"
 db_image="$(docker inspect --format '{{.Config.Image}}' "${DB_CONTAINER}")"
 redis_image="$(docker inspect --format '{{.Config.Image}}' "${REDIS_CONTAINER}")"
 app_client_addrs="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' "${APP_CONTAINER}")"
@@ -186,12 +204,17 @@ seed_db_image_id="$(manifest_value composeRuntime.dbImageId)"
 seed_redis_image_id="$(manifest_value composeRuntime.redisImageId)"
 seed_app_container_id="$(manifest_value composeRuntime.appContainerId)"
 seed_app_started_at="$(manifest_value composeRuntime.appContainerStartedAt)"
+seed_app_log_driver="$(manifest_value composeRuntime.appLogDriver)"
+seed_app_log_max_size="$(manifest_value composeRuntime.appLogMaxSize)"
+seed_app_log_max_file="$(manifest_value composeRuntime.appLogMaxFile)"
+seed_app_log_compress="$(manifest_value composeRuntime.appLogCompress)"
 seed_db_container_id="$(manifest_value composeRuntime.dbContainerId)"
 seed_db_started_at="$(manifest_value composeRuntime.dbContainerStartedAt)"
 seed_redis_container_id="$(manifest_value composeRuntime.redisContainerId)"
 seed_redis_started_at="$(manifest_value composeRuntime.redisContainerStartedAt)"
 seed_source_revision="$(manifest_value composeRuntime.sourceRevision)"
 seed_target_port="$(manifest_value composeRuntime.targetPort)"
+daemon_log_maximum_retained_bytes="$(manifest_value runtimePreparation.daemonLogRetention.maximumRetainedBytes)"
 published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
 base_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${published_ports}" \
 	node "${VALIDATE_TARGET}" --host-port)" \
@@ -220,6 +243,14 @@ base_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${pub
 	&& "${db_container_id}" == "${seed_db_container_id}" && "${db_container_started_at}" == "${seed_db_started_at}" \
 	&& "${redis_container_id}" == "${seed_redis_container_id}" && "${redis_container_started_at}" == "${seed_redis_started_at}" ]] \
 	|| { echo "Current full container identity differs from the seed manifest." >&2; exit 1; }
+APP_LOG_CONFIG_VALUE="${app_log_config}" EXPECTED_DRIVER="${seed_app_log_driver}" \
+	EXPECTED_MAX_SIZE="${seed_app_log_max_size}" EXPECTED_MAX_FILE="${seed_app_log_max_file}" \
+	EXPECTED_COMPRESS="${seed_app_log_compress}" node -e '
+	const value = JSON.parse(process.env.APP_LOG_CONFIG_VALUE);
+	if (value.Type !== process.env.EXPECTED_DRIVER || value.Config?.["max-size"] !== process.env.EXPECTED_MAX_SIZE
+		|| value.Config?.["max-file"] !== process.env.EXPECTED_MAX_FILE
+		|| value.Config?.compress !== process.env.EXPECTED_COMPRESS) process.exit(1);
+' || { echo "App daemon log retention differs from the seed/runtime-preparation manifest." >&2; exit 1; }
 [[ "${base_target_port}" == "${seed_target_port}" ]] \
 	|| { echo "BASE_URL port ${base_target_port} differs from the seed target port ${seed_target_port}." >&2; exit 1; }
 [[ "${app_client_addrs}" =~ ^[0-9a-fA-F:.]+(,[0-9a-fA-F:.]+)*$ ]] \
@@ -231,8 +262,22 @@ if ! mkdir "${PERF_PROJECT_LOCK}" 2>/dev/null; then
 	exit 1
 fi
 credential_runtime_dir=''
+active_sql_capture_pid=''
+active_sampler_pid=''
+active_integrity_pid=''
+
+terminate_owned_child() {
+	local pid="$1"
+	if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+		kill "${pid}" 2>/dev/null || true
+		wait "${pid}" 2>/dev/null || true
+	fi
+}
 
 cleanup_runtime_credentials() {
+	terminate_owned_child "${active_sql_capture_pid}"
+	terminate_owned_child "${active_sampler_pid}"
+	terminate_owned_child "${active_integrity_pid}"
 	if [[ -n "${credential_runtime_dir}" ]]; then
 		rm -f -- "${credential_runtime_dir}"/*.json
 		rmdir "${credential_runtime_dir}" 2>/dev/null || true
@@ -268,6 +313,8 @@ assert_runtime_continuity() {
 		|| { echo "Redis container start time changed during execution." >&2; return 1; }
 	[[ "$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}")" == "${app_image}" ]] \
 		|| { echo "App configured image changed during execution." >&2; return 1; }
+	[[ "$(docker inspect --format '{{json .HostConfig.LogConfig}}' "${APP_CONTAINER}")" == "${app_log_config}" ]] \
+		|| { echo "App daemon log retention changed during execution." >&2; return 1; }
 	[[ "$(docker inspect --format '{{.Config.Image}}' "${DB_CONTAINER}")" == "${db_image}"
 		&& "$(docker inspect --format '{{.Config.Image}}' "${REDIS_CONTAINER}")" == "${redis_image}" ]] \
 		|| { echo "PostgreSQL/Redis configured image changed during execution." >&2; return 1; }
@@ -457,12 +504,13 @@ sample_resources_snapshot() {
 
 sample_resources() {
 	local output="$1"
-	local stop_file="$2"
+	local ready_file="$2"
+	local stop_file="$3"
 	set +o pipefail
 	docker stats --no-trunc --format '{{.ID}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}' \
 		"${app_container_id}" "${db_container_id}" "${redis_container_id}" | \
 		node "${RESOURCE_WINDOW_SAMPLER}" stream-samples \
-			"${output}" "${stop_file}" "${SAMPLING_MAX_GAP_SECONDS}" \
+			"${output}" "${ready_file}" "${stop_file}" "${SAMPLING_MAX_GAP_SECONDS}" \
 			"${APP_CONTAINER}" "${app_container_id}" \
 			"${DB_CONTAINER}" "${db_container_id}" \
 			"${REDIS_CONTAINER}" "${redis_container_id}"
@@ -507,6 +555,75 @@ rfc3339_now() {
 	node -e 'process.stdout.write(new Date().toISOString())'
 }
 
+emit_sql_sentinel() {
+	"${DOCKER_CHILD_ENV[@]}" SQL_WINDOW_SENTINEL="$1" docker exec -e SQL_WINDOW_SENTINEL "${APP_CONTAINER}" \
+		sh -c 'printf "%s\n" "$SQL_WINDOW_SENTINEL" > /proc/1/fd/1'
+}
+
+wait_for_file_or_child() {
+	local child_pid="$1"
+	local file="$2"
+	local timeout_seconds="$3"
+	local deadline=$((SECONDS + timeout_seconds))
+	while [[ ! -e "${file}" ]]; do
+		if ! kill -0 "${child_pid}" 2>/dev/null; then
+			set +e
+			wait "${child_pid}"
+			local child_status=$?
+			set -e
+			if (( child_status == 0 )); then child_status=1; fi
+			return "${child_status:-1}"
+		fi
+		if (( SECONDS >= deadline )); then
+			terminate_owned_child "${child_pid}"
+			return 124
+		fi
+		sleep 0.1
+	done
+}
+
+wait_for_child_bounded() {
+	local child_pid="$1"
+	local timeout_seconds="$2"
+	local deadline=$((SECONDS + timeout_seconds))
+	while kill -0 "${child_pid}" 2>/dev/null; do
+		if (( SECONDS >= deadline )); then
+			terminate_owned_child "${child_pid}"
+			return 124
+		fi
+		sleep 0.1
+	done
+	set +e
+	wait "${child_pid}"
+	local child_status=$?
+	set -e
+	return "${child_status}"
+}
+
+record_storage_budget() {
+	local remaining_endpoints="$1"
+	local output="$2"
+	local available_kilobytes
+	local available_bytes
+	local status
+	available_kilobytes="$(df -Pk "${REPORT_ROOT}" | awk 'NR == 2 { print $4 }')"
+	[[ "${available_kilobytes}" =~ ^[0-9]+$ ]] || { echo "Unable to read report-volume free space." >&2; return 1; }
+	available_bytes="$((available_kilobytes * 1024))"
+	set +e
+	AVAILABLE_BYTES="${available_bytes}" REMAINING_ENDPOINTS="${remaining_endpoints}" \
+		PERF_SQL_GZIP_MAX_BYTES="${PERF_SQL_GZIP_MAX_BYTES}" \
+		PERF_NON_SQL_EVIDENCE_MAX_BYTES="${PERF_NON_SQL_EVIDENCE_MAX_BYTES}" \
+		DAEMON_LOG_MAXIMUM_RETAINED_BYTES="${daemon_log_maximum_retained_bytes}" \
+		PERF_STORAGE_SAFETY_HEADROOM_BYTES="${PERF_STORAGE_SAFETY_HEADROOM_BYTES}" \
+		node "${STORAGE_BUDGET}" > "${output}"
+	status=$?
+	set -e
+	if (( status != 0 )); then
+		echo "Projected evidence and bounded daemon logs do not preserve the approved 2 GiB safety headroom." >&2
+		return "${status}"
+	fi
+}
+
 endpoints_for_mode() {
 	case "$1" in
 		prayer)
@@ -540,8 +657,11 @@ run_endpoint() {
 	local quiescence_file="${endpoint_dir}/pre-measured-quiescence.jsonl"
 	local quiescence_status_file="${endpoint_dir}/pre-measured-quiescence-status.json"
 	local logger_probe_file="${endpoint_dir}/logger-probe.sql"
-	local sql_log_file="${endpoint_dir}/hibernate-sql.log"
+	local sql_log_file="${endpoint_dir}/hibernate-sql.log.gz"
+	local sql_attestation_file="${endpoint_dir}/sql-evidence-attestation.json"
+	local sql_ready_file="${endpoint_dir}/sql-evidence.ready"
 	local resource_file="${endpoint_dir}/resource-samples.tsv"
+	local resource_ready_file="${endpoint_dir}/resource-sampler.ready"
 	local resource_stop_file="${endpoint_dir}/resource-sampler.stop"
 	local integrity_file="${endpoint_dir}/runtime-integrity.jsonl"
 	local metadata_file="${endpoint_dir}/runtime-metadata.json"
@@ -556,22 +676,31 @@ run_endpoint() {
 	local warmup_status
 	local log_since
 	local log_until
+	local sql_first_sentinel
+	local sql_final_sentinel
 	local logger_probe_since
 	local k6_pid
 	local sampler_pid
 	local integrity_pid
+	local sql_capture_pid
 	local k6_status
 	local sampler_status
+	local sampler_ready_status
 	local integrity_status
 	local fixture_window_status
 	local log_capture_status
-	local -a log_pipeline_status
+	local sql_ready_status
+	local final_sentinel_status
 	local after_snapshot_status
 	local runtime_continuity_status
 	local final_continuity_status
 	local summarize_status
 	local measurement_status
+	local non_sql_status
+	local sql_attestation_json
 
+	record_storage_budget "${remaining_endpoint_count}" \
+		"${REPORT_ROOT}/storage-before-${mode}-${endpoint}.json"
 	mkdir -p "$(dirname "${endpoint_dir}")"
 	if ! mkdir "${endpoint_dir}"; then
 		echo "Endpoint report directory exists. Refusing to overwrite: ${endpoint_dir}" >&2
@@ -650,11 +779,47 @@ run_endpoint() {
 	snapshot_db_tables "${before_file}"
 	: > "${resource_file}"
 	: > "${integrity_file}"
-	[[ ! -e "${resource_stop_file}" ]] || { echo "Resource sampler stop marker already exists." >&2; return 1; }
+	[[ ! -e "${resource_ready_file}" && ! -e "${resource_stop_file}" ]] \
+		|| { echo "Resource sampler marker already exists." >&2; return 1; }
 	sample_resources_snapshot "${resource_file}"
 	log_since="$(rfc3339_now)"
-	sample_resources "${resource_file}" "${resource_stop_file}" &
+	sql_first_sentinel="FAITHLOG_SQL_WINDOW_FIRST_${FIXTURE_RUN_ID}_${EXECUTION_RUN_ID}_${mode}_${endpoint}"
+	sql_final_sentinel="FAITHLOG_SQL_WINDOW_FINAL_${FIXTURE_RUN_ID}_${EXECUTION_RUN_ID}_${mode}_${endpoint}"
+	"${DOCKER_CHILD_ENV[@]}" APP_CONTAINER="${APP_CONTAINER}" LOG_SINCE="${log_since}" \
+		SQL_FIRST_SENTINEL="${sql_first_sentinel}" SQL_FINAL_SENTINEL="${sql_final_sentinel}" \
+		SQL_EVIDENCE_ARTIFACT="${sql_log_file}" SQL_EVIDENCE_ATTESTATION="${sql_attestation_file}" \
+		SQL_EVIDENCE_READY_FILE="${sql_ready_file}" SQL_GZIP_MAX_BYTES="${PERF_SQL_GZIP_MAX_BYTES}" \
+		"${SQL_WINDOW_CAPTURE}" &
+	sql_capture_pid=$!
+	active_sql_capture_pid="${sql_capture_pid}"
+	emit_sql_sentinel "${sql_first_sentinel}"
+	set +e
+	wait_for_file_or_child "${sql_capture_pid}" "${sql_ready_file}" "${PERF_SQL_CAPTURE_TIMEOUT_SECONDS}"
+	sql_ready_status=$?
+	set -e
+	if (( sql_ready_status != 0 )); then
+		remove_credentials_file "${measured_credentials_file}"
+		terminate_owned_child "${sql_capture_pid}"
+		active_sql_capture_pid=''
+		echo "SQL evidence follower did not observe the measured-window first sentinel." >&2
+		return "${sql_ready_status}"
+	fi
+	sample_resources "${resource_file}" "${resource_ready_file}" "${resource_stop_file}" &
 	sampler_pid=$!
+	active_sampler_pid="${sampler_pid}"
+	set +e
+	wait_for_file_or_child "${sampler_pid}" "${resource_ready_file}" "${PERF_SQL_CAPTURE_TIMEOUT_SECONDS}"
+	sampler_ready_status=$?
+	set -e
+	if (( sampler_ready_status != 0 )); then
+		remove_credentials_file "${measured_credentials_file}"
+		terminate_owned_child "${sampler_pid}"
+		active_sampler_pid=''
+		terminate_owned_child "${sql_capture_pid}"
+		active_sql_capture_pid=''
+		echo "Resource sampler did not become ready before the measured phase." >&2
+		return "${sampler_ready_status}"
+	fi
 
 	# measured phase: only this k6 process is inside the DB/log/resource evidence window.
 	env -u PERF_ADMIN_EMAIL -u PERF_ADMIN_PASSWORD -u PERF_MEMBER_PASSWORD \
@@ -683,12 +848,25 @@ run_endpoint() {
 	k6_pid=$!
 	sample_runtime_integrity "${k6_pid}" "${integrity_file}" &
 	integrity_pid=$!
+	active_integrity_pid="${integrity_pid}"
 	set +e
 	wait "${k6_pid}"
 	k6_status=$?
 	set -e
 	remove_credentials_file "${measured_credentials_file}"
 	log_until="$(rfc3339_now)"
+	set +e
+	emit_sql_sentinel "${sql_final_sentinel}"
+	final_sentinel_status=$?
+	if (( final_sentinel_status == 0 )); then
+		wait_for_child_bounded "${sql_capture_pid}" "${PERF_SQL_CAPTURE_TIMEOUT_SECONDS}"
+		log_capture_status=$?
+	else
+		terminate_owned_child "${sql_capture_pid}"
+		log_capture_status="${final_sentinel_status}"
+	fi
+	set -e
+	active_sql_capture_pid=''
 	if ! kill -0 "${sampler_pid}" 2>/dev/null; then
 		set +e
 		wait "${sampler_pid}"
@@ -704,23 +882,17 @@ run_endpoint() {
 		sampler_status=$?
 		set -e
 	fi
+	active_sampler_pid=''
 	set +e
 	wait "${integrity_pid}"
 	integrity_status=$?
 	set -e
+	active_integrity_pid=''
 	set +e
 	assert_runtime_continuity
 	runtime_continuity_status=$?
 	assert_fixture_windows
 	fixture_window_status=$?
-	docker logs --since "${log_since}" --until "${log_until}" "${APP_CONTAINER}" 2>&1 \
-		| node "${FILTER_SQL_LOG}" > "${sql_log_file}"
-	log_pipeline_status=("${PIPESTATUS[@]}")
-	if (( log_pipeline_status[0] != 0 )); then
-		log_capture_status="${log_pipeline_status[0]}"
-	else
-		log_capture_status="${log_pipeline_status[1]}"
-	fi
 	snapshot_db_tables "${after_file}"
 	after_snapshot_status=$?
 	assert_runtime_continuity
@@ -729,6 +901,11 @@ run_endpoint() {
 	if (( final_continuity_status != 0 )); then
 		runtime_continuity_status="${final_continuity_status}"
 	fi
+	sql_attestation_json="$(node -e '
+		const fs = require("node:fs");
+		try { process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(process.argv[1], "utf8")))); }
+		catch { process.stdout.write("null"); }
+	' "${sql_attestation_file}")"
 
 	MODE_VALUE="${mode}" ENDPOINT_VALUE="${endpoint}" DATASET_VALUE="${dataset_id}" \
 	FIXTURE_VALUE="${FIXTURE_RUN_ID}" EXECUTION_VALUE="${EXECUTION_RUN_ID}" PROJECT_VALUE="${compose_project}" \
@@ -749,7 +926,10 @@ run_endpoint() {
 	DB_CONTAINER_ID_VALUE="${db_container_id}" DB_IMAGE_ID_VALUE="${db_image_id}" \
 	DB_STARTED_AT_VALUE="${db_container_started_at}" DB_IDENTITY_VALUE="${database_identity}" \
 	REDIS_CONTAINER_ID_VALUE="${redis_container_id}" REDIS_IMAGE_ID_VALUE="${redis_image_id}" \
-	REDIS_STARTED_AT_VALUE="${redis_container_started_at}" REDIS_IDENTITY_VALUE="${redis_identity}" \
+		REDIS_STARTED_AT_VALUE="${redis_container_started_at}" REDIS_IDENTITY_VALUE="${redis_identity}" \
+		APP_LOG_CONFIG_VALUE="${app_log_config}" DAEMON_LOG_MAXIMUM_RETAINED_BYTES_VALUE="${daemon_log_maximum_retained_bytes}" \
+		SQL_ATTESTATION_JSON="${sql_attestation_json}" SQL_GZIP_MAX_BYTES_VALUE="${PERF_SQL_GZIP_MAX_BYTES}" \
+		NON_SQL_MAX_BYTES_VALUE="${PERF_NON_SQL_EVIDENCE_MAX_BYTES}" \
 	K6_STATUS_VALUE="${k6_status}" SAMPLER_STATUS_VALUE="${sampler_status}" \
 	INTEGRITY_STATUS_VALUE="${integrity_status}" WARMUP_STATUS_VALUE="${warmup_status}" \
 	CONTINUITY_STATUS_VALUE="${runtime_continuity_status}" \
@@ -803,6 +983,11 @@ run_endpoint() {
 				redisImageId: process.env.REDIS_IMAGE_ID_VALUE,
 				redisContainerStartedAt: process.env.REDIS_STARTED_AT_VALUE,
 				redisIdentity: JSON.parse(process.env.REDIS_IDENTITY_VALUE),
+				appLogConfig: JSON.parse(process.env.APP_LOG_CONFIG_VALUE),
+				daemonLogMaximumRetainedBytes: process.env.DAEMON_LOG_MAXIMUM_RETAINED_BYTES_VALUE,
+				sqlGzipMaximumBytes: process.env.SQL_GZIP_MAX_BYTES_VALUE,
+				nonSqlEvidenceMaximumBytes: process.env.NON_SQL_MAX_BYTES_VALUE,
+				sqlEvidenceAttestation: JSON.parse(process.env.SQL_ATTESTATION_JSON),
 				resourceContainerIds: {
 					[process.env.APP_CONTAINER_VALUE]: process.env.APP_CONTAINER_ID_VALUE,
 					[process.env.DB_CONTAINER_VALUE]: process.env.DB_CONTAINER_ID_VALUE,
@@ -835,9 +1020,19 @@ run_endpoint() {
 	set +e
 	node "${ROOT_DIR}/summarize-run.mjs" \
 		"${endpoint}" "${summary_file}" "${before_file}" "${after_file}" \
-		"${sql_log_file}" "${resource_file}" "${integrity_file}" "${metadata_file}" "${report_file}"
+		"${sql_log_file}" "${sql_attestation_file}" "${resource_file}" "${integrity_file}" "${metadata_file}" "${report_file}"
 	summarize_status=$?
 	set -e
+	set +e
+	PERF_NON_SQL_EVIDENCE_MAX_BYTES="${PERF_NON_SQL_EVIDENCE_MAX_BYTES}" \
+		node "${STORAGE_BUDGET}" --measure-non-sql "${endpoint_dir}" "${sql_log_file}" \
+		> "${REPORT_ROOT}/storage-after-${mode}-${endpoint}.json"
+	non_sql_status=$?
+	set -e
+	if (( non_sql_status != 0 )); then
+		echo "Non-SQL endpoint evidence exceeded its approved storage bound." >&2
+		return "${non_sql_status}"
+	fi
 	if ! measurement_status="$(node -e '
 		const fs = require("node:fs");
 		const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -885,6 +1080,9 @@ run_endpoint() {
 		return "${after_snapshot_status}"
 	fi
 	overall_non_adoptable=1
+	remaining_endpoint_count=$((remaining_endpoint_count - 1))
+	record_storage_budget "${remaining_endpoint_count}" \
+		"${REPORT_ROOT}/storage-projection-after-${mode}-${endpoint}.json"
 	node "${TOOLING_PROVENANCE}" --assert-manifest "${PERF_SCENARIO_WORKTREE}" "${EXPECTED_SCENARIO_HEAD}" "${FIXTURE_MANIFEST}"
 	echo "Conditional evidence preserved for ${mode}/${endpoint}; continuing the approved sequential scope." >&2
 }
@@ -897,6 +1095,14 @@ else
 		*) echo "Mode must be all, prayer, poll-member, poll-admin, or poll-duty." >&2; exit 1 ;;
 	esac
 fi
+
+remaining_endpoint_count=0
+for mode in "${modes[@]}"; do
+	for endpoint in $(endpoints_for_mode "${mode}"); do
+		remaining_endpoint_count=$((remaining_endpoint_count + 1))
+	done
+done
+record_storage_budget "${remaining_endpoint_count}" "${REPORT_ROOT}/storage-projection-initial.json"
 
 for mode in "${modes[@]}"; do
 	for endpoint in $(endpoints_for_mode "${mode}"); do

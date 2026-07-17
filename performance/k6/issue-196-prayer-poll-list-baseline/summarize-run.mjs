@@ -3,10 +3,13 @@ import { dirname, resolve } from 'node:path';
 import { validateRuntimeIdentity } from './validate-runtime-identity.mjs';
 import { FIXTURE_CONTRACT } from './fixture-contract.mjs';
 import { normalizeCounterMetric, normalizeFailureRate } from './k6-rate-contract.mjs';
+import { validateSqlEvidence } from './sql-evidence.mjs';
 
-const [endpoint, summaryPath, beforePath, afterPath, sqlLogPath, resourcePath, integrityPath, metadataPath, outputPath] = process.argv.slice(2);
-if (![endpoint, summaryPath, beforePath, afterPath, sqlLogPath, resourcePath, integrityPath, metadataPath, outputPath].every(Boolean)) {
-	throw new Error('Usage: node summarize-run.mjs <endpoint> <k6-summary> <db-before> <db-after> <sql-log> <resource-tsv> <integrity-jsonl> <metadata> <output>');
+const [endpoint, summaryPath, beforePath, afterPath, sqlLogPath, sqlAttestationPath,
+	resourcePath, integrityPath, metadataPath, outputPath] = process.argv.slice(2);
+if (![endpoint, summaryPath, beforePath, afterPath, sqlLogPath, sqlAttestationPath,
+	resourcePath, integrityPath, metadataPath, outputPath].every(Boolean)) {
+	throw new Error('Usage: node summarize-run.mjs <endpoint> <k6-summary> <db-before> <db-after> <sql-log-gzip> <sql-attestation> <resource-tsv> <integrity-jsonl> <metadata> <output>');
 }
 
 const TOOL_STATUS = 'scenario-ready';
@@ -67,23 +70,19 @@ if (![k6ExitStatus, resourceSamplerExitStatus, fixtureWindowExitStatus, logCaptu
 const summary = readJsonOptional(summaryPath);
 const before = readJsonOptional(beforePath);
 const after = readJsonOptional(afterPath);
-const sqlLog = readTextOptional(sqlLogPath);
 const resourceText = readTextOptional(resourcePath);
 const integritySamples = readJsonLinesOptional(integrityPath);
 const metricName = endpoint.replace(/-/g, '_');
 const durationValues = metricValues(summary || {}, `endpoint_${metricName}_duration`);
 const requestValues = metricValues(summary || {}, `endpoint_${metricName}_requests`);
-const queryLines = extractSql(sqlLog || '');
-
-const repeatedSqlMap = new Map();
-for (const query of queryLines) {
-	const normalized = normalizeSql(query);
-	repeatedSqlMap.set(normalized, (repeatedSqlMap.get(normalized) || 0) + 1);
+let sqlEvidence = null;
+let sqlEvidenceError = null;
+try {
+	sqlEvidence = await validateSqlEvidence(sqlLogPath, sqlAttestationPath);
+} catch (error) {
+	sqlEvidenceError = error;
 }
-const repeatedSql = [...repeatedSqlMap.entries()]
-	.map(([sql, count]) => ({ sql, count }))
-	.filter((entry) => entry.count > 1)
-	.sort((left, right) => right.count - left.count || left.sql.localeCompare(right.sql));
+const repeatedSql = sqlEvidence?.repeatedSql || [];
 
 let requestMetric = null;
 let requestMetricError = null;
@@ -100,7 +99,7 @@ try {
 } catch (error) {
 	failureMetricError = error;
 }
-const queryCount = queryLines.length;
+const queryCount = sqlEvidence?.queryCount ?? 0;
 const failureRate = failureMetric?.rate ?? null;
 const failurePasses = failureMetric?.passes ?? null;
 const failureFails = failureMetric?.fails ?? null;
@@ -131,7 +130,12 @@ if (metadata.runtime?.appImageId !== metadata.runtime?.expectedAppImageId
 }
 if (!summary) rejectionReasons.push('missing-k6-summary');
 if (!before || !after) rejectionReasons.push('missing-db-snapshot');
-if (queryLines.length === 0) rejectionReasons.push('missing-sql-evidence');
+if (!sqlEvidence || queryCount === 0) rejectionReasons.push('missing-sql-evidence');
+if (sqlEvidenceError) addReason('invalid-sql-evidence');
+if (sqlEvidence && !semanticEqual(metadata.runtime?.sqlEvidenceAttestation, sqlEvidence.attestation)) {
+	addReason('sql-evidence-attestation-mismatch');
+}
+for (const reason of validateStorageContract(metadata.runtime, sqlEvidence)) addReason(reason);
 if (resourceText === null) rejectionReasons.push('missing-resource-evidence');
 for (const name of [`endpoint_${metricName}_duration`, `endpoint_${metricName}_requests`, `endpoint_${metricName}_failures`]) {
 	if (!Object.hasOwn(summary?.metrics || {}, name)) addReason(`missing-required-metric:${name}`);
@@ -205,6 +209,7 @@ const report = {
 	},
 	db: {
 		queryCount,
+		sqlEvidence: sqlEvidence?.attestation || null,
 		queriesPerRequest: requestCount === 0 ? null : queryCount / requestCount,
 		repeatedSql,
 		tableCounterDelta,
@@ -267,23 +272,6 @@ function metricValues(k6Summary, name) {
 	return metric.values && typeof metric.values === 'object' ? metric.values : metric;
 }
 
-function extractSql(log) {
-	return log.split(/\r?\n/)
-		.filter((line) => line.includes('org.hibernate.SQL'))
-		.map((line) => line.slice(line.indexOf('org.hibernate.SQL') + 'org.hibernate.SQL'.length)
-			.replace(/^\s*[-:]?\s*/, ''))
-		.filter(Boolean);
-}
-
-function normalizeSql(sql) {
-	return sql
-		.replace(/'[^']*'/g, '?')
-		.replace(/\b\d+\b/g, '?')
-		.replace(/\s+/g, ' ')
-		.trim()
-		.toLowerCase();
-}
-
 function diffTableCounters(beforeTables, afterTables) {
 	const beforeByName = new Map(beforeTables.map((table) => [table.relname, table]));
 	const counters = ['seq_scan', 'seq_tup_read', 'idx_scan', 'idx_tup_fetch', 'n_tup_ins', 'n_tup_upd', 'n_tup_del'];
@@ -299,6 +287,31 @@ function diffTableCounters(beforeTables, afterTables) {
 		}
 		return delta;
 	}).filter((table) => counters.some((counter) => table[counter] !== '0'));
+}
+
+function validateStorageContract(runtime, sqlEvidence) {
+	const reasons = [];
+	const sqlMaximum = strictDecimal(runtime?.sqlGzipMaximumBytes);
+	const nonSqlMaximum = strictDecimal(runtime?.nonSqlEvidenceMaximumBytes);
+	const daemonMaximum = strictDecimal(runtime?.daemonLogMaximumRetainedBytes);
+	const logConfig = runtime?.appLogConfig;
+	const options = logConfig?.Config;
+	const maxSizeMatch = /^([1-9][0-9]*)([kmg])$/.exec(options?.['max-size'] || '');
+	const maxFiles = strictDecimal(options?.['max-file']);
+	const exactLogConfig = logConfig && isExactObject(logConfig, ['Config', 'Type'])
+		&& logConfig.Type === 'local' && isExactObject(options, ['compress', 'max-file', 'max-size'])
+		&& options.compress === 'true' && maxSizeMatch && maxFiles !== null && maxFiles > 0n;
+	if (sqlMaximum === null || sqlMaximum <= 0n || nonSqlMaximum === null || nonSqlMaximum <= 0n
+		|| daemonMaximum === null || daemonMaximum <= 0n || !exactLogConfig) {
+		reasons.push('invalid-storage-contract');
+		return reasons;
+	}
+	const unit = { k: 1024n, m: 1024n ** 2n, g: 1024n ** 3n }[maxSizeMatch[2]];
+	if (BigInt(maxSizeMatch[1]) * unit * maxFiles !== daemonMaximum) reasons.push('invalid-storage-contract');
+	if (sqlEvidence && BigInt(sqlEvidence.attestation.compressedBytes) > sqlMaximum) {
+		reasons.push('sql-evidence-size-bound-exceeded');
+	}
+	return reasons;
 }
 
 function validateTableEvidence(before, after) {

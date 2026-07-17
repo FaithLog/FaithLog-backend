@@ -66,6 +66,7 @@ function runFakeRuntimePrep({ unrelatedEnvDrift = false } = {}) {
 	const reportRoot = join(temporary, 'reports');
 	const state = join(temporary, 'runtime-state');
 	const calls = join(temporary, 'calls.log');
+	const project = `i196-prep-${process.pid}-${unrelatedEnvDrift ? 'drift' : 'success'}`;
 	mkdirSync(scenarioWorktree);
 	mkdirSync(deployDirectory);
 	mkdirSync(bin);
@@ -86,7 +87,7 @@ function runFakeRuntimePrep({ unrelatedEnvDrift = false } = {}) {
 	writeFileSync(state, 'old\n');
 
 	const evidenceOverride = join(ROOT, 'runtime-evidence.override.yml');
-	writeFileSync(join(bin, 'docker'), fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, composeEnv, evidenceOverride, unrelatedEnvDrift }));
+	writeFileSync(join(bin, 'docker'), fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, composeEnv, evidenceOverride, unrelatedEnvDrift, project }));
 	writeFileSync(join(bin, 'node'), `#!/usr/bin/env bash\nif [[ "$1" == -e && "$2" == *"await fetch"* ]]; then exit 0; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
 	chmodSync(join(bin, 'docker'), 0o755);
 	chmodSync(join(bin, 'node'), 0o755);
@@ -107,9 +108,10 @@ function runFakeRuntimePrep({ unrelatedEnvDrift = false } = {}) {
 			PERF_BASE_OVERRIDE_FILE: baseOverride,
 			PERF_COMPOSE_ENV_FILE: composeEnv,
 			PERF_APP_READY_TIMEOUT_SECONDS: '2',
+			PERF_APP_LOG_MAX_SIZE: '64m', PERF_APP_LOG_MAX_FILE: '3',
 			BASE_URL: 'http://127.0.0.1:28080',
 			APP_CONTAINER: 'approved-app', DB_CONTAINER: 'approved-db', REDIS_CONTAINER: 'approved-redis',
-			EXPECTED_COMPOSE_PROJECT: 'approved-project', EXPECTED_APP_SERVICE: 'app',
+			EXPECTED_COMPOSE_PROJECT: project, EXPECTED_APP_SERVICE: 'app',
 			EXPECTED_DB_SERVICE: 'postgres', EXPECTED_REDIS_SERVICE: 'redis', EXPECTED_SOURCE_REVISION: sourceRevision,
 			EXPECTED_CURRENT_APP_CONTAINER_ID: 'app-old-id', EXPECTED_CURRENT_APP_IMAGE_ID: 'sha256:app-old',
 			EXPECTED_CURRENT_APP_STARTED_AT: '2026-07-16T00:00:00.000Z', EXPECTED_CURRENT_APP_CONFIG_HASH: 'app-old-hash',
@@ -134,7 +136,7 @@ function commitRepository(directory, message, detach = false) {
 	return head;
 }
 
-function fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, composeEnv, evidenceOverride, unrelatedEnvDrift }) {
+function fakeDocker({ state, calls, deployDirectory, baseCompose, baseOverride, composeEnv, evidenceOverride, unrelatedEnvDrift, project }) {
 	const oldEnv = JSON.stringify([
 		'SPRING_PROFILES_ACTIVE=local', 'SPRING_DATASOURCE_PASSWORD=db-super-secret', 'JWT_SECRET=jwt-super-secret',
 		'FIREBASE_CONFIG_BASE64=firebase-super-secret', 'FAITHLOG_SCHEDULER_ENABLED=false',
@@ -161,7 +163,7 @@ format="$3"; container="$4"
 case "$format|$container" in
 	*com.docker.compose.project.config_files*approved-app) if [[ "$runtime_state" == old ]]; then echo ${baseCompose},${baseOverride}; else echo ${baseCompose},${baseOverride},${evidenceOverride}; fi ;;
 	*com.docker.compose.project.working_dir*approved-app) echo ${deployDirectory} ;;
-	*com.docker.compose.project*approved-*) echo approved-project ;;
+	*com.docker.compose.project*approved-*) echo ${project} ;;
 	*com.docker.compose.service*approved-app) echo app ;;
 	*com.docker.compose.service*approved-db) echo postgres ;;
 	*com.docker.compose.service*approved-redis) echo redis ;;
@@ -181,6 +183,7 @@ case "$format|$container" in
 	'{{.State.StartedAt}}|approved-db') echo 2026-07-15T00:00:00.000Z ;;
 	'{{.State.StartedAt}}|approved-redis') echo 2026-07-15T00:00:00.000Z ;;
 	'{{json .Config.Env}}|approved-app') if [[ "$runtime_state" == old ]]; then printf '%s\\n' ${JSON.stringify(oldEnv)}; else printf '%s\\n' ${JSON.stringify(newEnv)}; fi ;;
+	'{{json .HostConfig.LogConfig}}|approved-app') printf '%s\\n' '{"Type":"local","Config":{"max-size":"64m","max-file":"3","compress":"true"}}' ;;
 	*) echo "unexpected fake docker inspect: $format $container" >&2; exit 91 ;;
 esac
 `;

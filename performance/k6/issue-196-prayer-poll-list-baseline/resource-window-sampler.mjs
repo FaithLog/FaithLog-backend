@@ -163,9 +163,11 @@ async function nextWithDeadline(iterator, timeoutMilliseconds) {
 	}
 }
 
-async function streamDockerSnapshots(samplesPath, stopFile, maxGapSeconds, bindings) {
+async function streamDockerSnapshots(samplesPath, readyFile, stopFile, maxGapSeconds, bindings) {
+	assert.ok(typeof readyFile === 'string' && readyFile.length > 0, 'readyFile is required');
 	assert.ok(typeof stopFile === 'string' && stopFile.length > 0, 'stopFile is required');
 	positiveFinite(maxGapSeconds, 'maxGapSeconds');
+	assert.equal(fs.existsSync(readyFile), false, 'resource sampler ready marker must be fresh');
 	assert.equal(fs.existsSync(stopFile), false, 'resource sampler stop marker must not exist before streaming starts');
 	const reader = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 	const iterator = reader[Symbol.asyncIterator]();
@@ -173,6 +175,7 @@ async function streamDockerSnapshots(samplesPath, stopFile, maxGapSeconds, bindi
 	let stoppedAfterBoundarySnapshot = false;
 	let snapshotDeadline = Date.now() + (maxGapSeconds * 1000);
 	try {
+		fs.writeFileSync(readyFile, 'ready\n', { flag: 'wx', mode: 0o600 });
 		while (!stoppedAfterBoundarySnapshot) {
 			const remainingMilliseconds = snapshotDeadline - Date.now();
 			assert.ok(remainingMilliseconds > 0, 'Docker stats stream exceeded maxGapSeconds before a complete snapshot');
@@ -202,8 +205,8 @@ async function main() {
 		return;
 	}
 	if (command === 'stream-samples') {
-		const [samplesPath, stopFile, maxGap, ...bindingArgs] = args;
-		await streamDockerSnapshots(samplesPath, stopFile, Number(maxGap), parseBindings(bindingArgs));
+		const [samplesPath, readyFile, stopFile, maxGap, ...bindingArgs] = args;
+		await streamDockerSnapshots(samplesPath, readyFile, stopFile, Number(maxGap), parseBindings(bindingArgs));
 		return;
 	}
 	throw new Error('Mode must be append-snapshot or stream-samples.');

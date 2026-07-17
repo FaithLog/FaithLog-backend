@@ -113,7 +113,7 @@ test('fake Docker follower requires --follow boundaries and propagates incomplet
 		const nodeLeak = join(temporary, 'node-secret-leak');
 		const dockerLeak = join(temporary, 'docker-secret-leak');
 		writeFileSync(join(bin, 'node'), `#!/usr/bin/env bash\nset -euo pipefail\nif env | grep -Eq '^(PERF_ADMIN_PASSWORD|PERF_DB_PASSWORD|UNKNOWN_CAPTURE_SECRET)='; then : > ${JSON.stringify(nodeLeak)}; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
-		writeFileSync(docker, `#!/usr/bin/env bash\nset -euo pipefail\nif env | grep -Eq '^(PERF_ADMIN_PASSWORD|PERF_DB_PASSWORD|UNKNOWN_CAPTURE_SECRET)='; then : > ${JSON.stringify(dockerLeak)}; fi\nprintf '%s\\n' "$*" > ${JSON.stringify(join(temporary, 'docker.args'))}\nprintf '%s\\n' "$SQL_FIRST_SENTINEL"\nprintf '%s\\n' 'DEBUG org.hibernate.SQL : select 1'\nif [[ "\${FAKE_DOCKER_FAIL:-false}" == true ]]; then exit 42; fi\nprintf '%s\\n' "$SQL_FINAL_SENTINEL"\nif [[ "\${FAKE_DOCKER_FAIL_AFTER_FINAL:-false}" == true ]]; then exit 42; fi\nif [[ "\${FAKE_DOCKER_TERM_143:-false}" == true ]]; then trap 'exit 143' TERM; while :; do sleep 1; done; fi\n`);
+		writeFileSync(docker, `#!/usr/bin/env bash\nset -euo pipefail\nif env | grep -Eq '^(PERF_ADMIN_PASSWORD|PERF_DB_PASSWORD|UNKNOWN_CAPTURE_SECRET)='; then : > ${JSON.stringify(dockerLeak)}; fi\nprintf '%s\\n' "$*" > ${JSON.stringify(join(temporary, 'docker.args'))}\nprintf '%s\\n' "$SQL_FIRST_SENTINEL"\nprintf '%s\\n' 'DEBUG org.hibernate.SQL : select 1'\nif [[ "$*" == *fake-app-fail ]]; then exit 42; fi\nprintf '%s\\n' "$SQL_FINAL_SENTINEL"\nif [[ "$*" == *fake-app-late-fail ]]; then exit 42; fi\nif [[ "$*" == *fake-app-term-143 ]]; then trap 'exit 143' TERM; while :; do sleep 1; done; fi\n`);
 		chmodSync(join(bin, 'node'), 0o700);
 		chmodSync(docker, 0o700);
 		const complete = runFollower(temporary, {
@@ -128,7 +128,7 @@ test('fake Docker follower requires --follow boundaries and propagates incomplet
 		const dockerCliStopDirectory = mkdtempSync(join(tmpdir(), 'faithlog-196-fake-docker-143-'));
 		try {
 			const dockerCliStop = runFollower(dockerCliStopDirectory, {
-				PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_TERM_143: 'true',
+				PATH: `${bin}:${process.env.PATH}`, APP_CONTAINER: 'fake-app-term-143',
 			});
 			assert.equal(dockerCliStop.error, undefined);
 			assert.equal(dockerCliStop.signal, null);
@@ -140,7 +140,7 @@ test('fake Docker follower requires --follow boundaries and propagates incomplet
 		const failedDirectory = mkdtempSync(join(tmpdir(), 'faithlog-196-fake-docker-fail-'));
 		try {
 			const failed = runFollower(failedDirectory, {
-				PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_FAIL: 'true',
+				PATH: `${bin}:${process.env.PATH}`, APP_CONTAINER: 'fake-app-fail',
 			});
 			assert.notEqual(failed.status, 0);
 			assert.equal(existsSync(join(failedDirectory, 'hibernate-sql.log.gz')), false);
@@ -150,7 +150,7 @@ test('fake Docker follower requires --follow boundaries and propagates incomplet
 		const lateFailureDirectory = mkdtempSync(join(tmpdir(), 'faithlog-196-fake-docker-late-fail-'));
 		try {
 			const failed = runFollower(lateFailureDirectory, {
-				PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_FAIL_AFTER_FINAL: 'true',
+				PATH: `${bin}:${process.env.PATH}`, APP_CONTAINER: 'fake-app-late-fail',
 			});
 			assert.notEqual(failed.status, 0);
 			assert.equal(existsSync(join(lateFailureDirectory, 'hibernate-sql.log.gz')), false);
@@ -271,13 +271,14 @@ function runFollower(directory, extraEnv) {
 
 function followerEnv(directory, extraEnv) {
 	return {
-		...process.env, ...extraEnv,
+		...process.env,
 		APP_CONTAINER: 'fake-app', LOG_SINCE: '2026-07-17T00:00:00.000Z',
 		SQL_FIRST_SENTINEL: FIRST, SQL_FINAL_SENTINEL: FINAL,
 		SQL_EVIDENCE_ARTIFACT: join(directory, 'hibernate-sql.log.gz'),
 		SQL_EVIDENCE_ATTESTATION: join(directory, 'sql-evidence-attestation.json'),
 		SQL_EVIDENCE_READY_FILE: join(directory, 'sql-evidence.ready'),
 		SQL_GZIP_MAX_BYTES: '67108864', FAKE_DOCKER_ARGS: join(directory, 'docker.args'),
+		...extraEnv,
 	};
 }
 

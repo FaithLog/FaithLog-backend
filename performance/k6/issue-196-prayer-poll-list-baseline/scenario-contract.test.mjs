@@ -1497,6 +1497,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			'#!/usr/bin/env bash',
 			'if [[ "$1" == *tooling-provenance.mjs ]]; then exit 0; fi',
 			'if [[ "$1" == *db-quiescence.mjs ]]; then exit 0; fi',
+			`if [[ "$*" == *resource-window-sampler.mjs*stream-samples* ]]; then sleep "${'${FAKE_RESOURCE_SAMPLER_READY_DELAY:-0}'}"; echo sampler-ready >> "${calls}"; fi`,
 			`if [[ -n "${'${PERF_ADMIN_EMAIL+x}${PERF_ADMIN_PASSWORD+x}${PERF_MEMBER_PASSWORD+x}${PERF_DB_USER+x}${PERF_DB_NAME+x}${PERF_DB_PASSWORD+x}'}" ]]; then echo node-scope-bad >> "${calls}"; fi`,
 			`if [[ "$*" == *"await fetch"* ]]; then echo login >> "${calls}"; printf 'x.eyJleHAiOjQxMDI0NDQ4MDB9.x'; exit 0; fi`,
 			`if [[ "$*" == *"const metadata"* ]]; then [[ -n "${'${PERF_ACCESS_TOKEN+x}${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}'}" ]] && echo metadata-scope-bad >> "${calls}"; echo metadata-child >> "${calls}"; fi`,
@@ -1509,6 +1510,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			`if [[ -n "${'${PERF_ADMIN_ACCESS_TOKEN+x}${PERF_MEMBER_ACCESS_TOKEN+x}${PERF_COFFEE_CREATOR_ACCESS_TOKEN+x}${PERF_OTHER_COFFEE_DUTY_ACCESS_TOKEN+x}${PERF_MEAL_DUTY_ACCESS_TOKEN+x}'}" ]]; then echo k6-scope-bad >> "${calls}"; fi`,
 			`if [[ "$*" == *"x.eyJleHAiOjQxMDI0NDQ4MDB9.x"* ]]; then echo k6-scope-bad >> "${calls}"; fi`,
 			`count=$(cat "${k6Count}" 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > "${k6Count}"`,
+			`echo "k6-start:$count" >> "${calls}"`,
 			'credentials_file=""; summary=""; while (( $# > 0 )); do if [[ "$1" == --summary-export ]]; then summary="$2"; shift 2; elif [[ "$1" == -e && "$2" == CREDENTIALS_FILE=* ]]; then credentials_file="${2#CREDENTIALS_FILE=}"; shift 2; else shift; fi; done',
 			`if [[ -z "$credentials_file" || ! -f "$credentials_file" || "$(stat -f %Lp "$credentials_file")" != 600 || "$(stat -f %Lp "$(dirname "$credentials_file")")" != 700 ]]; then echo k6-scope-bad >> "${calls}"; fi`,
 			`for key in admin member coffeeCreator otherCoffeeDuty mealDuty; do grep -q "\\\"$key\\\":" "$credentials_file" || echo k6-scope-bad >> "${calls}"; done`,
@@ -1531,6 +1533,7 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 				PERF_DB_USER: 'faithlog', PERF_DB_NAME: 'faithlog', PERF_DB_PASSWORD: 'db-secret',
 				PERF_ACCESS_TOKEN: 'stale-token', PERF_ADMIN_ACCESS_TOKEN: 'stale-admin-token', PERF_MEMBER_ACCESS_TOKEN: 'stale-member-token',
 				UNKNOWN_CAPTURE_SECRET: 'unknown-secret',
+				FAKE_RESOURCE_SAMPLER_READY_DELAY: '0.5',
 			},
 			encoding: 'utf8',
 			timeout: 60000,
@@ -1541,6 +1544,9 @@ test('fake orchestration scopes tokens and DB credentials to their required chil
 			assert.ok(observed.includes(marker), `missing fake orchestration marker ${marker}; stdout=${result.stdout}; stderr=${result.stderr}; observed=${observed.join(',')}`);
 		}
 		assert.equal(observed.some((line) => line.endsWith('scope-bad') || line.startsWith('docker-unexpected')), false);
+		assert.ok(observed.indexOf('sampler-ready') >= 0, 'delayed sampler must publish its startup boundary');
+		assert.ok(observed.indexOf('sampler-ready') < observed.indexOf('k6-start:2'),
+			'measured k6 must not start before the streaming sampler is ready');
 		const credentialsPaths = observed.filter((line) => line.startsWith('credentials-file:')).map((line) => line.slice('credentials-file:'.length));
 		assert.ok(credentialsPaths.length >= 2, 'warmup and measured phases must each receive a credentials file');
 		for (const path of credentialsPaths) {

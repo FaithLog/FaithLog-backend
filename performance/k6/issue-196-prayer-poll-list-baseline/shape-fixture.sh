@@ -78,6 +78,10 @@ seed_db_image_id="$(json_value composeRuntime.dbImageId)"
 seed_redis_image_id="$(json_value composeRuntime.redisImageId)"
 seed_app_container_id="$(json_value composeRuntime.appContainerId)"
 seed_app_started_at="$(json_value composeRuntime.appContainerStartedAt)"
+seed_app_log_driver="$(json_value composeRuntime.appLogDriver)"
+seed_app_log_max_size="$(json_value composeRuntime.appLogMaxSize)"
+seed_app_log_max_file="$(json_value composeRuntime.appLogMaxFile)"
+seed_app_log_compress="$(json_value composeRuntime.appLogCompress)"
 seed_db_container_id="$(json_value composeRuntime.dbContainerId)"
 seed_db_started_at="$(json_value composeRuntime.dbContainerStartedAt)"
 seed_redis_container_id="$(json_value composeRuntime.redisContainerId)"
@@ -134,6 +138,7 @@ db_image="$(docker inspect --format '{{.Config.Image}}' "${DB_CONTAINER}")"
 redis_image="$(docker inspect --format '{{.Config.Image}}' "${REDIS_CONTAINER}")"
 database_identity="$(capture_database_identity)"
 redis_identity="$(capture_redis_identity)"
+app_log_config="$(docker inspect --format '{{json .HostConfig.LogConfig}}' "${APP_CONTAINER}")"
 published_ports="$(docker port "${APP_CONTAINER}" 8080/tcp)"
 base_target_port="$(BASE_URL_VALUE="${BASE_URL}" PUBLISHED_BINDINGS_VALUE="${published_ports}" \
 	node "${VALIDATE_TARGET}" --host-port)" \
@@ -163,6 +168,15 @@ if [[ "${compose_project}" != "${seed_project}" || "${app_hash}" != "${seed_app_
 	echo "Refusing to shape: current Compose identity differs from the seed manifest." >&2
 	exit 1
 fi
+APP_LOG_CONFIG_JSON="${app_log_config}" EXPECTED_LOG_DRIVER="${seed_app_log_driver}" \
+	EXPECTED_LOG_MAX_SIZE="${seed_app_log_max_size}" EXPECTED_LOG_MAX_FILE="${seed_app_log_max_file}" \
+	EXPECTED_LOG_COMPRESS="${seed_app_log_compress}" node -e '
+	const actual = JSON.parse(process.env.APP_LOG_CONFIG_JSON);
+	if (actual.Type !== process.env.EXPECTED_LOG_DRIVER
+		|| actual.Config?.["max-size"] !== process.env.EXPECTED_LOG_MAX_SIZE
+		|| actual.Config?.["max-file"] !== process.env.EXPECTED_LOG_MAX_FILE
+		|| actual.Config?.compress !== process.env.EXPECTED_LOG_COMPRESS) process.exit(1);
+' || { echo "App daemon log retention differs from the seed manifest." >&2; exit 1; }
 
 PERF_PROJECT_LOCK="/tmp/faithlog-performance-${compose_project}.lock"
 if ! mkdir "${PERF_PROJECT_LOCK}" 2>/dev/null; then
@@ -184,6 +198,7 @@ assert_post_lock_runtime_identity() {
 	[[ "$(docker inspect --format '{{.Id}}' "${APP_CONTAINER}")" == "${app_container_id}"
 		&& "$(docker inspect --format '{{.Image}}' "${APP_CONTAINER}")" == "${app_image_id}"
 		&& "$(docker inspect --format '{{.State.StartedAt}}' "${APP_CONTAINER}")" == "${app_container_started_at}"
+		&& "$(docker inspect --format '{{json .HostConfig.LogConfig}}' "${APP_CONTAINER}")" == "${app_log_config}"
 		&& "$(docker inspect --format '{{.Id}}' "${DB_CONTAINER}")" == "${db_container_id}"
 		&& "$(docker inspect --format '{{.Image}}' "${DB_CONTAINER}")" == "${db_image_id}"
 		&& "$(docker inspect --format '{{.State.StartedAt}}' "${DB_CONTAINER}")" == "${db_container_started_at}"

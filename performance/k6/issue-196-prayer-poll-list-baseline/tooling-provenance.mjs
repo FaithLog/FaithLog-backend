@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 export const RUNTIME_TOOLING_FILES = Object.freeze([
 	'performance/k6/issue-196-prayer-poll-list-baseline/activity-sample.mjs',
+	'performance/k6/issue-196-prayer-poll-list-baseline/capture-sql-window.sh',
 	'performance/k6/issue-196-prayer-poll-list-baseline/db-activity.sql',
 	'performance/k6/issue-196-prayer-poll-list-baseline/db-quiescence.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/db-quiescence.sql',
@@ -25,6 +26,8 @@ export const RUNTIME_TOOLING_FILES = Object.freeze([
 	'performance/k6/issue-196-prayer-poll-list-baseline/scenario.js',
 	'performance/k6/issue-196-prayer-poll-list-baseline/seed-fixture.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/shape-fixture.sh',
+	'performance/k6/issue-196-prayer-poll-list-baseline/sql-evidence.mjs',
+	'performance/k6/issue-196-prayer-poll-list-baseline/storage-budget.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/summarize-run.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/token-lifetime.mjs',
 	'performance/k6/issue-196-prayer-poll-list-baseline/tooling-provenance.mjs',

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -37,33 +38,35 @@ test('a late bind logger record prevents every previously observed SQL statement
 
 test('SQL evidence aggregation streams an artifact beyond the Node string limit with exact normalized counts', async () => {
 	const temporary = mkdtempSync(join(tmpdir(), 'faithlog-196-large-sql-evidence-'));
-	const path = join(temporary, 'hibernate-sql.log');
-	const lineBytes = 64 * 1_024;
-	const lineCount = 8_193;
-	const totalBytes = lineBytes * lineCount;
-	const descriptor = openSync(path, 'wx', 0o600);
 	try {
-		ftruncateSync(descriptor, totalBytes);
-		const newline = Buffer.from('\n');
-		for (let index = 1; index <= lineCount; index += 1) {
-			writeSync(descriptor, newline, 0, newline.length, (index * lineBytes) - 1);
-		}
-		const statement = Buffer.from(`${SQL_STATEMENT}\n`);
-		writeSync(descriptor, statement, 0, statement.length, totalBytes - statement.length);
-	} finally {
-		closeSync(descriptor);
-	}
-
-	try {
-		const { collectSqlEvidence } = await import(`./sql-evidence.mjs?test=${Date.now()}`);
-		const evidence = await collectSqlEvidence(path);
-		assert.equal(evidence.queryCount, 1);
-		assert.deepEqual(evidence.repeatedSql, []);
-		assert.deepEqual(evidence.normalizedCounts, [{ sql: 'select u1_0.id from users u1_0 where u1_0.id=?', count: 1 }]);
+		const { captureSqlEvidence, validateSqlEvidence } = await import(`./sql-evidence.mjs?test=${Date.now()}`);
+		const artifact = join(temporary, 'hibernate-sql.log.gz');
+		const attestation = join(temporary, 'sql-evidence-attestation.json');
+		const ready = join(temporary, 'sql-evidence.ready');
+		await captureSqlEvidence(Readable.from(largeSqlStream()), {
+			artifact, attestation, ready,
+			firstMarker: 'FIRST_LARGE_SQL_WINDOW', finalMarker: 'FINAL_LARGE_SQL_WINDOW',
+			maxCompressedBytes: String(64 * 1_024 * 1_024),
+		});
+		const evidence = await validateSqlEvidence(artifact, attestation);
+		assert.equal(evidence.queryCount, 8_193);
+		assert.deepEqual(evidence.repeatedSql, [{
+			sql: `select u1_0.id from users u1_0 where u1_0.id=? -- ${'x'.repeat((64 * 1_024) - 128)}`,
+			count: 8_193,
+		}]);
 	} finally {
 		rmSync(temporary, { recursive: true, force: true });
 	}
 });
+
+function* largeSqlStream() {
+	yield 'FIRST_LARGE_SQL_WINDOW\n';
+	const padding = 'x'.repeat((64 * 1_024) - 128);
+	for (let index = 0; index < 8_193; index += 1) {
+		yield `DEBUG org.hibernate.SQL : select u1_0.id from users u1_0 where u1_0.id=${index} -- ${padding}\n`;
+	}
+	yield 'FINAL_LARGE_SQL_WINDOW\n';
+}
 
 async function runFilter({ chunks, leadingLines = [], trailingLines = [] }) {
 	const child = spawn(process.execPath, ['--max-old-space-size=32', FILTER], {
