@@ -9,6 +9,16 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-18 - Issue #196 기도조 목록 targeted after 측정
+
+- 대상/조건: `main@cfae9fff828606c20cbb4e7fde278c910efa3474`의 기도조 bulk 조회 구현을 보존된 `h05` 1,000명 fixture에서 측정했다. Before와 같은 `5 VU / 2m`, Hibernate SQL DEBUG, `show_sql=false`, `format_sql=false`, bind/extract logger OFF 조건으로 after를 3회 순차 실행했다.
+- 정확성: 세 실행 합계 63,713 requests, HTTP/custom failure `0`, correctness check `100%`를 기록했다. After 중앙값은 p50 `20.977 ms`, p95 `32.520 ms`, p99 `46.306 ms`, throughput `179.561 req/s`다.
+- 조건부 before 비교: `h05`의 p50 `250.586 ms`, p95 `536.956 ms`, p99 `925.874 ms`, throughput `16.927 req/s` 대비 p50 `91.6%`, p95 `93.9%`, p99 `95.0%` 감소, throughput `960.8%` 증가(`10.61x`)다.
+- 구조 근거: 25명/2개 조 focused integration fixture의 prepared statement를 `32 -> 7 이하`로 줄였고 API/DTO/인가/ErrorCode/transaction/조·멤버 순서를 유지했다.
+- 채택 경계: before는 외부 트래픽 완전 배제를 증명하지 못한 conditional shared-stack 단일 실행이고 after는 동일 계측 조건의 3회 중앙값이다. 따라서 이 수치는 이력서 성능 개선 사례에만 사용하며 production SLO, 최대 처리량, 용량 보장으로 사용하지 않는다. 잘못 실행한 `10 VU` 세트와 SQL 계측이 없는 세트는 진단용으로만 보존하고 비교에서 제외했다.
+- 원시 after summary: `/private/tmp/faithlog-targeted-after-196-20260718112207056`. 측정 뒤 일반 app 설정으로 복구해 health `UP`, SQL 계측 env 제거, 임시 ADMIN 전원 USER 원복, 실행 process `0`, 보고서 credential/token 패턴 `0`을 확인했다.
+- 이력서 문장 후보: `기도조 목록의 멤버별 사용자 조회 N+1을 bulk 조회로 전환해 1,000명 조건에서 p95 응답시간을 536.96ms에서 32.52ms로 93.9% 단축하고 처리량을 16.93 req/s에서 179.56 req/s로 10.61배 높였으며, 63,713건 요청에서 오류율 0%와 기존 API 계약을 유지했다.`
+
 ## 2026-07-17 - Issue #195 멤버 목록 N+1 bulk 보정
 
 - TDD RED: persistence context를 비운 통합 계약에서 동일 응답을 만들 때 관리자 사용자 4명/캠퍼스 2개 페이지는 8 SQL, 캠퍼스 ACTIVE 멤버 4명 목록은 6 SQL이 발생해 고정 3 SQL 계약에 실패했다. 페이지 number/size/totalElements/totalPages, 사용자/page 순서, 멤버십 ID 순서, ACTIVE 필터, 응답 이름·상태도 함께 고정했다.
@@ -1681,6 +1691,6 @@ Metric candidates:
 - `poll_member_results` itself completed 26,798 requests with failure rate `0`, p95 29.907 ms, throughput 226.976 requests/s, and exactly 10 SQL statements per request. Its report was rejected because the host wall clock moved backward by about one second at the same instant in runtime and all three resource streams. The report is preserved and the full run is not repeated.
 - A focused integration RED measured 32 prepared statements for 25 members across two groups. The bulk group-member/user lookup implementation now satisfies the maximum-7 contract while preserving group order, member order, profile fields, authorization, errors, transactions, API, and DTOs.
 - Focused and Prayer service/structure/REST Docs regression tests are GREEN. Full `./gradlew test build asciidoctor` completed with 556 tests, 0 failures/errors, 3 skipped; issue-local Node contracts are 53/53 GREEN. Flyway, schema, index, dependency, controller, DTO, and frontend changes are zero.
-- Resume claim remains pending a same-runtime targeted after measurement. The approved protocol is three before and three after runs on the bottleneck endpoint, reporting p50/p95/p99, throughput, failure rate, and SQL count rather than repeating a 27-endpoint forensic suite.
+- The same-runtime targeted after was completed on 2026-07-18 with three sequential `5 VU / 2m` runs under the same SQL instrumentation. See the top-level #196 entry for the exact median and comparison boundary. The full 27-endpoint suite was intentionally not repeated.
 - 2026-07-14 Issue #198 PM 재리뷰 보강: post-lock PostgreSQL/Redis identity·published endpoint 고정, immutable-ID Docker sampling, exact dummy-token prefix, Redis evidence fail-closed, signal cleanup, runtime-approved maximum-gap 계약을 합성 RED→GREEN으로 추가했다. 실제 fixture/job/Docker/DB/Redis/Firebase/baseline은 실행하지 않았으며 상태는 계속 `scenario-ready / not-measured`다. sample count, cumulative-state 전략, Docker cadence/maximum gap은 사용자 승인 전 pending이므로 성과 수치로 사용하지 않는다.
 - 2026-07-14 Issue #198 runtime 재리뷰: workload 전 exact phase continuity, final phase 축소 방지, fixture/snapshot immutable-ID exec, lock 획득 전 signal cleanup과 lock ownership 보존을 합성 계약으로 보강했다. 실제 runtime은 실행하지 않았고 성능 수치도 생성하지 않았다.
