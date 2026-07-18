@@ -10,6 +10,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-07-18 - Issue #196 Targeted After Measurement Adoption Boundary
+
+- Context: The conditional `h05` before run identified `prayer_groups` as the confirmed bottleneck at p95 `536.956 ms` and `16.927 req/s`, with about 586 captured SQL statements per request. Production bulk loading reduced the focused 25-member fixture from 32 prepared statements to at most 7 without changing the API contract.
+- Decision: Compare the preserved `h05` before with three sequential after runs using the exact `5 VU / 2m` workload and the same Hibernate SQL DEBUG, `show_sql=false`, `format_sql=false`, bind/extract OFF instrumentation. Adopt the three-run after median for a resume case study only. Exclude the accidental 10-VU run and the non-instrumented run from the comparison.
+- Result: Across 63,713 after requests, correctness was 100% and failure rate was 0. Median p50/p95/p99 were `20.977 / 32.520 / 46.306 ms` and throughput was `179.561 req/s`, corresponding to `91.6% / 93.9% / 95.0%` latency reductions and `10.61x` throughput versus the conditional before.
+- Impact: These values may be used as an explicitly scoped resume performance case study. They are not a production SLO, capacity guarantee, or proof of fully isolated traffic because the before is one conditional shared-stack run and the after is a three-run median. The full 27-endpoint suite is not repeated; API, DTO, authorization, ErrorCode, Flyway, schema, index, dependency, and frontend remain unchanged.
+
 ### 2026-07-17 - Issue #192 Current-Develop Settlement Batch Optimization
 
 - Context: The validated current-develop before bundle `EXEC192_BEFORE_CURRENT_BUNDLE_R` binds source `6796ed146244d8f3f5b5dd7048ebe16865084a97` and target SHA-256 `7e7dd3a430666112f5139cf3950f2b859dc49034c5306cee0b770cfe80b8cb62`. It passed all four mode correctness and failure gates while retaining `conditional-boundary-only`, `accepted=false`, and `automaticAdoption=false` to distinguish validated numeric evidence from machine-proven continuous exclusivity.
