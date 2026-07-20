@@ -1197,6 +1197,7 @@ class PollApiRestDocsTest {
 				.header("Authorization", "Bearer " + memberToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data[?(@.id == %d)]".formatted(pollId)).exists())
+			.andExpect(jsonPath("$.data[?(@.id == %d)].allowUserOptionAdd".formatted(pollId)).value(false))
 			.andExpect(jsonPath("$.data[?(@.id == %d)].createdByUserId".formatted(pollId)).doesNotExist())
 			.andExpect(jsonPath("$.data[?(@.id == %d)].manageableByMe".formatted(pollId)).value(false))
 			.andDo(document("poll-list-success",
@@ -1206,6 +1207,7 @@ class PollApiRestDocsTest {
 				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
 				relaxedResponseFields(apiResponseFields(
 					fieldWithPath("data[]").description("조회 가능한 투표 목록"),
+					fieldWithPath("data[].allowUserOptionAdd").description("일반 사용자의 투표 항목 추가 허용 여부"),
 					fieldWithPath("data[].manageableByMe").description("현재 사용자가 이 투표를 관리할 수 있는지 여부")
 				))
 			));
@@ -1214,6 +1216,7 @@ class PollApiRestDocsTest {
 				.header("Authorization", "Bearer " + memberToken))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.myResponse.optionIds[0]").value(firstOptionId))
+			.andExpect(jsonPath("$.data.allowUserOptionAdd").value(false))
 			.andExpect(jsonPath("$.data.createdByUserId").doesNotExist())
 			.andExpect(jsonPath("$.data.manageableByMe").value(false))
 			.andDo(document("poll-detail-success",
@@ -1226,6 +1229,7 @@ class PollApiRestDocsTest {
 				),
 				relaxedResponseFields(apiResponseFields(
 					fieldWithPath("data.id").description("투표 ID"),
+					fieldWithPath("data.allowUserOptionAdd").description("일반 사용자의 투표 항목 추가 허용 여부"),
 					fieldWithPath("data.manageableByMe").description("현재 사용자가 이 투표를 관리할 수 있는지 여부"),
 					fieldWithPath("data.options[]").description("선택지 목록"),
 					fieldWithPath("data.myResponse").optional().description("현재 로그인 사용자의 응답. 미응답이면 null")
@@ -1408,6 +1412,16 @@ class PollApiRestDocsTest {
 			.getContentAsString();
 		long pollId = objectMapper.readTree(pollBody).path("data").path("id").asLong();
 		openPoll(pollId);
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/polls", campusId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[?(@.id == %d)].allowUserOptionAdd".formatted(pollId)).value(true));
+
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/polls/{pollId}", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.allowUserOptionAdd").value(true));
 
 		String optionBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, pollId)
 				.header("Authorization", "Bearer " + memberToken)
