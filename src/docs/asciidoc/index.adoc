@@ -2500,7 +2500,7 @@ include::{snippets}/poll-response-empty-selection-count-error/response-fields.ad
 
 `GET /api/v1/campuses/{campusId}/polls`
 
-각 항목의 `manageableByMe`는 현재 요청자가 이 투표의 관리 command를 실행할 수 있는지 나타낸다. COFFEE 투표는 생성자인 ACTIVE COFFEE 담당자만 `true`, MEAL 투표는 ACTIVE MEAL 담당자만 `true`, 그 외 투표는 기존 관리자 command 권한이 있을 때 `true`다. 투표 생성자 사용자 ID는 공개하지 않으며, 프론트는 역할을 재조합하지 않고 `manageableByMe`로 관리 버튼을 제어한다.
+각 항목의 `allowUserOptionAdd`는 일반 사용자의 선택지 추가 허용 여부를 나타낸다. `manageableByMe`는 현재 요청자가 이 투표의 관리 command를 실행할 수 있는지 나타낸다. COFFEE 투표는 생성자인 ACTIVE COFFEE 담당자만 `true`, MEAL 투표는 ACTIVE MEAL 담당자만 `true`, 그 외 투표는 기존 관리자 command 권한이 있을 때 `true`다. 투표 생성자 사용자 ID는 공개하지 않으며, 프론트는 역할을 재조합하지 않고 `manageableByMe`로 관리 버튼을 제어한다.
 
 ==== Request
 
@@ -2526,7 +2526,7 @@ include::{snippets}/poll-list-success/response-fields.adoc[]
 
 `GET /api/v1/campuses/{campusId}/polls/{pollId}`
 
-목록과 동일한 규칙으로 계산한 `manageableByMe`만 반환하며 투표 생성자 사용자 ID는 공개하지 않는다.
+목록과 동일한 `allowUserOptionAdd` 설정값과 계산된 `manageableByMe`를 반환하며 투표 생성자 사용자 ID는 공개하지 않는다.
 
 ==== Request
 
