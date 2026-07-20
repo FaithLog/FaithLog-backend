@@ -1127,3 +1127,9 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Context: The preserved #196 `h05` `prayer_groups` endpoint completed 2,035 requests with zero failures, p95 536.956 ms, throughput 16.927 requests/s, and about 586 SQL statements per request. The dominant query was a scalar `users.id` lookup repeated for group members.
 - Decision: Keep the API, authorization, ordering, transaction, error, and DTO contracts unchanged. Load active members for all returned groups once and resolve all member users once, then assemble results in existing group and member order. No Flyway, index, dependency, or frontend change is required.
 - Impact: The regression test reproduced 32 prepared statements for 25 users across two groups against a maximum of 7. The bulk implementation passes that contract and the Prayer service/structure/REST Docs regression suite. After latency and throughput are not yet measured.
+
+## 2026-07-20 - Expose poll user-option-add setting in query responses
+
+- Decision: `GET /api/v1/campuses/{campusId}/polls`의 각 항목과 `GET /api/v1/campuses/{campusId}/polls/{pollId}` 상세 응답에 저장된 `allowUserOptionAdd` boolean을 필수 필드로 반환한다.
+- Decision: 프론트는 누락값을 추론하지 않고 이 필드가 `true`일 때만 사용자 선택지 추가 UI를 노출한다. 실제 추가 요청의 ACTIVE 멤버, OPEN 상태, 활성 시간 구간 검증은 서버가 계속 수행한다.
+- Decision: API 경로, 요청 DTO, 권한, 오류 코드, Entity, DB/Flyway 계약은 변경하지 않는다.
