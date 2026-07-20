@@ -356,3 +356,18 @@ Fresh `h05` completed the five Prayer endpoints plus `poll_member_list`, `poll_m
 The actionable before is `prayer_groups`: 2,035 requests, p50 250.586 ms, p95 536.956 ms, p99 925.874 ms, max 2,798.857 ms, throughput 16.927 requests/s, failure rate `0`, and about 586 SQL statements per request. Scalar user lookup dominated the captured SQL. A focused integration RED reproduced 32 prepared statements for 25 users in two groups against a maximum of 7. Production now loads all active group members once and all member users once, preserving API, authorization, errors, transaction, group order, and member order. No Flyway, index, dependency, controller, DTO, or frontend change is needed. Full Gradle test/build/asciidoctor is GREEN with 556 tests, 0 failures/errors and 3 skipped; issue-local Node contracts are 53/53 GREEN.
 
 Per the user-approved resume-oriented policy, `h05` is the last full 27-endpoint attempt. After verification targets only one to three confirmed bottleneck endpoints with the same fixture/workload, correctness and zero failures, and three before plus three after runs. The comparison reports p50/p95/p99, throughput, and SQL count. No improvement percentage is claimed until that after measurement is complete.
+
+## 2026-07-18 targeted integration after
+
+The optimized `prayer_groups` endpoint was measured from `main@cfae9fff828606c20cbb4e7fde278c910efa3474` against the preserved `h05` 1,000-member fixture. The valid comparison used the same `5 VU / 2m` workload and the same Hibernate SQL DEBUG instrumentation (`show_sql=false`, `format_sql=false`, bind/extract OFF) for three sequential after repetitions.
+
+| Run | Requests | Throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | Max (ms) | Failure |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 19,921 | 165.989 | 22.081 | 40.535 | 70.960 | 301.502 | 0 |
+| 2 | 21,551 | 179.561 | 20.977 | 32.520 | 46.306 | 280.835 | 0 |
+| 3 | 22,241 | 185.321 | 20.430 | 29.141 | 40.738 | 283.314 | 0 |
+| Median | - | 179.561 | 20.977 | 32.520 | 46.306 | 283.314 | 0 |
+
+All 63,713 requests passed the endpoint correctness contract with HTTP/custom failure rate `0`. Compared with the conditional `h05` before (p50 `250.586 ms`, p95 `536.956 ms`, p99 `925.874 ms`, throughput `16.927 req/s`), the medians represent p50 `91.6%`, p95 `93.9%`, and p99 `95.0%` reductions and throughput `10.61x` (`+960.8%`). The focused integration contract independently records prepared statements decreasing from 32 to at most 7 for 25 members across two groups.
+
+This is resume case-study evidence, not a production SLO or capacity guarantee: `h05` is one conditional shared-stack before run and after is a three-run median. An accidental 10-VU set and a 5-VU set without SQL instrumentation are diagnostic-only and excluded. Raw valid summaries are under `/private/tmp/faithlog-targeted-after-196-20260718112207056`. The app was restored without SQL instrumentation after the run, health returned `UP`, temporary ADMIN accounts were restored to USER, and no credential/token pattern was found in the report tree.
