@@ -18,6 +18,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 단일 운영 health GET은 HTTP 200/`UP`과 no-store/nosniff/frame-deny를 확인했다. Cloud Run·Cloud Build·IAM·Secret Manager·Supabase·Upstash·Firebase·Artifact Registry 콘솔 통제는 인증된 도구 부재로 미검증이며, 이를 확인된 방어로 과장하지 않는다.
 - focused Spring Security/Flyway/FCM/Redis 검증은 모두 통과했다. 공격 스캔, 부하, 운영 credential, DB/Redis 접근, 인프라 설정 변경은 0건이다.
 
+## 2026-07-27 - Issue #208 공통 성능 하네스 호환성 감사
+
+- 최신 통합 `origin/develop@5de059f66f9243983fbff830e295cd48577aa490`에서 #192~#199의 10개 공통 경계(JSON 초기화, k6 v2 metric 수학, secret serialization, token TTL, Docker identity/unit, psql machine I/O, report freshness, DB attribution, runtime continuity, macOS/k6 v2)를 감사했다.
+- 적용 가능한 모든 셀이 PASS했다. #194는 EXPLAIN-only, #198은 local Gradle harness이므로 k6 HTTP 전용 셀만 근거가 명시된 N/A다.
+- 설치된 `k6 v2.0.0`의 inspect와 no-HTTP synthetic run이 성공했고 `httpSamples=0`, sentinel token 미직렬화를 확인했다. 모든 target의 시작/종료 HEAD와 clean 상태가 동일했고 최종 `patchQueue=[]`, `actualLoadBlocked=false`다.
+- 감사 중 #195 테스트가 immutable before source SHA를 moving `origin/develop`과 비교하는 거짓 실패를 발견했다. 과거 측정 identity/report는 변경하지 않고 테스트가 승인된 before SHA를 직접 검증하도록 수정했다.
+- 이 작업은 실제 HTTP/DB/Docker/fixture/k6 부하를 실행하지 않았으며 상태는 `scenario-ready-not-measured`, `automaticAdoption=false`다. 따라서 성능·처리량·용량·개선 수치로 사용하지 않는다.
+
 ## 2026-07-18 - Issue #196 기도조 목록 targeted after 측정
 
 - 대상/조건: `main@cfae9fff828606c20cbb4e7fde278c910efa3474`의 기도조 bulk 조회 구현을 보존된 `h05` 1,000명 fixture에서 측정했다. Before와 같은 `5 VU / 2m`, Hibernate SQL DEBUG, `show_sql=false`, `format_sql=false`, bind/extract logger OFF 조건으로 after를 3회 순차 실행했다.
