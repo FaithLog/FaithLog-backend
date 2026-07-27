@@ -36,8 +36,10 @@ import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,6 +78,9 @@ class BillingQueryServiceTest {
 
 	@Autowired
 	private EntityManager entityManager;
+
+	@Autowired
+	private Clock clock;
 
 	@Autowired
 	private EntityManagerFactory entityManagerFactory;
@@ -808,7 +813,7 @@ class BillingQueryServiceTest {
 			dueDate
 		));
 		if (status == ChargeStatus.PAID) {
-			chargeItem.markPaid(Instant.parse("2026-06-20T12:00:00Z"));
+			chargeItem.markPaid(clock.instant().minus(1, ChronoUnit.DAYS));
 		} else if (status == ChargeStatus.WAIVED) {
 			chargeItem.waive();
 		} else if (status == ChargeStatus.CANCELED) {
