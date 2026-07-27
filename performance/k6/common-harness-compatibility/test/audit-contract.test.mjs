@@ -79,6 +79,14 @@ test('installed-k6 fixture is no-HTTP and handleSummary excludes its token senti
 	assert.match(runner, /\['run', '--quiet', fixture\]/);
 });
 
+test('focused compatibility tests have enough headroom for the slowest integrated contract', () => {
+	const runner = fs.readFileSync(path.join(root, 'run-audit.mjs'), 'utf8');
+	const timeout = runner.match(/const FOCUSED_TEST_TIMEOUT_MS = ([\d_]+);/);
+	assert.ok(timeout, 'focused test timeout must be an explicit named contract');
+	assert.ok(Number(timeout[1].replaceAll('_', '')) >= 120_000);
+	assert.match(runner, /timeout: FOCUSED_TEST_TIMEOUT_MS/);
+});
+
 test('EXPLAIN-only #194 and local Gradle #198 do not inherit irrelevant k6 HTTP gates', () => {
 	for (const issueNumber of [194, 198]) {
 		const target = contract.targets.find((candidate) => candidate.issueNumber === issueNumber);
