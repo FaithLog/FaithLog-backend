@@ -9,6 +9,23 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-27 - Issue #161 배포·공급망 보안 재감사
+
+- 최신 `develop@7b96a53`을 기준으로 저장소, 의존성, GitHub 설정, 배포 경계와 운영 health를 읽기 전용 재감사했다.
+- 7월 13일 High finding이던 Spring Security 6.5.0은 #186 이후 Spring Boot 3.5.15 / Spring Security 6.5.11로 해결됐고, dependency insight와 보안 헤더 회귀 테스트로 확인했다.
+- `main`/`develop` branch protection과 repository ruleset이 여전히 없고 Actions SHA pinning도 강제되지 않아 Medium source-integrity finding 1건을 유지했다. 운영 정책은 감사에서 바꾸지 않고 후속 #218로 분리했다.
+- 현재 manifest는 workflow 2개, action invocation 8개(고유 6개), direct dependency 21개, plugin 5개, env template 4개, Spring profile/template 6개, Flyway migration 12개다. 추적된 non-example 민감 경로 파일과 open Dependabot alert는 각각 0개다.
+- 단일 운영 health GET은 HTTP 200/`UP`과 no-store/nosniff/frame-deny를 확인했다. Cloud Run·Cloud Build·IAM·Secret Manager·Supabase·Upstash·Firebase·Artifact Registry 콘솔 통제는 인증된 도구 부재로 미검증이며, 이를 확인된 방어로 과장하지 않는다.
+- focused Spring Security/Flyway/FCM/Redis 검증은 모두 통과했다. 공격 스캔, 부하, 운영 credential, DB/Redis 접근, 인프라 설정 변경은 0건이다.
+
+## 2026-07-27 - Issue #208 공통 성능 하네스 호환성 감사
+
+- 최신 통합 `origin/develop@5de059f66f9243983fbff830e295cd48577aa490`에서 #192~#199의 10개 공통 경계(JSON 초기화, k6 v2 metric 수학, secret serialization, token TTL, Docker identity/unit, psql machine I/O, report freshness, DB attribution, runtime continuity, macOS/k6 v2)를 감사했다.
+- 적용 가능한 모든 셀이 PASS했다. #194는 EXPLAIN-only, #198은 local Gradle harness이므로 k6 HTTP 전용 셀만 근거가 명시된 N/A다.
+- 설치된 `k6 v2.0.0`의 inspect와 no-HTTP synthetic run이 성공했고 `httpSamples=0`, sentinel token 미직렬화를 확인했다. 모든 target의 시작/종료 HEAD와 clean 상태가 동일했고 최종 `patchQueue=[]`, `actualLoadBlocked=false`다.
+- 감사 중 #195 테스트가 immutable before source SHA를 moving `origin/develop`과 비교하는 거짓 실패를 발견했다. 과거 측정 identity/report는 변경하지 않고 테스트가 승인된 before SHA를 직접 검증하도록 수정했다.
+- 이 작업은 실제 HTTP/DB/Docker/fixture/k6 부하를 실행하지 않았으며 상태는 `scenario-ready-not-measured`, `automaticAdoption=false`다. 따라서 성능·처리량·용량·개선 수치로 사용하지 않는다.
+
 ## 2026-07-18 - Issue #196 기도조 목록 targeted after 측정
 
 - 대상/조건: `main@cfae9fff828606c20cbb4e7fde278c910efa3474`의 기도조 bulk 조회 구현을 보존된 `h05` 1,000명 fixture에서 측정했다. Before와 같은 `5 VU / 2m`, Hibernate SQL DEBUG, `show_sql=false`, `format_sql=false`, bind/extract logger OFF 조건으로 after를 3회 순차 실행했다.
@@ -222,6 +239,17 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
   - 이력서 문장 후보: `세 기능 브랜치를 merge commit으로 통합하고 경건 재제출 race를 row lock으로 해소해 449개 전체 테스트·151개 REST Docs 스니펫을 통과했으며, 격리 PostgreSQL V1→V8 clean/V7→V8 upgrade와 실제 HTTP 45-step 연결 QA를 실패 0건으로 검증했다.`
 
 ### 2026-07-13
+
+- #161 배포 인프라와 공급망 보안 읽기 전용 감사:
+  - 최신 `origin/develop` `f3e81fb9` 기준으로 GitHub Actions workflow 2개와 action 호출 8개(고유 좌표 6개), Docker/build-context 3개, Gradle 공급망 파일 6개와 직접 dependency 20개, env template 4개, Spring profile 6개, 배포 계약 1개, 보안 header/CORS/actuator surface 4개, Firebase infrastructure/trace 8개/14개, Redis infrastructure/trace 7개/9개, Flyway V1-V7 7개를 counted manifest로 고정했다.
+  - runtime graph는 first-level 15개, 고유 resolved module 208개, unresolved 0개였고 direct dependency/plugin의 dynamic·SNAPSHOT·range는 0개였다. Gradle wrapper JAR checksum은 공식 8.14.5 값과 일치했으며 distribution SHA, dependency locking/verification metadata, Docker base digest 부재는 confirmed vulnerability가 아닌 Low hardening 후보 2건으로 분리했다.
+  - confirmed finding은 High 1 / Medium 1이다. Spring Security 6.5.0과 기본 lazy header mode가 vendor Critical CVE-2026-22732 영향 범위에 있어 FaithLog 최소 영향을 High·신뢰도 9/10으로 좁혔고, GitHub API에서 `main`/`develop` classic protection 0개와 repository ruleset 0개를 확인해 write credential이 PR/review/required-check gate 없이 branch를 변경할 수 있는 source-integrity gap을 Medium·신뢰도 10/10으로 확정했다. 후속 수정 Issue는 생성하지 않았다.
+  - false positive/의도 정책 12개, GitHub/GCP/Supabase/Upstash/Firebase/Artifact Registry console 미확인 14개를 분리했다. #157-#160과 #176/#179/#182/#183의 7개 finding/hardening/unverified 묶음은 중복 집계하지 않았다.
+  - secret census는 current/history high-signal candidate 0개, non-example sensitive-path file/commit 0개, untracked/ignored sensitive file 0개였다. 값은 출력·기록하지 않았고 0 open Dependabot alert는 SBOM endpoint 404와 scanner 부재 때문에 0 vulnerable component로 해석하지 않았다.
+  - focused 7개 기존 test class 실행은 Gradle Plugin Portal에서 기존 Spring Boot 3.5.0 plugin을 resolve하지 못해 test 0개 실행으로 종료됐다. stale XML을 집계하지 않았고, 동일 baseline의 PR #185 repository checks와 기존 전체 `399 tests / 0 failures / 0 errors / 3 skipped` 기록을 별도 baseline evidence로만 유지했다.
+  - PM 독립 리뷰 후 7개 test class의 정확한 FQCN과 실행 명령, high-signal/generic-reference secret scan의 count-only regex·명령, 공식 Gradle 8.14.5 primary wrapper checksum endpoint와 로컬 비교 명령을 감사 문서에 추가했다. 재실행 결론은 test 0개, high-signal current/history 0/0, generic reference file/commit 17/25, wrapper checksum 일치로 유지된다.
+  - production/test/config/DB/Flyway/운영 인프라 변경, Docker, 운영 smoke/부하/credential 사용, push/PR은 모두 0건이다.
+  - 이력서 문장 후보: `배포·공급망 신뢰 경계의 2개 workflow/8개 action 호출·208개 runtime module·Docker/Cloud Run/Supabase/Upstash/Firebase 경계를 counted manifest로 감사해, vendor Critical 영향 Spring Security 구성 1건(High, 9/10)과 보호되지 않은 main/develop source-integrity gap 1건(Medium, 10/10)을 식별하고 12개 false positive와 14개 console 미확인을 분리했다.`
 
 - #188 관리자 주차별 사용자 경건·벌금 조회 및 Excel 다운로드:
   - 제품 기준: 현재 ACTIVE 캠퍼스 멤버를 제출/미제출로 분리한다. 실제 저장 `PENALTY` 청구 id/amount/status를 표시하고 과거 금액을 현재 규칙으로 재계산하지 않는다. 사용자 확정에 따라 `totalPenaltyAmount`는 `PAID + UNPAID`이고, `WAIVED/CANCELED`는 행에는 표시하되 합계에서 제외한다.

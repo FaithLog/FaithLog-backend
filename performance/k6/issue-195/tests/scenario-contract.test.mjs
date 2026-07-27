@@ -2832,13 +2832,8 @@ test('common integrity audit - source, target image, credential, and workload in
 	const runner = read(files.runner);
 	const fixture = read(files.fixture);
 	const scenario = read(files.scenario);
-	const originDevelop = spawnSync('git', ['rev-parse', 'origin/develop'], {
-		cwd: repositoryRoot,
-		encoding: 'utf8',
-	});
-	assert.equal(originDevelop.status, 0, originDevelop.stderr);
 	assert.deepEqual(contract.sourceIdentity, {
-		originDevelopCommit: originDevelop.stdout.trim(),
+		originDevelopCommit: '6796ed146244d8f3f5b5dd7048ebe16865084a97',
 		flywayBoundary: 'V11__secure_supabase_data_api.sql',
 		apiSources: [
 			'src/main/java/com/faithlog/admin/controller/AdminManagementController.java',

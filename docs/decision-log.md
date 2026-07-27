@@ -1046,6 +1046,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Contract: Preserve the existing API, authorization, weekly lock, transaction and rollback boundary, submitted state, Monday-Sunday defaults, exact weekly/daily correctness, fine calculation, payment-account snapshot, charge source and uniqueness, and every existing ErrorCode. Do not add Flyway, indexes, dependencies, or frontend changes in this step. Actual insert/update SQL count is not claimed to be reduced because identity-backed entities still persist seven rows.
 - Impact: The static repository-call contract changes daily reads from eight to one per weekly request and individual daily `save` invocations from seven to one `saveAll` invocation. This is an expected structural reduction, not a measured performance result. After latency, throughput, CPU/RAM, and correctness require one fresh PM-controlled load against a separately deployed integration server. Index work remains deferred to #194 EXPLAIN evidence.
 
+## 2026-07-27 - Issue #208 Common Performance Harness Compatibility
+
+- Decision: Audit #192 through #199 on the integrated current `develop` tree before any further actual load. The audit may run installed-k6 inspect and a no-HTTP serialization probe plus allowlisted issue-local Node tests, but it must not run HTTP, Docker lifecycle, database writes, fixtures, EXPLAIN, or actual load.
+- Decision: A historical before source revision is immutable evidence. A compatibility test must validate the approved historical SHA directly and must not compare it with the moving `origin/develop` ref. This closes the #195 false rejection without rewriting historical reports or source identity.
+- Result: Every applicable matrix cell passed. #194 and #198 have documented N/A only for k6 HTTP-specific checks because their workloads are EXPLAIN-only and local Gradle respectively. Installed `k6 v2.0.0` inspect/no-HTTP checks passed with zero HTTP samples and no sentinel serialization; target continuity passed, `patchQueue=[]`, and `actualLoadBlocked=false`.
+- Boundary: The result remains supporting-only, `scenario-ready-not-measured`, and `automaticAdoption=false`. It validates tooling compatibility only and is not a latency, throughput, capacity, or improvement measurement.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope
