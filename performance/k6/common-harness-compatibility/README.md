@@ -10,7 +10,7 @@ Installed-k6 verification is restricted to `k6 version`, `k6 inspect`, and the n
 
 ## Final integrated audit
 
-The final audit ran against the integrated `origin/develop` tree at `7b96a539bd1bb003649332e41cf7258734392ccb`.
+The final audit ran against the integrated `origin/develop` tree at `5de059f66f9243983fbff830e295cd48577aa490`.
 
 - All applicable cells passed for issues #192 through #199.
 - The k6 HTTP-only cells for #194 and #198 are explicitly N/A because those workloads are respectively PostgreSQL EXPLAIN-only and a local Gradle notification harness.
