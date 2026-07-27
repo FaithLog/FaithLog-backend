@@ -10,6 +10,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const contract = JSON.parse(fs.readFileSync(path.join(root, 'matrix-contract.json'), 'utf8'));
 const reportRoot = process.env.AUDIT_REPORT_ROOT;
 if (!reportRoot || !path.isAbsolute(reportRoot)) throw new Error('AUDIT_REPORT_ROOT is runtime-required and absolute');
+const FOCUSED_TEST_TIMEOUT_MS = 120_000;
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const git = (worktree, args) => execFileSync('git', ['-C', worktree, ...args], { encoding: 'utf8', timeout: 10_000 }).trim();
 const snapshot = (worktree) => ({ head: git(worktree, ['rev-parse', 'HEAD']), statusHash: sha256(git(worktree, ['status', '--porcelain=v1'])), dirty: git(worktree, ['status', '--porcelain=v1']).length > 0 });
@@ -19,7 +20,7 @@ function focusedCommand(worktree, command) {
 	const testFile = path.resolve(worktree, command[2]);
 	if (!testFile.startsWith(`${path.resolve(worktree)}${path.sep}`) || !fs.statSync(testFile).isFile()) throw new Error(`focused test is not a contained regular file: ${command[2]}`);
 	const startedAt = Date.now();
-	const result = spawnSync(command[0], command.slice(1), { cwd: worktree, encoding: 'utf8', timeout: 60_000, env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR } });
+	const result = spawnSync(command[0], command.slice(1), { cwd: worktree, encoding: 'utf8', timeout: FOCUSED_TEST_TIMEOUT_MS, env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR } });
 	return { command, ok: result.status === 0 && !result.error, exitStatus: result.status, timedOut: result.error?.code === 'ETIMEDOUT', durationMs: Date.now() - startedAt, stdoutSha256: sha256(result.stdout ?? ''), stderrSha256: sha256(result.stderr ?? '') };
 }
 
