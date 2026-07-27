@@ -9,6 +9,15 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-27 - Issue #161 배포·공급망 보안 재감사
+
+- 최신 `develop@7b96a53`을 기준으로 저장소, 의존성, GitHub 설정, 배포 경계와 운영 health를 읽기 전용 재감사했다.
+- 7월 13일 High finding이던 Spring Security 6.5.0은 #186 이후 Spring Boot 3.5.15 / Spring Security 6.5.11로 해결됐고, dependency insight와 보안 헤더 회귀 테스트로 확인했다.
+- `main`/`develop` branch protection과 repository ruleset이 여전히 없고 Actions SHA pinning도 강제되지 않아 Medium source-integrity finding 1건을 유지했다. 운영 정책은 감사에서 바꾸지 않고 후속 #218로 분리했다.
+- 현재 manifest는 workflow 2개, action invocation 8개(고유 6개), direct dependency 21개, plugin 5개, env template 4개, Spring profile/template 6개, Flyway migration 12개다. 추적된 non-example 민감 경로 파일과 open Dependabot alert는 각각 0개다.
+- 단일 운영 health GET은 HTTP 200/`UP`과 no-store/nosniff/frame-deny를 확인했다. Cloud Run·Cloud Build·IAM·Secret Manager·Supabase·Upstash·Firebase·Artifact Registry 콘솔 통제는 인증된 도구 부재로 미검증이며, 이를 확인된 방어로 과장하지 않는다.
+- focused Spring Security/Flyway/FCM/Redis 검증은 모두 통과했다. 공격 스캔, 부하, 운영 credential, DB/Redis 접근, 인프라 설정 변경은 0건이다.
+
 ## 2026-07-18 - Issue #196 기도조 목록 targeted after 측정
 
 - 대상/조건: `main@cfae9fff828606c20cbb4e7fde278c910efa3474`의 기도조 bulk 조회 구현을 보존된 `h05` 1,000명 fixture에서 측정했다. Before와 같은 `5 VU / 2m`, Hibernate SQL DEBUG, `show_sql=false`, `format_sql=false`, bind/extract logger OFF 조건으로 after를 3회 순차 실행했다.

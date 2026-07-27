@@ -1,5 +1,33 @@
 # Issue #161 deployment infrastructure and supply-chain audit matrix
 
+## 2026-07-27 current baseline addendum
+
+The authoritative current baseline is `origin/develop@7b96a539bd1bb003649332e41cf7258734392ccb`. The
+2026-07-13 manifest is retained below as a historical snapshot and is not the current denominator.
+
+| Manifest | Current count | Current note |
+| --- | ---: | --- |
+| GitHub Actions workflows | 2 | unchanged |
+| action invocations | 8 | 6 unique mutable major-tag coordinates |
+| Docker/container build surface | 3 | Dockerfile, Compose, `.dockerignore` |
+| Gradle control surface | 6 | checksum, locking, and verification metadata remain absent |
+| direct Gradle dependencies | 21 | current build includes Apache POI additions |
+| Gradle plugin declarations | 5 | unchanged |
+| environment templates | 4 | no tracked non-example sensitive path |
+| Spring profile/template files | 6 | unchanged |
+| Flyway migrations | 12 | V1 through V12 |
+
+Current authenticated GitHub evidence: one admin collaborator, zero deploy keys, zero repository rulesets,
+unprotected `main` and `develop`, all Actions allowed, action SHA pinning not required, read-only default workflow
+token, zero open Dependabot alerts, Dependabot security updates disabled, secret scanning disabled, push protection
+disabled, and no code-scanning analysis. These are observations only; this audit did not mutate repository
+settings.
+
+Current runtime/dependency evidence: Spring Boot 3.5.15 resolves Spring Security 6.5.11, focused security/Flyway/
+Firebase/Redis tests pass, and one non-authenticated production health GET returned HTTP 200/`UP` with expected
+no-store, nosniff, and frame-deny headers. No cloud console, credential, database, Redis, Firebase, attack scan,
+or load test was used.
+
 ## 1. Audit baseline and counting rules
 
 - Audit date: 2026-07-13

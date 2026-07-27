@@ -1,5 +1,64 @@
 # Issue #161 deployment infrastructure and supply-chain security audit findings
 
+## 2026-07-27 current-develop re-audit
+
+This section supersedes the current-status conclusions of the 2026-07-13 snapshot below. The historical
+evidence remains for traceability. The re-audit baseline is
+`7b96a539bd1bb003649332e41cf7258734392ccb` (`origin/develop`). It changed no
+application, database, Flyway, container, Cloud Run, Firebase, Supabase, Upstash, or GitHub repository setting.
+
+| Result class | Current result |
+| --- | --- |
+| previously confirmed High | **resolved**: #186 upgraded Spring Boot to 3.5.15 and runtime Spring Security to 6.5.11 |
+| confirmed current finding | **1 Medium**: `main` and `develop` still have no branch protection or repository ruleset |
+| current low hardening candidates | Gradle verification/locking, immutable container digests, immutable GitHub Action SHAs |
+| current secret census | 0 tracked non-example sensitive-path files; 0 open Dependabot alerts |
+| runtime smoke | one read-only production health GET returned HTTP 200/`UP` with no-store, nosniff, and frame-deny headers |
+| console-dependent controls | Cloud Run, Cloud Build, IAM, Secret Manager, Supabase, Upstash, Firebase, and Artifact Registry remain unverified |
+
+### Resolved: F-161-01 Spring Security response-header advisory
+
+- `dependencyInsight` resolves `spring-security-web:6.5.11` through
+  `spring-boot-starter-security:3.5.15`.
+- The vendor advisory identifies 6.5.0 through 6.5.8 as affected and 6.5.9 as the fixed OSS release. The current
+  6.5.11 runtime is outside that affected range.
+- `SpringSecurityDependencyVersionContractTest` and `SecurityHeaderRegressionTest` pass. A single production
+  health request returned `cache-control: no-cache, no-store`, `x-content-type-options: nosniff`, and
+  `x-frame-options: DENY`.
+- Therefore the former High finding is closed as fixed; it is not counted as a current vulnerability.
+
+### Current: F-161-02 repository branch integrity
+
+- GitHub reports no classic protection for `main` or `develop` and an empty repository-ruleset list.
+- GitHub Actions is enabled for all actions and does not require SHA pinning. Default workflow permissions are
+  read-only and cannot approve pull-request reviews.
+- The sole collaborator is the repository owner with admin permission, and the deploy-key list is empty. These
+  facts reduce the current actor set but do not enforce review or CI before a protected reference changes.
+- This remains a Medium source-integrity finding. Repository policy is intentionally not changed by this audit;
+  remediation is tracked separately in Issue #218.
+
+### Current supply-chain hardening
+
+- Gradle 8.14.5 has no `distributionSha256Sum`, dependency lock state, or
+  `gradle/verification-metadata.xml`.
+- `Dockerfile` base images use readable version tags without OCI digests.
+- Eight workflow action invocations use mutable major tags across six unique action coordinates rather than full
+  commit SHAs.
+- No malicious artifact, dependency, action, or image was found. These are Low hardening gaps, not promoted
+  vulnerabilities.
+
+### Verification and limitations
+
+- Focused Spring Security, security-header, Flyway, Firebase FCM, refresh-token Redis, and notification Redis
+  tests passed.
+- Current repository counts are 2 workflows, 8 action invocations, 21 direct dependency declarations, 5 plugin
+  declarations, 4 environment templates, 6 Spring profile/template files, and 12 Flyway migrations.
+- `gcloud` and authenticated cloud-provider console tooling were unavailable. No production credential was used,
+  and no attack scan or load test was performed. The one health GET does not verify IAM, ingress, runtime service
+  accounts, secret rotation, database/Redis TLS policy, Firebase IAM, or artifact provenance.
+- The detailed 2026-07-13 sections below are historical and must not be read as the current dependency or
+  migration inventory.
+
 ## 1. Scope and conclusion
 
 This is a read-only audit of baseline `f3e81fb9b3c2afbc4ad9342eb6cf6bf55e19c553` on 2026-07-13. It covers
