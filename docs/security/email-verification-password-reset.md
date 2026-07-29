@@ -40,7 +40,7 @@ TTL and limits:
 |---|---|
 | Code | 5 minutes |
 | Resend cooldown | 60 seconds |
-| Email request count | 5 per rolling Redis window of 1 hour |
+| Email request count | 5 per fixed Redis TTL window of 1 hour, starting with the first request |
 | Wrong confirmation attempts | 5 |
 | Signup/reset grant | 10 minutes, one consumption |
 
