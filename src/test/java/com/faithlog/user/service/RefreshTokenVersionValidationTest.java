@@ -82,4 +82,27 @@ class RefreshTokenVersionValidationTest {
 			org.mockito.ArgumentMatchers.any()
 		);
 	}
+
+	@Test
+	void refresh_rejects_a_legacy_token_without_token_version_before_db_or_redis_access() {
+		when(jwtProvider.parseRefreshToken("legacy-refresh-token")).thenReturn(claims);
+		when(claims.get("userId", Long.class)).thenReturn(7L);
+		when(claims.get("sessionId", String.class)).thenReturn("session-id");
+		when(claims.get("refreshJti", String.class)).thenReturn("refresh-jti");
+
+		assertThatThrownBy(() -> service.refresh(new RefreshCommand("legacy-refresh-token")))
+			.isInstanceOf(BusinessException.class)
+			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode())
+				.isEqualTo(ErrorCode.AUTH_UNAUTHORIZED));
+
+		verify(userRepository, never()).findByIdForUpdate(org.mockito.ArgumentMatchers.anyLong());
+		verify(refreshTokenStore, never()).rotate(
+			org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyString(),
+			org.mockito.ArgumentMatchers.anyString(),
+			org.mockito.ArgumentMatchers.anyString(),
+			org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any()
+		);
+	}
 }
