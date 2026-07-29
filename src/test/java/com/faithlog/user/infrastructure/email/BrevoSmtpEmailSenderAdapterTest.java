@@ -2,9 +2,9 @@ package com.faithlog.user.infrastructure.email;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
 
 import com.faithlog.user.service.EmailVerificationPurpose;
 import com.faithlog.user.service.port.EmailDeliveryException;
@@ -31,7 +31,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 class BrevoSmtpEmailSenderAdapterTest {
 
 	private static final byte[] LOGO = "approved-png".getBytes(StandardCharsets.UTF_8);
-	private static final String LOGO_SHA256 = "93cae5cfb98461ce795a9eb360a665a39e2444bb34326444262802f536415454";
+	private static final String LOGO_SHA256 = "9518b9a0f667a993464b18ef545b2b449c090608234e1a9daf7a6743e1a0614f";
 	private static final String DELIVERY_ID =
 		"b71dedf9efc1ee2c596f20449a0d8b7d0070789043eaf925b70f5f4c5658d6c9";
 
@@ -44,7 +44,7 @@ class BrevoSmtpEmailSenderAdapterTest {
 	@BeforeEach
 	void setUp() {
 		message = new MimeMessage(Session.getInstance(new Properties()));
-		when(mailSender.createMimeMessage()).thenReturn(message);
+		lenient().when(mailSender.createMimeMessage()).thenReturn(message);
 		adapter = new BrevoSmtpEmailSenderAdapter(
 			mailSender,
 			"FaithLog",

@@ -3,11 +3,45 @@ package com.faithlog.user.infrastructure.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.faithlog.user.infrastructure.email.BrevoSmtpEmailSenderAdapter;
+import com.faithlog.user.infrastructure.email.UnavailableEmailSenderAdapter;
+import com.faithlog.user.service.port.EmailSenderPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.mail.MailProperties;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 
 class BrevoSmtpConfigurationTest {
+
+	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+		.withUserConfiguration(BrevoSmtpConfiguration.class, UnavailableEmailSenderAdapter.class);
+
+	@Test
+	void selects_exactly_one_sender_adapter_from_the_provider_flag() {
+		contextRunner.run(context -> {
+			assertThat(context).hasSingleBean(EmailSenderPort.class);
+			assertThat(context.getBean(EmailSenderPort.class)).isInstanceOf(UnavailableEmailSenderAdapter.class);
+		});
+
+		contextRunner
+			.withPropertyValues(approvedRuntimeProperties())
+			.run(context -> {
+				assertThat(context).hasSingleBean(EmailSenderPort.class);
+				assertThat(context.getBean(EmailSenderPort.class)).isInstanceOf(BrevoSmtpEmailSenderAdapter.class);
+			});
+	}
+
+	@Test
+	void fails_context_startup_when_provider_is_enabled_without_smtp_secret() {
+		contextRunner
+			.withPropertyValues(
+				"faithlog.auth.email-provider.enabled=true",
+				"spring.mail.host=smtp-relay.brevo.com",
+				"spring.mail.port=587",
+				"spring.mail.username=b3a5e2001@smtp-brevo.com"
+			)
+			.run(context -> assertThat(context).hasFailed());
+	}
 
 	@Test
 	void creates_sender_only_from_the_approved_brevo_starttls_contract() {
@@ -73,5 +107,23 @@ class BrevoSmtpConfigurationTest {
 		properties.getProperties().put("mail.smtp.timeout", "10000");
 		properties.getProperties().put("mail.smtp.writetimeout", "10000");
 		return properties;
+	}
+
+	private String[] approvedRuntimeProperties() {
+		return new String[] {
+			"faithlog.auth.email-provider.enabled=true",
+			"faithlog.mail.from-name=FaithLog",
+			"faithlog.mail.from-email=josephuk77@gmail.com",
+			"spring.mail.host=smtp-relay.brevo.com",
+			"spring.mail.port=587",
+			"spring.mail.username=b3a5e2001@smtp-brevo.com",
+			"spring.mail.password=runtime-secret",
+			"spring.mail.properties.mail.smtp.auth=true",
+			"spring.mail.properties.mail.smtp.starttls.enable=true",
+			"spring.mail.properties.mail.smtp.starttls.required=true",
+			"spring.mail.properties.mail.smtp.connectiontimeout=5000",
+			"spring.mail.properties.mail.smtp.timeout=10000",
+			"spring.mail.properties.mail.smtp.writetimeout=10000"
+		};
 	}
 }

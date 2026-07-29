@@ -4,11 +4,17 @@ import com.faithlog.user.service.EmailVerificationPurpose;
 import com.faithlog.user.service.port.EmailDeliveryException;
 import com.faithlog.user.service.port.EmailSenderPort;
 import java.time.Duration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 @Component
 @Profile("!test")
+@ConditionalOnProperty(
+	name = "faithlog.auth.email-provider.enabled",
+	havingValue = "false",
+	matchIfMissing = true
+)
 public class UnavailableEmailSenderAdapter implements EmailSenderPort {
 
 	@Override

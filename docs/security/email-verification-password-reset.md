@@ -2,7 +2,7 @@
 
 ## Scope
 
-Issue #224 adds provider-independent backend behavior for signup email verification and direct password reset. It does not select an SMTP/API provider and does not add `users.email_verified_at`.
+Issue #224 adds provider-independent backend behavior for signup email verification and direct password reset, plus an approved Brevo SMTP adapter behind the sender port. It does not add `users.email_verified_at`.
 
 Public endpoints:
 
@@ -24,10 +24,15 @@ The complete endpoint returns no Access or Refresh Token. The user signs in agai
 - `FAITHLOG_EMAIL_DISPATCH_PROJECT_ID`, `FAITHLOG_EMAIL_DISPATCH_LOCATION`, `FAITHLOG_EMAIL_DISPATCH_QUEUE_ID`: approved Cloud Tasks queue identity.
 - `FAITHLOG_EMAIL_DISPATCH_WORKER_URL`: absolute HTTPS worker endpoint.
 - `FAITHLOG_EMAIL_DISPATCH_OIDC_SERVICE_ACCOUNT_EMAIL`, `FAITHLOG_EMAIL_DISPATCH_OIDC_AUDIENCE`: exact Google OIDC service-account and audience binding used by both task creation and worker validation.
+- `FAITHLOG_EMAIL_PROVIDER_ENABLED`: defaults to `false`; when true, startup requires the exact approved Brevo SMTP contract below.
+- `SPRING_MAIL_HOST=smtp-relay.brevo.com`, `SPRING_MAIL_PORT=587`, `SPRING_MAIL_USERNAME=b3a5e2001@smtp-brevo.com`, and runtime-only `SPRING_MAIL_PASSWORD`.
+- `SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH=true`, `SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true`, `SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED=true`.
+- `SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT`, `SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT`, `SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT`: positive millisecond values; the prepared deployment uses `5000/10000/10000`.
+- `FAITHLOG_MAIL_FROM_NAME=FaithLog`, `FAITHLOG_MAIL_FROM_EMAIL=josephuk77@gmail.com`.
 
 When the required flag is false, a legacy signup may omit `emailVerificationToken`. If a token is supplied, it is never ignored: the backend validates the normalized-email binding and consumes it once. Set the flag to true only after updated iOS and Android builds are mandatory.
 
-The production email provider adapter remains intentionally unavailable. With dispatch flags false, the app starts normally; signup email requests cancel their challenge and return safe `503`, while password-reset requests keep the generic response but cannot be confirmed because no code is delivered. Do not enable mandatory signup verification until HMAC, Cloud Tasks, worker OIDC, encryption, and a production sender are all configured.
+With the provider flag false, the app starts with the unavailable sender and no SMTP requirements; signup email requests cancel their challenge and return safe `503`, while password-reset requests keep the generic response but cannot be confirmed because no code is delivered. With the provider flag true, a missing/wrong host, port, login, password, AUTH/STARTTLS setting, timeout, sender, or logo checksum fails startup. Do not enable mandatory signup verification until HMAC, Cloud Tasks, worker OIDC, encryption, and the Brevo sender all pass deployment smoke tests.
 
 ## Redis State
 
@@ -65,7 +70,7 @@ Email dispatch uses a separate durable boundary:
 2. AES-256-GCM protects recipient/code/purpose/TTL at rest with random 96-bit IV and authenticated context. Redis keys contain only HMAC fingerprints of the dispatch token.
 3. The worker endpoint accepts only Google OIDC tokens with the configured issuer, exact audience, exact service-account email, and `email_verified=true`.
 4. A Redis Lua transition distinguishes `ACQUIRED`, `IN_PROGRESS`, and `MISSING`. `IN_PROGRESS` returns a retryable worker failure, while only a missing/already-acknowledged payload is idempotently accepted. This prevents an overlapping delivery from acknowledging the task while the lease owner later fails.
-5. The sender port receives a stable SHA-256 delivery ID derived from the opaque dispatch token, never the raw token. A production provider adapter must bind this value to the provider's idempotency mechanism. Without provider-side idempotency, delivery remains at-least-once when send succeeds but Redis acknowledgement fails.
+5. The sender port receives a stable SHA-256 delivery ID derived from the opaque dispatch token, never the raw token. The Brevo SMTP adapter writes it only to the CRLF-safe `X-FaithLog-Delivery-Id` trace header. SMTP does not provide provider-side idempotency, so delivery remains at-least-once when send succeeds but Redis acknowledgement fails and the same code can rarely be delivered more than once.
 6. A missing-account task follows the same queue/worker path but skips the provider call after decrypting `deliveryRequired=false`.
 
 Code and token generation use `SecureRandom`: zero-padded six-digit codes and 32-byte URL-safe opaque tokens.
@@ -107,14 +112,15 @@ The DB and Redis are not one atomic resource. The fail-closed policy is:
 - V13 performs a read-only `lower(email)` duplicate preflight and raises SQLSTATE `23505` when duplicates exist. It never merges, deletes, or reassigns users.
 - When the preflight is clean, `uk_users_email_lower` enforces PostgreSQL case-insensitive logical-mailbox uniqueness. Audit production duplicates before deployment; a failed V13 requires an explicit data-resolution decision before retry.
 
-## Branded Email Handoff
+## Branded Brevo Email
 
-The provider adapter must send a responsive `multipart/alternative` message with a plaintext fallback, the approved FaithLog app logo attached by CID rather than a remote tracking image, accessible alt text, purpose-specific copy, the six-digit code, and expiry. It must bind the supplied delivery ID to provider idempotency and must not embed JWTs, reset grants, analytics pixels, user content, or sensitive deep-link query values. The exact provider and classpath logo asset/checksum remain pending, so no provider-specific template is claimed as operational yet.
+The JavaMail adapter sends a responsive `multipart/alternative` message with a plaintext fallback and Korean copy specific to signup or password reset. It attaches `classpath:/mail/faithlog-logo.png` as `cid:faithlog-logo` with `alt="FaithLog"`; the approved 112x112 PNG is 14,996 bytes with SHA-256 `6059e8f38377cfe485752cdf2fa37a014e01586246de5fd4ff26a40446d1b748`. The message contains only the six-digit code and expiry. It has no remote image, tracking pixel, deep link, JWT, reset grant, recipient address in the body, or user content.
+
+The adapter validates the sender identity, recipient syntax, code, positive TTL, lowercase 64-hex delivery ID, and logo checksum before sending. SMTP and message-construction failures become one generic exception without the recipient, code, SMTP response body, or secret. The header is a correlation value, not an idempotency guarantee.
 
 ## Pending Decisions
 
-- Production email provider, adapter, dependency, credentials, sender identity, and delivery monitoring.
-- Approved FaithLog logo binary/checksum and provider CID support for the branded template.
+- Delivery monitoring/alert thresholds and an operational duplicate-delivery observation policy for the SMTP at-least-once boundary.
 - Whether to add `users.email_verified_at` and how to backfill existing users.
 - Cloud Run trusted proxy/header policy required for the approved IP limit of 20 requests/hour.
 - Exact deployment revision that changes `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED` from false to true.
