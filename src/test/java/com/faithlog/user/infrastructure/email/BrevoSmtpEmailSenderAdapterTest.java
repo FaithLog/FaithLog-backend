@@ -3,6 +3,7 @@ package com.faithlog.user.infrastructure.email;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.faithlog.user.service.EmailVerificationPurpose;
@@ -126,6 +127,51 @@ class BrevoSmtpEmailSenderAdapterTest {
 			"12345A",
 			Duration.ofMinutes(5)
 		)).isInstanceOf(EmailDeliveryException.class);
+
+		assertThatThrownBy(() -> adapter.sendVerificationCode(
+			DELIVERY_ID,
+			EmailVerificationPurpose.SIGNUP,
+			"member@example.com\r\nBcc: attacker@example.com",
+			"123456",
+			Duration.ofMinutes(5)
+		)).isInstanceOf(EmailDeliveryException.class);
+
+		assertThatThrownBy(() -> adapter.sendVerificationCode(
+			DELIVERY_ID,
+			EmailVerificationPurpose.SIGNUP,
+			"member@example.com",
+			"123456",
+			Duration.ZERO
+		)).isInstanceOf(EmailDeliveryException.class);
+
+		verifyNoInteractions(mailSender);
+	}
+
+	@Test
+	void rejects_invalid_sender_and_logo_configuration() {
+		assertThatThrownBy(() -> new BrevoSmtpEmailSenderAdapter(
+			mailSender,
+			"FaithLog\r\nBcc: attacker@example.com",
+			"josephuk77@gmail.com",
+			new ByteArrayResource(LOGO),
+			LOGO_SHA256
+		)).isInstanceOf(IllegalArgumentException.class);
+
+		assertThatThrownBy(() -> new BrevoSmtpEmailSenderAdapter(
+			mailSender,
+			"FaithLog",
+			"FaithLog <josephuk77@gmail.com>",
+			new ByteArrayResource(LOGO),
+			LOGO_SHA256
+		)).isInstanceOf(IllegalArgumentException.class);
+
+		assertThatThrownBy(() -> new BrevoSmtpEmailSenderAdapter(
+			mailSender,
+			"FaithLog",
+			"josephuk77@gmail.com",
+			new ByteArrayResource(LOGO),
+			"0".repeat(64)
+		)).isInstanceOf(IllegalArgumentException.class);
 	}
 
 	@Test
