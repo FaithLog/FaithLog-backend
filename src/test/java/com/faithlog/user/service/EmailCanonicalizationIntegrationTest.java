@@ -1,6 +1,7 @@
 package com.faithlog.user.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -41,6 +42,8 @@ class EmailCanonicalizationIntegrationTest {
 		authService.signup(new SignupCommand("대소문자가입", mixedCaseEmail, "password"));
 
 		authService.login(new LoginCommand(mixedCaseEmail, "password"));
+		assertThat(userRepository.findByEmail(mixedCaseEmail).orElseThrow().email())
+			.isEqualTo(mixedCaseEmail);
 	}
 
 	@Test

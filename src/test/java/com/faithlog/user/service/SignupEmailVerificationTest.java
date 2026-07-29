@@ -69,7 +69,7 @@ class SignupEmailVerificationTest {
 
 		verify(verificationStore).consumeSignupGrant("user@example.com", "grant-token");
 		verify(userRepository).saveAndFlush(org.mockito.ArgumentMatchers.argThat(user ->
-			user.email().equals("user@example.com")
+			user.email().equals("USER@example.com")
 		));
 	}
 
