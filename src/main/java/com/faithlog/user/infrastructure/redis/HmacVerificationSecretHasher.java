@@ -14,13 +14,15 @@ public class HmacVerificationSecretHasher {
 	private final SecretKeySpec secretKey;
 
 	public HmacVerificationSecretHasher(String secret) {
-		if (secret == null || secret.isBlank()) {
-			throw new IllegalArgumentException("Email verification HMAC secret must not be blank");
-		}
-		this.secretKey = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM);
+		this.secretKey = secret == null || secret.isBlank()
+			? null
+			: new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM);
 	}
 
 	public String hash(String context, String value) {
+		if (secretKey == null) {
+			throw new IllegalStateException("Email verification HMAC secret is not configured");
+		}
 		try {
 			Mac mac = Mac.getInstance(ALGORITHM);
 			mac.init(secretKey);

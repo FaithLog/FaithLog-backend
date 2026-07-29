@@ -7,6 +7,7 @@ import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.ConfirmEmailVerificationCommand;
 import com.faithlog.user.service.command.RequestEmailVerificationCommand;
 import com.faithlog.user.service.port.EmailSenderPort;
+import com.faithlog.user.service.port.EmailDeliveryException;
 import com.faithlog.user.service.port.EmailVerificationStore;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeIssueResult;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeVerificationResult;
@@ -101,7 +102,7 @@ public class EmailVerificationCommandService {
 	private void sendVerificationCode(EmailVerificationPurpose purpose, String email, String code) {
 		try {
 			emailSenderPort.sendVerificationCode(purpose, email, code, policy.challengeTtl());
-		} catch (RuntimeException exception) {
+		} catch (EmailDeliveryException exception) {
 			verificationStore.cancelChallenge(purpose, email, code);
 			if (purpose == EmailVerificationPurpose.SIGNUP) {
 				throw new BusinessException(ErrorCode.AUTH_EMAIL_DELIVERY_UNAVAILABLE);
