@@ -1,7 +1,7 @@
 package com.faithlog.user.support;
 
-import com.faithlog.user.service.EmailVerificationPolicy;
 import com.faithlog.user.service.EmailVerificationPurpose;
+import com.faithlog.user.service.policy.EmailVerificationPolicy;
 import com.faithlog.user.service.port.EmailVerificationStore;
 import java.util.HashMap;
 import java.util.Map;
@@ -11,7 +11,7 @@ public class InMemoryEmailVerificationStore implements EmailVerificationStore {
 
 	private final Map<String, String> challenges = new HashMap<>();
 	private final Map<String, String> signupGrants = new HashMap<>();
-	private final Map<String, Long> passwordResetGrants = new HashMap<>();
+	private final Map<String, String> passwordResetGrants = new HashMap<>();
 
 	@Override
 	public synchronized ChallengeIssueResult issueChallenge(
@@ -44,7 +44,7 @@ public class InMemoryEmailVerificationStore implements EmailVerificationStore {
 		if (purpose == EmailVerificationPurpose.SIGNUP) {
 			signupGrants.put(grantToken, grantSubject);
 		} else {
-			passwordResetGrants.put(grantToken, Long.parseLong(grantSubject));
+			passwordResetGrants.put(grantToken, grantSubject);
 		}
 		return ChallengeVerificationResult.VERIFIED;
 	}
@@ -56,12 +56,19 @@ public class InMemoryEmailVerificationStore implements EmailVerificationStore {
 
 	@Override
 	public synchronized OptionalLong consumePasswordResetGrant(String grantToken) {
-		Long userId = passwordResetGrants.remove(grantToken);
-		return userId == null ? OptionalLong.empty() : OptionalLong.of(userId);
+		String userId = passwordResetGrants.remove(grantToken);
+		if (userId == null) {
+			return OptionalLong.empty();
+		}
+		try {
+			return OptionalLong.of(Long.parseLong(userId));
+		} catch (NumberFormatException exception) {
+			return OptionalLong.empty();
+		}
 	}
 
 	public synchronized void putPasswordResetGrant(String grantToken, Long userId) {
-		passwordResetGrants.put(grantToken, userId);
+		passwordResetGrants.put(grantToken, String.valueOf(userId));
 	}
 
 	public synchronized void putSignupGrant(String grantToken, String email) {

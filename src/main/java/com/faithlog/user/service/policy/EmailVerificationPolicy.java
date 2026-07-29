@@ -1,4 +1,4 @@
-package com.faithlog.user.service;
+package com.faithlog.user.service.policy;
 
 import java.time.Duration;
 

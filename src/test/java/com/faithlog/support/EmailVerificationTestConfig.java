@@ -1,9 +1,9 @@
 package com.faithlog.support;
 
-import com.faithlog.user.service.EmailVerificationPolicy;
 import com.faithlog.user.service.port.EmailSenderPort;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
 import com.faithlog.user.service.port.VerificationCodeGenerator;
+import com.faithlog.user.service.policy.EmailVerificationPolicy;
 import com.faithlog.user.support.InMemoryEmailVerificationStore;
 import java.time.Duration;
 import java.util.UUID;

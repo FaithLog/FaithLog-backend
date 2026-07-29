@@ -1,7 +1,7 @@
 package com.faithlog.user.infrastructure.config;
 
 import com.faithlog.user.infrastructure.redis.HmacVerificationSecretHasher;
-import com.faithlog.user.service.EmailVerificationPolicy;
+import com.faithlog.user.service.policy.EmailVerificationPolicy;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;

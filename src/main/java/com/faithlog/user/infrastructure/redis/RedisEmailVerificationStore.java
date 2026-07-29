@@ -1,7 +1,7 @@
 package com.faithlog.user.infrastructure.redis;
 
-import com.faithlog.user.service.EmailVerificationPolicy;
 import com.faithlog.user.service.EmailVerificationPurpose;
+import com.faithlog.user.service.policy.EmailVerificationPolicy;
 import com.faithlog.user.service.port.EmailVerificationStore;
 import com.faithlog.user.service.port.EmailVerificationStoreException;
 import java.util.List;

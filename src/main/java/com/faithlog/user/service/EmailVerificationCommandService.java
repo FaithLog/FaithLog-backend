@@ -6,6 +6,7 @@ import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.ConfirmEmailVerificationCommand;
 import com.faithlog.user.service.command.RequestEmailVerificationCommand;
+import com.faithlog.user.service.policy.EmailVerificationPolicy;
 import com.faithlog.user.service.port.EmailSenderPort;
 import com.faithlog.user.service.port.EmailDeliveryException;
 import com.faithlog.user.service.port.EmailVerificationStore;
@@ -75,7 +76,7 @@ public class EmailVerificationCommandService {
 			subject
 		);
 		if (user.isEmpty()) {
-			verificationStore.consumePasswordResetGrant(result.token());
+			discardPasswordResetGrant(result.token());
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_CODE_INVALID);
 		}
 		return result;
@@ -161,6 +162,14 @@ public class EmailVerificationCommandService {
 	private void cancelChallenge(EmailVerificationPurpose purpose, String email, String code) {
 		try {
 			verificationStore.cancelChallenge(purpose, email, code);
+		} catch (EmailVerificationStoreException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
+		}
+	}
+
+	private void discardPasswordResetGrant(String token) {
+		try {
+			verificationStore.consumePasswordResetGrant(token);
 		} catch (EmailVerificationStoreException exception) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
 		}

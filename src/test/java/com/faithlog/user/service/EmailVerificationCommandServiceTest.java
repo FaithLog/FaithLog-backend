@@ -12,6 +12,7 @@ import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.ConfirmEmailVerificationCommand;
 import com.faithlog.user.service.command.RequestEmailVerificationCommand;
+import com.faithlog.user.service.policy.EmailVerificationPolicy;
 import com.faithlog.user.service.port.EmailSenderPort;
 import com.faithlog.user.service.port.EmailVerificationStore;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeIssueResult;

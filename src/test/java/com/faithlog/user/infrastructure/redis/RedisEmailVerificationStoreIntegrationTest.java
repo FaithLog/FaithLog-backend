@@ -2,8 +2,8 @@ package com.faithlog.user.infrastructure.redis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.user.service.EmailVerificationPolicy;
 import com.faithlog.user.service.EmailVerificationPurpose;
+import com.faithlog.user.service.policy.EmailVerificationPolicy;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeIssueResult;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeVerificationResult;
 import java.time.Duration;
