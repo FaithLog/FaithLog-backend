@@ -41,7 +41,7 @@ class RoleTokenInvalidationIntegrationTest {
 	private UserRepository userRepository;
 
 	@Test
-	void service_role_change_invalidates_old_access_token_and_refresh_issues_latest_version() throws Exception {
+	void service_role_change_invalidates_old_tokens_and_new_login_issues_latest_version() throws Exception {
 		TokenPair adminTokens = signupAndLogin("token-version-admin@example.com", UserRole.ADMIN);
 		TokenPair memberTokens = signupAndLogin("token-version-member@example.com", UserRole.USER);
 		User member = userRepository.findByEmail("token-version-member@example.com").orElseThrow();
@@ -66,8 +66,9 @@ class RoleTokenInvalidationIntegrationTest {
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 
-		JsonNode refreshResponse = refresh(memberTokens.refreshToken(), status().isOk());
-		String refreshedAccessToken = refreshResponse.path("data").path("accessToken").asText();
+		refresh(memberTokens.refreshToken(), status().isUnauthorized());
+		TokenPair latestTokens = login("token-version-member@example.com");
+		String refreshedAccessToken = latestTokens.accessToken();
 		Claims refreshedClaims = jwtProvider.parseAccessToken(refreshedAccessToken);
 
 		assertThat(refreshedClaims.get("role", String.class)).isEqualTo("MANAGER");
@@ -80,7 +81,7 @@ class RoleTokenInvalidationIntegrationTest {
 	}
 
 	@Test
-	void campus_role_change_invalidates_old_access_token_and_refresh_issues_latest_version() throws Exception {
+	void campus_role_change_invalidates_old_tokens_and_new_login_issues_latest_version() throws Exception {
 		TokenPair managerTokens = signupAndLogin("token-version-campus-manager@example.com", UserRole.MANAGER);
 		JsonNode campus = createCampus(managerTokens.accessToken(), "토큰캠");
 		TokenPair memberTokens = signupAndLogin("token-version-campus-member@example.com", UserRole.USER);
@@ -109,8 +110,9 @@ class RoleTokenInvalidationIntegrationTest {
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
 
-		JsonNode refreshResponse = refresh(memberTokens.refreshToken(), status().isOk());
-		String refreshedAccessToken = refreshResponse.path("data").path("accessToken").asText();
+		refresh(memberTokens.refreshToken(), status().isUnauthorized());
+		TokenPair latestTokens = login("token-version-campus-member@example.com");
+		String refreshedAccessToken = latestTokens.accessToken();
 		Claims refreshedClaims = jwtProvider.parseAccessToken(refreshedAccessToken);
 
 		assertThat(claimTokenVersion(refreshedClaims)).isEqualTo(oldTokenVersion + 1);
@@ -137,9 +139,10 @@ class RoleTokenInvalidationIntegrationTest {
 					"""))
 			.andExpect(status().isOk());
 
-		JsonNode refreshResponse = refresh(memberTokens.refreshToken(), status().isOk());
-		String refreshedAccessToken = refreshResponse.path("data").path("accessToken").asText();
-		String refreshedRefreshToken = refreshResponse.path("data").path("refreshToken").asText();
+		refresh(memberTokens.refreshToken(), status().isUnauthorized());
+		TokenPair latestTokens = login("token-version-logout-member@example.com");
+		String refreshedAccessToken = latestTokens.accessToken();
+		String refreshedRefreshToken = latestTokens.refreshToken();
 
 		mockMvc.perform(post("/api/v1/auth/logout")
 				.header("Authorization", "Bearer " + refreshedAccessToken)
@@ -230,6 +233,10 @@ class RoleTokenInvalidationIntegrationTest {
 		ReflectionTestUtils.setField(user, "role", role);
 		userRepository.saveAndFlush(user);
 
+		return login(email);
+	}
+
+	private TokenPair login(String email) throws Exception {
 		String loginBody = mockMvc.perform(post("/api/v1/auth/login")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
