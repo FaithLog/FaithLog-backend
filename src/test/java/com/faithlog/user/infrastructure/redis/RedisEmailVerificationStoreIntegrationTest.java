@@ -90,6 +90,7 @@ class RedisEmailVerificationStoreIntegrationTest {
 		)).isEqualTo(ChallengeVerificationResult.VERIFIED);
 
 		assertNoRawSecrets(email, code, grant);
+		assertThat(store.consumeSignupGrant("other-" + email, grant)).isFalse();
 
 		CountDownLatch ready = new CountDownLatch(2);
 		CountDownLatch start = new CountDownLatch(1);
@@ -138,6 +139,73 @@ class RedisEmailVerificationStoreIntegrationTest {
 		)).isEqualTo(ChallengeVerificationResult.ATTEMPTS_EXCEEDED);
 		assertThat(store.consumeSignupGrant(email, grant)).isFalse();
 		assertThat(store.consumePasswordResetGrant(grant)).isEmpty();
+	}
+
+	@Test
+	void cooldown_rate_limit_and_expiration_are_enforced_by_redis_ttl() throws Exception {
+		EmailVerificationPolicy shortPolicy = new EmailVerificationPolicy(
+			Duration.ofMillis(150),
+			Duration.ofMillis(100),
+			Duration.ofSeconds(5),
+			Duration.ofMillis(150),
+			5,
+			2
+		);
+
+		assertThat(store.issueChallenge(
+			EmailVerificationPurpose.SIGNUP,
+			email,
+			"123456",
+			shortPolicy
+		)).isEqualTo(ChallengeIssueResult.ISSUED);
+		assertThat(store.issueChallenge(
+			EmailVerificationPurpose.SIGNUP,
+			email,
+			"123456",
+			shortPolicy
+		)).isEqualTo(ChallengeIssueResult.COOLDOWN);
+
+		Thread.sleep(200);
+		assertThat(store.confirmChallenge(
+			EmailVerificationPurpose.SIGNUP,
+			email,
+			"123456",
+			"expired-challenge-grant",
+			email,
+			shortPolicy
+		)).isEqualTo(ChallengeVerificationResult.EXPIRED);
+		assertThat(store.issueChallenge(
+			EmailVerificationPurpose.SIGNUP,
+			email,
+			"123456",
+			shortPolicy
+		)).isEqualTo(ChallengeIssueResult.ISSUED);
+
+		Thread.sleep(120);
+		assertThat(store.issueChallenge(
+			EmailVerificationPurpose.SIGNUP,
+			email,
+			"123456",
+			shortPolicy
+		)).isEqualTo(ChallengeIssueResult.RATE_LIMITED);
+
+		String grantEmail = "grant-" + email;
+		assertThat(store.issueChallenge(
+			EmailVerificationPurpose.PASSWORD_RESET,
+			grantEmail,
+			"654321",
+			shortPolicy
+		)).isEqualTo(ChallengeIssueResult.ISSUED);
+		assertThat(store.confirmChallenge(
+			EmailVerificationPurpose.PASSWORD_RESET,
+			grantEmail,
+			"654321",
+			"expiring-reset-grant",
+			"41",
+			shortPolicy
+		)).isEqualTo(ChallengeVerificationResult.VERIFIED);
+		Thread.sleep(200);
+		assertThat(store.consumePasswordResetGrant("expiring-reset-grant")).isEmpty();
 	}
 
 	private boolean consumeAfterBarrier(CountDownLatch ready, CountDownLatch start, String grant)
