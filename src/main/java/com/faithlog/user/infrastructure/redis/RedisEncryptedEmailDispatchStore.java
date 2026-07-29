@@ -7,11 +7,13 @@ import com.faithlog.user.service.port.OneTimeTokenGenerator;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 @Component
+@Profile("!test")
 @ConditionalOnExpression(
 	"${faithlog.auth.email-dispatch.cloud-tasks-enabled:false} or "
 		+ "${faithlog.auth.email-dispatch.worker-enabled:false}"
