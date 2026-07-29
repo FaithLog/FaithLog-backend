@@ -31,7 +31,8 @@ This document records the current backend implementation source of truth.
 - Normal logout keeps its existing current-access blacklist plus current-refresh deletion meaning and does not create a session revocation marker solely because of Issue #176.
 - Redis must not store raw tokens. Store a hash or token identifier.
 - Access Token must include `jti`, `userId`, `role`, `sessionId`, and `tokenVersion`.
-- Refresh Token must include `userId`, `sessionId`, and `refreshJti`.
+- Refresh Token must include `userId`, `sessionId`, `refreshJti`, and `tokenVersion`.
+- Refresh reissue locks the current user row and rejects a Refresh Token when its `tokenVersion` differs from the persisted user version, even if a stale Redis session key still exists.
 - Refresh rotation keeps the same `sessionId` and replaces the refresh token identifier.
 - `POST /api/v1/auth/refresh` receives `refreshToken` in the JSON request body and returns the same token response shape as login.
 - `POST /api/v1/auth/logout` requires `Authorization: Bearer {accessToken}` and accepts optional JSON body fields `refreshToken`, `clientInstanceId`, and `fcmToken`.
@@ -65,6 +66,22 @@ Recommended Redis keys:
 - `auth:access:blacklist:{jti}`
 - `auth:session:revoked:{userId}:{sessionId}`
 - Optional reuse detection: `auth:refresh:used:{refreshJti}` or current `refreshJti` comparison within the session.
+
+Email verification and password reset policy:
+
+- Signup and password-reset verification state is Redis-owned temporary state. Do not add a database verification-token entity.
+- Store email after trim with its original letter case, but use `trim + lowercase(Locale.ROOT)` for every authentication, verification, and uniqueness comparison. PostgreSQL V13 enforces unique `lower(email)` and fails without mutating data when legacy canonical duplicates exist.
+- Store only HMAC-SHA-256 fingerprints of email, six-digit code, and opaque grant token. Never store or log their raw values.
+- `AUTH_VERIFICATION_HMAC_SECRET` is blank-compatible only while rollout is disabled; every configured value must be strict Base64 decoding to at least 32 bytes and must be independent of `JWT_SECRET`.
+- Code TTL is 5 minutes, resend cooldown is 60 seconds, maximum failed confirmation attempts is 5, per-email request limit is 5 per hour, and grant TTL is 10 minutes.
+- Request, confirmation attempt increment, grant creation, and grant consumption use Redis Lua or an equivalent atomic operation.
+- Password-reset request responses do not reveal whether the email belongs to an active account. Existing and missing accounts use the same durable Cloud Tasks enqueue path; provider work never runs synchronously on the public request.
+- `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED` defaults to `false`. While false, legacy signup may omit the token, but any supplied token must still be email-bound, valid, and consumed once. Switch it to true only after the updated iOS and Android versions are mandatory.
+- Password reset resolves and rechecks the grant under the user row lock, rejects the current password with `400 AUTH_PASSWORD_RESET_SAME_PASSWORD` before grant consumption, and permits that same grant to retry within TTL. A new-password success atomically consumes the expected user-bound grant exactly once, returns no login tokens, increments `users.token_version`, and removes all Refresh Token sessions. Existing Access and Refresh Tokens must then fail authentication. FCM tokens remain active.
+- Cloud Tasks carries only an opaque dispatch token. Recipient/code/purpose/TTL live only in TTL-bound AES-256-GCM Redis ciphertext under HMAC-fingerprinted keys. The worker requires exact Google issuer/audience/service-account OIDC claims, distinguishes acquired/in-progress/missing Redis lease states, and gives the provider a stable hashed delivery ID that must be used for idempotency.
+- The approved production sender is Brevo SMTP over port 587 with required STARTTLS, behind `EmailSenderPort`. The adapter uses Spring JavaMail only; it does not add a Brevo SDK. It sends a local CID logo and a multipart plaintext/HTML message, validates the stable delivery trace ID, and reports provider failures without recipient/code/provider body. SMTP provides no provider-side idempotency guarantee, so Cloud Tasks delivery remains at-least-once when send succeeds but Redis acknowledgement fails.
+- `users.email_verified_at` remains a pending decision. Do not add an email-verification database column until approved.
+- IP rate limiting remains pending until Cloud Run trusted-proxy behavior is verified. Never trust arbitrary `X-Forwarded-For` input.
 
 Redis TTL policy:
 

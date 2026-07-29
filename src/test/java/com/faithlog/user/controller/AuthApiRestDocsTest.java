@@ -94,7 +94,11 @@ class AuthApiRestDocsTest {
 				requestFields(
 					fieldWithPath("name").description("가입자 이름"),
 					fieldWithPath("email").description("로그인에 사용할 이메일"),
-					fieldWithPath("password").description("로그인 비밀번호")
+					fieldWithPath("password").description("로그인 비밀번호"),
+					fieldWithPath("emailVerificationToken")
+						.type(org.springframework.restdocs.payload.JsonFieldType.STRING)
+						.optional()
+						.description("이메일 인증 강제 전환 후 필수인 일회용 token. 호환 기간에는 생략 가능")
 				),
 				responseFields(apiResponseFields(
 					fieldWithPath("data.id").description("생성된 사용자 ID"),

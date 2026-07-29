@@ -78,6 +78,80 @@ include::{snippets}/auth-signup-success/http-response.adoc[]
 
 include::{snippets}/auth-signup-success/response-fields.adoc[]
 
+=== Signup Email Verification Request
+
+`POST /api/v1/auth/email-verifications/signup/request`
+
+include::{snippets}/auth-signup-email-verification-request/http-request.adoc[]
+
+include::{snippets}/auth-signup-email-verification-request/request-fields.adoc[]
+
+include::{snippets}/auth-signup-email-verification-request/http-response.adoc[]
+
+include::{snippets}/auth-signup-email-verification-request/response-fields.adoc[]
+
+=== Signup Email Verification Confirm
+
+`POST /api/v1/auth/email-verifications/signup/confirm`
+
+include::{snippets}/auth-signup-email-verification-confirm/http-request.adoc[]
+
+include::{snippets}/auth-signup-email-verification-confirm/request-fields.adoc[]
+
+include::{snippets}/auth-signup-email-verification-confirm/http-response.adoc[]
+
+include::{snippets}/auth-signup-email-verification-confirm/response-fields.adoc[]
+
+=== Password Reset Request
+
+`POST /api/v1/auth/password-resets/request`
+
+가입 여부와 관계없이 동일한 성공 메시지와 응답 구조를 반환한다.
+
+include::{snippets}/auth-password-reset-request/http-request.adoc[]
+
+include::{snippets}/auth-password-reset-request/request-fields.adoc[]
+
+include::{snippets}/auth-password-reset-request/http-response.adoc[]
+
+include::{snippets}/auth-password-reset-request/response-fields.adoc[]
+
+=== Password Reset Confirm
+
+`POST /api/v1/auth/password-resets/confirm`
+
+include::{snippets}/auth-password-reset-confirm/http-request.adoc[]
+
+include::{snippets}/auth-password-reset-confirm/request-fields.adoc[]
+
+include::{snippets}/auth-password-reset-confirm/http-response.adoc[]
+
+include::{snippets}/auth-password-reset-confirm/response-fields.adoc[]
+
+=== Password Reset Complete
+
+`POST /api/v1/auth/password-resets/complete`
+
+비밀번호 변경 성공 후 자동 로그인 token을 반환하지 않는다. 기존 Access/Refresh token은 폐기되므로 다시 로그인해야 한다.
+
+include::{snippets}/auth-password-reset-complete/http-request.adoc[]
+
+include::{snippets}/auth-password-reset-complete/request-fields.adoc[]
+
+include::{snippets}/auth-password-reset-complete/http-response.adoc[]
+
+include::{snippets}/auth-password-reset-complete/response-fields.adoc[]
+
+=== Password Reset Rejected: Same Password
+
+include::{snippets}/auth-password-reset-same-password/http-request.adoc[]
+
+include::{snippets}/auth-password-reset-same-password/request-fields.adoc[]
+
+include::{snippets}/auth-password-reset-same-password/http-response.adoc[]
+
+include::{snippets}/auth-password-reset-same-password/response-fields.adoc[]
+
 === Login
 
 `POST /api/v1/auth/login`

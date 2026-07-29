@@ -50,13 +50,14 @@ public class RefreshTokenRotationService {
 		Long userId = refreshClaims.get("userId", Long.class);
 		String sessionId = refreshClaims.get("sessionId", String.class);
 		String refreshJti = refreshClaims.get("refreshJti", String.class);
-		if (userId == null || sessionId == null || refreshJti == null) {
+		Number tokenVersion = refreshClaims.get("tokenVersion", Number.class);
+		if (userId == null || sessionId == null || refreshJti == null || tokenVersion == null) {
 			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}
 
-		User user = userRepository.findById(userId)
+		User user = userRepository.findByIdForUpdate(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
-		if (!user.isActive()) {
+		if (!user.isActive() || tokenVersion.longValue() != user.tokenVersion()) {
 			refreshTokenStore.deleteSession(userId, sessionId);
 			throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
 		}

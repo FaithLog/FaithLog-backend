@@ -27,7 +27,7 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	Optional<User> findByIdForUpdate(@Param("userId") Long userId);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
-	@Query("select user from User user where user.email = :email")
+	@Query("select user from User user where lower(user.email) = :email")
 	Optional<User> findByEmailForUpdate(@Param("email") String email);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -75,9 +75,11 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	@Query("select user from User user where user.id = (select min(candidate.id) from User candidate)")
 	Optional<User> findFirstAdminMutationLockForUpdate();
 
-	Optional<User> findByEmail(String email);
+	@Query("select user from User user where lower(user.email) = lower(:email)")
+	Optional<User> findByEmail(@Param("email") String email);
 
-	boolean existsByEmail(String email);
+	@Query("select (count(user) > 0) from User user where lower(user.email) = lower(:email)")
+	boolean existsByEmail(@Param("email") String email);
 
 	long countByRoleAndIsActiveTrue(com.faithlog.user.domain.type.UserRole role);
 
