@@ -70,14 +70,16 @@ Recommended Redis keys:
 Email verification and password reset policy:
 
 - Signup and password-reset verification state is Redis-owned temporary state. Do not add a database verification-token entity.
-- Normalize email with `trim` and `lowercase(Locale.ROOT)` only.
+- Store email after trim with its original letter case, but use `trim + lowercase(Locale.ROOT)` for every authentication, verification, and uniqueness comparison. PostgreSQL V13 enforces unique `lower(email)` and fails without mutating data when legacy canonical duplicates exist.
 - Store only HMAC-SHA-256 fingerprints of email, six-digit code, and opaque grant token. Never store or log their raw values.
+- `AUTH_VERIFICATION_HMAC_SECRET` is blank-compatible only while rollout is disabled; every configured value must be strict Base64 decoding to at least 32 bytes and must be independent of `JWT_SECRET`.
 - Code TTL is 5 minutes, resend cooldown is 60 seconds, maximum failed confirmation attempts is 5, per-email request limit is 5 per hour, and grant TTL is 10 minutes.
 - Request, confirmation attempt increment, grant creation, and grant consumption use Redis Lua or an equivalent atomic operation.
-- Password-reset request responses do not reveal whether the email belongs to an active account.
+- Password-reset request responses do not reveal whether the email belongs to an active account. Existing and missing accounts use the same durable Cloud Tasks enqueue path; provider work never runs synchronously on the public request.
 - `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED` defaults to `false`. While false, legacy signup may omit the token, but any supplied token must still be email-bound, valid, and consumed once. Switch it to true only after the updated iOS and Android versions are mandatory.
-- Password reset rejects the current password with `400 AUTH_PASSWORD_RESET_SAME_PASSWORD`, does not return login tokens, increments `users.token_version`, and removes all Refresh Token sessions. Existing Access and Refresh Tokens must then fail authentication. FCM tokens remain active.
-- The production email provider and `users.email_verified_at` remain pending decisions. Do not add a provider dependency or Flyway migration until approved.
+- Password reset resolves and rechecks the grant under the user row lock, rejects the current password with `400 AUTH_PASSWORD_RESET_SAME_PASSWORD` before grant consumption, and permits that same grant to retry within TTL. A new-password success atomically consumes the expected user-bound grant exactly once, returns no login tokens, increments `users.token_version`, and removes all Refresh Token sessions. Existing Access and Refresh Tokens must then fail authentication. FCM tokens remain active.
+- Cloud Tasks carries only an opaque dispatch token. Recipient/code/purpose/TTL live only in TTL-bound AES-256-GCM Redis ciphertext under HMAC-fingerprinted keys. The worker requires exact Google issuer/audience/service-account OIDC claims and uses a Redis lease for retry-safe delivery.
+- The production email provider and `users.email_verified_at` remain pending decisions. Do not add a provider-specific SDK or email-verification database column until approved.
 - IP rate limiting remains pending until Cloud Run trusted-proxy behavior is verified. Never trust arbitrary `X-Forwarded-For` input.
 
 Redis TTL policy:

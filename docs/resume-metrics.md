@@ -11,10 +11,11 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 
 ## 2026-07-29 - Issue #224 이메일 인증과 비밀번호 재설정 보안 경계
 
-- 회원가입 이메일 인증과 임시 비밀번호 없는 비밀번호 재설정을 provider-independent port, Redis adapter, 공개 API로 구현했다. 운영 메일 업체, 신규 의존성, Flyway/DB schema는 결정 전 추가하지 않았다.
-- Redis에는 이메일·숫자 6자리 코드·opaque grant 원문 대신 HMAC-SHA-256 fingerprint만 저장하고, challenge 발급/시도 증가/grant 생성/1회 소비를 Lua 원자 연산으로 구현했다. 실제 로컬 Redis에서 목적·이메일 불일치와 동시 소비 1승자 계약을 검증했다.
+- 회원가입 이메일 인증과 임시 비밀번호 없는 비밀번호 재설정을 provider-independent port, Redis adapter, 공개 API로 구현했다. V13 `lower(email)` unique와 canonical 조회를 적용하되 trim한 이메일의 원래 대소문자는 보존하고, legacy logical duplicate는 자동 변경 없이 migration에서 거부한다.
+- Redis에는 이메일·숫자 6자리 코드·opaque grant 원문 대신 HMAC-SHA-256 fingerprint만 저장하고, challenge 발급/시도 증가/grant 생성/1회 소비를 Lua 원자 연산으로 구현했다. 설정된 HMAC secret은 strict Base64 최소 32 bytes를 강제하며 JWT secret과 분리한다.
+- password-reset 존재/부재 요청을 동일 Cloud Tasks 경로로 분리했다. Task에는 opaque token만 싣고 실제 recipient/code/purpose/TTL은 AES-256-GCM Redis ciphertext와 fingerprinted key로 보관한다. Google OIDC worker, Redis lease, provider retry 경계를 테스트했으며 실제 provider 발송 성과는 아직 주장하지 않는다.
 - 비밀번호 변경은 user row lock, BCrypt, `tokenVersion` 증가, Refresh Session 전체 삭제를 묶었다. Refresh JWT에도 `tokenVersion`을 넣어 DB 현재값과 대조하며, 통합 테스트에서 이전 Access/Refresh/비밀번호 거부, 새 비밀번호 로그인, FCM token 유지, Redis 삭제 실패 시 DB rollback, refresh 경쟁 직렬화를 확인했다.
-- `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=false` 호환 기본값과 true 전환 통합 테스트를 모두 유지한다. 실제 운영 provider와 강제 전환 배포는 아직 pending이므로 운영 발송 성과나 사용자 지표를 주장하지 않는다.
+- 같은 비밀번호 400은 grant를 소비하지 않아 TTL 안에서 다시 입력할 수 있고, 새 비밀번호 동시 완료는 정확히 한 요청만 성공하도록 고정했다. `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=false` 호환 기본값과 true 전환 검증을 유지한다. 실제 운영 provider, branded CID logo asset, Cloud Tasks/IAM과 강제 전환 배포는 pending이므로 운영 발송 성과나 사용자 지표를 주장하지 않는다.
 
 ## 2026-07-27 - Issue #161 배포·공급망 보안 재감사
 

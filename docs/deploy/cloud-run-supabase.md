@@ -51,6 +51,18 @@ JWT_SECRET=<strong-secret>
 JWT_ACCESS_TOKEN_VALIDITY_SECONDS=1800
 JWT_REFRESH_TOKEN_VALIDITY_SECONDS=1209600
 
+FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=false
+AUTH_VERIFICATION_HMAC_SECRET=<base64-secret-decoding-to-at-least-32-bytes>
+FAITHLOG_EMAIL_DISPATCH_CLOUD_TASKS_ENABLED=false
+FAITHLOG_EMAIL_DISPATCH_WORKER_ENABLED=false
+AUTH_EMAIL_DISPATCH_ENCRYPTION_KEY=<base64-secret-decoding-to-exactly-32-bytes>
+FAITHLOG_EMAIL_DISPATCH_PROJECT_ID=<gcp-project-id>
+FAITHLOG_EMAIL_DISPATCH_LOCATION=<gcp-region>
+FAITHLOG_EMAIL_DISPATCH_QUEUE_ID=<cloud-tasks-queue-id>
+FAITHLOG_EMAIL_DISPATCH_WORKER_URL=<https-cloud-run-worker-url>/internal/v1/email-dispatch/tasks
+FAITHLOG_EMAIL_DISPATCH_OIDC_SERVICE_ACCOUNT_EMAIL=<cloud-tasks-service-account>
+FAITHLOG_EMAIL_DISPATCH_OIDC_AUDIENCE=<https-cloud-run-worker-url>
+
 FIREBASE_CONFIG_JSON=<firebase-admin-json-secret>
 FIREBASE_CONFIG_PATH=
 
@@ -59,6 +71,8 @@ SPRINGDOC_SWAGGER_UI_ENABLED=false
 ```
 
 `FIREBASE_CONFIG_JSON` is preferred for Cloud Run because it can be mounted from a secret value without adding a key file to the image. If file-based credentials are used later, mount the file through the platform and set `FIREBASE_CONFIG_PATH` to that mounted path.
+
+Email dispatch remains disabled by default. Before enabling it, provision the named Cloud Tasks queue, grant its approved OIDC service account permission to invoke only the worker service, inject both independent secrets through Secret Manager, and bind the exact worker HTTPS URL/audience. The queue payload contains only an opaque dispatch token; never place an email address or verification code in task names, headers, logs, or command-line environment values. Keep `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=false` until queue/worker/provider smoke tests pass and the updated iOS and Android versions are mandatory.
 
 ## Environment Split
 
@@ -198,7 +212,7 @@ Use Cloud Run secret injection for sensitive values rather than `--set-env-vars`
 - `./gradlew build`
 - `./gradlew asciidoctor`
 - Docker image build succeeds.
-- Docker PostgreSQL clean database runs Flyway through V12 successfully.
+- Docker PostgreSQL clean database runs Flyway through V13 successfully, and the production preflight confirms no duplicate `lower(users.email)` groups before rollout.
 - Supabase Security Advisor has no Critical `rls_disabled_in_public` or `sensitive_columns_exposed` findings.
 - Docker QA starts with Docker PostgreSQL and Docker Redis only.
 - App starts with deployment-like DB/Flyway/JPA settings against the migrated PostgreSQL schema and `ddl-auto=validate`.
