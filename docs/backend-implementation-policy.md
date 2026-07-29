@@ -31,7 +31,8 @@ This document records the current backend implementation source of truth.
 - Normal logout keeps its existing current-access blacklist plus current-refresh deletion meaning and does not create a session revocation marker solely because of Issue #176.
 - Redis must not store raw tokens. Store a hash or token identifier.
 - Access Token must include `jti`, `userId`, `role`, `sessionId`, and `tokenVersion`.
-- Refresh Token must include `userId`, `sessionId`, and `refreshJti`.
+- Refresh Token must include `userId`, `sessionId`, `refreshJti`, and `tokenVersion`.
+- Refresh reissue locks the current user row and rejects a Refresh Token when its `tokenVersion` differs from the persisted user version, even if a stale Redis session key still exists.
 - Refresh rotation keeps the same `sessionId` and replaces the refresh token identifier.
 - `POST /api/v1/auth/refresh` receives `refreshToken` in the JSON request body and returns the same token response shape as login.
 - `POST /api/v1/auth/logout` requires `Authorization: Bearer {accessToken}` and accepts optional JSON body fields `refreshToken`, `clientInstanceId`, and `fcmToken`.
@@ -65,6 +66,19 @@ Recommended Redis keys:
 - `auth:access:blacklist:{jti}`
 - `auth:session:revoked:{userId}:{sessionId}`
 - Optional reuse detection: `auth:refresh:used:{refreshJti}` or current `refreshJti` comparison within the session.
+
+Email verification and password reset policy:
+
+- Signup and password-reset verification state is Redis-owned temporary state. Do not add a database verification-token entity.
+- Normalize email with `trim` and `lowercase(Locale.ROOT)` only.
+- Store only HMAC-SHA-256 fingerprints of email, six-digit code, and opaque grant token. Never store or log their raw values.
+- Code TTL is 5 minutes, resend cooldown is 60 seconds, maximum failed confirmation attempts is 5, per-email request limit is 5 per hour, and grant TTL is 10 minutes.
+- Request, confirmation attempt increment, grant creation, and grant consumption use Redis Lua or an equivalent atomic operation.
+- Password-reset request responses do not reveal whether the email belongs to an active account.
+- `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED` defaults to `false`. While false, legacy signup may omit the token, but any supplied token must still be email-bound, valid, and consumed once. Switch it to true only after the updated iOS and Android versions are mandatory.
+- Password reset rejects the current password with `400 AUTH_PASSWORD_RESET_SAME_PASSWORD`, does not return login tokens, increments `users.token_version`, and removes all Refresh Token sessions. Existing Access and Refresh Tokens must then fail authentication. FCM tokens remain active.
+- The production email provider and `users.email_verified_at` remain pending decisions. Do not add a provider dependency or Flyway migration until approved.
+- IP rate limiting remains pending until Cloud Run trusted-proxy behavior is verified. Never trust arbitrary `X-Forwarded-For` input.
 
 Redis TTL policy:
 

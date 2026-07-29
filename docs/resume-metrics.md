@@ -9,6 +9,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-29 - Issue #224 이메일 인증과 비밀번호 재설정 보안 경계
+
+- 회원가입 이메일 인증과 임시 비밀번호 없는 비밀번호 재설정을 provider-independent port, Redis adapter, 공개 API로 구현했다. 운영 메일 업체, 신규 의존성, Flyway/DB schema는 결정 전 추가하지 않았다.
+- Redis에는 이메일·숫자 6자리 코드·opaque grant 원문 대신 HMAC-SHA-256 fingerprint만 저장하고, challenge 발급/시도 증가/grant 생성/1회 소비를 Lua 원자 연산으로 구현했다. 실제 로컬 Redis에서 목적·이메일 불일치와 동시 소비 1승자 계약을 검증했다.
+- 비밀번호 변경은 user row lock, BCrypt, `tokenVersion` 증가, Refresh Session 전체 삭제를 묶었다. Refresh JWT에도 `tokenVersion`을 넣어 DB 현재값과 대조하며, 통합 테스트에서 이전 Access/Refresh/비밀번호 거부, 새 비밀번호 로그인, FCM token 유지, Redis 삭제 실패 시 DB rollback, refresh 경쟁 직렬화를 확인했다.
+- `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=false` 호환 기본값과 true 전환 통합 테스트를 모두 유지한다. 실제 운영 provider와 강제 전환 배포는 아직 pending이므로 운영 발송 성과나 사용자 지표를 주장하지 않는다.
+
 ## 2026-07-27 - Issue #161 배포·공급망 보안 재감사
 
 - 최신 `develop@7b96a53`을 기준으로 저장소, 의존성, GitHub 설정, 배포 경계와 운영 health를 읽기 전용 재감사했다.
