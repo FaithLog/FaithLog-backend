@@ -3,6 +3,7 @@ package com.faithlog.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
@@ -88,5 +89,24 @@ class SignupEmailVerificationTest {
 				.isEqualTo(ErrorCode.AUTH_EMAIL_VERIFICATION_TOKEN_INVALID));
 
 		verify(userRepository, never()).save(org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
+	void database_unique_constraints_are_flushed_before_the_one_time_grant_is_consumed() {
+		when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+		when(passwordEncoder.encode("password")).thenReturn("encoded");
+		when(userRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+		when(verificationStore.consumeSignupGrant("user@example.com", "grant-token")).thenReturn(true);
+
+		compatibleService.signup(new SignupCommand(
+			"사용자",
+			"user@example.com",
+			"password",
+			"grant-token"
+		));
+
+		var ordered = inOrder(userRepository, verificationStore);
+		ordered.verify(userRepository).saveAndFlush(any());
+		ordered.verify(verificationStore).consumeSignupGrant("user@example.com", "grant-token");
 	}
 }

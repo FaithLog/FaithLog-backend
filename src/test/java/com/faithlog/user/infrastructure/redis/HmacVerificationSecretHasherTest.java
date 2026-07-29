@@ -23,4 +23,14 @@ class HmacVerificationSecretHasherTest {
 			.doesNotContain("123456");
 		assertThat(anotherContext).isNotEqualTo(first);
 	}
+
+	@Test
+	void missing_runtime_secret_fails_closed_without_echoing_input() {
+		HmacVerificationSecretHasher hasher = new HmacVerificationSecretHasher("");
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> hasher.hash("challenge-code", "123456"))
+			.isInstanceOf(com.faithlog.user.service.port.EmailVerificationStoreException.class)
+			.hasMessage("Email verification store is unavailable")
+			.hasMessageNotContaining("123456");
+	}
 }
