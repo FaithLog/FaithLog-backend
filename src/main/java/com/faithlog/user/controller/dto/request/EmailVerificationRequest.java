@@ -9,6 +9,9 @@ public record EmailVerificationRequest(
 	@Email
 	String email
 ) {
+	public EmailVerificationRequest {
+		email = email == null ? null : email.trim();
+	}
 
 	public RequestEmailVerificationCommand toCommand() {
 		return new RequestEmailVerificationCommand(email);

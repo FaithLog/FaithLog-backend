@@ -17,6 +17,9 @@ public record SignupRequest(
 
 	String emailVerificationToken
 ) {
+	public SignupRequest {
+		email = email == null ? null : email.trim();
+	}
 
 	public SignupCommand toCommand() {
 		return new SignupCommand(name, email, password, emailVerificationToken);

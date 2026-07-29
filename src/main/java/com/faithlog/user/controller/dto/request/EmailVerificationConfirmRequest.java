@@ -14,6 +14,9 @@ public record EmailVerificationConfirmRequest(
 	@Pattern(regexp = "\\d{6}")
 	String code
 ) {
+	public EmailVerificationConfirmRequest {
+		email = email == null ? null : email.trim();
+	}
 
 	public ConfirmEmailVerificationCommand toCommand() {
 		return new ConfirmEmailVerificationCommand(email, code);
