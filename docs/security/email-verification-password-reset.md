@@ -73,6 +73,8 @@ Refresh JWTs include `tokenVersion`. Refresh obtains the same user row lock and 
 - Existing Access Tokens fail the existing DB `tokenVersion` check.
 - FCM tokens are not changed by password reset.
 
+Refresh Tokens issued before Issue #224 do not contain `tokenVersion` and are rejected after this deployment. Existing Access Tokens continue only until their normal expiry when their persisted version still matches; the client must handle the subsequent refresh `401` by clearing auth state and asking the user to sign in again.
+
 The DB and Redis are not one atomic resource. The fail-closed policy is:
 
 - Refresh-session deletion failure occurs before DB commit and causes password/hash/version rollback.
