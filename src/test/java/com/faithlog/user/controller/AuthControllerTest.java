@@ -89,6 +89,28 @@ class AuthControllerTest {
 	}
 
 	@Test
+	void signup_trims_email_before_request_validation() throws Exception {
+		when(signupCommandService.signup(any())).thenReturn(new SignupResult(
+			1L,
+			"이승욱",
+			"user@example.com",
+			"USER",
+			true
+		));
+
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "이승욱",
+					  "email": "  User@Example.COM  ",
+					  "password": "1234"
+					}
+					"""))
+			.andExpect(status().isCreated());
+	}
+
+	@Test
 	void login_returns_access_and_refresh_tokens_in_response_body() throws Exception {
 		UserMeResult user = new UserMeResult(
 			1L,

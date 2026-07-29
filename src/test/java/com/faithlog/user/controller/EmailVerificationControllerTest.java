@@ -82,6 +82,21 @@ class EmailVerificationControllerTest {
 	}
 
 	@Test
+	void trims_email_before_request_validation() throws Exception {
+		when(emailVerificationCommandService.requestSignup(any()))
+			.thenReturn(new EmailVerificationRequestResult(300, 60));
+
+		mockMvc.perform(post("/api/v1/auth/email-verifications/signup/request")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "  User@Example.COM  "
+					}
+					"""))
+			.andExpect(status().isOk());
+	}
+
+	@Test
 	void password_reset_request_is_generic_and_confirmation_returns_an_opaque_grant() throws Exception {
 		when(emailVerificationCommandService.requestPasswordReset(any()))
 			.thenReturn(new EmailVerificationRequestResult(300, 60));
