@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 
 @SpringBootTest(properties = {
+	"faithlog.auth.email-dispatch.cloud-tasks-enabled=true",
 	"faithlog.auth.email-dispatch.worker-enabled=true",
 	"faithlog.auth.email-dispatch.oidc-audience=https://worker.example.com",
 	"faithlog.auth.email-dispatch.oidc-service-account-email=tasks@example.iam.gserviceaccount.com"
