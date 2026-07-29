@@ -38,6 +38,7 @@ public interface EmailVerificationStore {
 		VERIFIED,
 		INVALID,
 		EXPIRED,
-		ATTEMPTS_EXCEEDED
+		ATTEMPTS_EXCEEDED,
+		GRANT_COLLISION
 	}
 }

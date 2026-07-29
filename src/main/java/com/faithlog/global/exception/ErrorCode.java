@@ -17,6 +17,7 @@ public enum ErrorCode {
 	AUTH_EMAIL_VERIFICATION_RESEND_THROTTLED(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 인증번호를 다시 요청해 주세요."),
 	AUTH_EMAIL_VERIFICATION_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "인증번호 요청 횟수를 초과했습니다."),
 	AUTH_EMAIL_DELIVERY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "인증 이메일을 발송할 수 없습니다."),
+	AUTH_EMAIL_VERIFICATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이메일 인증을 처리할 수 없습니다."),
 	AUTH_PASSWORD_RESET_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "비밀번호 변경 인증이 유효하지 않습니다."),
 	AUTH_PASSWORD_RESET_SAME_PASSWORD(HttpStatus.BAD_REQUEST, "현재 비밀번호와 다른 비밀번호를 입력해 주세요."),
 

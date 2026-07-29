@@ -20,6 +20,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -151,15 +152,23 @@ class RedisEmailVerificationStoreIntegrationTest {
 	private void assertNoRawSecrets(String... secrets) {
 		Set<String> keys = redisTemplate.keys("auth:email-verification:*");
 		assertThat(keys).isNotNull().isNotEmpty();
-		List<String> persisted = new ArrayList<>(keys);
-		for (String key : keys) {
-			String value = redisTemplate.opsForValue().get(key);
-			if (value != null) {
-				persisted.add(value);
+		Set<String> original = keysBefore == null ? Set.of() : keysBefore;
+		List<String> createdKeys = keys.stream().filter(key -> !original.contains(key)).toList();
+		List<String> persisted = new ArrayList<>(createdKeys);
+		for (String key : createdKeys) {
+			DataType type = redisTemplate.type(key);
+			if (type == DataType.STRING) {
+				String value = redisTemplate.opsForValue().get(key);
+				if (value != null) {
+					persisted.add(value);
+				}
+			} else if (type == DataType.HASH) {
+				persisted.addAll(redisTemplate.opsForHash().entries(key).entrySet().stream()
+					.map(entry -> entry.getKey() + "=" + entry.getValue())
+					.toList());
+			} else {
+				throw new AssertionError("Unexpected Redis data type: " + type);
 			}
-			persisted.addAll(redisTemplate.opsForHash().entries(key).entrySet().stream()
-				.map(entry -> entry.getKey() + "=" + entry.getValue())
-				.toList());
 		}
 		for (String secret : secrets) {
 			assertThat(persisted).allSatisfy(item -> assertThat(item).doesNotContain(secret));

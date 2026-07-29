@@ -73,6 +73,7 @@ public class EmailVerificationCommandService {
 			subject
 		);
 		if (user.isEmpty()) {
+			verificationStore.consumePasswordResetGrant(result.token());
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_CODE_INVALID);
 		}
 		return result;
@@ -131,6 +132,9 @@ public class EmailVerificationCommandService {
 		}
 		if (result == ChallengeVerificationResult.ATTEMPTS_EXCEEDED) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_ATTEMPTS_EXCEEDED);
+		}
+		if (result == ChallengeVerificationResult.GRANT_COLLISION) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
 		}
 		return new EmailVerificationResult(token, policy.grantTtl().toSeconds());
 	}

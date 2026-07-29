@@ -177,4 +177,27 @@ class EmailVerificationCommandServiceTest {
 		assertThat(result.token()).isEqualTo("reset-grant");
 		assertThat(result.expiresInSeconds()).isEqualTo(600);
 	}
+
+	@Test
+	void password_reset_confirmation_discards_a_grant_for_an_unknown_email() {
+		when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+		when(tokenGenerator.generate()).thenReturn("unusable-reset-grant");
+		when(verificationStore.confirmChallenge(
+			EmailVerificationPurpose.PASSWORD_RESET,
+			"missing@example.com",
+			"123456",
+			"unusable-reset-grant",
+			"missing",
+			POLICY
+		)).thenReturn(ChallengeVerificationResult.VERIFIED);
+
+		assertThatThrownBy(() -> service.confirmPasswordReset(
+			new ConfirmEmailVerificationCommand("missing@example.com", "123456")
+		))
+			.isInstanceOf(BusinessException.class)
+			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode())
+				.isEqualTo(ErrorCode.AUTH_EMAIL_VERIFICATION_CODE_INVALID));
+
+		verify(verificationStore).consumePasswordResetGrant("unusable-reset-grant");
+	}
 }
