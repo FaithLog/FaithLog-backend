@@ -19,9 +19,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 @Component
+@Profile("!test")
 @ConditionalOnProperty(name = "faithlog.auth.email-dispatch.cloud-tasks-enabled", havingValue = "true")
 public class CloudTasksEmailDispatchQueueAdapter implements EmailDispatchQueuePort {
 
