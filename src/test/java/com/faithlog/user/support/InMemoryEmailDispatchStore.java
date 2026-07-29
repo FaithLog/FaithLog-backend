@@ -4,7 +4,6 @@ import com.faithlog.user.service.port.EmailDispatchStore;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 public class InMemoryEmailDispatchStore implements EmailDispatchStore {
@@ -20,16 +19,19 @@ public class InMemoryEmailDispatchStore implements EmailDispatchStore {
 	}
 
 	@Override
-	public synchronized Optional<EmailDispatchPayload> acquire(
+	public synchronized EmailDispatchAcquisition acquire(
 		String dispatchToken,
 		String leaseToken,
 		Duration leaseTtl
 	) {
 		EmailDispatchPayload payload = payloads.get(dispatchToken);
-		if (payload == null || leases.putIfAbsent(dispatchToken, leaseToken) != null) {
-			return Optional.empty();
+		if (payload == null) {
+			return EmailDispatchAcquisition.missing();
 		}
-		return Optional.of(payload);
+		if (leases.putIfAbsent(dispatchToken, leaseToken) != null) {
+			return EmailDispatchAcquisition.inProgress();
+		}
+		return EmailDispatchAcquisition.acquired(payload);
 	}
 
 	@Override

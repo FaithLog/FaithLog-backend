@@ -13,6 +13,7 @@ public class UnavailableEmailSenderAdapter implements EmailSenderPort {
 
 	@Override
 	public void sendVerificationCode(
+		String deliveryId,
 		EmailVerificationPurpose purpose,
 		String email,
 		String code,

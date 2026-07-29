@@ -6,7 +6,6 @@ import com.faithlog.user.service.port.EmailDispatchStore;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
 import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -20,16 +19,17 @@ import org.springframework.stereotype.Component;
 public class RedisEncryptedEmailDispatchStore implements EmailDispatchStore {
 
 	private static final int TOKEN_CREATION_ATTEMPTS = 3;
+	private static final String ACQUIRED_PREFIX = "A:";
 	private static final DefaultRedisScript<String> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
 		local payload = redis.call('get', KEYS[1])
 		if not payload then
-		  return nil
+		  return 'M'
 		end
 		local acquired = redis.call('set', KEYS[2], ARGV[1], 'PX', ARGV[2], 'NX')
 		if not acquired then
-		  return nil
+		  return 'I'
 		end
-		return payload
+		return 'A:' .. payload
 		""", String.class);
 	private static final DefaultRedisScript<Long> ACK_SCRIPT = new DefaultRedisScript<>("""
 		if redis.call('get', KEYS[2]) ~= ARGV[1] then
@@ -80,15 +80,24 @@ public class RedisEncryptedEmailDispatchStore implements EmailDispatchStore {
 	}
 
 	@Override
-	public Optional<EmailDispatchPayload> acquire(String dispatchToken, String leaseToken, Duration leaseTtl) {
+	public EmailDispatchAcquisition acquire(String dispatchToken, String leaseToken, Duration leaseTtl) {
 		try {
-			String encrypted = redisTemplate.execute(
+			String result = redisTemplate.execute(
 				ACQUIRE_SCRIPT,
 				List.of(payloadKey(dispatchToken), leaseKey(dispatchToken)),
 				leaseToken,
 				String.valueOf(leaseTtl.toMillis())
 			);
-			return encrypted == null ? Optional.empty() : Optional.of(cipher.decrypt(encrypted));
+			if ("M".equals(result)) {
+				return EmailDispatchAcquisition.missing();
+			}
+			if ("I".equals(result)) {
+				return EmailDispatchAcquisition.inProgress();
+			}
+			if (result != null && result.startsWith(ACQUIRED_PREFIX)) {
+				return EmailDispatchAcquisition.acquired(cipher.decrypt(result.substring(ACQUIRED_PREFIX.length())));
+			}
+			throw new EmailDispatchQueueException("Email dispatch acquisition is unavailable");
 		} catch (EmailDispatchQueueException exception) {
 			throw exception;
 		} catch (RuntimeException exception) {

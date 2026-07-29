@@ -25,7 +25,7 @@ public class EmailVerificationTestConfig {
 
 	@Bean
 	EmailSenderPort testEmailSenderPort() {
-		return (purpose, email, code, ttl) -> {
+		return (deliveryId, purpose, email, code, ttl) -> {
 		};
 	}
 

@@ -6,11 +6,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.user.infrastructure.email.AesGcmEmailDispatchCipher;
 import com.faithlog.user.service.EmailVerificationPurpose;
 import com.faithlog.user.service.port.EmailDispatchStore.EmailDispatchPayload;
+import com.faithlog.user.service.port.EmailDispatchStore.EmailDispatchAcquisition;
+import com.faithlog.user.service.port.EmailDispatchStore.AcquisitionStatus;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -84,29 +85,30 @@ class RedisEncryptedEmailDispatchStoreIntegrationTest {
 		CountDownLatch ready = new CountDownLatch(2);
 		CountDownLatch start = new CountDownLatch(1);
 		try (var executor = Executors.newFixedThreadPool(2)) {
-			Future<Optional<EmailDispatchPayload>> first = executor.submit(
+			Future<EmailDispatchAcquisition> first = executor.submit(
 				() -> acquireAfterBarrier(ready, start, dispatchToken, "lease-a")
 			);
-			Future<Optional<EmailDispatchPayload>> second = executor.submit(
+			Future<EmailDispatchAcquisition> second = executor.submit(
 				() -> acquireAfterBarrier(ready, start, dispatchToken, "lease-b")
 			);
 			assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
 			start.countDown();
-			Optional<EmailDispatchPayload> firstResult = first.get(5, TimeUnit.SECONDS);
-			Optional<EmailDispatchPayload> secondResult = second.get(5, TimeUnit.SECONDS);
-			assertThat(List.of(firstResult.isPresent(), secondResult.isPresent()))
-				.containsExactlyInAnyOrder(true, false);
-			String winningLease = firstResult.isPresent() ? "lease-a" : "lease-b";
+			EmailDispatchAcquisition firstResult = first.get(5, TimeUnit.SECONDS);
+			EmailDispatchAcquisition secondResult = second.get(5, TimeUnit.SECONDS);
+			assertThat(List.of(firstResult.status(), secondResult.status()))
+				.containsExactlyInAnyOrder(AcquisitionStatus.ACQUIRED, AcquisitionStatus.IN_PROGRESS);
+			String winningLease = firstResult.status() == AcquisitionStatus.ACQUIRED ? "lease-a" : "lease-b";
 			store.release(dispatchToken, winningLease);
 		}
 
 		assertThat(store.acquire(dispatchToken, "lease-final", Duration.ofSeconds(30)))
-			.contains(payload);
+			.isEqualTo(EmailDispatchAcquisition.acquired(payload));
 		assertThat(store.acknowledge(dispatchToken, "lease-final")).isTrue();
-		assertThat(store.acquire(dispatchToken, "lease-after-ack", Duration.ofSeconds(30))).isEmpty();
+		assertThat(store.acquire(dispatchToken, "lease-after-ack", Duration.ofSeconds(30)))
+			.isEqualTo(EmailDispatchAcquisition.missing());
 	}
 
-	private Optional<EmailDispatchPayload> acquireAfterBarrier(
+	private EmailDispatchAcquisition acquireAfterBarrier(
 		CountDownLatch ready,
 		CountDownLatch start,
 		String dispatchToken,

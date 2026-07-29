@@ -7,6 +7,10 @@ import com.faithlog.user.service.port.EmailDispatchStore.EmailDispatchPayload;
 import com.faithlog.user.service.port.EmailSenderPort;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -30,14 +34,18 @@ public class EmailDispatchWorkerService {
 
 	public void dispatch(String dispatchToken) {
 		String leaseToken = tokenGenerator.generate();
-		var acquired = dispatchStore.acquire(dispatchToken, leaseToken, LEASE_TTL);
-		if (acquired.isEmpty()) {
+		var acquisition = dispatchStore.acquire(dispatchToken, leaseToken, LEASE_TTL);
+		if (acquisition.status() == EmailDispatchStore.AcquisitionStatus.MISSING) {
 			return;
 		}
-		EmailDispatchPayload payload = acquired.get();
+		if (acquisition.status() == EmailDispatchStore.AcquisitionStatus.IN_PROGRESS) {
+			throw new EmailDispatchQueueException("Email dispatch is already in progress");
+		}
+		EmailDispatchPayload payload = acquisition.payload();
 		try {
 			if (payload.deliveryRequired()) {
 				emailSenderPort.sendVerificationCode(
+					deliveryId(dispatchToken),
 					payload.purpose(),
 					payload.recipientEmail(),
 					payload.verificationCode(),
@@ -52,6 +60,17 @@ public class EmailDispatchWorkerService {
 			throw exception;
 		} catch (RuntimeException exception) {
 			dispatchStore.release(dispatchToken, leaseToken);
+			throw new EmailDispatchQueueException("Email dispatch is unavailable", exception);
+		}
+	}
+
+	private String deliveryId(String dispatchToken) {
+		try {
+			return HexFormat.of().formatHex(
+				MessageDigest.getInstance("SHA-256")
+					.digest(dispatchToken.getBytes(StandardCharsets.UTF_8))
+			);
+		} catch (NoSuchAlgorithmException exception) {
 			throw new EmailDispatchQueueException("Email dispatch is unavailable", exception);
 		}
 	}

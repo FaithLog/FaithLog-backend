@@ -3,7 +3,6 @@ package com.faithlog.user.infrastructure.email;
 import com.faithlog.user.service.port.EmailDispatchQueueException;
 import com.faithlog.user.service.port.EmailDispatchStore;
 import java.time.Duration;
-import java.util.Optional;
 
 public class UnavailableEmailDispatchStore implements EmailDispatchStore {
 
@@ -13,7 +12,7 @@ public class UnavailableEmailDispatchStore implements EmailDispatchStore {
 	}
 
 	@Override
-	public Optional<EmailDispatchPayload> acquire(String dispatchToken, String leaseToken, Duration leaseTtl) {
+	public EmailDispatchAcquisition acquire(String dispatchToken, String leaseToken, Duration leaseTtl) {
 		throw unavailable();
 	}
 
