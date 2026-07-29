@@ -11,9 +11,10 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.ConfirmEmailVerificationCommand;
+import com.faithlog.user.service.command.QueueVerificationEmailCommand;
 import com.faithlog.user.service.command.RequestEmailVerificationCommand;
 import com.faithlog.user.service.policy.EmailVerificationPolicy;
-import com.faithlog.user.service.port.EmailSenderPort;
+import com.faithlog.user.service.port.EmailDispatchQueuePort;
 import com.faithlog.user.service.port.EmailVerificationStore;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeIssueResult;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeVerificationResult;
@@ -47,7 +48,7 @@ class EmailVerificationCommandServiceTest {
 	private EmailVerificationStore verificationStore;
 
 	@Mock
-	private EmailSenderPort emailSenderPort;
+	private EmailDispatchQueuePort emailDispatchQueue;
 
 	@Mock
 	private VerificationCodeGenerator codeGenerator;
@@ -62,7 +63,7 @@ class EmailVerificationCommandServiceTest {
 		service = new EmailVerificationCommandService(
 			userRepository,
 			verificationStore,
-			emailSenderPort,
+			emailDispatchQueue,
 			codeGenerator,
 			tokenGenerator,
 			POLICY
@@ -84,12 +85,13 @@ class EmailVerificationCommandServiceTest {
 
 		assertThat(result.expiresInSeconds()).isEqualTo(300);
 		assertThat(result.resendAvailableInSeconds()).isEqualTo(60);
-		verify(emailSenderPort).sendVerificationCode(
+		verify(emailDispatchQueue).enqueue(new QueueVerificationEmailCommand(
 			EmailVerificationPurpose.SIGNUP,
 			"user@example.com",
 			"123456",
-			Duration.ofMinutes(5)
-		);
+			Duration.ofMinutes(5),
+			true
+		));
 	}
 
 	@Test
@@ -132,7 +134,7 @@ class EmailVerificationCommandServiceTest {
 	}
 
 	@Test
-	void password_reset_request_returns_the_same_result_for_unknown_email_without_sending_mail() {
+	void password_reset_request_enqueues_the_same_durable_path_for_an_unknown_email() {
 		when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
 		when(codeGenerator.generate()).thenReturn("654321");
 		when(verificationStore.issueChallenge(
@@ -148,12 +150,13 @@ class EmailVerificationCommandServiceTest {
 
 		assertThat(result.expiresInSeconds()).isEqualTo(300);
 		assertThat(result.resendAvailableInSeconds()).isEqualTo(60);
-		verify(emailSenderPort, never()).sendVerificationCode(
-			org.mockito.ArgumentMatchers.any(),
-			org.mockito.ArgumentMatchers.anyString(),
-			org.mockito.ArgumentMatchers.anyString(),
-			org.mockito.ArgumentMatchers.any()
-		);
+		verify(emailDispatchQueue).enqueue(new QueueVerificationEmailCommand(
+			EmailVerificationPurpose.PASSWORD_RESET,
+			"missing@example.com",
+			"654321",
+			Duration.ofMinutes(5),
+			false
+		));
 	}
 
 	@Test

@@ -5,10 +5,11 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.ConfirmEmailVerificationCommand;
+import com.faithlog.user.service.command.QueueVerificationEmailCommand;
 import com.faithlog.user.service.command.RequestEmailVerificationCommand;
 import com.faithlog.user.service.policy.EmailVerificationPolicy;
-import com.faithlog.user.service.port.EmailSenderPort;
-import com.faithlog.user.service.port.EmailDeliveryException;
+import com.faithlog.user.service.port.EmailDispatchQueueException;
+import com.faithlog.user.service.port.EmailDispatchQueuePort;
 import com.faithlog.user.service.port.EmailVerificationStore;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeIssueResult;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeVerificationResult;
@@ -25,7 +26,7 @@ public class EmailVerificationCommandService {
 
 	private final UserRepository userRepository;
 	private final EmailVerificationStore verificationStore;
-	private final EmailSenderPort emailSenderPort;
+	private final EmailDispatchQueuePort emailDispatchQueue;
 	private final VerificationCodeGenerator codeGenerator;
 	private final OneTimeTokenGenerator tokenGenerator;
 	private final EmailVerificationPolicy policy;
@@ -33,14 +34,14 @@ public class EmailVerificationCommandService {
 	public EmailVerificationCommandService(
 		UserRepository userRepository,
 		EmailVerificationStore verificationStore,
-		EmailSenderPort emailSenderPort,
+		EmailDispatchQueuePort emailDispatchQueue,
 		VerificationCodeGenerator codeGenerator,
 		OneTimeTokenGenerator tokenGenerator,
 		EmailVerificationPolicy policy
 	) {
 		this.userRepository = userRepository;
 		this.verificationStore = verificationStore;
-		this.emailSenderPort = emailSenderPort;
+		this.emailDispatchQueue = emailDispatchQueue;
 		this.codeGenerator = codeGenerator;
 		this.tokenGenerator = tokenGenerator;
 		this.policy = policy;
@@ -85,7 +86,7 @@ public class EmailVerificationCommandService {
 	private EmailVerificationRequestResult issueChallenge(
 		EmailVerificationPurpose purpose,
 		String email,
-		boolean sendEmail
+		boolean deliveryRequired
 	) {
 		String code = codeGenerator.generate();
 		ChallengeIssueResult issueResult;
@@ -100,16 +101,25 @@ public class EmailVerificationCommandService {
 		if (issueResult == ChallengeIssueResult.RATE_LIMITED) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_RATE_LIMITED);
 		}
-		if (sendEmail) {
-			sendVerificationCode(purpose, email, code);
-		}
+		queueVerificationEmail(purpose, email, code, deliveryRequired);
 		return requestResult();
 	}
 
-	private void sendVerificationCode(EmailVerificationPurpose purpose, String email, String code) {
+	private void queueVerificationEmail(
+		EmailVerificationPurpose purpose,
+		String email,
+		String code,
+		boolean deliveryRequired
+	) {
 		try {
-			emailSenderPort.sendVerificationCode(purpose, email, code, policy.challengeTtl());
-		} catch (EmailDeliveryException exception) {
+			emailDispatchQueue.enqueue(new QueueVerificationEmailCommand(
+				purpose,
+				email,
+				code,
+				policy.challengeTtl(),
+				deliveryRequired
+			));
+		} catch (EmailDispatchQueueException exception) {
 			if (purpose == EmailVerificationPurpose.SIGNUP) {
 				cancelChallenge(purpose, email, code);
 				throw new BusinessException(ErrorCode.AUTH_EMAIL_DELIVERY_UNAVAILABLE);

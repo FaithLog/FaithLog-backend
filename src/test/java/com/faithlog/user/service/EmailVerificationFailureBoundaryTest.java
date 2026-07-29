@@ -11,10 +11,11 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.CompletePasswordResetCommand;
+import com.faithlog.user.service.command.QueueVerificationEmailCommand;
 import com.faithlog.user.service.command.RequestEmailVerificationCommand;
 import com.faithlog.user.service.policy.EmailVerificationPolicy;
-import com.faithlog.user.service.port.EmailDeliveryException;
-import com.faithlog.user.service.port.EmailSenderPort;
+import com.faithlog.user.service.port.EmailDispatchQueueException;
+import com.faithlog.user.service.port.EmailDispatchQueuePort;
 import com.faithlog.user.service.port.EmailVerificationStore;
 import com.faithlog.user.service.port.EmailVerificationStoreException;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
@@ -22,9 +23,6 @@ import com.faithlog.user.service.port.RefreshTokenStore;
 import com.faithlog.user.service.port.VerificationCodeGenerator;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,7 +49,7 @@ class EmailVerificationFailureBoundaryTest {
 	private EmailVerificationStore verificationStore;
 
 	@Mock
-	private EmailSenderPort emailSenderPort;
+	private EmailDispatchQueuePort emailDispatchQueue;
 
 	@Mock
 	private VerificationCodeGenerator codeGenerator;
@@ -72,7 +70,7 @@ class EmailVerificationFailureBoundaryTest {
 		emailService = new EmailVerificationCommandService(
 			userRepository,
 			verificationStore,
-			emailSenderPort,
+			emailDispatchQueue,
 			codeGenerator,
 			tokenGenerator,
 			POLICY
@@ -89,14 +87,15 @@ class EmailVerificationFailureBoundaryTest {
 			"123456",
 			POLICY
 		)).thenReturn(EmailVerificationStore.ChallengeIssueResult.ISSUED);
-		org.mockito.Mockito.doThrow(new EmailDeliveryException("provider unavailable"))
-			.when(emailSenderPort)
-			.sendVerificationCode(
+		org.mockito.Mockito.doThrow(new EmailDispatchQueueException("queue unavailable"))
+			.when(emailDispatchQueue)
+			.enqueue(new QueueVerificationEmailCommand(
 				EmailVerificationPurpose.SIGNUP,
 				"user@example.com",
 				"123456",
-				Duration.ofMinutes(5)
-			);
+				Duration.ofMinutes(5),
+				true
+			));
 
 		assertThatThrownBy(() -> emailService.requestSignup(
 			new RequestEmailVerificationCommand("user@example.com")
@@ -123,14 +122,15 @@ class EmailVerificationFailureBoundaryTest {
 			"123456",
 			POLICY
 		)).thenReturn(EmailVerificationStore.ChallengeIssueResult.ISSUED);
-		org.mockito.Mockito.doThrow(new EmailDeliveryException("provider unavailable"))
-			.when(emailSenderPort)
-			.sendVerificationCode(
+		org.mockito.Mockito.doThrow(new EmailDispatchQueueException("queue unavailable"))
+			.when(emailDispatchQueue)
+			.enqueue(new QueueVerificationEmailCommand(
 				EmailVerificationPurpose.PASSWORD_RESET,
 				"user@example.com",
 				"123456",
-				Duration.ofMinutes(5)
-			);
+				Duration.ofMinutes(5),
+				true
+			));
 
 		var result = emailService.requestPasswordReset(
 			new RequestEmailVerificationCommand("user@example.com")
@@ -145,7 +145,7 @@ class EmailVerificationFailureBoundaryTest {
 	}
 
 	@Test
-	void password_reset_response_does_not_wait_for_provider_latency_only_for_an_existing_account() throws Exception {
+	void password_reset_uses_the_same_queue_path_for_existing_and_missing_accounts() {
 		User user = User.create("사용자", "known@example.com", "hash");
 		when(userRepository.findByEmail("known@example.com")).thenReturn(Optional.of(user));
 		when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
@@ -157,40 +157,27 @@ class EmailVerificationFailureBoundaryTest {
 			org.mockito.ArgumentMatchers.eq(POLICY)
 		)).thenReturn(EmailVerificationStore.ChallengeIssueResult.ISSUED);
 
-		CountDownLatch providerEntered = new CountDownLatch(1);
-		CountDownLatch releaseProvider = new CountDownLatch(1);
-		org.mockito.Mockito.doAnswer(invocation -> {
-			providerEntered.countDown();
-			if (!releaseProvider.await(5, TimeUnit.SECONDS)) {
-				throw new AssertionError("slow provider was not released");
-			}
-			return null;
-		}).when(emailSenderPort).sendVerificationCode(
+		assertThat(emailService.requestPasswordReset(
+			new RequestEmailVerificationCommand("known@example.com")
+		)).isNotNull();
+		assertThat(emailService.requestPasswordReset(
+			new RequestEmailVerificationCommand("missing@example.com")
+		)).isNotNull();
+
+		verify(emailDispatchQueue).enqueue(new QueueVerificationEmailCommand(
 			EmailVerificationPurpose.PASSWORD_RESET,
 			"known@example.com",
 			"123456",
-			Duration.ofMinutes(5)
-		);
-
-		try (var executor = Executors.newFixedThreadPool(2)) {
-			var known = executor.submit(() -> emailService.requestPasswordReset(
-				new RequestEmailVerificationCommand("known@example.com")
-			));
-			assertThat(providerEntered.await(1, TimeUnit.SECONDS)).isTrue();
-
-			var missing = executor.submit(() -> emailService.requestPasswordReset(
-				new RequestEmailVerificationCommand("missing@example.com")
-			));
-			assertThat(missing.get(1, TimeUnit.SECONDS)).isNotNull();
-			try {
-				assertThat(known.isDone())
-					.as("existing and missing accounts must not be distinguishable by provider latency")
-					.isTrue();
-			} finally {
-				releaseProvider.countDown();
-				known.get(1, TimeUnit.SECONDS);
-			}
-		}
+			Duration.ofMinutes(5),
+			true
+		));
+		verify(emailDispatchQueue).enqueue(new QueueVerificationEmailCommand(
+			EmailVerificationPurpose.PASSWORD_RESET,
+			"missing@example.com",
+			"123456",
+			Duration.ofMinutes(5),
+			false
+		));
 	}
 
 	@Test
@@ -211,12 +198,7 @@ class EmailVerificationFailureBoundaryTest {
 			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode())
 				.isEqualTo(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE));
 
-		verify(emailSenderPort, never()).sendVerificationCode(
-			org.mockito.ArgumentMatchers.any(),
-			org.mockito.ArgumentMatchers.anyString(),
-			org.mockito.ArgumentMatchers.anyString(),
-			org.mockito.ArgumentMatchers.any()
-		);
+		verify(emailDispatchQueue, never()).enqueue(org.mockito.ArgumentMatchers.any());
 	}
 
 	@Test

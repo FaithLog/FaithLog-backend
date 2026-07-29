@@ -37,6 +37,16 @@ faithlog:
   auth:
     email-verification-required: ${FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED:false}
     verification-hmac-secret: ${AUTH_VERIFICATION_HMAC_SECRET:}
+    email-dispatch:
+      cloud-tasks-enabled: ${FAITHLOG_EMAIL_DISPATCH_CLOUD_TASKS_ENABLED:false}
+      worker-enabled: ${FAITHLOG_EMAIL_DISPATCH_WORKER_ENABLED:false}
+      encryption-key: ${AUTH_EMAIL_DISPATCH_ENCRYPTION_KEY:}
+      project-id: ${FAITHLOG_EMAIL_DISPATCH_PROJECT_ID:}
+      location: ${FAITHLOG_EMAIL_DISPATCH_LOCATION:}
+      queue-id: ${FAITHLOG_EMAIL_DISPATCH_QUEUE_ID:}
+      worker-url: ${FAITHLOG_EMAIL_DISPATCH_WORKER_URL:}
+      oidc-service-account-email: ${FAITHLOG_EMAIL_DISPATCH_OIDC_SERVICE_ACCOUNT_EMAIL:}
+      oidc-audience: ${FAITHLOG_EMAIL_DISPATCH_OIDC_AUDIENCE:}
   jwt:
     secret: ${JWT_SECRET}
     access-token-validity-seconds: ${JWT_ACCESS_TOKEN_VALIDITY_SECONDS:1800}

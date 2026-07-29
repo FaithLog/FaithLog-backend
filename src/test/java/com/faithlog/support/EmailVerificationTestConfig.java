@@ -1,10 +1,13 @@
 package com.faithlog.support;
 
 import com.faithlog.user.service.port.EmailSenderPort;
+import com.faithlog.user.service.port.EmailDispatchQueuePort;
+import com.faithlog.user.service.port.EmailDispatchStore;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
 import com.faithlog.user.service.port.VerificationCodeGenerator;
 import com.faithlog.user.service.policy.EmailVerificationPolicy;
 import com.faithlog.user.support.InMemoryEmailVerificationStore;
+import com.faithlog.user.support.InMemoryEmailDispatchStore;
 import java.time.Duration;
 import java.util.UUID;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +27,17 @@ public class EmailVerificationTestConfig {
 	EmailSenderPort testEmailSenderPort() {
 		return (purpose, email, code, ttl) -> {
 		};
+	}
+
+	@Bean
+	EmailDispatchQueuePort testEmailDispatchQueuePort() {
+		return command -> {
+		};
+	}
+
+	@Bean
+	EmailDispatchStore testEmailDispatchStore() {
+		return new InMemoryEmailDispatchStore();
 	}
 
 	@Bean

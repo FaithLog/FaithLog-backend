@@ -12,6 +12,8 @@ import com.faithlog.user.service.command.RefreshCommand;
 import com.faithlog.user.support.InMemoryEmailVerificationStore;
 import com.faithlog.user.support.InMemoryRefreshTokenStore;
 import java.util.UUID;
+import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -75,6 +77,53 @@ class PasswordResetConcurrencyIntegrationTest {
 			reset.get(5, TimeUnit.SECONDS);
 			assertUnauthorized(refresh);
 		}
+	}
+
+	@Test
+	void the_same_reset_grant_has_exactly_one_successful_concurrent_completion() throws Exception {
+		String email = "reset-complete-race-" + UUID.randomUUID() + "@example.com";
+		User user = userRepository.saveAndFlush(User.create(
+			"동시 완료",
+			email,
+			passwordEncoder.encode("old-password")
+		));
+		verificationStore.putPasswordResetGrant("single-use-grant", user.id());
+		refreshTokenStore.allowDeleteAll();
+		CountDownLatch ready = new CountDownLatch(2);
+		CountDownLatch start = new CountDownLatch(1);
+
+		try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+			Future<ErrorCode> first = executor.submit(completion(ready, start, "new-password-a"));
+			Future<ErrorCode> second = executor.submit(completion(ready, start, "new-password-b"));
+			assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+			start.countDown();
+
+			assertThat(java.util.Arrays.asList(
+				first.get(5, TimeUnit.SECONDS),
+				second.get(5, TimeUnit.SECONDS)
+			))
+				.containsExactlyInAnyOrder(null, ErrorCode.AUTH_PASSWORD_RESET_TOKEN_INVALID);
+		}
+		assertThat(verificationStore.resolvePasswordResetGrant("single-use-grant")).isEmpty();
+		assertThat(userRepository.findById(user.id()).orElseThrow().tokenVersion()).isEqualTo(1L);
+	}
+
+	private Callable<ErrorCode> completion(CountDownLatch ready, CountDownLatch start, String password) {
+		return () -> {
+			ready.countDown();
+			if (!start.await(5, TimeUnit.SECONDS)) {
+				throw new IllegalStateException("Concurrent password reset timed out");
+			}
+			try {
+				passwordResetCommandService.complete(new CompletePasswordResetCommand(
+					"single-use-grant",
+					password
+				));
+				return null;
+			} catch (BusinessException exception) {
+				return exception.errorCode();
+			}
+		};
 	}
 
 	private void assertUnauthorized(Future<?> action) throws Exception {
