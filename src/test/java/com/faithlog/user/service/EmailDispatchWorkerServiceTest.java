@@ -10,11 +10,11 @@ import static org.mockito.Mockito.when;
 
 import com.faithlog.user.service.port.EmailDeliveryException;
 import com.faithlog.user.service.port.EmailDispatchStore;
+import com.faithlog.user.service.port.EmailDispatchStore.EmailDispatchAcquisition;
 import com.faithlog.user.service.port.EmailDispatchStore.EmailDispatchPayload;
 import com.faithlog.user.service.port.EmailSenderPort;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
 import java.time.Duration;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,12 +45,13 @@ class EmailDispatchWorkerServiceTest {
 	void sends_real_delivery_in_the_worker_then_acknowledges() {
 		EmailDispatchPayload payload = payload(true);
 		when(dispatchStore.acquire("dispatch-token", "lease-token", Duration.ofMinutes(2)))
-			.thenReturn(Optional.of(payload));
+			.thenReturn(EmailDispatchAcquisition.acquired(payload));
 		when(dispatchStore.acknowledge("dispatch-token", "lease-token")).thenReturn(true);
 
 		service.dispatch("dispatch-token");
 
 		verify(emailSender).sendVerificationCode(
+			"b71dedf9efc1ee2c596f20449a0d8b7d0070789043eaf925b70f5f4c5658d6c9",
 			EmailVerificationPurpose.PASSWORD_RESET,
 			"private@example.com",
 			"123456",
@@ -62,12 +63,12 @@ class EmailDispatchWorkerServiceTest {
 	@Test
 	void missing_account_dummy_delivery_uses_the_same_worker_without_calling_the_provider() {
 		when(dispatchStore.acquire("dispatch-token", "lease-token", Duration.ofMinutes(2)))
-			.thenReturn(Optional.of(payload(false)));
+			.thenReturn(EmailDispatchAcquisition.acquired(payload(false)));
 		when(dispatchStore.acknowledge("dispatch-token", "lease-token")).thenReturn(true);
 
 		service.dispatch("dispatch-token");
 
-		verify(emailSender, never()).sendVerificationCode(any(), anyString(), anyString(), any());
+		verify(emailSender, never()).sendVerificationCode(anyString(), any(), anyString(), anyString(), any());
 		verify(dispatchStore).acknowledge("dispatch-token", "lease-token");
 	}
 
@@ -75,9 +76,9 @@ class EmailDispatchWorkerServiceTest {
 	void provider_failure_releases_the_lease_for_cloud_tasks_retry() {
 		EmailDispatchPayload payload = payload(true);
 		when(dispatchStore.acquire("dispatch-token", "lease-token", Duration.ofMinutes(2)))
-			.thenReturn(Optional.of(payload));
+			.thenReturn(EmailDispatchAcquisition.acquired(payload));
 		org.mockito.Mockito.doThrow(new EmailDeliveryException("provider unavailable"))
-			.when(emailSender).sendVerificationCode(any(), anyString(), anyString(), any());
+			.when(emailSender).sendVerificationCode(anyString(), any(), anyString(), anyString(), any());
 
 		assertThatThrownBy(() -> service.dispatch("dispatch-token"))
 			.isInstanceOf(EmailDeliveryException.class);
@@ -88,12 +89,23 @@ class EmailDispatchWorkerServiceTest {
 	@Test
 	void an_in_progress_task_is_rejected_so_cloud_tasks_retries_it() {
 		when(dispatchStore.acquire("dispatch-token", "lease-token", Duration.ofMinutes(2)))
-			.thenReturn(Optional.empty());
+			.thenReturn(EmailDispatchAcquisition.inProgress());
 
 		assertThatThrownBy(() -> service.dispatch("dispatch-token"))
 			.isInstanceOf(com.faithlog.user.service.port.EmailDispatchQueueException.class);
 
-		verify(emailSender, never()).sendVerificationCode(any(), anyString(), anyString(), any());
+		verify(emailSender, never()).sendVerificationCode(anyString(), any(), anyString(), anyString(), any());
+		verify(dispatchStore, never()).acknowledge(anyString(), anyString());
+	}
+
+	@Test
+	void an_already_completed_task_is_idempotently_accepted() {
+		when(dispatchStore.acquire("dispatch-token", "lease-token", Duration.ofMinutes(2)))
+			.thenReturn(EmailDispatchAcquisition.missing());
+
+		service.dispatch("dispatch-token");
+
+		verify(emailSender, never()).sendVerificationCode(anyString(), any(), anyString(), anyString(), any());
 		verify(dispatchStore, never()).acknowledge(anyString(), anyString());
 	}
 
