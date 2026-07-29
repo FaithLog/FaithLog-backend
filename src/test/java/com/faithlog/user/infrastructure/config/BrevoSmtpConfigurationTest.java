@@ -14,6 +14,7 @@ import org.springframework.mail.javamail.JavaMailSenderImpl;
 class BrevoSmtpConfigurationTest {
 
 	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+		.withPropertyValues("spring.profiles.active=brevo-config-test")
 		.withUserConfiguration(BrevoSmtpConfiguration.class, UnavailableEmailSenderAdapter.class);
 
 	@Test
