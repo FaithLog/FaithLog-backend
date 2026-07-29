@@ -36,20 +36,21 @@ public class SignupCommandService {
 
 	@Transactional
 	public SignupResult signup(SignupCommand command) {
-		String email = EmailNormalizer.normalize(command.email());
-		if (userRepository.existsByEmail(email)) {
+		String storedEmail = EmailNormalizer.storageValue(command.email());
+		String canonicalEmail = EmailNormalizer.normalize(storedEmail);
+		if (userRepository.existsByEmail(canonicalEmail)) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
 		}
 		validateVerificationTokenPresence(command.emailVerificationToken());
 
-		User user = User.create(command.name(), email, passwordEncoder.encode(command.password()));
+		User user = User.create(command.name(), storedEmail, passwordEncoder.encode(command.password()));
 		User savedUser;
 		try {
 			savedUser = userRepository.saveAndFlush(user);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
 		}
-		consumeSuppliedVerificationGrant(email, command.emailVerificationToken());
+		consumeSuppliedVerificationGrant(canonicalEmail, command.emailVerificationToken());
 		return SignupResult.from(savedUser);
 	}
 

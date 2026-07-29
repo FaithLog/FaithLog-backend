@@ -8,6 +8,10 @@ final class EmailNormalizer {
 	}
 
 	static String normalize(String email) {
-		return email.trim().toLowerCase(Locale.ROOT);
+		return storageValue(email).toLowerCase(Locale.ROOT);
+	}
+
+	static String storageValue(String email) {
+		return email.trim();
 	}
 }
