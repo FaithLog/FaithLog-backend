@@ -9,6 +9,7 @@ import com.faithlog.user.service.port.EmailVerificationStore;
 import com.faithlog.user.service.port.EmailVerificationStoreException;
 import com.faithlog.user.service.result.SignupResult;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,7 +43,12 @@ public class SignupCommandService {
 		validateVerificationTokenPresence(command.emailVerificationToken());
 
 		User user = User.create(command.name(), email, passwordEncoder.encode(command.password()));
-		User savedUser = userRepository.saveAndFlush(user);
+		User savedUser;
+		try {
+			savedUser = userRepository.saveAndFlush(user);
+		} catch (DataIntegrityViolationException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
+		}
 		consumeSuppliedVerificationGrant(email, command.emailVerificationToken());
 		return SignupResult.from(savedUser);
 	}
