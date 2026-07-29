@@ -14,9 +14,16 @@ public class EmailVerificationConfiguration {
 
 	@Bean
 	HmacVerificationSecretHasher emailVerificationHmacHasher(
-		@Value("${faithlog.auth.verification-hmac-secret:}") String secret
+		@Value("${faithlog.auth.verification-hmac-secret:}") String secret,
+		@Value("${faithlog.auth.email-verification-required:false}") boolean emailVerificationRequired
 	) {
-		return new HmacVerificationSecretHasher(secret);
+		HmacVerificationSecretHasher hasher = new HmacVerificationSecretHasher(secret);
+		if (emailVerificationRequired && !hasher.isConfigured()) {
+			throw new IllegalStateException(
+				"AUTH_VERIFICATION_HMAC_SECRET must be configured when email verification is required"
+			);
+		}
+		return hasher;
 	}
 
 	@Bean

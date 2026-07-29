@@ -55,7 +55,9 @@ class RedisEmailVerificationStoreIntegrationTest {
 		keysBefore = redisTemplate.keys("auth:email-verification:*");
 		store = new RedisEmailVerificationStore(
 			redisTemplate,
-			new HmacVerificationSecretHasher("test-only-verification-hmac-secret")
+			new HmacVerificationSecretHasher(java.util.Base64.getEncoder().encodeToString(
+				"0123456789abcdef0123456789abcdef".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+			))
 		);
 		email = "issue-224-" + UUID.randomUUID() + "@example.com";
 	}

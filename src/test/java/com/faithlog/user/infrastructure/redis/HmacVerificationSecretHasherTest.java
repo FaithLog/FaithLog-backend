@@ -39,6 +39,26 @@ class HmacVerificationSecretHasherTest {
 	}
 
 	@Test
+	void malformed_and_short_base64_secrets_are_rejected_without_echoing_them() {
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+			() -> new HmacVerificationSecretHasher("not-base64!")
+		)
+			.isInstanceOf(com.faithlog.user.service.port.EmailVerificationStoreException.class)
+			.hasMessage("Email verification store is unavailable")
+			.hasMessageNotContaining("not-base64!");
+
+		String shortSecret = Base64.getEncoder().encodeToString(
+			"less-than-thirty-two-bytes".getBytes(StandardCharsets.UTF_8)
+		);
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+			() -> new HmacVerificationSecretHasher(shortSecret)
+		)
+			.isInstanceOf(com.faithlog.user.service.port.EmailVerificationStoreException.class)
+			.hasMessage("Email verification store is unavailable")
+			.hasMessageNotContaining(shortSecret);
+	}
+
+	@Test
 	void missing_runtime_secret_fails_closed_without_echoing_input() {
 		HmacVerificationSecretHasher hasher = new HmacVerificationSecretHasher("");
 

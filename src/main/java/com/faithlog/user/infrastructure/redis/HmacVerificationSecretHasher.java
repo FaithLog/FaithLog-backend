@@ -3,6 +3,7 @@ package com.faithlog.user.infrastructure.redis;
 import com.faithlog.user.service.port.EmailVerificationStoreException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.util.Base64;
 import java.util.HexFormat;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -15,9 +16,11 @@ public class HmacVerificationSecretHasher {
 	private final SecretKeySpec secretKey;
 
 	public HmacVerificationSecretHasher(String secret) {
-		this.secretKey = secret == null || secret.isBlank()
-			? null
-			: new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM);
+		this.secretKey = decodeSecret(secret);
+	}
+
+	public boolean isConfigured() {
+		return secretKey != null;
 	}
 
 	public String hash(String context, String value) {
@@ -31,6 +34,21 @@ public class HmacVerificationSecretHasher {
 			mac.update((byte) 0);
 			return HEX.formatHex(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
 		} catch (GeneralSecurityException exception) {
+			throw new EmailVerificationStoreException("Email verification store is unavailable", exception);
+		}
+	}
+
+	private SecretKeySpec decodeSecret(String secret) {
+		if (secret == null || secret.isBlank()) {
+			return null;
+		}
+		try {
+			byte[] decoded = Base64.getDecoder().decode(secret);
+			if (decoded.length < 32) {
+				throw new EmailVerificationStoreException("Email verification store is unavailable");
+			}
+			return new SecretKeySpec(decoded, ALGORITHM);
+		} catch (IllegalArgumentException exception) {
 			throw new EmailVerificationStoreException("Email verification store is unavailable", exception);
 		}
 	}
