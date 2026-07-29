@@ -199,6 +199,6 @@ class EmailVerificationCommandServiceTest {
 			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode())
 				.isEqualTo(ErrorCode.AUTH_EMAIL_VERIFICATION_CODE_INVALID));
 
-		verify(verificationStore).consumePasswordResetGrant("unusable-reset-grant");
+		verify(verificationStore).discardPasswordResetGrant("unusable-reset-grant");
 	}
 }

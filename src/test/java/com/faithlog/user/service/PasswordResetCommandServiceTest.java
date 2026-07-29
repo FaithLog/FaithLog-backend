@@ -54,7 +54,7 @@ class PasswordResetCommandServiceTest {
 
 	@Test
 	void complete_rejects_the_current_password_with_a_dedicated_error() {
-		when(verificationStore.consumePasswordResetGrant("reset-token")).thenReturn(OptionalLong.of(7L));
+		when(verificationStore.resolvePasswordResetGrant("reset-token")).thenReturn(OptionalLong.of(7L));
 		when(userRepository.findByIdForUpdate(7L)).thenReturn(java.util.Optional.of(user));
 		when(passwordEncoder.matches("same-password", "old-hash")).thenReturn(true);
 
@@ -70,7 +70,8 @@ class PasswordResetCommandServiceTest {
 
 	@Test
 	void complete_changes_the_hash_increments_token_version_and_deletes_all_refresh_sessions() {
-		when(verificationStore.consumePasswordResetGrant("reset-token")).thenReturn(OptionalLong.of(7L));
+		when(verificationStore.resolvePasswordResetGrant("reset-token")).thenReturn(OptionalLong.of(7L));
+		when(verificationStore.consumePasswordResetGrant("reset-token", 7L)).thenReturn(true);
 		when(userRepository.findByIdForUpdate(7L)).thenReturn(java.util.Optional.of(user));
 		when(passwordEncoder.matches("new-password", "old-hash")).thenReturn(false);
 		when(passwordEncoder.encode("new-password")).thenReturn("new-hash");
@@ -80,5 +81,6 @@ class PasswordResetCommandServiceTest {
 		assertThat(user.passwordHash()).isEqualTo("new-hash");
 		assertThat(user.tokenVersion()).isEqualTo(1L);
 		verify(refreshTokenStore).deleteAllSessions(7L);
+		verify(verificationStore).consumePasswordResetGrant("reset-token", 7L);
 	}
 }

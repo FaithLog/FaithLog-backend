@@ -35,24 +35,42 @@ public class PasswordResetCommandService {
 
 	@Transactional
 	public void complete(CompletePasswordResetCommand command) {
+		long userId = resolveGrant(command.resetToken());
+		User user = userRepository.findByIdForUpdate(userId)
+			.filter(User::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_PASSWORD_RESET_TOKEN_INVALID));
+		if (resolveGrant(command.resetToken()) != userId) {
+			throw new BusinessException(ErrorCode.AUTH_PASSWORD_RESET_TOKEN_INVALID);
+		}
+		if (passwordEncoder.matches(command.newPassword(), user.passwordHash())) {
+			throw new BusinessException(ErrorCode.AUTH_PASSWORD_RESET_SAME_PASSWORD);
+		}
+		consumeGrant(command.resetToken(), userId);
+
+		user.changePassword(passwordEncoder.encode(command.newPassword()));
+		refreshTokenStore.deleteAllSessions(user.id());
+	}
+
+	private long resolveGrant(String token) {
 		OptionalLong userId;
 		try {
-			userId = verificationStore.consumePasswordResetGrant(command.resetToken());
+			userId = verificationStore.resolvePasswordResetGrant(token);
 		} catch (EmailVerificationStoreException exception) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
 		}
 		if (userId.isEmpty()) {
 			throw new BusinessException(ErrorCode.AUTH_PASSWORD_RESET_TOKEN_INVALID);
 		}
+		return userId.getAsLong();
+	}
 
-		User user = userRepository.findByIdForUpdate(userId.getAsLong())
-			.filter(User::isActive)
-			.orElseThrow(() -> new BusinessException(ErrorCode.AUTH_PASSWORD_RESET_TOKEN_INVALID));
-		if (passwordEncoder.matches(command.newPassword(), user.passwordHash())) {
-			throw new BusinessException(ErrorCode.AUTH_PASSWORD_RESET_SAME_PASSWORD);
+	private void consumeGrant(String token, long userId) {
+		try {
+			if (!verificationStore.consumePasswordResetGrant(token, userId)) {
+				throw new BusinessException(ErrorCode.AUTH_PASSWORD_RESET_TOKEN_INVALID);
+			}
+		} catch (EmailVerificationStoreException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
 		}
-
-		user.changePassword(passwordEncoder.encode(command.newPassword()));
-		refreshTokenStore.deleteAllSessions(user.id());
 	}
 }

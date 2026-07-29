@@ -169,7 +169,7 @@ public class EmailVerificationCommandService {
 
 	private void discardPasswordResetGrant(String token) {
 		try {
-			verificationStore.consumePasswordResetGrant(token);
+			verificationStore.discardPasswordResetGrant(token);
 		} catch (EmailVerificationStoreException exception) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
 		}

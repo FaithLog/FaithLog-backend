@@ -36,6 +36,8 @@ class InMemoryEmailVerificationStoreTest {
 			"missing",
 			POLICY
 		)).isEqualTo(com.faithlog.user.service.port.EmailVerificationStore.ChallengeVerificationResult.VERIFIED);
-		assertThat(store.consumePasswordResetGrant("reset-token").isEmpty()).isTrue();
+		assertThat(store.resolvePasswordResetGrant("reset-token").isEmpty()).isTrue();
+		store.discardPasswordResetGrant("reset-token");
+		assertThat(store.resolvePasswordResetGrant("reset-token")).isEmpty();
 	}
 }

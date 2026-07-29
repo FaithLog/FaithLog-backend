@@ -221,7 +221,7 @@ class EmailVerificationFailureBoundaryTest {
 
 	@Test
 	void password_reset_grant_store_failure_is_mapped_before_any_password_or_session_change() {
-		when(verificationStore.consumePasswordResetGrant("reset-token"))
+		when(verificationStore.resolvePasswordResetGrant("reset-token"))
 			.thenThrow(new EmailVerificationStoreException("Redis operation failed"));
 		PasswordResetCommandService passwordResetService = new PasswordResetCommandService(
 			userRepository,

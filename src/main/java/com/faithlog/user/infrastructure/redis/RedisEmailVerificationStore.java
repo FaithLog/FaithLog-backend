@@ -99,14 +99,22 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
 		Long.class
 	);
 
-	private static final DefaultRedisScript<String> CONSUME_RESET_SCRIPT = new DefaultRedisScript<>("""
+	private static final DefaultRedisScript<String> RESOLVE_RESET_SCRIPT = new DefaultRedisScript<>("""
 		local subject = redis.call('get', KEYS[1])
 		if not subject then
 		  return nil
 		end
-		redis.call('del', KEYS[1])
 		return subject
 		""", String.class);
+
+	private static final DefaultRedisScript<Long> CONSUME_RESET_SCRIPT = new DefaultRedisScript<>("""
+		local subject = redis.call('get', KEYS[1])
+		if (not subject) or subject ~= ARGV[1] then
+		  return 0
+		end
+		redis.call('del', KEYS[1])
+		return 1
+		""", Long.class);
 
 	private final StringRedisTemplate redisTemplate;
 	private final HmacVerificationSecretHasher hasher;
@@ -230,10 +238,10 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
 	}
 
 	@Override
-	public OptionalLong consumePasswordResetGrant(String grantToken) {
+	public OptionalLong resolvePasswordResetGrant(String grantToken) {
 		try {
 			String subject = redisTemplate.execute(
-				CONSUME_RESET_SCRIPT,
+				RESOLVE_RESET_SCRIPT,
 				List.of(grantKey(EmailVerificationPurpose.PASSWORD_RESET, grantToken))
 			);
 			if (subject == null) {
@@ -244,6 +252,33 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
 			} catch (NumberFormatException exception) {
 				return OptionalLong.empty();
 			}
+		} catch (EmailVerificationStoreException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw unavailable(exception);
+		}
+	}
+
+	@Override
+	public boolean consumePasswordResetGrant(String grantToken, long expectedUserId) {
+		try {
+			Long result = redisTemplate.execute(
+				CONSUME_RESET_SCRIPT,
+				List.of(grantKey(EmailVerificationPurpose.PASSWORD_RESET, grantToken)),
+				String.valueOf(expectedUserId)
+			);
+			return Long.valueOf(1L).equals(result);
+		} catch (EmailVerificationStoreException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw unavailable(exception);
+		}
+	}
+
+	@Override
+	public void discardPasswordResetGrant(String grantToken) {
+		try {
+			redisTemplate.delete(grantKey(EmailVerificationPurpose.PASSWORD_RESET, grantToken));
 		} catch (EmailVerificationStoreException exception) {
 			throw exception;
 		} catch (RuntimeException exception) {

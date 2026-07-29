@@ -138,7 +138,7 @@ class RedisEmailVerificationStoreIntegrationTest {
 			POLICY
 		)).isEqualTo(ChallengeVerificationResult.ATTEMPTS_EXCEEDED);
 		assertThat(store.consumeSignupGrant(email, grant)).isFalse();
-		assertThat(store.consumePasswordResetGrant(grant)).isEmpty();
+		assertThat(store.resolvePasswordResetGrant(grant)).isEmpty();
 	}
 
 	@Test
@@ -205,7 +205,7 @@ class RedisEmailVerificationStoreIntegrationTest {
 			shortPolicy
 		)).isEqualTo(ChallengeVerificationResult.VERIFIED);
 		Thread.sleep(200);
-		assertThat(store.consumePasswordResetGrant("expiring-reset-grant")).isEmpty();
+		assertThat(store.resolvePasswordResetGrant("expiring-reset-grant")).isEmpty();
 	}
 
 	private boolean consumeAfterBarrier(CountDownLatch ready, CountDownLatch start, String grant)

@@ -93,7 +93,7 @@ class PasswordResetSecurityIntegrationTest {
 			.extracting(token -> token.isActive())
 			.isEqualTo(true);
 		assertThat(userRepository.findById(user.id()).orElseThrow().tokenVersion()).isEqualTo(1L);
-		assertThat(verificationStore.consumePasswordResetGrant("reset-grant")).isEmpty();
+		assertThat(verificationStore.resolvePasswordResetGrant("reset-grant")).isEmpty();
 	}
 
 	@Test
@@ -125,7 +125,7 @@ class PasswordResetSecurityIntegrationTest {
 			.andExpect(status().isOk());
 
 		login(email, "new-password", status().isOk());
-		assertThat(verificationStore.consumePasswordResetGrant("same-password-grant")).isEmpty();
+		assertThat(verificationStore.resolvePasswordResetGrant("same-password-grant")).isEmpty();
 	}
 
 	private void signup(String email, String password) throws Exception {

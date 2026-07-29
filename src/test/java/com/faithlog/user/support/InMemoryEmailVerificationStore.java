@@ -55,8 +55,8 @@ public class InMemoryEmailVerificationStore implements EmailVerificationStore {
 	}
 
 	@Override
-	public synchronized OptionalLong consumePasswordResetGrant(String grantToken) {
-		String userId = passwordResetGrants.remove(grantToken);
+	public synchronized OptionalLong resolvePasswordResetGrant(String grantToken) {
+		String userId = passwordResetGrants.get(grantToken);
 		if (userId == null) {
 			return OptionalLong.empty();
 		}
@@ -65,6 +65,16 @@ public class InMemoryEmailVerificationStore implements EmailVerificationStore {
 		} catch (NumberFormatException exception) {
 			return OptionalLong.empty();
 		}
+	}
+
+	@Override
+	public synchronized boolean consumePasswordResetGrant(String grantToken, long expectedUserId) {
+		return passwordResetGrants.remove(grantToken, String.valueOf(expectedUserId));
+	}
+
+	@Override
+	public synchronized void discardPasswordResetGrant(String grantToken) {
+		passwordResetGrants.remove(grantToken);
 	}
 
 	public synchronized void putPasswordResetGrant(String grantToken, Long userId) {

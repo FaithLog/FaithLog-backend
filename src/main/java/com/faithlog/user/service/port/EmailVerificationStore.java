@@ -26,7 +26,11 @@ public interface EmailVerificationStore {
 
 	boolean consumeSignupGrant(String email, String grantToken);
 
-	OptionalLong consumePasswordResetGrant(String grantToken);
+	OptionalLong resolvePasswordResetGrant(String grantToken);
+
+	boolean consumePasswordResetGrant(String grantToken, long expectedUserId);
+
+	void discardPasswordResetGrant(String grantToken);
 
 	enum ChallengeIssueResult {
 		ISSUED,
