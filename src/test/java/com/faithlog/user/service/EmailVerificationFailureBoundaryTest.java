@@ -22,6 +22,9 @@ import com.faithlog.user.service.port.RefreshTokenStore;
 import com.faithlog.user.service.port.VerificationCodeGenerator;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -139,6 +142,55 @@ class EmailVerificationFailureBoundaryTest {
 			"user@example.com",
 			"123456"
 		);
+	}
+
+	@Test
+	void password_reset_response_does_not_wait_for_provider_latency_only_for_an_existing_account() throws Exception {
+		User user = User.create("사용자", "known@example.com", "hash");
+		when(userRepository.findByEmail("known@example.com")).thenReturn(Optional.of(user));
+		when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+		when(codeGenerator.generate()).thenReturn("123456");
+		when(verificationStore.issueChallenge(
+			org.mockito.ArgumentMatchers.eq(EmailVerificationPurpose.PASSWORD_RESET),
+			org.mockito.ArgumentMatchers.anyString(),
+			org.mockito.ArgumentMatchers.eq("123456"),
+			org.mockito.ArgumentMatchers.eq(POLICY)
+		)).thenReturn(EmailVerificationStore.ChallengeIssueResult.ISSUED);
+
+		CountDownLatch providerEntered = new CountDownLatch(1);
+		CountDownLatch releaseProvider = new CountDownLatch(1);
+		org.mockito.Mockito.doAnswer(invocation -> {
+			providerEntered.countDown();
+			if (!releaseProvider.await(5, TimeUnit.SECONDS)) {
+				throw new AssertionError("slow provider was not released");
+			}
+			return null;
+		}).when(emailSenderPort).sendVerificationCode(
+			EmailVerificationPurpose.PASSWORD_RESET,
+			"known@example.com",
+			"123456",
+			Duration.ofMinutes(5)
+		);
+
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var known = executor.submit(() -> emailService.requestPasswordReset(
+				new RequestEmailVerificationCommand("known@example.com")
+			));
+			assertThat(providerEntered.await(1, TimeUnit.SECONDS)).isTrue();
+
+			var missing = executor.submit(() -> emailService.requestPasswordReset(
+				new RequestEmailVerificationCommand("missing@example.com")
+			));
+			assertThat(missing.get(1, TimeUnit.SECONDS)).isNotNull();
+			try {
+				assertThat(known.isDone())
+					.as("existing and missing accounts must not be distinguishable by provider latency")
+					.isTrue();
+			} finally {
+				releaseProvider.countDown();
+				known.get(1, TimeUnit.SECONDS);
+			}
+		}
 	}
 
 	@Test

@@ -97,7 +97,7 @@ class PasswordResetSecurityIntegrationTest {
 	}
 
 	@Test
-	void same_password_is_rejected_with_the_dedicated_error_code() throws Exception {
+	void same_password_is_rejected_but_the_same_grant_can_retry_once_with_a_new_password() throws Exception {
 		String email = "reset-same-" + UUID.randomUUID() + "@example.com";
 		signup(email, "same-password");
 		User user = userRepository.findByEmail(email).orElseThrow();
@@ -113,6 +113,19 @@ class PasswordResetSecurityIntegrationTest {
 					"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("AUTH_PASSWORD_RESET_SAME_PASSWORD"));
+
+		mockMvc.perform(post("/api/v1/auth/password-resets/complete")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "resetToken": "same-password-grant",
+					  "newPassword": "new-password"
+					}
+					"""))
+			.andExpect(status().isOk());
+
+		login(email, "new-password", status().isOk());
+		assertThat(verificationStore.consumePasswordResetGrant("same-password-grant")).isEmpty();
 	}
 
 	private void signup(String email, String password) throws Exception {
