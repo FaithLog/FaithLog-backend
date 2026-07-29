@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -56,6 +57,7 @@ class SignupEmailVerificationTest {
 		when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
 		when(verificationStore.consumeSignupGrant("user@example.com", "grant-token")).thenReturn(true);
 		when(passwordEncoder.encode("password")).thenReturn("encoded");
+		when(userRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
 		compatibleService.signup(new SignupCommand(
 			"사용자",
@@ -68,5 +70,23 @@ class SignupEmailVerificationTest {
 		verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(user ->
 			user.email().equals("user@example.com")
 		));
+	}
+
+	@Test
+	void compatible_mode_rejects_an_invalid_supplied_token() {
+		when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+		when(verificationStore.consumeSignupGrant("user@example.com", "invalid-token")).thenReturn(false);
+
+		assertThatThrownBy(() -> compatibleService.signup(new SignupCommand(
+			"사용자",
+			"user@example.com",
+			"password",
+			"invalid-token"
+		)))
+			.isInstanceOf(BusinessException.class)
+			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode())
+				.isEqualTo(ErrorCode.AUTH_EMAIL_VERIFICATION_TOKEN_INVALID));
+
+		verify(userRepository, never()).save(org.mockito.ArgumentMatchers.any());
 	}
 }

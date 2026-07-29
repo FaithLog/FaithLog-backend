@@ -13,10 +13,12 @@ public record SignupRequest(
 	String email,
 
 	@NotBlank
-	String password
+	String password,
+
+	String emailVerificationToken
 ) {
 
 	public SignupCommand toCommand() {
-		return new SignupCommand(name, email, password);
+		return new SignupCommand(name, email, password, emailVerificationToken);
 	}
 }
