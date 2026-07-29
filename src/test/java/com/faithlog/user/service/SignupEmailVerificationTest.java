@@ -50,7 +50,7 @@ class SignupEmailVerificationTest {
 			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode())
 				.isEqualTo(ErrorCode.AUTH_EMAIL_VERIFICATION_REQUIRED));
 
-		verify(userRepository, never()).save(org.mockito.ArgumentMatchers.any());
+		verify(userRepository, never()).saveAndFlush(org.mockito.ArgumentMatchers.any());
 	}
 
 	@Test
@@ -58,7 +58,7 @@ class SignupEmailVerificationTest {
 		when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
 		when(verificationStore.consumeSignupGrant("user@example.com", "grant-token")).thenReturn(true);
 		when(passwordEncoder.encode("password")).thenReturn("encoded");
-		when(userRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+		when(userRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
 		compatibleService.signup(new SignupCommand(
 			"사용자",
@@ -68,7 +68,7 @@ class SignupEmailVerificationTest {
 		));
 
 		verify(verificationStore).consumeSignupGrant("user@example.com", "grant-token");
-		verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(user ->
+		verify(userRepository).saveAndFlush(org.mockito.ArgumentMatchers.argThat(user ->
 			user.email().equals("user@example.com")
 		));
 	}
@@ -88,7 +88,7 @@ class SignupEmailVerificationTest {
 			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode())
 				.isEqualTo(ErrorCode.AUTH_EMAIL_VERIFICATION_TOKEN_INVALID));
 
-		verify(userRepository, never()).save(org.mockito.ArgumentMatchers.any());
+		verify(userRepository).saveAndFlush(org.mockito.ArgumentMatchers.any());
 	}
 
 	@Test

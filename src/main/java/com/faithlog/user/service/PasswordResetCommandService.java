@@ -6,6 +6,7 @@ import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.CompletePasswordResetCommand;
 import com.faithlog.user.service.port.EmailVerificationStore;
+import com.faithlog.user.service.port.EmailVerificationStoreException;
 import com.faithlog.user.service.port.RefreshTokenStore;
 import java.util.OptionalLong;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -34,7 +35,12 @@ public class PasswordResetCommandService {
 
 	@Transactional
 	public void complete(CompletePasswordResetCommand command) {
-		OptionalLong userId = verificationStore.consumePasswordResetGrant(command.resetToken());
+		OptionalLong userId;
+		try {
+			userId = verificationStore.consumePasswordResetGrant(command.resetToken());
+		} catch (EmailVerificationStoreException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
+		}
 		if (userId.isEmpty()) {
 			throw new BusinessException(ErrorCode.AUTH_PASSWORD_RESET_TOKEN_INVALID);
 		}

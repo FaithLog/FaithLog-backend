@@ -11,6 +11,7 @@ import com.faithlog.user.service.port.EmailDeliveryException;
 import com.faithlog.user.service.port.EmailVerificationStore;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeIssueResult;
 import com.faithlog.user.service.port.EmailVerificationStore.ChallengeVerificationResult;
+import com.faithlog.user.service.port.EmailVerificationStoreException;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
 import com.faithlog.user.service.port.VerificationCodeGenerator;
 import com.faithlog.user.service.result.EmailVerificationRequestResult;
@@ -86,7 +87,12 @@ public class EmailVerificationCommandService {
 		boolean sendEmail
 	) {
 		String code = codeGenerator.generate();
-		ChallengeIssueResult issueResult = verificationStore.issueChallenge(purpose, email, code, policy);
+		ChallengeIssueResult issueResult;
+		try {
+			issueResult = verificationStore.issueChallenge(purpose, email, code, policy);
+		} catch (EmailVerificationStoreException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
+		}
 		if (issueResult == ChallengeIssueResult.COOLDOWN) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_RESEND_THROTTLED);
 		}
@@ -103,8 +109,8 @@ public class EmailVerificationCommandService {
 		try {
 			emailSenderPort.sendVerificationCode(purpose, email, code, policy.challengeTtl());
 		} catch (EmailDeliveryException exception) {
-			verificationStore.cancelChallenge(purpose, email, code);
 			if (purpose == EmailVerificationPurpose.SIGNUP) {
+				cancelChallenge(purpose, email, code);
 				throw new BusinessException(ErrorCode.AUTH_EMAIL_DELIVERY_UNAVAILABLE);
 			}
 		}
@@ -117,14 +123,19 @@ public class EmailVerificationCommandService {
 		String subject
 	) {
 		String token = tokenGenerator.generate();
-		ChallengeVerificationResult result = verificationStore.confirmChallenge(
-			purpose,
-			email,
-			code,
-			token,
-			subject,
-			policy
-		);
+		ChallengeVerificationResult result;
+		try {
+			result = verificationStore.confirmChallenge(
+				purpose,
+				email,
+				code,
+				token,
+				subject,
+				policy
+			);
+		} catch (EmailVerificationStoreException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
+		}
 		if (result == ChallengeVerificationResult.INVALID) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_CODE_INVALID);
 		}
@@ -145,5 +156,13 @@ public class EmailVerificationCommandService {
 			policy.challengeTtl().toSeconds(),
 			policy.resendCooldown().toSeconds()
 		);
+	}
+
+	private void cancelChallenge(EmailVerificationPurpose purpose, String email, String code) {
+		try {
+			verificationStore.cancelChallenge(purpose, email, code);
+		} catch (EmailVerificationStoreException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
+		}
 	}
 }

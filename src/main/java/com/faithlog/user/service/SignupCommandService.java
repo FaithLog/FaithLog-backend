@@ -6,6 +6,7 @@ import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.SignupCommand;
 import com.faithlog.user.service.port.EmailVerificationStore;
+import com.faithlog.user.service.port.EmailVerificationStoreException;
 import com.faithlog.user.service.result.SignupResult;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -38,22 +39,36 @@ public class SignupCommandService {
 		if (userRepository.existsByEmail(email)) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
 		}
-		consumeVerificationGrant(email, command.emailVerificationToken());
+		validateVerificationTokenPresence(command.emailVerificationToken());
 
 		User user = User.create(command.name(), email, passwordEncoder.encode(command.password()));
-		User savedUser = userRepository.save(user);
+		User savedUser = userRepository.saveAndFlush(user);
+		consumeSuppliedVerificationGrant(email, command.emailVerificationToken());
 		return SignupResult.from(savedUser);
 	}
 
-	private void consumeVerificationGrant(String email, String token) {
+	private void validateVerificationTokenPresence(String token) {
 		if (token == null) {
 			if (emailVerificationRequired) {
 				throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_REQUIRED);
 			}
 			return;
 		}
-		if (token.isBlank() || !verificationStore.consumeSignupGrant(email, token)) {
+		if (token.isBlank()) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_TOKEN_INVALID);
+		}
+	}
+
+	private void consumeSuppliedVerificationGrant(String email, String token) {
+		if (token == null) {
+			return;
+		}
+		try {
+			if (!verificationStore.consumeSignupGrant(email, token)) {
+				throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_TOKEN_INVALID);
+			}
+		} catch (EmailVerificationStoreException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
 		}
 	}
 }

@@ -1,5 +1,6 @@
 package com.faithlog.user.infrastructure.redis;
 
+import com.faithlog.user.service.port.EmailVerificationStoreException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.HexFormat;
@@ -21,7 +22,7 @@ public class HmacVerificationSecretHasher {
 
 	public String hash(String context, String value) {
 		if (secretKey == null) {
-			throw new IllegalStateException("Email verification HMAC secret is not configured");
+			throw new EmailVerificationStoreException("Email verification store is unavailable");
 		}
 		try {
 			Mac mac = Mac.getInstance(ALGORITHM);
@@ -30,7 +31,7 @@ public class HmacVerificationSecretHasher {
 			mac.update((byte) 0);
 			return HEX.formatHex(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
 		} catch (GeneralSecurityException exception) {
-			throw new IllegalStateException("HMAC-SHA-256 is unavailable", exception);
+			throw new EmailVerificationStoreException("Email verification store is unavailable", exception);
 		}
 	}
 }

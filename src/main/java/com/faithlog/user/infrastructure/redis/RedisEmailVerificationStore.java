@@ -3,6 +3,7 @@ package com.faithlog.user.infrastructure.redis;
 import com.faithlog.user.service.EmailVerificationPolicy;
 import com.faithlog.user.service.EmailVerificationPurpose;
 import com.faithlog.user.service.port.EmailVerificationStore;
+import com.faithlog.user.service.port.EmailVerificationStoreException;
 import java.util.List;
 import java.util.OptionalLong;
 import org.springframework.context.annotation.Profile;
@@ -125,37 +126,49 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
 		String code,
 		EmailVerificationPolicy policy
 	) {
-		String emailFingerprint = emailFingerprint(email);
-		Long result = redisTemplate.execute(
-			ISSUE_SCRIPT,
-			List.of(
-				challengeKey(purpose, emailFingerprint),
-				cooldownKey(emailFingerprint),
-				rateKey(emailFingerprint)
-			),
-			codeHash(purpose, emailFingerprint, code),
-			String.valueOf(policy.challengeTtl().toMillis()),
-			String.valueOf(policy.resendCooldown().toMillis()),
-			String.valueOf(policy.rateLimitWindow().toMillis()),
-			String.valueOf(policy.maxRequestsPerWindow())
-		);
-		if (Long.valueOf(0L).equals(result)) {
-			return ChallengeIssueResult.ISSUED;
+		try {
+			String emailFingerprint = emailFingerprint(email);
+			Long result = redisTemplate.execute(
+				ISSUE_SCRIPT,
+				List.of(
+					challengeKey(purpose, emailFingerprint),
+					cooldownKey(emailFingerprint),
+					rateKey(emailFingerprint)
+				),
+				codeHash(purpose, emailFingerprint, code),
+				String.valueOf(policy.challengeTtl().toMillis()),
+				String.valueOf(policy.resendCooldown().toMillis()),
+				String.valueOf(policy.rateLimitWindow().toMillis()),
+				String.valueOf(policy.maxRequestsPerWindow())
+			);
+			if (Long.valueOf(0L).equals(result)) {
+				return ChallengeIssueResult.ISSUED;
+			}
+			if (Long.valueOf(1L).equals(result)) {
+				return ChallengeIssueResult.COOLDOWN;
+			}
+			return ChallengeIssueResult.RATE_LIMITED;
+		} catch (EmailVerificationStoreException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw unavailable(exception);
 		}
-		if (Long.valueOf(1L).equals(result)) {
-			return ChallengeIssueResult.COOLDOWN;
-		}
-		return ChallengeIssueResult.RATE_LIMITED;
 	}
 
 	@Override
 	public void cancelChallenge(EmailVerificationPurpose purpose, String email, String code) {
-		String emailFingerprint = emailFingerprint(email);
-		redisTemplate.execute(
-			CANCEL_SCRIPT,
-			List.of(challengeKey(purpose, emailFingerprint), cooldownKey(emailFingerprint)),
-			codeHash(purpose, emailFingerprint, code)
-		);
+		try {
+			String emailFingerprint = emailFingerprint(email);
+			redisTemplate.execute(
+				CANCEL_SCRIPT,
+				List.of(challengeKey(purpose, emailFingerprint), cooldownKey(emailFingerprint)),
+				codeHash(purpose, emailFingerprint, code)
+			);
+		} catch (EmailVerificationStoreException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw unavailable(exception);
+		}
 	}
 
 	@Override
@@ -167,8 +180,9 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
 		String grantSubject,
 		EmailVerificationPolicy policy
 	) {
-		String emailFingerprint = emailFingerprint(email);
-		Long result = redisTemplate.execute(
+		try {
+			String emailFingerprint = emailFingerprint(email);
+			Long result = redisTemplate.execute(
 			CONFIRM_SCRIPT,
 			List.of(
 				challengeKey(purpose, emailFingerprint),
@@ -179,45 +193,66 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
 			String.valueOf(policy.grantTtl().toMillis()),
 			String.valueOf(policy.maxAttempts())
 		);
-		if (Long.valueOf(0L).equals(result)) {
-			return ChallengeVerificationResult.VERIFIED;
+			if (Long.valueOf(0L).equals(result)) {
+				return ChallengeVerificationResult.VERIFIED;
+			}
+			if (Long.valueOf(1L).equals(result)) {
+				return ChallengeVerificationResult.INVALID;
+			}
+			if (Long.valueOf(2L).equals(result)) {
+				return ChallengeVerificationResult.EXPIRED;
+			}
+			if (Long.valueOf(3L).equals(result)) {
+				return ChallengeVerificationResult.ATTEMPTS_EXCEEDED;
+			}
+			return ChallengeVerificationResult.GRANT_COLLISION;
+		} catch (EmailVerificationStoreException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw unavailable(exception);
 		}
-		if (Long.valueOf(1L).equals(result)) {
-			return ChallengeVerificationResult.INVALID;
-		}
-		if (Long.valueOf(2L).equals(result)) {
-			return ChallengeVerificationResult.EXPIRED;
-		}
-		if (Long.valueOf(3L).equals(result)) {
-			return ChallengeVerificationResult.ATTEMPTS_EXCEEDED;
-		}
-		return ChallengeVerificationResult.GRANT_COLLISION;
 	}
 
 	@Override
 	public boolean consumeSignupGrant(String email, String grantToken) {
-		Long result = redisTemplate.execute(
-			CONSUME_SIGNUP_SCRIPT,
-			List.of(grantKey(EmailVerificationPurpose.SIGNUP, grantToken)),
-			grantSubject(EmailVerificationPurpose.SIGNUP, email)
-		);
-		return Long.valueOf(1L).equals(result);
+		try {
+			Long result = redisTemplate.execute(
+				CONSUME_SIGNUP_SCRIPT,
+				List.of(grantKey(EmailVerificationPurpose.SIGNUP, grantToken)),
+				grantSubject(EmailVerificationPurpose.SIGNUP, email)
+			);
+			return Long.valueOf(1L).equals(result);
+		} catch (EmailVerificationStoreException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw unavailable(exception);
+		}
 	}
 
 	@Override
 	public OptionalLong consumePasswordResetGrant(String grantToken) {
-		String subject = redisTemplate.execute(
-			CONSUME_RESET_SCRIPT,
-			List.of(grantKey(EmailVerificationPurpose.PASSWORD_RESET, grantToken))
-		);
-		if (subject == null) {
-			return OptionalLong.empty();
-		}
 		try {
-			return OptionalLong.of(Long.parseLong(subject));
-		} catch (NumberFormatException exception) {
-			return OptionalLong.empty();
+			String subject = redisTemplate.execute(
+				CONSUME_RESET_SCRIPT,
+				List.of(grantKey(EmailVerificationPurpose.PASSWORD_RESET, grantToken))
+			);
+			if (subject == null) {
+				return OptionalLong.empty();
+			}
+			try {
+				return OptionalLong.of(Long.parseLong(subject));
+			} catch (NumberFormatException exception) {
+				return OptionalLong.empty();
+			}
+		} catch (EmailVerificationStoreException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw unavailable(exception);
 		}
+	}
+
+	private EmailVerificationStoreException unavailable(RuntimeException exception) {
+		return new EmailVerificationStoreException("Email verification store is unavailable", exception);
 	}
 
 	private String emailFingerprint(String email) {
