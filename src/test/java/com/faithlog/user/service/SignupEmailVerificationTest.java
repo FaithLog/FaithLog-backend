@@ -109,4 +109,25 @@ class SignupEmailVerificationTest {
 		ordered.verify(userRepository).saveAndFlush(any());
 		ordered.verify(verificationStore).consumeSignupGrant("user@example.com", "grant-token");
 	}
+
+	@Test
+	void duplicate_email_constraint_race_returns_the_existing_error_without_consuming_the_grant() {
+		when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+		when(passwordEncoder.encode("password")).thenReturn("encoded");
+		when(userRepository.saveAndFlush(any())).thenThrow(
+			new org.springframework.dao.DataIntegrityViolationException("duplicate email")
+		);
+
+		assertThatThrownBy(() -> compatibleService.signup(new SignupCommand(
+			"사용자",
+			"user@example.com",
+			"password",
+			"grant-token"
+		)))
+			.isInstanceOf(BusinessException.class)
+			.satisfies(exception -> assertThat(((BusinessException) exception).errorCode())
+				.isEqualTo(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS));
+
+		verify(verificationStore, never()).consumeSignupGrant("user@example.com", "grant-token");
+	}
 }
