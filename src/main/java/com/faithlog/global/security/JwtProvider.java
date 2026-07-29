@@ -102,6 +102,7 @@ public class JwtProvider {
 			.claim("userId", user.id())
 			.claim("sessionId", sessionId)
 			.claim("refreshJti", refreshJti)
+			.claim("tokenVersion", user.tokenVersion())
 			.claim(TOKEN_TYPE_CLAIM, REFRESH_TOKEN_TYPE)
 			.issuedAt(Date.from(now))
 			.expiration(Date.from(now.plusSeconds(refreshTokenValiditySeconds)))

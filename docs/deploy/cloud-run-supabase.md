@@ -51,6 +51,32 @@ JWT_SECRET=<strong-secret>
 JWT_ACCESS_TOKEN_VALIDITY_SECONDS=1800
 JWT_REFRESH_TOKEN_VALIDITY_SECONDS=1209600
 
+FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=false
+AUTH_VERIFICATION_HMAC_SECRET=<base64-secret-decoding-to-at-least-32-bytes>
+FAITHLOG_EMAIL_DISPATCH_CLOUD_TASKS_ENABLED=true
+FAITHLOG_EMAIL_DISPATCH_WORKER_ENABLED=true
+AUTH_EMAIL_DISPATCH_ENCRYPTION_KEY=<base64-secret-decoding-to-exactly-32-bytes>
+FAITHLOG_EMAIL_DISPATCH_PROJECT_ID=<gcp-project-id>
+FAITHLOG_EMAIL_DISPATCH_LOCATION=<gcp-region>
+FAITHLOG_EMAIL_DISPATCH_QUEUE_ID=<cloud-tasks-queue-id>
+FAITHLOG_EMAIL_DISPATCH_WORKER_URL=<https-cloud-run-worker-url>/internal/v1/email-dispatch/tasks
+FAITHLOG_EMAIL_DISPATCH_OIDC_SERVICE_ACCOUNT_EMAIL=<cloud-tasks-service-account>
+FAITHLOG_EMAIL_DISPATCH_OIDC_AUDIENCE=<https-cloud-run-worker-url>
+
+FAITHLOG_EMAIL_PROVIDER_ENABLED=true
+SPRING_MAIL_HOST=smtp-relay.brevo.com
+SPRING_MAIL_PORT=587
+SPRING_MAIL_USERNAME=b3a5e2001@smtp-brevo.com
+SPRING_MAIL_PASSWORD=<brevo-smtp-key>
+SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH=true
+SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true
+SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED=true
+SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT=5000
+SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT=10000
+SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT=10000
+FAITHLOG_MAIL_FROM_NAME=FaithLog
+FAITHLOG_MAIL_FROM_EMAIL=josephuk77@gmail.com
+
 FIREBASE_CONFIG_JSON=<firebase-admin-json-secret>
 FIREBASE_CONFIG_PATH=
 
@@ -59,6 +85,10 @@ SPRINGDOC_SWAGGER_UI_ENABLED=false
 ```
 
 `FIREBASE_CONFIG_JSON` is preferred for Cloud Run because it can be mounted from a secret value without adding a key file to the image. If file-based credentials are used later, mount the file through the platform and set `FIREBASE_CONFIG_PATH` to that mounted path.
+
+The prepared Cloud Run contract enables Cloud Tasks, the private worker, and the Brevo SMTP sender together. Provision the named queue, grant its approved OIDC service account permission to invoke only the worker service, and bind the exact worker HTTPS URL/audience before deploying these flags. Inject `AUTH_VERIFICATION_HMAC_SECRET`, `AUTH_EMAIL_DISPATCH_ENCRYPTION_KEY`, and `SPRING_MAIL_PASSWORD` through Secret Manager. Host, port, Brevo login, AUTH/STARTTLS flags, timeouts, sender name/email, queue identity, and worker URL are non-secret runtime settings. The queue payload contains only an opaque dispatch token; never place an email address or verification code in task names, headers, logs, or command-line values. Keep `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=false` until queue/worker/provider smoke tests pass and the updated iOS and Android versions are mandatory.
+
+`FAITHLOG_EMAIL_PROVIDER_ENABLED=true` is fail-fast. It accepts only `smtp-relay.brevo.com:587`, the approved Brevo SMTP login, SMTP AUTH, STARTTLS enabled and required, positive connection/read/write timeouts, a nonblank SMTP key, and the approved FaithLog sender. Local and Docker QA keep the provider and both dispatch flags false unless a separate controlled smoke test explicitly supplies runtime secrets. SMTP is at-least-once at this boundary: the stable `X-FaithLog-Delivery-Id` trace header identifies retries, but Brevo SMTP does not guarantee provider-side idempotency, so a successful send followed by Redis acknowledgement failure can rarely deliver the same code again.
 
 ## Environment Split
 
@@ -198,7 +228,7 @@ Use Cloud Run secret injection for sensitive values rather than `--set-env-vars`
 - `./gradlew build`
 - `./gradlew asciidoctor`
 - Docker image build succeeds.
-- Docker PostgreSQL clean database runs Flyway through V12 successfully.
+- Docker PostgreSQL clean database runs Flyway through V13 successfully, and the production preflight confirms no duplicate `lower(users.email)` groups before rollout.
 - Supabase Security Advisor has no Critical `rls_disabled_in_public` or `sensitive_columns_exposed` findings.
 - Docker QA starts with Docker PostgreSQL and Docker Redis only.
 - App starts with deployment-like DB/Flyway/JPA settings against the migrated PostgreSQL schema and `ddl-auto=validate`.

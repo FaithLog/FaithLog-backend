@@ -43,7 +43,12 @@ public class SecurityConfig {
 				.requestMatchers(
 					paths.matcher(HttpMethod.POST, "/api/v1/auth/signup"),
 					paths.matcher(HttpMethod.POST, "/api/v1/auth/login"),
-					paths.matcher(HttpMethod.POST, "/api/v1/auth/refresh")
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/refresh"),
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/email-verifications/signup/request"),
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/email-verifications/signup/confirm"),
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/password-resets/request"),
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/password-resets/confirm"),
+					paths.matcher(HttpMethod.POST, "/api/v1/auth/password-resets/complete")
 				).permitAll()
 				.requestMatchers(
 					paths.matcher("/actuator/health"),

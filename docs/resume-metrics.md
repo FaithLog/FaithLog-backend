@@ -9,6 +9,16 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-07-29 - Issue #224 이메일 인증과 비밀번호 재설정 보안 경계
+
+- 회원가입 이메일 인증과 임시 비밀번호 없는 비밀번호 재설정을 provider-independent port, Redis adapter, 공개 API로 구현했다. V13 `lower(email)` unique와 canonical 조회를 적용하되 trim한 이메일의 원래 대소문자는 보존하고, legacy logical duplicate는 자동 변경 없이 migration에서 거부한다.
+- Redis에는 이메일·숫자 6자리 코드·opaque grant 원문 대신 HMAC-SHA-256 fingerprint만 저장하고, challenge 발급/시도 증가/grant 생성/1회 소비를 Lua 원자 연산으로 구현했다. 설정된 HMAC secret은 strict Base64 최소 32 bytes를 강제하며 JWT secret과 분리한다.
+- password-reset 존재/부재 요청을 동일 Cloud Tasks 경로로 분리했다. Task에는 opaque token만 싣고 실제 recipient/code/purpose/TTL은 AES-256-GCM Redis ciphertext와 fingerprinted key로 보관한다. Google OIDC worker, Redis lease, provider retry 경계를 테스트했으며 실제 provider 발송 성과는 아직 주장하지 않는다.
+- 비밀번호 변경은 user row lock, BCrypt, `tokenVersion` 증가, Refresh Session 전체 삭제를 묶었다. Refresh JWT에도 `tokenVersion`을 넣어 DB 현재값과 대조하며, 통합 테스트에서 이전 Access/Refresh/비밀번호 거부, 새 비밀번호 로그인, FCM token 유지, Redis 삭제 실패 시 DB rollback, refresh 경쟁 직렬화를 확인했다.
+- 같은 비밀번호 400은 grant를 소비하지 않아 TTL 안에서 다시 입력할 수 있고, 새 비밀번호 동시 완료는 정확히 한 요청만 성공하도록 고정했다. `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=false` 호환 기본값과 true 전환 검증을 유지한다. Cloud Tasks/IAM과 강제 전환 배포는 pending이므로 운영 발송 성과나 사용자 지표를 주장하지 않는다.
+- Brevo SMTP JavaMail 어댑터를 provider flag 뒤에 추가했다. plaintext+HTML 대체 본문, 승인된 로컬 CID 로고(SHA-256 `6059e8...b748`), 목적별 한국어 문구, 6자리 코드/TTL을 검증하며 원격 이미지·tracker·deep link·JWT·grant·사용자 콘텐츠를 넣지 않는다. 안정적인 delivery ID는 추적 header로만 사용하고 SMTP 중복 방지를 보장하지 않으므로 Cloud Tasks 재시도 경계는 at-least-once로 기록한다. 실제 Brevo 네트워크 발송 성공률이나 전달 성과는 PM Docker smoke 전까지 주장하지 않는다.
+- 최종 검증은 전체 Gradle 656 tests(실패 0, 오류 0, skip 9), `build`, `asciidoctor`, 실제 Redis 원자성 5 tests, 전용 임시 PostgreSQL의 V1~V13/중복 preflight 3 tests를 통과했다. 임시 Redis key와 PostgreSQL DB는 검증 후 제거했고 기존 QA PostgreSQL/Redis lifecycle과 데이터는 변경하지 않았다.
+
 ## 2026-07-27 - Issue #161 배포·공급망 보안 재감사
 
 - 최신 `develop@7b96a53`을 기준으로 저장소, 의존성, GitHub 설정, 배포 경계와 운영 health를 읽기 전용 재감사했다.

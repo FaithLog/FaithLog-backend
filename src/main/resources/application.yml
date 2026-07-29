@@ -16,6 +16,19 @@ spring:
       hibernate:
         jdbc:
           time_zone: Asia/Seoul
+  mail:
+    host: ${SPRING_MAIL_HOST:}
+    port: ${SPRING_MAIL_PORT:0}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail.smtp.auth: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:}
+      mail.smtp.starttls.enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:}
+      mail.smtp.starttls.required: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED:}
+      mail.smtp.connectiontimeout: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT:}
+      mail.smtp.timeout: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT:}
+      mail.smtp.writetimeout: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT:}
 
 server:
   port: ${PORT:${SERVER_PORT:8080}}
@@ -34,6 +47,24 @@ springdoc:
 
 faithlog:
   api-prefix: /api/v1
+  auth:
+    email-verification-required: ${FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED:false}
+    verification-hmac-secret: ${AUTH_VERIFICATION_HMAC_SECRET:}
+    email-provider:
+      enabled: ${FAITHLOG_EMAIL_PROVIDER_ENABLED:false}
+    email-dispatch:
+      cloud-tasks-enabled: ${FAITHLOG_EMAIL_DISPATCH_CLOUD_TASKS_ENABLED:false}
+      worker-enabled: ${FAITHLOG_EMAIL_DISPATCH_WORKER_ENABLED:false}
+      encryption-key: ${AUTH_EMAIL_DISPATCH_ENCRYPTION_KEY:}
+      project-id: ${FAITHLOG_EMAIL_DISPATCH_PROJECT_ID:}
+      location: ${FAITHLOG_EMAIL_DISPATCH_LOCATION:}
+      queue-id: ${FAITHLOG_EMAIL_DISPATCH_QUEUE_ID:}
+      worker-url: ${FAITHLOG_EMAIL_DISPATCH_WORKER_URL:}
+      oidc-service-account-email: ${FAITHLOG_EMAIL_DISPATCH_OIDC_SERVICE_ACCOUNT_EMAIL:}
+      oidc-audience: ${FAITHLOG_EMAIL_DISPATCH_OIDC_AUDIENCE:}
+  mail:
+    from-name: ${FAITHLOG_MAIL_FROM_NAME:}
+    from-email: ${FAITHLOG_MAIL_FROM_EMAIL:}
   jwt:
     secret: ${JWT_SECRET}
     access-token-validity-seconds: ${JWT_ACCESS_TOKEN_VALIDITY_SECONDS:1800}

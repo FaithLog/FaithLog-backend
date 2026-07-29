@@ -58,10 +58,96 @@ class PostgresFlywayMigrationTest {
 			"charge_items", "idx_charge_items_campus_category_status_user"
 		);
 		assertIndexExists(jdbcUrl, username, password, "campus_members", "idx_campus_members_user_id_id");
+		assertIndexExists(jdbcUrl, username, password, "users", "uk_users_email_lower");
+		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v13FailsClosedWithoutChangingLegacyDuplicateEmails() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway beforeV13 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("12")
+			.load();
+
+		beforeV13.clean();
+		assertThat(beforeV13.migrate().success).isTrue();
+		insertLegacyUsersWithDuplicateCanonicalEmail(jdbcUrl, username, password);
+
+		Flyway v13 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.load();
+
+		assertThatThrownBy(v13::migrate)
+			.isInstanceOf(FlywayException.class)
+			.hasMessageContaining("V13__enforce_case_insensitive_user_email.sql")
+			.hasMessageContaining("case-insensitive user email uniqueness");
+		assertFlywayVersionMissing(jdbcUrl, username, password, "13");
+		assertLegacyDuplicateEmailsPreserved(jdbcUrl, username, password);
+	}
+
+	private static void assertCaseInsensitiveDuplicateEmailRejected(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement first = connection.prepareStatement(
+				"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
+					+ "values ('first', ?, 'hash', 'USER', true, 0, now(), now())"
+			);
+			PreparedStatement duplicate = connection.prepareStatement(
+				"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
+					+ "values ('second', ?, 'hash', 'USER', true, 0, now(), now())"
+			)
+		) {
+			String suffix = java.util.UUID.randomUUID() + "@example.com";
+			first.setString(1, "Case-" + suffix);
+			first.executeUpdate();
+			duplicate.setString(1, "case-" + suffix);
+			assertThatThrownBy(duplicate::executeUpdate)
+				.isInstanceOf(java.sql.SQLException.class)
+				.hasMessageContaining("uk_users_email_lower");
+		}
+	}
+
+	private static void insertLegacyUsersWithDuplicateCanonicalEmail(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement statement = connection.prepareStatement(
+				"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
+					+ "values ('legacy-a', 'Legacy@Example.com', 'hash', 'USER', true, 0, now(), now()), "
+					+ "('legacy-b', 'legacy@example.com', 'hash', 'USER', true, 0, now(), now())"
+			)
+		) {
+			statement.executeUpdate();
+		}
+	}
+
+	private static void assertLegacyDuplicateEmailsPreserved(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement statement = connection.prepareStatement(
+				"select count(*) from users where lower(email) = 'legacy@example.com'"
+			);
+			ResultSet result = statement.executeQuery()
+		) {
+			assertThat(result.next()).isTrue();
+			assertThat(result.getLong(1)).isEqualTo(2L);
+		}
 	}
 
 	@Test

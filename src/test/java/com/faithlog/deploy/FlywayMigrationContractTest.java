@@ -29,6 +29,9 @@ class FlywayMigrationContractTest {
 	private static final Path PERFORMANCE_QUERY_INDEX_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V12__add_performance_query_indexes.sql"
 	);
+	private static final Path CASE_INSENSITIVE_EMAIL_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V13__enforce_case_insensitive_user_email.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -220,6 +223,26 @@ class FlywayMigrationContractTest {
 		);
 		assertThat(sql).doesNotContain("IF NOT EXISTS");
 		assertThat(v1).doesNotContain("ck_charge_items_amount_positive");
+	}
+
+	@Test
+	void v13FailsClosedOnLogicalDuplicatesAndAddsLowerEmailUniqueIndex() throws IOException {
+		assertThat(CASE_INSENSITIVE_EMAIL_MIGRATION).exists();
+		String sql = Files.readString(CASE_INSENSITIVE_EMAIL_MIGRATION);
+
+		assertThat(sql).contains(
+			"GROUP BY lower(email)",
+			"HAVING count(*) > 1",
+			"RAISE EXCEPTION",
+			"without automatic merge, delete, or reassignment",
+			"CREATE UNIQUE INDEX uk_users_email_lower",
+			"ON users (lower(email))"
+		);
+		assertThat(sql.toLowerCase()).doesNotContain(
+			"update users",
+			"delete from users",
+			"alter column email"
+		);
 	}
 
 	@Test

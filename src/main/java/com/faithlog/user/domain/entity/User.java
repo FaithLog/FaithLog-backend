@@ -96,6 +96,11 @@ public class User {
 		this.tokenVersion++;
 	}
 
+	public void changePassword(String passwordHash) {
+		this.passwordHash = passwordHash;
+		increaseTokenVersion();
+	}
+
 	public void deleteAccount(String anonymizedEmail, String anonymizedName, String disabledPasswordHash, Instant deletedAt) {
 		this.email = anonymizedEmail;
 		this.name = anonymizedName;

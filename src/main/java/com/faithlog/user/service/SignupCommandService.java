@@ -5,7 +5,11 @@ import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.command.SignupCommand;
+import com.faithlog.user.service.port.EmailVerificationStore;
+import com.faithlog.user.service.port.EmailVerificationStoreException;
 import com.faithlog.user.service.result.SignupResult;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,20 +19,63 @@ public class SignupCommandService {
 
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
+	private final EmailVerificationStore verificationStore;
+	private final boolean emailVerificationRequired;
 
-	public SignupCommandService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+	public SignupCommandService(
+		UserRepository userRepository,
+		PasswordEncoder passwordEncoder,
+		EmailVerificationStore verificationStore,
+		@Value("${faithlog.auth.email-verification-required:false}") boolean emailVerificationRequired
+	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
+		this.verificationStore = verificationStore;
+		this.emailVerificationRequired = emailVerificationRequired;
 	}
 
 	@Transactional
 	public SignupResult signup(SignupCommand command) {
-		if (userRepository.existsByEmail(command.email())) {
+		String storedEmail = EmailNormalizer.storageValue(command.email());
+		String canonicalEmail = EmailNormalizer.normalize(storedEmail);
+		if (userRepository.existsByEmail(canonicalEmail)) {
 			throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
 		}
+		validateVerificationTokenPresence(command.emailVerificationToken());
 
-		User user = User.create(command.name(), command.email(), passwordEncoder.encode(command.password()));
-		User savedUser = userRepository.save(user);
+		User user = User.create(command.name(), storedEmail, passwordEncoder.encode(command.password()));
+		User savedUser;
+		try {
+			savedUser = userRepository.saveAndFlush(user);
+		} catch (DataIntegrityViolationException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
+		}
+		consumeSuppliedVerificationGrant(canonicalEmail, command.emailVerificationToken());
 		return SignupResult.from(savedUser);
+	}
+
+	private void validateVerificationTokenPresence(String token) {
+		if (token == null) {
+			if (emailVerificationRequired) {
+				throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_REQUIRED);
+			}
+			return;
+		}
+		if (token.isBlank()) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_TOKEN_INVALID);
+		}
+	}
+
+	private void consumeSuppliedVerificationGrant(String email, String token) {
+		if (token == null) {
+			return;
+		}
+		try {
+			if (!verificationStore.consumeSignupGrant(email, token)) {
+				throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_TOKEN_INVALID);
+			}
+		} catch (EmailVerificationStoreException exception) {
+			throw new BusinessException(ErrorCode.AUTH_EMAIL_VERIFICATION_UNAVAILABLE);
+		}
 	}
 }
