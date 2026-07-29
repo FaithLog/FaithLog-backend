@@ -64,8 +64,9 @@ Email dispatch uses a separate durable boundary:
 1. Both existing and missing password-reset accounts create the same encrypted Redis payload and Cloud Task. The task body contains only a 32-byte URL-safe opaque dispatch token.
 2. AES-256-GCM protects recipient/code/purpose/TTL at rest with random 96-bit IV and authenticated context. Redis keys contain only HMAC fingerprints of the dispatch token.
 3. The worker endpoint accepts only Google OIDC tokens with the configured issuer, exact audience, exact service-account email, and `email_verified=true`.
-4. A Redis Lua lease permits one worker at a time. Provider failure releases the lease so Cloud Tasks can retry; successful delivery acknowledges and deletes payload plus lease. Duplicate or already-completed task delivery is idempotently accepted.
-5. A missing-account task follows the same queue/worker path but skips the provider call after decrypting `deliveryRequired=false`.
+4. A Redis Lua transition distinguishes `ACQUIRED`, `IN_PROGRESS`, and `MISSING`. `IN_PROGRESS` returns a retryable worker failure, while only a missing/already-acknowledged payload is idempotently accepted. This prevents an overlapping delivery from acknowledging the task while the lease owner later fails.
+5. The sender port receives a stable SHA-256 delivery ID derived from the opaque dispatch token, never the raw token. A production provider adapter must bind this value to the provider's idempotency mechanism. Without provider-side idempotency, delivery remains at-least-once when send succeeds but Redis acknowledgement fails.
+6. A missing-account task follows the same queue/worker path but skips the provider call after decrypting `deliveryRequired=false`.
 
 Code and token generation use `SecureRandom`: zero-padded six-digit codes and 32-byte URL-safe opaque tokens.
 
@@ -108,7 +109,7 @@ The DB and Redis are not one atomic resource. The fail-closed policy is:
 
 ## Branded Email Handoff
 
-The provider adapter must send a responsive `multipart/alternative` message with a plaintext fallback, the approved FaithLog app logo attached by CID rather than a remote tracking image, accessible alt text, purpose-specific copy, the six-digit code, and expiry. It must not embed JWTs, reset grants, analytics pixels, user content, or sensitive deep-link query values. The exact provider and classpath logo asset/checksum remain pending, so no provider-specific template is claimed as operational yet.
+The provider adapter must send a responsive `multipart/alternative` message with a plaintext fallback, the approved FaithLog app logo attached by CID rather than a remote tracking image, accessible alt text, purpose-specific copy, the six-digit code, and expiry. It must bind the supplied delivery ID to provider idempotency and must not embed JWTs, reset grants, analytics pixels, user content, or sensitive deep-link query values. The exact provider and classpath logo asset/checksum remain pending, so no provider-specific template is claimed as operational yet.
 
 ## Pending Decisions
 
