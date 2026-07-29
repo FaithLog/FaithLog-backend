@@ -86,15 +86,15 @@ class EmailDispatchWorkerServiceTest {
 	}
 
 	@Test
-	void duplicate_or_in_progress_task_is_idempotently_accepted() {
+	void an_in_progress_task_is_rejected_so_cloud_tasks_retries_it() {
 		when(dispatchStore.acquire("dispatch-token", "lease-token", Duration.ofMinutes(2)))
 			.thenReturn(Optional.empty());
 
-		service.dispatch("dispatch-token");
+		assertThatThrownBy(() -> service.dispatch("dispatch-token"))
+			.isInstanceOf(com.faithlog.user.service.port.EmailDispatchQueueException.class);
 
 		verify(emailSender, never()).sendVerificationCode(any(), anyString(), anyString(), any());
 		verify(dispatchStore, never()).acknowledge(anyString(), anyString());
-		assertThat(true).isTrue();
 	}
 
 	private EmailDispatchPayload payload(boolean deliveryRequired) {
