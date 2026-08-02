@@ -78,7 +78,7 @@ class UserNameUpdateControllerTest {
 			.andExpect(jsonPath("$.data.isActive").value(true))
 			.andExpect(jsonPath("$.data.lastLoginAt").exists())
 			.andExpect(jsonPath("$.data.campusMemberships.length()").value(1))
-			.andExpect(jsonPath("$.data.campusMemberships[0].membershipId").value(membership.id()))
+			.andExpect(jsonPath("$.data.campusMemberships[0].campusMemberId").value(membership.id()))
 			.andExpect(jsonPath("$.data.campusMemberships[0].campusId").value(campus.id()))
 			.andExpect(jsonPath("$.data.campusMemberships[0].campusName").value("이름수정캠퍼스"))
 			.andExpect(jsonPath("$.data.campusMemberships[0].campusRole").value("MEMBER"))
