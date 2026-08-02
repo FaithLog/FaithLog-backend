@@ -3,11 +3,13 @@ package com.faithlog.user.controller;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.user.service.AccountWithdrawalCommandService;
+import com.faithlog.user.service.AuthenticatedPasswordChangeCommandService;
 import com.faithlog.user.service.UserMeQueryService;
 import com.faithlog.user.service.UserNameCommandService;
 import com.faithlog.user.service.result.DeleteMyAccountResult;
 import com.faithlog.user.service.result.UserMeResult;
 import com.faithlog.user.controller.dto.request.DeleteMyAccountRequest;
+import com.faithlog.user.controller.dto.request.ChangeMyPasswordRequest;
 import com.faithlog.user.controller.dto.request.UpdateMyNameRequest;
 import com.faithlog.user.controller.dto.response.DeleteMyAccountResponse;
 import com.faithlog.user.controller.dto.response.UserMeResponse;
@@ -26,16 +28,28 @@ public class UserMeController {
 
 	private final UserMeQueryService userMeQueryService;
 	private final UserNameCommandService userNameCommandService;
+	private final AuthenticatedPasswordChangeCommandService passwordChangeCommandService;
 	private final AccountWithdrawalCommandService accountWithdrawalCommandService;
 
 	public UserMeController(
 		UserMeQueryService userMeQueryService,
 		UserNameCommandService userNameCommandService,
+		AuthenticatedPasswordChangeCommandService passwordChangeCommandService,
 		AccountWithdrawalCommandService accountWithdrawalCommandService
 	) {
 		this.userMeQueryService = userMeQueryService;
 		this.userNameCommandService = userNameCommandService;
+		this.passwordChangeCommandService = passwordChangeCommandService;
 		this.accountWithdrawalCommandService = accountWithdrawalCommandService;
+	}
+
+	@PatchMapping("/me/password")
+	public ApiResponse<Void> changeMyPassword(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@Valid @RequestBody ChangeMyPasswordRequest request
+	) {
+		passwordChangeCommandService.changePassword(request.toCommand(authenticatedUser.userId()));
+		return ApiResponse.success(null, "비밀번호가 변경되었습니다. 다시 로그인해 주세요.");
 	}
 
 	@PatchMapping("/me")

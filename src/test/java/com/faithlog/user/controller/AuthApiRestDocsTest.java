@@ -311,6 +311,97 @@ class AuthApiRestDocsTest {
 	}
 
 	@Test
+	void documents_change_my_password_success() throws Exception {
+		TokenPair tokens = signupAndLogin("docs-password-change@example.com");
+
+		mockMvc.perform(patch("/api/v1/users/me/password")
+				.header("Authorization", "Bearer " + tokens.accessToken())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "currentPassword": "1234",
+					  "newPassword": "changed-password-1234"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.message").value("비밀번호가 변경되었습니다. 다시 로그인해 주세요."))
+			.andExpect(jsonPath("$.data").isEmpty())
+			.andDo(document("users-me-password-change-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("currentPassword").description("현재 로그인 계정의 비밀번호"),
+					fieldWithPath("newPassword").description("현재 비밀번호와 다른 새 비밀번호")
+				),
+				responseFields(apiResponseFields())
+			));
+	}
+
+	@Test
+	void documents_change_my_password_current_password_mismatch() throws Exception {
+		TokenPair tokens = signupAndLogin("docs-password-mismatch@example.com");
+
+		mockMvc.perform(patch("/api/v1/users/me/password")
+				.header("Authorization", "Bearer " + tokens.accessToken())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "currentPassword": "wrong-password",
+					  "newPassword": "changed-password-1234"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("AUTH_CURRENT_PASSWORD_MISMATCH"))
+			.andDo(document("users-me-password-change-current-mismatch",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("currentPassword").description("현재 비밀번호와 일치하지 않는 값"),
+					fieldWithPath("newPassword").description("변경하려는 새 비밀번호")
+				),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_change_my_password_rejects_same_password() throws Exception {
+		TokenPair tokens = signupAndLogin("docs-password-same@example.com");
+
+		mockMvc.perform(patch("/api/v1/users/me/password")
+				.header("Authorization", "Bearer " + tokens.accessToken())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "currentPassword": "1234",
+					  "newPassword": "1234"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("AUTH_PASSWORD_CHANGE_SAME_PASSWORD"))
+			.andDo(document("users-me-password-change-same-password",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("currentPassword").description("검증된 현재 비밀번호"),
+					fieldWithPath("newPassword").description("현재 비밀번호와 같아서 거부되는 값")
+				),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
 	void documents_delete_my_account_success() throws Exception {
 		TokenPair tokens = signupAndLogin("docs-delete-me@example.com");
 

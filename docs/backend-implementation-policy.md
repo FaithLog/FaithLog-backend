@@ -53,8 +53,20 @@ User profile name update policy:
 - Repeating the current name is an idempotent success.
 - Success returns the complete updated `UserMeResponse` through `ApiResponse.success`, including ACTIVE campus memberships.
 - The operation does not change email, password hash, service role, active state, token version, campus memberships, FCM tokens, or authentication sessions.
-- Password changes remain exclusively in the email-verification-based password-reset flow.
+- Name changes do not alter the password. Authenticated password changes use the separate `PATCH /api/v1/users/me/password` contract below, while forgotten-password recovery remains in the email-verification-based password-reset flow.
 - User names are not unique. This operation adds no schema or Flyway migration.
+
+Authenticated password change policy:
+
+- `PATCH /api/v1/users/me/password` requires an Access Token and the body `{ "currentPassword": "...", "newPassword": "..." }`.
+- The service locks the active authenticated user row, verifies the current password with the configured password encoder, and rejects a mismatch with `400 AUTH_CURRENT_PASSWORD_MISMATCH`.
+- The new password must differ from the persisted current password and otherwise fails with `400 AUTH_PASSWORD_CHANGE_SAME_PASSWORD`.
+- Password values are not trimmed. Both fields must be non-blank; the frontend-only confirmation field is not part of the API request.
+- Success updates only the BCrypt password hash, increments `users.token_version`, and deletes all Refresh Token sessions. It returns no new Access or Refresh Token, so clients must clear local authentication state and require a fresh login.
+- Existing Access Tokens fail the persisted token-version check after success. Existing Refresh Tokens fail because their sessions are deleted and their token-version claim is stale.
+- FCM tokens, email, name, role, active state, and campus memberships remain unchanged.
+- A Refresh Token store failure rolls back the database password and token-version change. If Redis deletion succeeds but the database commit later fails, the previous password remains valid and sessions are safely revoked.
+- Forgotten-password recovery continues to use the email-verification password-reset APIs and does not share this current-password-confirmation endpoint.
 
 Do not use:
 

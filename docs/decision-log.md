@@ -10,6 +10,14 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-08-02 - Issue #233 Authenticated Password Change
+
+- Context: The app already supports email-code password reset for a user who forgot the password, but the signed-in profile screen needs a separate flow that proves knowledge of the current password without another email challenge.
+- Decision: Add `PATCH /api/v1/users/me/password` with Access Token authentication and exact request fields `currentPassword` and `newPassword`. The frontend owns new-password confirmation and sends only those two fields. Passwords are not trimmed.
+- Decision: Reject an incorrect current password with `400 AUTH_CURRENT_PASSWORD_MISMATCH` and reject reuse of the current password with `400 AUTH_PASSWORD_CHANGE_SAME_PASSWORD`. Success changes the BCrypt hash, increments `tokenVersion`, deletes every Refresh Token session, returns no tokens, and requires the client to clear authentication state and return to login.
+- Boundary: The operation keeps email, name, role, active state, campus memberships, and FCM tokens unchanged. A Refresh Token store failure rolls back the database mutation. The existing email-verification password-reset flow remains the only forgot-password recovery path.
+- Verification: Production implementation follows a test-first RED for the missing API/service/errors, followed by focused controller, service, transaction, and structure tests. REST Docs and the full repository gate are required before integration.
+
 ### 2026-07-18 - Issue #196 Targeted After Measurement Adoption Boundary
 
 - Context: The conditional `h05` before run identified `prayer_groups` as the confirmed bottleneck at p95 `536.956 ms` and `16.927 req/s`, with about 586 captured SQL statements per request. Production bulk loading reduced the focused 25-member fixture from 32 prepared statements to at most 7 without changing the API contract.
