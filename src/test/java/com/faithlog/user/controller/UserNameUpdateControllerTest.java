@@ -109,6 +109,22 @@ class UserNameUpdateControllerTest {
 	}
 
 	@Test
+	void accepts_name_at_the_100_character_boundary() throws Exception {
+		TokenPair tokens = signupAndLogin("name-update-max-length@example.com", "변경 전 이름");
+		String maxLengthName = "가".repeat(100);
+
+		mockMvc.perform(patch("/api/v1/users/me")
+				.header("Authorization", "Bearer " + tokens.accessToken())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"name\":\"%s\"}".formatted(maxLengthName)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.name").value(maxLengthName));
+
+		assertThat(userRepository.findByEmail("name-update-max-length@example.com").orElseThrow().name())
+			.isEqualTo(maxLengthName);
+	}
+
+	@Test
 	void same_name_is_an_idempotent_success_without_changing_other_fields() throws Exception {
 		TokenPair tokens = signupAndLogin("name-update-idempotent@example.com", "같은 이름");
 		User before = userRepository.findByEmail("name-update-idempotent@example.com").orElseThrow();
