@@ -1746,3 +1746,4 @@ Metric candidates:
 - `BillingControllerTest`와 `BillingApiRestDocsTest`의 2개 계약 테스트가 조회 월은 `2026-07`로 고정하면서 fixture 생성/납부 시각은 `Instant.now()`를 사용해 2026-08-02에 2/2 실패하는 문제를 재현했다.
 - 고정 시각 `2026-07-16T00:00:00Z`를 fixture의 `created_at`과 `paidAt`에 함께 결속했다. 현재 월 계산, sleep, tolerance, assertion 완화 없이 focused 2/2가 GREEN으로 전환됐다.
 - 변경은 Billing test와 문서에만 한정했으며 production Java, API, DB/Flyway, dependency, Docker 동작 변경은 0이다.
+- #227 이름 수정과 #228 test-only 수정을 합친 exact integration tree에서 `./gradlew test build asciidoctor`가 670 tests / failures 0 / errors 0 / skipped 9로 최종 GREEN이었다.

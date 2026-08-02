@@ -29,6 +29,8 @@
 
 - RED: 2 tests / 2 failures
 - GREEN focused: 2 tests / 0 failures
+- #228 전체: 656 tests / failures 0 / errors 0 / skipped 9, `build`/`asciidoctor` GREEN
+- #227 + #228 통합: 670 tests / failures 0 / errors 0 / skipped 9, `build`/`asciidoctor` GREEN
 - Production/Flyway/dependency diff: 0
 
 Obsidian 동기화 대상: `Projects/FaithLog/05_Troubleshooting/2026-08-02_billing-month-boundary-test.md`.
