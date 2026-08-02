@@ -69,7 +69,6 @@ class AuthenticatedPasswordChangeCommandServiceTest {
 	void rejects_the_same_new_password_without_revoking_sessions() {
 		when(userRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(user));
 		when(passwordEncoder.matches("current", "old-hash")).thenReturn(true);
-		when(passwordEncoder.matches("current", "old-hash")).thenReturn(true);
 
 		assertThatThrownBy(() -> service.changePassword(
 			new ChangeMyPasswordCommand(7L, "current", "current")
