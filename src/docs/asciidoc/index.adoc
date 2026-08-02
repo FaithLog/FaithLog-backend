@@ -356,6 +356,56 @@ include::{snippets}/users-me-name-update-unauthorized/http-response.adoc[]
 
 include::{snippets}/users-me-name-update-unauthorized/response-fields.adoc[]
 
+=== Change My Password
+
+`PATCH /api/v1/users/me/password`
+
+Access Token으로 로그인한 사용자가 이메일 인증 없이 현재 비밀번호를 확인한 뒤 새 비밀번호로 변경한다. 새 비밀번호는 현재 비밀번호와 달라야 한다. 성공하면 비밀번호 hash와 `tokenVersion`을 변경하고 모든 Refresh Token session을 삭제하므로, 클라이언트는 보유 token을 제거하고 로그인 화면으로 이동해야 한다. 이 API는 새 Access/Refresh Token을 발급하지 않는다. 비밀번호를 모르는 사용자는 별도의 이메일 인증 기반 password reset API를 사용한다.
+
+==== Success Request
+
+include::{snippets}/users-me-password-change-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/users-me-password-change-success/request-headers.adoc[]
+
+==== Request Fields
+
+include::{snippets}/users-me-password-change-success/request-fields.adoc[]
+
+==== Success Response
+
+include::{snippets}/users-me-password-change-success/http-response.adoc[]
+
+==== Success Response Fields
+
+include::{snippets}/users-me-password-change-success/response-fields.adoc[]
+
+==== Error: Current Password Mismatch
+
+include::{snippets}/users-me-password-change-current-mismatch/http-request.adoc[]
+
+include::{snippets}/users-me-password-change-current-mismatch/request-headers.adoc[]
+
+include::{snippets}/users-me-password-change-current-mismatch/request-fields.adoc[]
+
+include::{snippets}/users-me-password-change-current-mismatch/http-response.adoc[]
+
+include::{snippets}/users-me-password-change-current-mismatch/response-fields.adoc[]
+
+==== Error: Same Password
+
+include::{snippets}/users-me-password-change-same-password/http-request.adoc[]
+
+include::{snippets}/users-me-password-change-same-password/request-headers.adoc[]
+
+include::{snippets}/users-me-password-change-same-password/request-fields.adoc[]
+
+include::{snippets}/users-me-password-change-same-password/http-response.adoc[]
+
+include::{snippets}/users-me-password-change-same-password/response-fields.adoc[]
+
 === Delete My Account
 
 `DELETE /api/v1/users/me`

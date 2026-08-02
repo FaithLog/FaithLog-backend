@@ -27,6 +27,7 @@ class UserAuthUseCaseServiceStructureTest {
 			"LogoutCommandService.java", write("logout"),
 			"UserMeQueryService.java", readOnly("getCurrentUser"),
 			"UserNameCommandService.java", write("updateMyName"),
+			"AuthenticatedPasswordChangeCommandService.java", write("changePassword"),
 			"AccountWithdrawalCommandService.java", write("deleteMyAccount")
 		);
 
@@ -53,6 +54,7 @@ class UserAuthUseCaseServiceStructureTest {
 			() -> assertFalse(authController.contains("AuthService")),
 			() -> assertTrue(userMeController.contains("UserMeQueryService")),
 			() -> assertTrue(userMeController.contains("UserNameCommandService")),
+			() -> assertTrue(userMeController.contains("AuthenticatedPasswordChangeCommandService")),
 			() -> assertTrue(userMeController.contains("AccountWithdrawalCommandService")),
 			() -> assertFalse(userMeController.contains("AuthService")),
 			() -> assertFalse(userMeController.contains("UserAccountService"))
@@ -109,6 +111,7 @@ class UserAuthUseCaseServiceStructureTest {
 			"LogoutCommandService",
 			"UserMeQueryService",
 			"UserNameCommandService",
+			"AuthenticatedPasswordChangeCommandService",
 			"AccountWithdrawalCommandService"
 		);
 

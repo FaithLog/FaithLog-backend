@@ -20,6 +20,8 @@ public enum ErrorCode {
 	AUTH_EMAIL_VERIFICATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이메일 인증을 처리할 수 없습니다."),
 	AUTH_PASSWORD_RESET_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "비밀번호 변경 인증이 유효하지 않습니다."),
 	AUTH_PASSWORD_RESET_SAME_PASSWORD(HttpStatus.BAD_REQUEST, "현재 비밀번호와 다른 비밀번호를 입력해 주세요."),
+	AUTH_CURRENT_PASSWORD_MISMATCH(HttpStatus.BAD_REQUEST, "현재 비밀번호가 일치하지 않습니다."),
+	AUTH_PASSWORD_CHANGE_SAME_PASSWORD(HttpStatus.BAD_REQUEST, "현재 비밀번호와 다른 비밀번호를 입력해 주세요."),
 
 	USER_DELETE_PASSWORD_MISMATCH(HttpStatus.BAD_REQUEST, "비밀번호가 일치하지 않습니다."),
 	USER_DELETE_CONFIRM_TEXT_INVALID(HttpStatus.BAD_REQUEST, "확인 문구가 일치하지 않습니다."),
