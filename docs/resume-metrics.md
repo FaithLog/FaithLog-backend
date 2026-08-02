@@ -1740,3 +1740,9 @@ Metric candidates:
 - Contract coverage includes successful persistence, DTO-boundary trim, idempotent same-name requests, null/blank/whitespace-only/101-character validation with database immutability, missing Access Token, Refresh Token Bearer, inactive-user rejection, complete `UserMeResponse`, ACTIVE campus memberships, and non-target user-field immutability.
 - REST Docs tests generate success, validation, and unauthorized snippets. No DB/Flyway/dependency/token/session/FCM/Docker/deployment change was made.
 - Final full-suite attempt executed 669 tests with 2 failures and 9 skips before the self-review boundary-test addition. Both failures reproduce alone on unchanged `origin/develop` Billing tests because they query fixed July 2026 while `markPaid()` and entity creation use the current August 2026 clock; Issue #227 focused tests remain GREEN. The test-dependent `build`/normal `asciidoctor` gate is therefore not claimed GREEN. A separate `asciidoctor -x test -x jacocoTestReport` render completed and includes all three Issue #227 snippet groups, but also reports the pre-existing Billing snippets absent because their generating test failed.
+
+## 2026-08-02 Issue #228 Billing 월 경계 테스트 안정화
+
+- `BillingControllerTest`와 `BillingApiRestDocsTest`의 2개 계약 테스트가 조회 월은 `2026-07`로 고정하면서 fixture 생성/납부 시각은 `Instant.now()`를 사용해 2026-08-02에 2/2 실패하는 문제를 재현했다.
+- 고정 시각 `2026-07-16T00:00:00Z`를 fixture의 `created_at`과 `paidAt`에 함께 결속했다. 현재 월 계산, sleep, tolerance, assertion 완화 없이 focused 2/2가 GREEN으로 전환됐다.
+- 변경은 Billing test와 문서에만 한정했으며 production Java, API, DB/Flyway, dependency, Docker 동작 변경은 0이다.
