@@ -308,6 +308,54 @@ include::{snippets}/users-me-inactive-user-unauthorized/http-response.adoc[]
 
 include::{snippets}/users-me-inactive-user-unauthorized/response-fields.adoc[]
 
+=== Update My Name
+
+`PATCH /api/v1/users/me`
+
+Access Token으로 인증한 사용자가 이메일 인증이나 비밀번호 확인 없이 본인의 이름만 수정한다. 요청 DTO는 `name`의 앞뒤 공백을 제거하고, 제거 후 1~100자인 값만 허용한다. 같은 이름 요청은 멱등 성공하며 응답은 ACTIVE 캠퍼스 멤버십을 포함한 전체 `UserMeResponse`다.
+
+==== Success Request
+
+include::{snippets}/users-me-name-update-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/users-me-name-update-success/request-headers.adoc[]
+
+==== Request Fields
+
+include::{snippets}/users-me-name-update-success/request-fields.adoc[]
+
+==== Success Response
+
+include::{snippets}/users-me-name-update-success/http-response.adoc[]
+
+==== Success Response Fields
+
+include::{snippets}/users-me-name-update-success/response-fields.adoc[]
+
+==== Validation Error
+
+include::{snippets}/users-me-name-update-validation/http-request.adoc[]
+
+include::{snippets}/users-me-name-update-validation/request-headers.adoc[]
+
+include::{snippets}/users-me-name-update-validation/request-fields.adoc[]
+
+include::{snippets}/users-me-name-update-validation/http-response.adoc[]
+
+include::{snippets}/users-me-name-update-validation/response-fields.adoc[]
+
+==== Unauthorized: Missing Access Token
+
+include::{snippets}/users-me-name-update-unauthorized/http-request.adoc[]
+
+include::{snippets}/users-me-name-update-unauthorized/request-fields.adoc[]
+
+include::{snippets}/users-me-name-update-unauthorized/http-response.adoc[]
+
+include::{snippets}/users-me-name-update-unauthorized/response-fields.adoc[]
+
 === Delete My Account
 
 `DELETE /api/v1/users/me`

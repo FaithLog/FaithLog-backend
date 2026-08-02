@@ -52,6 +52,7 @@ import com.faithlog.devotion.service.command.UpdateWeeklyDevotionCommand;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -60,6 +61,7 @@ import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDoc
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.restdocs.payload.FieldDescriptor;
 import org.springframework.restdocs.payload.JsonFieldType;
 import org.springframework.test.context.ActiveProfiles;
@@ -71,6 +73,8 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureRestDocs(outputDir = "build/generated-snippets")
 @ActiveProfiles("test")
 class BillingApiRestDocsTest {
+
+	private static final Instant CHARGE_SUMMARY_AT = Instant.parse("2026-07-16T00:00:00Z");
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -107,6 +111,9 @@ class BillingApiRestDocsTest {
 
 	@Autowired
 	private DevotionDailyCheckRepository dailyCheckRepository;
+
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
 
 	@Test
 	void documents_payment_account_create_list_and_deactivate_contracts() throws Exception {
@@ -676,8 +683,7 @@ class BillingApiRestDocsTest {
 		ChargeItemResult unpaid = createPenaltyCharge(campusId, member.id(), 7101L);
 		ChargeItemResult paidResult = createPenaltyCharge(campusId, member.id(), 7102L);
 		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
-		paid.markPaid();
-		chargeItemRepository.saveAndFlush(paid);
+		bindChargeSummaryMonth(unpaid.id(), paid);
 		billingService.createPaymentAccount(new CreatePaymentAccountCommand(
 			campusId,
 			manager.id(),
@@ -1051,6 +1057,18 @@ class BillingApiRestDocsTest {
 			2500,
 			LocalDate.of(2026, 6, 22)
 		));
+	}
+
+	private void bindChargeSummaryMonth(Long unpaidChargeId, ChargeItem paidCharge) {
+		paidCharge.markPaid(CHARGE_SUMMARY_AT);
+		chargeItemRepository.saveAndFlush(paidCharge);
+		jdbcTemplate.update(
+			"update charge_items set created_at = ?, updated_at = ? where id in (?, ?)",
+			CHARGE_SUMMARY_AT,
+			CHARGE_SUMMARY_AT,
+			unpaidChargeId,
+			paidCharge.id()
+		);
 	}
 
 	private static org.springframework.restdocs.headers.RequestHeadersSnippet authHeader() {

@@ -84,6 +84,13 @@ public class User {
 		this.lastLoginAt = lastLoginAt;
 	}
 
+	public void changeName(String name) {
+		if (this.name.equals(name)) {
+			return;
+		}
+		this.name = name;
+	}
+
 	public void changeRole(UserRole role) {
 		if (this.role == role) {
 			return;
