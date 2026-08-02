@@ -9,6 +9,13 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-08-02 - Issue #233 로그인 사용자 비밀번호 변경
+
+- 비밀번호를 아는 로그인 사용자를 위한 `PATCH /api/v1/users/me/password`를 이메일 인증 기반 비밀번호 찾기와 분리했다. 현재 비밀번호 검증, 같은 비밀번호 재사용 거부, user row lock, BCrypt 변경을 전용 command service가 소유한다.
+- 성공 transaction에서 `tokenVersion`을 증가시키고 Redis Refresh Session을 모두 삭제해 기존 Access/Refresh Token을 함께 무효화하며 새 token은 발급하지 않는다. Redis 삭제 실패 시 DB 비밀번호와 tokenVersion 변경이 rollback되는 경계를 통합 테스트로 고정했다.
+- 이메일·이름·role·membership·FCM token은 변경하지 않고, frontend는 성공 후 local auth를 비우고 로그인 화면으로 이동하는 계약이다. 실제 운영 QA 전에는 사용자 성과나 보안 사고 감소 수치를 주장하지 않는다.
+- TDD는 production 구현 전 missing command/service/ErrorCode compile RED에서 시작했고, 최소 구현 후 controller/service/transaction/structure 집중 검증 15/15를 통과했다. 최종 `./gradlew test build asciidoctor`는 682 tests / failures 0 / errors 0 / skipped 9와 REST Docs HTML 생성을 확인했다.
+
 ## 2026-07-29 - Issue #224 이메일 인증과 비밀번호 재설정 보안 경계
 
 - 회원가입 이메일 인증과 임시 비밀번호 없는 비밀번호 재설정을 provider-independent port, Redis adapter, 공개 API로 구현했다. V13 `lower(email)` unique와 canonical 조회를 적용하되 trim한 이메일의 원래 대소문자는 보존하고, legacy logical duplicate는 자동 변경 없이 migration에서 거부한다.
