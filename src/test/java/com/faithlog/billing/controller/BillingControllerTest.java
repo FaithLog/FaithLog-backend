@@ -53,6 +53,8 @@ import org.springframework.test.web.servlet.MockMvc;
 @ActiveProfiles("test")
 class BillingControllerTest {
 
+	private static final Instant CHARGE_SUMMARY_AT = Instant.parse("2026-07-16T00:00:00Z");
+
 	@Autowired
 	private MockMvc mockMvc;
 
@@ -629,8 +631,7 @@ class BillingControllerTest {
 		ChargeItemResult unpaid = createPenaltyCharge(campusId, member.id(), 6101L);
 		ChargeItemResult paidResult = createPenaltyCharge(campusId, member.id(), 6102L);
 		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
-		paid.markPaid();
-		chargeItemRepository.saveAndFlush(paid);
+		bindChargeSummaryMonth(unpaid.id(), paid);
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
 				.header("Authorization", "Bearer " + memberToken)
@@ -1304,6 +1305,18 @@ class BillingControllerTest {
 			2500,
 			LocalDate.of(2026, 6, 22)
 		));
+	}
+
+	private void bindChargeSummaryMonth(Long unpaidChargeId, ChargeItem paidCharge) {
+		paidCharge.markPaid(CHARGE_SUMMARY_AT);
+		chargeItemRepository.saveAndFlush(paidCharge);
+		jdbcTemplate.update(
+			"update charge_items set created_at = ?, updated_at = ? where id in (?, ?)",
+			CHARGE_SUMMARY_AT,
+			CHARGE_SUMMARY_AT,
+			unpaidChargeId,
+			paidCharge.id()
+		);
 	}
 
 	private void saveCoffeeCharge(Long campusId, Long memberId, Long accountId, Long sourceId, int amount) {

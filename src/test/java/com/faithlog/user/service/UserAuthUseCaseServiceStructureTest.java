@@ -26,6 +26,7 @@ class UserAuthUseCaseServiceStructureTest {
 			"RefreshTokenRotationService.java", write("refresh"),
 			"LogoutCommandService.java", write("logout"),
 			"UserMeQueryService.java", readOnly("getCurrentUser"),
+			"UserNameCommandService.java", write("updateMyName"),
 			"AccountWithdrawalCommandService.java", write("deleteMyAccount")
 		);
 
@@ -51,6 +52,7 @@ class UserAuthUseCaseServiceStructureTest {
 			() -> assertTrue(authController.contains("LogoutCommandService")),
 			() -> assertFalse(authController.contains("AuthService")),
 			() -> assertTrue(userMeController.contains("UserMeQueryService")),
+			() -> assertTrue(userMeController.contains("UserNameCommandService")),
 			() -> assertTrue(userMeController.contains("AccountWithdrawalCommandService")),
 			() -> assertFalse(userMeController.contains("AuthService")),
 			() -> assertFalse(userMeController.contains("UserAccountService"))
@@ -106,6 +108,7 @@ class UserAuthUseCaseServiceStructureTest {
 			"RefreshTokenRotationService",
 			"LogoutCommandService",
 			"UserMeQueryService",
+			"UserNameCommandService",
 			"AccountWithdrawalCommandService"
 		);
 

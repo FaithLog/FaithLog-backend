@@ -11,6 +11,7 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.requestF
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -227,6 +228,85 @@ class AuthApiRestDocsTest {
 					headerWithName("Authorization").description("비활성 사용자가 발급받았던 Access Token")
 				),
 				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_update_my_name_success() throws Exception {
+		String accessToken = signupAndLogin("docs-name-update@example.com").accessToken();
+
+		mockMvc.perform(patch("/api/v1/users/me")
+				.header("Authorization", "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "  수정된 문서 이름  "
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data.name").value("수정된 문서 이름"))
+			.andExpect(jsonPath("$.data.email").value("docs-name-update@example.com"))
+			.andExpect(jsonPath("$.data.campusMemberships").isArray())
+			.andDo(document("users-me-name-update-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("name").description("앞뒤 공백 제거 후 1~100자인 새 이름")
+				),
+				responseFields(apiResponseFields(
+					fieldWithPath("data.id").description("현재 사용자 ID"),
+					fieldWithPath("data.name").description("공백 제거 후 수정된 사용자 이름"),
+					fieldWithPath("data.email").description("변경되지 않은 사용자 이메일"),
+					fieldWithPath("data.role").description("변경되지 않은 사용자 전역 역할"),
+					fieldWithPath("data.isActive").description("변경되지 않은 사용자 활성 여부"),
+					fieldWithPath("data.lastLoginAt").optional().description("마지막 로그인 시각"),
+					fieldWithPath("data.campusMemberships").description("보존된 ACTIVE 캠퍼스 멤버십 목록")
+				))
+			));
+	}
+
+	@Test
+	void documents_update_my_name_validation_error() throws Exception {
+		String accessToken = signupAndLogin("docs-name-validation@example.com").accessToken();
+
+		mockMvc.perform(patch("/api/v1/users/me")
+				.header("Authorization", "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"name\":\"   \"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"))
+			.andDo(document("users-me-name-update-validation",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestHeaders(
+					headerWithName("Authorization").description("`Bearer {accessToken}` 형식의 Access Token")
+				),
+				requestFields(
+					fieldWithPath("name").description("공백 제거 후 blank가 되어 거부되는 이름")
+				),
+				responseFields(errorResponseFields())
+			));
+	}
+
+	@Test
+	void documents_update_my_name_unauthorized_without_token() throws Exception {
+		mockMvc.perform(patch("/api/v1/users/me")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"name\":\"수정 시도\"}"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
+			.andDo(document("users-me-name-update-unauthorized",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				requestFields(
+					fieldWithPath("name").description("인증 없이 수정하려 한 이름")
+				),
+				responseFields(unauthorizedResponseFields())
 			));
 	}
 
