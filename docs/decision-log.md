@@ -1154,3 +1154,16 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: `GET /api/v1/campuses/{campusId}/polls`의 각 항목과 `GET /api/v1/campuses/{campusId}/polls/{pollId}` 상세 응답에 저장된 `allowUserOptionAdd` boolean을 필수 필드로 반환한다.
 - Decision: 프론트는 누락값을 추론하지 않고 이 필드가 `true`일 때만 사용자 선택지 추가 UI를 노출한다. 실제 추가 요청의 ACTIVE 멤버, OPEN 상태, 활성 시간 구간 검증은 서버가 계속 수행한다.
 - Decision: API 경로, 요청 DTO, 권한, 오류 코드, Entity, DB/Flyway 계약은 변경하지 않는다.
+
+### 2026-08-02 - Issue #227 authenticated self-service name update contract
+
+- Context: A signed-in user needs to edit the display name shown in FaithLog without coupling the operation to email verification or the password-reset workflow.
+- Decision: Add `PATCH /api/v1/users/me` with Access Token authentication. The JSON request is `{ "name": "새 이름" }`; the request DTO trims the value and validates 1 to 100 characters after trimming. Null, blank, whitespace-only, and more than 100 characters reuse the existing `400 GLOBAL_VALIDATION_FAILED` contract. Missing authentication, Refresh Token Bearer, and inactive users reuse `401 AUTH_UNAUTHORIZED`. Repeating the same name succeeds idempotently. Success returns the full updated `UserMeResponse`, including ACTIVE campus memberships, through `ApiResponse.success`.
+- Boundary: Only `users.name` changes. Email, password hash, role, active state, token version, campus memberships, FCM tokens, and sessions remain unchanged. Password changes continue to use the existing email-verification password-reset flow. Names remain non-unique, so there is no DB, Flyway, dependency, token, FCM, session, Docker, or deployment change.
+- Implementation: Keep `UserMeQueryService` read-only and introduce a dedicated transactional `UserNameCommandService` that locks and rechecks the authenticated user, changes only the name, and reuses the existing complete `UserMeResult` assembly.
+
+## 2026-08-02 - Issue #228 Billing month-boundary test fixture
+
+- Context: Two Billing controller/REST Docs tests queried July 2026 while their `ChargeItem.createdAt` and `paidAt` values came from the host clock. Both tests started failing in August even though Billing production code had not changed.
+- Decision: Keep the July API example and bind both fixture charge creation timestamps and the paid charge completion timestamp to `2026-07-16T00:00:00Z`. Use the existing domain `markPaid(Instant)` boundary for `paidAt` and a test-only JDBC fixture update for the JPA-managed, non-updatable `created_at` column.
+- Boundary: Do not use the current month, sleep, tolerance, production clock changes, or weaker assertions. Production/API/DB/Flyway/dependency behavior remains unchanged; the fix is test-only and deterministic across month boundaries.

@@ -45,6 +45,17 @@ Final auth APIs:
 - `POST /api/v1/auth/logout`
 - `DELETE /api/v1/users/me`
 
+User profile name update policy:
+
+- `PATCH /api/v1/users/me` requires an Access Token and updates only the authenticated user's name.
+- Missing authentication, a Refresh Token used as Bearer, and inactive users reuse `401 AUTH_UNAUTHORIZED`.
+- The request is `{ "name": "새 이름" }`. The request DTO trims leading and trailing whitespace, then requires a non-blank value of 1 to 100 characters.
+- Repeating the current name is an idempotent success.
+- Success returns the complete updated `UserMeResponse` through `ApiResponse.success`, including ACTIVE campus memberships.
+- The operation does not change email, password hash, service role, active state, token version, campus memberships, FCM tokens, or authentication sessions.
+- Password changes remain exclusively in the email-verification-based password-reset flow.
+- User names are not unique. This operation adds no schema or Flyway migration.
+
 Do not use:
 
 - `POST /api/v1/auth/reissue`
