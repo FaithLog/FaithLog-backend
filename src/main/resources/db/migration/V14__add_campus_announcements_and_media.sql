@@ -157,6 +157,26 @@ CREATE INDEX idx_announcement_images_announcement_order
 ALTER TABLE notification_logs
     ADD COLUMN data_payload TEXT NOT NULL DEFAULT '{}';
 
+ALTER TABLE notification_logs
+    DROP CONSTRAINT ck_notification_logs_type;
+
+ALTER TABLE notification_logs
+    ADD CONSTRAINT ck_notification_logs_type CHECK (
+        notification_type IN (
+            'DEVOTION_REMINDER',
+            'DEVOTION_MISSING',
+            'WED_POLL_OPEN',
+            'WED_POLL_MISSING',
+            'SATURDAY_POLL_OPEN',
+            'SATURDAY_POLL_MISSING',
+            'COFFEE_POLL_OPEN',
+            'COFFEE_POLL_MISSING',
+            'PAYMENT_UNPAID',
+            'ANNOUNCEMENT_PUBLISHED',
+            'CUSTOM'
+        )
+    );
+
 ALTER TABLE announcement_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcement_notification_outbox ENABLE ROW LEVEL SECURITY;
