@@ -160,6 +160,14 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		));
 		deletedComment.delete();
 		pollCommentRepository.saveAndFlush(deletedComment);
+		pollCommentRepository.save(PollComment.create(
+			commentedPoll.id(), futureOnly.id(), "다른 사용자 댓글"
+		));
+		Poll otherCampusPoll = createPoll(
+			nextYearCampus.id(), futureOnly.id(), PollType.CUSTOM, startInstant.plusSeconds(10_800));
+		pollCommentRepository.save(PollComment.create(
+			otherCampusPoll.id(), futureOnly.id(), "다른 캠퍼스 사용자 댓글"
+		));
 		assertThat(visibleComment.id()).isNotNull();
 		entityManager.flush();
 		entityManager.clear();
