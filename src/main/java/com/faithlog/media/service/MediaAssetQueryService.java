@@ -37,8 +37,16 @@ public class MediaAssetQueryService {
 		Instant expiresAt = clock.instant().plus(Duration.ofMinutes(10));
 		return snapshots.stream().map(snapshot -> {
 			return new MediaAccessUrlResult(snapshot.assetId(), snapshot.sha256(),
-				storage.presignDownload(snapshot.thumbnailObjectKey()),
-				storage.presignDownload(snapshot.detailObjectKey()), expiresAt);
+				presignDownload(snapshot.thumbnailObjectKey()),
+				presignDownload(snapshot.detailObjectKey()), expiresAt);
 		}).toList();
+	}
+
+	private java.net.URI presignDownload(String objectKey) {
+		try {
+			return storage.presignDownload(objectKey);
+		} catch (RuntimeException exception) {
+			throw new BusinessException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+		}
 	}
 }
