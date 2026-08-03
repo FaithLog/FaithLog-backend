@@ -133,6 +133,41 @@ class AnnouncementCommandServiceTest {
 	}
 
 	@Test
+	void existing_inactive_category_does_not_block_content_update_or_manual_publish() {
+		Announcement announcement = Announcement.createScheduled(
+			1L, 2L, 10L, "공지", "본문", false, NOW.plusSeconds(3600), NOW.minusSeconds(10));
+		ReflectionTestUtils.setField(announcement, "id", 100L);
+		AnnouncementCategory inactive = activeCategory(1L);
+		inactive.deactivate();
+		when(announcementRepository.findByCampusIdAndIdForUpdate(1L, 100L)).thenReturn(Optional.of(announcement));
+		when(categoryRepository.findByCampusIdAndId(1L, 2L)).thenReturn(Optional.of(inactive));
+
+		var updated = service.updateAnnouncement(new UpdateAnnouncementCommand(
+			1L, 100L, 20L, 2L, "수정", "수정 본문", true, NOW.plusSeconds(7200)));
+		var published = service.publishAnnouncement(1L, 100L, 20L);
+
+		assertThat(updated.title()).isEqualTo("수정");
+		assertThat(published.status()).isEqualTo(AnnouncementStatus.PUBLISHED);
+		verify(publishedEventPort).recordPublished(announcement, inactive);
+	}
+
+	@Test
+	void changing_an_existing_announcement_to_an_inactive_category_is_rejected() {
+		Announcement announcement = Announcement.createPublished(1L, 2L, 10L, "공지", "본문", false, NOW);
+		ReflectionTestUtils.setField(announcement, "id", 100L);
+		AnnouncementCategory inactive = AnnouncementCategory.create(1L, "행사", "#ABCDEF", 1);
+		ReflectionTestUtils.setField(inactive, "id", 3L);
+		inactive.deactivate();
+		when(announcementRepository.findByCampusIdAndIdForUpdate(1L, 100L)).thenReturn(Optional.of(announcement));
+		when(categoryRepository.findByCampusIdAndId(1L, 3L)).thenReturn(Optional.of(inactive));
+
+		assertThatThrownBy(() -> service.updateAnnouncement(new UpdateAnnouncementCommand(
+			1L, 100L, 20L, 3L, "수정", "본문", false, null)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.ANNOUNCEMENT_CATEGORY_INACTIVE));
+	}
+
+	@Test
 	void manual_publish_locks_row_and_records_only_one_published_event() {
 		Announcement announcement = Announcement.createScheduled(
 			1L, 2L, 10L, "공지", "본문", false, NOW.plusSeconds(3600), NOW.minusSeconds(10)
