@@ -23,21 +23,24 @@ The first GET creates one `(user_id, recap_year)` snapshot in a `REPEATABLE_READ
 
 The snapshot stores only aggregate counts and ACTIVE campus journey metadata. `presented` preserves the first timestamp and is idempotent. For a no-data snapshot it is a successful no-op.
 
+V17 preserves only compact per-user/year facts immediately before retention deletes a source row. Archive upsert and source deletion share one database transaction. The first GET merges archived and still-live facts by stable source ID before freezing V15. A coverage watermark hides years that may already have lost data before V17 was deployed; incomplete years create no snapshot and are not presented as accurate recaps.
+
 ## Aggregation
 
 - Campus: current ACTIVE memberships whose `joined_at` is before the recap-year end boundary, campus name, `joined_at` as an `Asia/Seoul` date, and whether that date belongs to the recap year. December 31 is included and January 1 of the next year is excluded.
 - Devotion: quiet time, Bible reading, prayer, all-completed days, submitted weeks, longest all-completed streak, and earliest positive most-active month. The same calendar date and submitted `week_start_date` are counted once across multiple campuses.
 - Prayer activity: distinct submitted calendar weeks and seasons, where `submitted_at` is non-null and year attribution comes from `prayer_weeks.week_start_date`. The same `week_start_date` across campuses counts once while distinct seasons remain independent.
-- Poll activity: participation for `WED_SERVICE`, `SATURDAY_LEADER`, `COFFEE`, `MEAL`, and `CUSTOM`, plus the user's non-deleted comment count. Year attribution uses `polls.starts_at` in `Asia/Seoul`.
+- Comment activity: count only non-deleted comments written by the authenticated user in the recap year. Poll participation, PollType counts, selections, options, and comment bodies are excluded.
+- Penalty summary: count and sum only the authenticated user's `PENALTY` charges whose source is a `DEVOTION_RECORD` with `weekStartDate` in the recap year. Include only `PAID` and `UNPAID`; exclude `WAIVED`, `CANCELED`, coffee, meal, and group charges. Total count and amount equal paid plus unpaid exactly.
 
-The aggregate adapter has a fixed six-statement boundary and does not issue one query per member or activity row.
+The aggregate adapter has a fixed six-statement boundary and does not issue one query per member or activity row. V17 archive existence checks and writes use batches of at most 500, preventing an annual 1,000-member archive from creating one unbounded SQL `IN` predicate.
 
 ## Privacy
 
-The response and snapshot exclude prayer text, poll selections, poll memo/comment text, email, payment/account/charge data, JWT/session/device identifiers, and FCM tokens.
+The response, snapshot, and compact archive exclude prayer text, poll participation and selections, poll memo/comment text, email, account data, individual charge rows, JWT/session/device identifiers, and FCM tokens. Only the aggregate penalty summary is retained.
 
 ## Migration
 
-Issue #237 owns Flyway V14. Issue #236 uses the separate `V15__add_yearly_recap_snapshots.sql` for `yearly_recap_snapshots` and `yearly_recap_campuses`; the two migrations must not be combined. Both new tables explicitly enable RLS. The snapshot has a no-cascade `users(id)` foreign key, the campus child has a no-cascade parent-snapshot foreign key, and the child UNIQUE supplies the only `(yearly_recap_snapshot_id, campus_id)` index. The V15 SQL SHA-256 is `9d660e6d7c7b49460345aa9931a8267171a2e5dbc70d9a064f713755df0fc319`. Final integration must rebase on develop after #237 and verify the exact V14-to-V15 order again.
+Issue #237 owns V14. The corrected V15 snapshot stores the final comment and penalty shape, V16 adds poll notice/image/outbox, V17 adds compact recap facts and coverage, and V18 adds durable media-cleanup retry/lease metadata. Physical order is always V14 -> V15 -> V16 -> V17 -> V18. Every recap table explicitly enables RLS; snapshot and archive foreign-key boundaries remain fail closed. The corrected V15 SQL SHA-256 is `bd7b956e8aba48d9c21dd0cd113cb09170aed41023002318aa723489d12dfb34`.
 
-After the RLS/FK/campus-boundary/isolation review corrections, the final `clean test build asciidoctor` gate completed in 5 minutes 45 seconds with 703 tests, no failures or errors, 10 skipped tests, 184 REST Docs snippet groups, and rendered HTML. Dedicated PostgreSQL 17 verification also passed clean V1-to-V15 and V14-to-V15 upgrade paths using #237's exact V14 SQL: V14 history checksum `1004514371` remained unchanged and the corrected V15 checksum is `-1498394209`. Re-run the migration gate once more after #237 is actually integrated into develop.
+The final exact-HEAD `clean test build asciidoctor` gate passed 834 tests with no failures or errors and 14 skipped tests. A disposable PostgreSQL 17 gate passed all 8 clean and protected upgrade cases through V18, including recap RLS/FK/CHECK constraints and migration order, without touching the shared QA database.
