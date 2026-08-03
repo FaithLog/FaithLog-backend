@@ -81,8 +81,26 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		Campus secondCampus = campusRepository.saveAndFlush(Campus.create(
 			"회고 두 번째 캠퍼스", "경기", "같은 달력 주차 중복", "RECAP-QUERY-236-SECOND"
 		));
+		Campus lastDayCampus = campusRepository.saveAndFlush(Campus.create(
+			"회고 마지막 날 캠퍼스", "서울", "12월 31일 포함", "RECAP-QUERY-236-LAST-DAY"
+		));
+		Campus nextYearCampus = campusRepository.saveAndFlush(Campus.create(
+			"회고 다음 해 캠퍼스", "서울", "다음 해 1월 1일 제외", "RECAP-QUERY-236-NEXT-YEAR"
+		));
 		insertOneThousandActiveMemberships(campus.id(), target.id());
 		insertActiveMembership(secondCampus.id(), target.id());
+		insertActiveMembership(
+			lastDayCampus.id(), target.id(), Instant.parse("2026-12-31T14:59:59Z")
+		);
+		insertActiveMembership(
+			nextYearCampus.id(), target.id(), Instant.parse("2026-12-31T15:00:00Z")
+		);
+		User futureOnly = userRepository.saveAndFlush(User.create(
+			"미래 캠퍼스만", "recap-future-only@example.com", "hash"
+		));
+		insertActiveMembership(
+			nextYearCampus.id(), futureOnly.id(), Instant.parse("2026-12-31T15:00:00Z")
+		);
 
 		WeeklyDevotionRecord weekly = WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(year, 1, 5));
 		weekly.submit(Instant.parse("2027-01-10T00:00:00Z"));
@@ -133,17 +151,21 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		assertThat(visibleComment.id()).isNotNull();
 		entityManager.flush();
 		entityManager.clear();
+		assertThat(queryPort.findActiveCampuses(futureOnly.id(), end)).isEmpty();
 
 		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
 		statistics.setStatisticsEnabled(true);
 		statistics.clear();
 
-		var campuses = queryPort.findActiveCampuses(target.id());
+		var campuses = queryPort.findActiveCampuses(target.id(), end);
 		DevotionRecapSource devotion = queryPort.findDevotion(target.id(), start, end);
 		PrayerRecapAggregate prayer = queryPort.findPrayer(target.id(), start, end);
 		PollRecapAggregate poll = queryPort.findPoll(target.id(), startInstant, endInstant);
 
-		assertThat(campuses).hasSize(2);
+		assertThat(campuses)
+			.extracting(activity -> activity.campusId())
+			.containsExactly(campus.id(), secondCampus.id(), lastDayCampus.id())
+			.doesNotContain(nextYearCampus.id());
 		assertThat(devotion.dailyActivities()).singleElement().satisfies(day -> {
 			assertThat(day.quietTimeChecked()).isTrue();
 			assertThat(day.prayerChecked()).isTrue();
@@ -194,7 +216,10 @@ class YearlyRecapAggregateQueryIntegrationTest {
 	}
 
 	private void insertActiveMembership(Long campusId, Long userId) {
-		Instant joinedAt = Instant.parse("2026-01-01T00:00:00Z");
+		insertActiveMembership(campusId, userId, Instant.parse("2026-01-01T00:00:00Z"));
+	}
+
+	private void insertActiveMembership(Long campusId, Long userId, Instant joinedAt) {
 		jdbcTemplate.update("""
 			insert into campus_members
 			(campus_id, user_id, campus_role, status, joined_at, created_at, updated_at)
