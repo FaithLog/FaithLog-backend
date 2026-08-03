@@ -78,11 +78,20 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		Campus campus = campusRepository.saveAndFlush(Campus.create(
 			"회고 캠퍼스", "서울", "고정 query", "RECAP-QUERY-236"
 		));
+		Campus secondCampus = campusRepository.saveAndFlush(Campus.create(
+			"회고 두 번째 캠퍼스", "경기", "같은 달력 주차 중복", "RECAP-QUERY-236-SECOND"
+		));
 		insertOneThousandActiveMemberships(campus.id(), target.id());
+		insertActiveMembership(secondCampus.id(), target.id());
 
 		WeeklyDevotionRecord weekly = WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(year, 1, 5));
 		weekly.submit(Instant.parse("2027-01-10T00:00:00Z"));
 		weeklyRepository.saveAndFlush(weekly);
+		WeeklyDevotionRecord secondCampusWeekly = WeeklyDevotionRecord.create(
+			secondCampus.id(), target.id(), LocalDate.of(year, 1, 5)
+		);
+		secondCampusWeekly.submit(Instant.parse("2027-01-10T00:00:00Z"));
+		weeklyRepository.saveAndFlush(secondCampusWeekly);
 		dailyRepository.saveAndFlush(DevotionDailyCheck.create(
 			weekly.id(), LocalDate.of(year, 1, 6), true, true, false
 		));
@@ -95,6 +104,16 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		));
 		prayerSubmissionRepository.saveAndFlush(PrayerSubmission.create(
 			prayerWeek.id(), 99L, target.id(), "절대 응답에 포함하지 않을 기도 내용",
+			target.id(), Instant.parse("2027-01-03T00:00:00Z")
+		));
+		PrayerSeason secondSeason = prayerSeasonRepository.saveAndFlush(PrayerSeason.create(
+			secondCampus.id(), "회고 두 번째 기도 시즌", LocalDate.of(year, 1, 1), target.id()
+		));
+		PrayerWeek secondPrayerWeek = prayerWeekRepository.saveAndFlush(PrayerWeek.create(
+			secondCampus.id(), secondSeason.id(), LocalDate.of(year, 12, 28)
+		));
+		prayerSubmissionRepository.saveAndFlush(PrayerSubmission.create(
+			secondPrayerWeek.id(), 100L, target.id(), "응답에 포함하지 않을 두 번째 기도 내용",
 			target.id(), Instant.parse("2027-01-03T00:00:00Z")
 		));
 
@@ -124,7 +143,7 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		PrayerRecapAggregate prayer = queryPort.findPrayer(target.id(), start, end);
 		PollRecapAggregate poll = queryPort.findPoll(target.id(), startInstant, endInstant);
 
-		assertThat(campuses).hasSize(1);
+		assertThat(campuses).hasSize(2);
 		assertThat(devotion.dailyActivities()).singleElement().satisfies(day -> {
 			assertThat(day.quietTimeChecked()).isTrue();
 			assertThat(day.prayerChecked()).isTrue();
@@ -132,7 +151,7 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		});
 		assertThat(devotion.submittedWeekCount()).isEqualTo(1);
 		assertThat(prayer.submittedWeekCount()).isEqualTo(1);
-		assertThat(prayer.participatedSeasonCount()).isEqualTo(1);
+		assertThat(prayer.participatedSeasonCount()).isEqualTo(2);
 		assertThat(poll.participatedCount()).isEqualTo(5);
 		for (PollType pollType : PollType.values()) {
 			assertThat(poll.count(pollType)).isEqualTo(1);
@@ -151,11 +170,7 @@ class YearlyRecapAggregateQueryIntegrationTest {
 
 	private void insertOneThousandActiveMemberships(Long campusId, Long targetUserId) {
 		Instant now = Instant.parse("2026-01-01T00:00:00Z");
-		jdbcTemplate.update("""
-			insert into campus_members
-			(campus_id, user_id, campus_role, status, joined_at, created_at, updated_at)
-			values (?, ?, 'MEMBER', 'ACTIVE', ?, ?, ?)
-			""", campusId, targetUserId, now, now, now);
+		insertActiveMembership(campusId, targetUserId);
 		List<Object[]> users = new ArrayList<>();
 		List<Object[]> memberships = new ArrayList<>();
 		for (int index = 1; index < 1000; index++) {
@@ -176,5 +191,14 @@ class YearlyRecapAggregateQueryIntegrationTest {
 			(campus_id, user_id, campus_role, status, joined_at, created_at, updated_at)
 			values (?, ?, ?, ?, ?, ?, ?)
 			""", memberships);
+	}
+
+	private void insertActiveMembership(Long campusId, Long userId) {
+		Instant joinedAt = Instant.parse("2026-01-01T00:00:00Z");
+		jdbcTemplate.update("""
+			insert into campus_members
+			(campus_id, user_id, campus_role, status, joined_at, created_at, updated_at)
+			values (?, ?, 'MEMBER', 'ACTIVE', ?, ?, ?)
+			""", campusId, userId, joinedAt, joinedAt, joinedAt);
 	}
 }
