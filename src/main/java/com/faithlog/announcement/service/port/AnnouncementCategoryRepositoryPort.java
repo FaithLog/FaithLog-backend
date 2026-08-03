@@ -16,5 +16,7 @@ public interface AnnouncementCategoryRepositoryPort {
 
 	Optional<AnnouncementCategory> findByCampusIdAndIdForUpdate(Long campusId, Long categoryId);
 
+	List<AnnouncementCategory> findByCampusIdAndIdIn(Long campusId, List<Long> categoryIds);
+
 	List<AnnouncementCategory> findByCampusIdOrderByDisplayOrderAscNameAscIdAsc(Long campusId);
 }
