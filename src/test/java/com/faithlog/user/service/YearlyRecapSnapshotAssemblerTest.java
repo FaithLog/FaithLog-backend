@@ -105,4 +105,26 @@ class YearlyRecapSnapshotAssemblerTest {
 			.isEqualTo(false);
 		assertThat(result.devotion().mostActiveMonth()).isNull();
 	}
+
+	@Test
+	void counts_a_calendar_date_once_when_multiple_campuses_have_daily_rows() {
+		LocalDate sameDate = LocalDate.of(2026, 6, 1);
+		YearlyRecapSnapshotData result = assembler.assemble(
+			2026,
+			List.of(),
+			new DevotionRecapSource(List.of(
+				new DevotionDailyActivity(sameDate, true, false, true),
+				new DevotionDailyActivity(sameDate, false, true, false)
+			), 0),
+			new PrayerRecapAggregate(0, 0),
+			PollRecapAggregate.empty()
+		);
+
+		assertThat(result.devotion().quietTimeCount()).isEqualTo(1);
+		assertThat(result.devotion().bibleReadingCount()).isEqualTo(1);
+		assertThat(result.devotion().prayerCount()).isEqualTo(1);
+		assertThat(result.devotion().allCompletedDayCount()).isEqualTo(1);
+		assertThat(result.devotion().longestStreakDays()).isEqualTo(1);
+		assertThat(result.devotion().mostActiveMonth()).isEqualTo(6);
+	}
 }
