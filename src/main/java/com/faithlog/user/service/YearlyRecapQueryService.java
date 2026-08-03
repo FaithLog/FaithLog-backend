@@ -13,15 +13,21 @@ public class YearlyRecapQueryService {
 
 	private final YearlyRecapPolicy policy;
 	private final YearlyRecapSnapshotService snapshotService;
+	private final YearlyRecapSnapshotRetryExecutor retryExecutor;
 
-	public YearlyRecapQueryService(YearlyRecapPolicy policy, YearlyRecapSnapshotService snapshotService) {
+	public YearlyRecapQueryService(
+		YearlyRecapPolicy policy,
+		YearlyRecapSnapshotService snapshotService,
+		YearlyRecapSnapshotRetryExecutor retryExecutor
+	) {
 		this.policy = policy;
 		this.snapshotService = snapshotService;
+		this.retryExecutor = retryExecutor;
 	}
 
 	public YearlyRecapResult getPrevious(Long userId) {
 		YearlyRecapPeriod period = policy.previousPeriod();
-		YearlyRecapStoredSnapshot stored = snapshotService.getOrCreate(userId, period);
+		YearlyRecapStoredSnapshot stored = retryExecutor.execute(() -> snapshotService.getOrCreate(userId, period));
 		YearlyRecapSnapshotData data = stored.data();
 		boolean hasData = data.hasRecapData();
 		return new YearlyRecapResult(

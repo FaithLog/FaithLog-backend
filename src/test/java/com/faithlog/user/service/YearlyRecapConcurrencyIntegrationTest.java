@@ -11,6 +11,7 @@ import com.faithlog.user.domain.entity.YearlyRecapSnapshot;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.infrastructure.repository.YearlyRecapSnapshotRepository;
 import com.faithlog.user.service.policy.YearlyRecapPolicy;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -42,7 +44,9 @@ class YearlyRecapConcurrencyIntegrationTest {
 		Campus campus = campusRepository.saveAndFlush(Campus.create(
 			"동시 회고 캠퍼스", "서울", "동시성", "RECAP-CONCURRENT-236"
 		));
-		campusMemberRepository.saveAndFlush(CampusMember.createMember(campus.id(), user.id()));
+		CampusMember membership = CampusMember.createMember(campus.id(), user.id());
+		ReflectionTestUtils.setField(membership, "joinedAt", Instant.parse("2020-01-01T00:00:00Z"));
+		campusMemberRepository.saveAndFlush(membership);
 		int recapYear = policy.previousPeriod().recapYear();
 
 		runConcurrently(8, () -> queryService.getPrevious(user.id()));

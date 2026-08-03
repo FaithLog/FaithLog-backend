@@ -16,7 +16,7 @@ class YearlyRecapTransactionContractTest {
 		assertRepeatableRead(YearlyRecapSnapshotService.class.getDeclaredMethod(
 			"getOrCreate", Long.class, YearlyRecapPeriod.class
 		));
-		assertRepeatableRead(YearlyRecapPresentationCommandService.class.getDeclaredMethod(
+		assertRepeatableRead(YearlyRecapPresentationTransactionService.class.getDeclaredMethod(
 			"markPresented", Long.class, int.class
 		));
 	}

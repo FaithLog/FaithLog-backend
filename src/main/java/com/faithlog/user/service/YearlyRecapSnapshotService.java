@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -47,7 +48,7 @@ public class YearlyRecapSnapshotService {
 		this.clock = clock;
 	}
 
-	@Transactional
+	@Transactional(isolation = Isolation.REPEATABLE_READ)
 	public YearlyRecapStoredSnapshot getOrCreate(Long userId, YearlyRecapPeriod period) {
 		requireActiveUser(userRepository.findById(userId).orElse(null));
 		YearlyRecapSnapshot existing = snapshotRepository
