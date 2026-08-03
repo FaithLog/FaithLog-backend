@@ -164,6 +164,9 @@ public class MediaAssetCommandService {
 		if (asset.status() != MediaAssetStatus.PENDING) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
 		}
+		if (!asset.expiresAt().isAfter(clock.instant())) {
+			throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
+		}
 		asset.startProcessing();
 		return new FinalizeSnapshot(asset.temporaryObjectKey(), asset.inputContentType(), asset.inputByteSize(),
 			asset.expectedSha256(), null);
