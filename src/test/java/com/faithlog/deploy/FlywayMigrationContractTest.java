@@ -344,6 +344,23 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
+	void postgresV16FixturesRequireThePhysicalV14ToV15ToV16Order() throws IOException {
+		String source = Files.readString(POSTGRES_MIGRATION_TEST);
+		String cleanFixture = source.substring(
+			source.indexOf("void flywayMigratesCleanPostgresDatabase"),
+			source.indexOf("void v14UpgradeAcceptsAnnouncementNotification")
+		);
+		String v16UpgradeFixture = source.substring(
+			source.indexOf("void v16UpgradeAddsPollNoticeImagesAndOpenNotificationTypes"),
+			source.indexOf("void v15UpgradesIssue237V14WithoutChangingItsChecksum")
+		);
+
+		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"16\")");
+		assertThat(v16UpgradeFixture).contains(".target(\"15\")");
+		assertThat(v16UpgradeFixture).doesNotContain(".target(\"14\")");
+	}
+
+	@Test
 	void v15AddsImmutableYearlyRecapSnapshotSchema() throws IOException {
 		assertThat(YEARLY_RECAP_MIGRATION).exists();
 		String sql = Files.readString(YEARLY_RECAP_MIGRATION);
