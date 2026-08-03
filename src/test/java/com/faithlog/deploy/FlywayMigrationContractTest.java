@@ -32,6 +32,9 @@ class FlywayMigrationContractTest {
 	private static final Path CASE_INSENSITIVE_EMAIL_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V13__enforce_case_insensitive_user_email.sql"
 	);
+	private static final Path ANNOUNCEMENT_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V14__add_campus_announcements_and_media.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -243,6 +246,29 @@ class FlywayMigrationContractTest {
 			"delete from users",
 			"alter column email"
 		);
+	}
+
+	@Test
+	void v14AddsAnnouncementsDurableOutboxMediaAndDefaultCategories() throws IOException {
+		assertThat(ANNOUNCEMENT_MIGRATION).exists();
+		String sql = Files.readString(ANNOUNCEMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE TABLE announcement_categories",
+			"CREATE UNIQUE INDEX uk_announcement_categories_campus_lower_name",
+			"ON announcement_categories (campus_id, lower(name))",
+			"CREATE TABLE announcements",
+			"CREATE TABLE announcement_notification_outbox",
+			"UNIQUE (announcement_id)",
+			"CREATE TABLE media_assets",
+			"CREATE TABLE announcement_images",
+			"UNIQUE (media_asset_id)",
+			"ADD COLUMN data_payload TEXT NOT NULL DEFAULT '{}'",
+			"SELECT id, '일반', '#3B82F6', 0, TRUE",
+			"FROM campuses",
+			"ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql.toLowerCase()).doesNotContain("delete from campuses", "update campuses");
 	}
 
 	@Test
