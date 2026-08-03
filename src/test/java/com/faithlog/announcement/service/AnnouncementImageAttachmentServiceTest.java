@@ -50,6 +50,21 @@ class AnnouncementImageAttachmentServiceTest {
 	}
 
 	@Test
+	void ready_asset_already_attached_to_a_poll_is_rejected_before_replacement() {
+		MediaAsset asset = readyAsset(31L, 7L, 11L);
+		when(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of());
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(asset));
+		when(images.findAttachedAssetIdsForOtherAnnouncements(101L, List.of(31L))).thenReturn(List.of());
+		when(pollImages.findAttachedAssetIds(List.of(31L))).thenReturn(List.of(31L));
+
+		assertThatThrownBy(() -> service.replace(101L, 7L, 11L, List.of(31L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_STATE_CONFLICT));
+
+		verify(images, never()).deleteByAnnouncementId(101L);
+	}
+
+	@Test
 	void validation_locks_and_checks_assets_in_ordered_batches_then_flushes_replacement_before_insert() {
 		List<Long> requested = java.util.stream.LongStream.rangeClosed(1, 101).boxed()
 			.sorted(java.util.Comparator.reverseOrder()).toList();
