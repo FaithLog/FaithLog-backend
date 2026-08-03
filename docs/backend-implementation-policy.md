@@ -576,6 +576,8 @@ Keep these out of MVP scope:
 
 - Campus announcement categories are campus-owned data, not a server enum. Names are trim-normalized, 1~30 characters, and case-insensitively unique per campus. Every campus has an active default `일반` category with color `#3B82F6` and display order 0.
 - Announcements use `SCHEDULED`, `PUBLISHED`, and `ARCHIVED`; physical deletion and restore are not exposed. Public reads require an ACTIVE campus member, while management reuses the existing campus-manager policy.
+- A non-null `publishAt` must be in the future at both request validation and use-case execution. Invalid or expired scheduling input is a typed validation failure, never an unhandled server error.
+- Category deactivation blocks new selection only. Existing announcements may keep an inactive category for content edits and manual or scheduled publication, while changing to a different inactive category remains forbidden.
 - Manual and scheduled publication create exactly one durable announcement outbox row in the publication transaction. Delivery targets ACTIVE members, excludes the author, and sends only category/title plus ID-only data payload.
 - Media binary is stored only in a private Cloudflare R2 Standard bucket. DB rows contain immutable random object keys and metadata, never public URLs or image binary.
 - Upload reservation requires both user and campus Redis limits of 30 requests per fixed 10-minute window. Redis failure blocks only new reservations.
@@ -583,7 +585,9 @@ Keep these out of MVP scope:
 - READY assets attach to exactly one announcement. Removal transitions the asset to ORPHANED inside the announcement transaction; R2 deletion happens only in cleanup after 24 hours. Archived announcement attachments remain READY and retained.
 - Attachment validation must acquire media row locks in stable ID order and bounded batches, bulk-check cross-announcement conflicts, and flush removed links before reinserting ordered links so DB uniqueness remains deterministic.
 - Processing must persist planned variant keys before external writes. Cleanup retries every tracked FAILED/ORPHANED object, while READY cleanup may remove only an expired temporary original and must preserve the READY row and variants.
+- Once READY is committed, temporary-original deletion is best-effort and must not turn finalize or an idempotent READY retry into an API failure. Keep the temporary key as durable cleanup evidence until deletion and key clearing both succeed.
 - Member media access is limited to READY assets attached to PUBLISHED announcements. Managers may preview own-campus READY assets. Presigned GET generation occurs outside the DB authorization transaction and expires after 10 minutes.
 - Public announcement/member media reads do not inherit the service-ADMIN management bypass; an ACTIVE campus membership is required. Outbox notification creation uses required deduplication and remains pending on Redis or transactional failure.
 - Announcement responses expose ordered asset IDs only. Clients request signed URLs in ordered chunks of at most 100 and must not treat that chunk size as a product attachment limit.
+- Category create/update must flush inside the command service's duplicate-error boundary so concurrent case-insensitive unique violations return the typed category conflict instead of surfacing at transaction completion.
 - Issue #237 must not implement poll image tables or poll API behavior. Issue #238 reuses the shared media ports and asset lifecycle.
