@@ -6,6 +6,7 @@ import com.faithlog.announcement.controller.dto.request.CreateAnnouncementCatego
 import com.faithlog.announcement.controller.dto.request.CreateAnnouncementRequest;
 import com.faithlog.announcement.controller.dto.request.UpdateAnnouncementCategoryRequest;
 import com.faithlog.announcement.controller.dto.request.UpdateAnnouncementRequest;
+import com.faithlog.announcement.controller.dto.response.AnnouncementResponse;
 import jakarta.validation.Validation;
 import java.lang.reflect.Method;
 import java.time.Instant;
@@ -55,6 +56,13 @@ class AnnouncementControllerContractTest {
 			1L, "제목", "a".repeat(5001), false, Instant.now().plusSeconds(60)))).isNotEmpty();
 		assertThat(validator.validate(new CreateAnnouncementRequest(
 			1L, "a".repeat(100), "a".repeat(5000), true, null))).isEmpty();
+	}
+
+	@Test
+	void announcement_response_exposes_ordered_image_asset_ids_for_batched_access_urls() {
+		assertThat(Arrays.stream(AnnouncementResponse.class.getRecordComponents())
+			.map(component -> component.getName()))
+			.contains("imageAssetIds");
 	}
 
 	private void assertRoute(
