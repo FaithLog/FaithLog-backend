@@ -257,6 +257,37 @@ class YearlyRecapAggregateQueryIntegrationTest {
 	}
 
 	@Test
+	void own_historical_comment_and_penalty_do_not_require_a_current_active_membership() {
+		User target = userRepository.saveAndFlush(User.create(
+			"과거 멤버", "recap-inactive-history@example.com", "hash"));
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"과거 멤버 캠퍼스", "서울", "현재 멤버십 없음", "RECAP-HISTORY-238"));
+		Poll poll = createPoll(
+			campus.id(), target.id(), PollType.CUSTOM, Instant.parse("2026-06-01T00:00:00Z"));
+		pollCommentRepository.saveAndFlush(PollComment.create(
+			poll.id(), target.id(), "현재 멤버십과 무관한 본인 댓글"));
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.PENALTY, "벌금", "은행", "000-000", "회계", target.id()));
+		WeeklyDevotionRecord weekly = weeklyRepository.saveAndFlush(
+			WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(2026, 6, 1)));
+		saveCharge(campus.id(), target.id(), account.id(), weekly.id(), PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 1_500, ChargeStatus.PAID);
+
+		CommentActivityRecapAggregate comment = queryPort.findCommentActivity(
+			target.id(), LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1));
+		PenaltySummaryRecapAggregate penalty = queryPort.findPenaltySummary(
+			target.id(), LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1));
+
+		assertThat(comment.writtenCount()).isEqualTo(1);
+		assertThat(penalty.totalCount()).isEqualTo(1);
+		assertThat(penalty.totalAmount()).isEqualTo(1_500);
+		assertThat(penalty.paidCount()).isEqualTo(1);
+		assertThat(penalty.paidAmount()).isEqualTo(1_500);
+		assertThat(penalty.unpaidCount()).isZero();
+		assertThat(penalty.unpaidAmount()).isZero();
+	}
+
+	@Test
 	void archive_and_live_rows_with_the_same_source_id_are_counted_once() {
 		User target = userRepository.saveAndFlush(User.create(
 			"회고 중복 제거", "recap-archive-dedupe@example.com", "hash"));
