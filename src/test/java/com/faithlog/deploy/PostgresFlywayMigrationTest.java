@@ -10,6 +10,8 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -208,6 +210,38 @@ class PostgresFlywayMigrationTest {
 		assertThat(queryCount(
 			jdbcUrl, username, password, "select count(*) from yearly_recap_archive_coverage"
 		)).isEqualTo(5L);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v17CoverageWatermarkUsesSeoulYearAcrossDatabaseTimeZones() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		String migration = Files.readString(Path.of(
+			"src/main/resources/db/migration/V17__add_yearly_recap_compact_archive.sql"));
+		String prefix = "EXTRACT(YEAR FROM ";
+		String suffix = ")::INTEGER + 1";
+		int expressionStart = migration.indexOf(prefix) + prefix.length();
+		int expressionEnd = migration.indexOf(suffix, expressionStart);
+		assertThat(expressionStart).isGreaterThanOrEqualTo(prefix.length());
+		assertThat(expressionEnd).isGreaterThan(expressionStart);
+		String fixedBoundaryExpression = migration.substring(expressionStart, expressionEnd)
+			.replace("CURRENT_TIMESTAMP", "TIMESTAMPTZ '2026-12-31 15:30:00+00'")
+			.replace("CURRENT_DATE", "DATE '2026-12-31'");
+
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+			for (String timeZone : List.of("UTC", "America/Los_Angeles")) {
+				try (Statement statement = connection.createStatement()) {
+					statement.execute("set time zone '" + timeZone + "'");
+					try (ResultSet result = statement.executeQuery(
+						"select extract(year from " + fixedBoundaryExpression + ")::integer + 1")) {
+						assertThat(result.next()).isTrue();
+						assertThat(result.getInt(1)).isEqualTo(2028);
+					}
+				}
+			}
+		}
 	}
 
 	@Test

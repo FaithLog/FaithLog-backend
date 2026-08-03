@@ -385,11 +385,13 @@ class FlywayMigrationContractTest {
 			"CREATE TABLE yearly_recap_archive_facts",
 			"CREATE TABLE yearly_recap_archive_coverage",
 			"complete_from_year",
+			"CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'",
 			"ON DELETE CASCADE",
 			"'COMMENT'", "'PRAYER'", "'DEVOTION_DAILY'", "'DEVOTION_WEEKLY'", "'PENALTY'",
 			"ENABLE ROW LEVEL SECURITY"
 		);
 		assertThat(sql).doesNotContain(
+			"CURRENT_DATE",
 			"comment_content", "prayer_content", "poll_response", "option_id", "memo",
 			"account_number", "bank_name", "account_holder"
 		);
