@@ -65,6 +65,12 @@ public enum ErrorCode {
 	ANNOUNCEMENT_INVALID_SORT_FORMAT(HttpStatus.BAD_REQUEST, "지원하지 않는 공지 정렬 형식입니다."),
 	ANNOUNCEMENT_INVALID_SORT_PROPERTY(HttpStatus.BAD_REQUEST, "지원하지 않는 공지 정렬 기준입니다."),
 	ANNOUNCEMENT_INVALID_SORT_DIRECTION(HttpStatus.BAD_REQUEST, "지원하지 않는 공지 정렬 방향입니다."),
+	MEDIA_ASSET_NOT_FOUND(HttpStatus.NOT_FOUND, "이미지를 찾을 수 없습니다."),
+	MEDIA_ASSET_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "이미지 접근 권한이 없습니다."),
+	MEDIA_ASSET_STATE_CONFLICT(HttpStatus.CONFLICT, "현재 상태에서는 이미지를 처리할 수 없습니다."),
+	MEDIA_ASSET_INVALID(HttpStatus.BAD_REQUEST, "이미지 파일이 올바르지 않습니다."),
+	MEDIA_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이미지 저장소를 사용할 수 없습니다."),
+	MEDIA_UPLOAD_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "이미지 업로드 요청이 너무 많습니다."),
 
 	DEVOTION_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
 	DEVOTION_INVALID_YEAR_MONTH(HttpStatus.BAD_REQUEST, "조회 연월이 올바르지 않습니다."),

@@ -15,7 +15,7 @@ class ThumbnailatorImageVariantProcessorTest {
 	void validates_png_magic_and_generates_bounded_jpeg_variants() throws Exception {
 		ThumbnailatorImageVariantProcessor processor = new ThumbnailatorImageVariantProcessor();
 
-		ProcessedImageVariants result = processor.process(image("png", 2000, 1000), "image/png");
+		var result = processor.process(image("png", 2000, 1000), "image/png");
 
 		assertThat(result.sourceWidth()).isEqualTo(2000);
 		assertThat(result.sourceHeight()).isEqualTo(1000);

@@ -105,6 +105,7 @@ CREATE TABLE media_assets (
     output_byte_size BIGINT,
     status VARCHAR(20) NOT NULL,
     failure_reason VARCHAR(100),
+    orphaned_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -120,7 +121,7 @@ CREATE TABLE media_assets (
     CONSTRAINT ck_media_assets_input_byte_size
         CHECK (input_byte_size BETWEEN 1 AND 5242880),
     CONSTRAINT ck_media_assets_status
-        CHECK (status IN ('PENDING', 'PROCESSING', 'READY', 'FAILED')),
+        CHECK (status IN ('PENDING', 'PROCESSING', 'READY', 'FAILED', 'ORPHANED')),
     CONSTRAINT ck_media_assets_dimensions
         CHECK ((width IS NULL AND height IS NULL) OR (width BETWEEN 1 AND 4096 AND height BETWEEN 1 AND 4096))
 );
@@ -128,6 +129,10 @@ CREATE TABLE media_assets (
 CREATE INDEX idx_media_assets_temporary_cleanup
     ON media_assets (expires_at, id)
     WHERE status IN ('PENDING', 'FAILED');
+
+CREATE INDEX idx_media_assets_orphan_cleanup
+    ON media_assets (orphaned_at, id)
+    WHERE status = 'ORPHANED';
 
 CREATE TABLE announcement_images (
     id BIGSERIAL PRIMARY KEY,

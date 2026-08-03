@@ -64,6 +64,9 @@ public class MediaAsset {
 	@Column(name = "failure_reason", length = 100)
 	private String failureReason;
 
+	@Column(name = "orphaned_at")
+	private Instant orphanedAt;
+
 	@Column(name = "expires_at", nullable = false)
 	private Instant expiresAt;
 
@@ -170,6 +173,15 @@ public class MediaAsset {
 		updatedAt = Instant.now();
 	}
 
+	public void markOrphaned() {
+		if (status != MediaAssetStatus.READY) {
+			throw new IllegalStateException("only ready media can become orphaned");
+		}
+		status = MediaAssetStatus.ORPHANED;
+		orphanedAt = Instant.now();
+		updatedAt = orphanedAt;
+	}
+
 	@PrePersist
 	void prePersist() {
 		Instant now = Instant.now();
@@ -195,4 +207,9 @@ public class MediaAsset {
 	public String detailObjectKey() { return detailObjectKey; }
 	public MediaAssetStatus status() { return status; }
 	public Instant expiresAt() { return expiresAt; }
+	public Instant orphanedAt() { return orphanedAt; }
+	public Integer width() { return width; }
+	public Integer height() { return height; }
+	public Long outputByteSize() { return outputByteSize; }
+	public String outputSha256() { return outputSha256; }
 }

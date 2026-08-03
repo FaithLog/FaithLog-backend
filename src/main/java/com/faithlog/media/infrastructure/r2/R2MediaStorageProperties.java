@@ -3,7 +3,9 @@ package com.faithlog.media.infrastructure.r2;
 import java.net.URI;
 import java.time.Duration;
 import java.util.regex.Pattern;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
+@ConfigurationProperties(prefix = "faithlog.media.r2")
 public record R2MediaStorageProperties(
 	boolean enabled,
 	URI endpoint,

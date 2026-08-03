@@ -4,5 +4,6 @@ public enum MediaAssetStatus {
 	PENDING,
 	PROCESSING,
 	READY,
-	FAILED
+	FAILED,
+	ORPHANED
 }

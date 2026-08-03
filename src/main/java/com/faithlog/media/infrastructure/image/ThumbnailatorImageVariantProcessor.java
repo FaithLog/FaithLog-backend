@@ -1,6 +1,7 @@
 package com.faithlog.media.infrastructure.image;
 
 import com.faithlog.media.domain.entity.MediaAsset;
+import com.faithlog.media.service.port.ImageVariantProcessorPort;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -12,13 +13,14 @@ import net.coobird.thumbnailator.Thumbnails;
 import org.springframework.stereotype.Component;
 
 @Component
-public class ThumbnailatorImageVariantProcessor {
+public class ThumbnailatorImageVariantProcessor implements ImageVariantProcessorPort {
 
 	private static final int MAX_DIMENSION = 4096;
 	private static final int THUMBNAIL_MAX_WIDTH = 480;
 	private static final int DETAIL_MAX_WIDTH = 1600;
 
-	public ProcessedImageVariants process(byte[] source, String declaredContentType) {
+	@Override
+	public ProcessedVariants process(byte[] source, String declaredContentType) {
 		if (source == null || source.length == 0 || source.length > MediaAsset.MAX_INPUT_BYTES) {
 			throw new IllegalArgumentException("image byte size is invalid");
 		}
@@ -48,7 +50,7 @@ public class ThumbnailatorImageVariantProcessor {
 				BufferedImage decoded = reader.read(0);
 				BufferedImage thumbnail = resize(decoded, THUMBNAIL_MAX_WIDTH);
 				BufferedImage detail = resize(decoded, DETAIL_MAX_WIDTH);
-				return new ProcessedImageVariants(
+				return new ProcessedVariants(
 					encodeJpeg(thumbnail),
 					encodeJpeg(detail),
 					width,
