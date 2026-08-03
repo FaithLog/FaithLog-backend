@@ -59,13 +59,18 @@ public class AnnouncementCommandService {
 		accessPolicy.requireManager(command.campusId(), command.requesterId());
 		AnnouncementCategory category = requireActiveCategory(command.campusId(), command.categoryId());
 		Instant now = clock.instant();
-		Announcement announcement = command.publishAt() == null
-			? Announcement.createPublished(
-				command.campusId(), command.categoryId(), command.requesterId(),
-				command.title(), command.content(), command.pinned(), now)
-			: Announcement.createScheduled(
-				command.campusId(), command.categoryId(), command.requesterId(),
-				command.title(), command.content(), command.pinned(), command.publishAt(), now);
+		Announcement announcement;
+		try {
+			announcement = command.publishAt() == null
+				? Announcement.createPublished(
+					command.campusId(), command.categoryId(), command.requesterId(),
+					command.title(), command.content(), command.pinned(), now)
+				: Announcement.createScheduled(
+					command.campusId(), command.categoryId(), command.requesterId(),
+					command.title(), command.content(), command.pinned(), command.publishAt(), now);
+		} catch (IllegalArgumentException exception) {
+			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED);
+		}
 		announcement = announcementRepository.save(announcement);
 		if (imageAttachmentService != null) {
 			imageAttachmentService.replace(announcement.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
@@ -86,6 +91,8 @@ public class AnnouncementCommandService {
 				command.categoryId(), command.title(), command.content(), command.pinned(), command.publishAt(), clock.instant());
 		} catch (IllegalStateException exception) {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT);
+		} catch (IllegalArgumentException exception) {
+			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED);
 		}
 		if (imageAttachmentService != null) {
 			imageAttachmentService.replace(announcement.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
