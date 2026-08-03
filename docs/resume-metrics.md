@@ -14,8 +14,10 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 사용자·연도별 immutable 회고 snapshot과 다중 기기 멱등 표시 완료 상태를 구현했다. 시간 경계는 injectable `Clock`과 `Asia/Seoul`로 통일하고 Jan 1, Jan 14/15, 늦은 첫 실행, 윤년을 테스트했다.
 - ACTIVE 캠퍼스 여정, 경건 완료·연속일·활동 월, 기도 distinct 제출 주차·시즌, 현재 다섯 PollType 참여를 집계하되 기도문, 투표 선택·메모·댓글 본문, 이메일, 결제 정보, JWT/session/device/FCM token은 저장하거나 반환하지 않는다. 다중 캠퍼스의 같은 날짜와 같은 달력 주차는 한 번만 집계하고 기도 시즌 수는 독립적으로 유지하는 통합 회귀를 추가했다.
 - 1,000 ACTIVE member fixture에서도 aggregate adapter가 정확히 6 prepared statements만 사용하는 것을 검증했다. 이는 테스트에서 관찰한 query-count 불변식이며 production latency나 capacity 성과 수치가 아니다.
-- 집중 검증은 policy 5, assembler 4, API 5, concurrency 1, aggregate/query-count 1, REST Docs 2 tests를 포함한다. V15 재번호와 달력 주차 중복 제거 뒤 최종 `./gradlew test build asciidoctor`는 6분 33초에 `702 tests / failures 0 / errors 0 / skipped 10`, REST Docs snippet group 184개와 HTML 생성을 확인했다. 이 실행 시간은 제품 성능 수치가 아니다.
-- 사용자 승인 통합 순서에 따라 #237 V14와 #236 V15를 분리했고, #236 V15 SQL SHA-256은 `da23f130727718b22f7f880c6f0e9d6a9c0903f1d74e7ca6f915b68930be2716`이다. 전용 PostgreSQL 17에서 #237 exact V14를 포함한 clean V1→V15와 V14→V15 단일 upgrade가 통과했고, V14 history checksum `1004514371` 불변·V15 checksum `365369066`·두 회고 테이블 생성을 확인했다. 임시 DB/container와 build-only V14는 검증 후 제거했으며 #237 develop 통합 후 같은 검증을 다시 수행한다.
+- 회고 연도 종료 이후 가입한 ACTIVE 캠퍼스는 query 단계에서 제외하고 Asia/Seoul 기준 12월 31일 포함·다음 해 1월 1일 제외를 통합 테스트로 고정했다. 최초 6-query 집계는 GET과 presented POST 모두 `REPEATABLE_READ`를 사용하며, concurrent snapshot UNIQUE/일시적 DB 충돌만 transaction 전체를 최대 3회 재시도한다.
+- PM 리뷰에서 발견된 V15 신규 테이블 RLS 누락과 snapshot 관계 FK 누락을 test-first로 보정했다. 두 테이블 RLS, user/parent no-cascade FK, orphan SQLSTATE `23503`, child 복합 인덱스 1개를 실제 PostgreSQL 17 clean/upgrade에서 검증했다.
+- 집중 검증은 policy 5, assembler 4, API 5, concurrency 1, aggregate/query-count 1, REST Docs 2 tests를 포함한다. 리뷰 보정 뒤 최종 `./gradlew clean test build asciidoctor`는 5분 45초에 `703 tests / failures 0 / errors 0 / skipped 10`, REST Docs snippet group 184개와 HTML 생성을 확인했다. 이 실행 시간은 제품 성능 수치가 아니다.
+- 사용자 승인 통합 순서에 따라 #237 V14와 #236 V15를 분리했고, 보정된 #236 V15 SQL SHA-256은 `9d660e6d7c7b49460345aa9931a8267171a2e5dbc70d9a064f713755df0fc319`이다. 전용 PostgreSQL 17에서 #237 exact V14를 포함한 clean V1→V15와 V14→V15 단일 upgrade가 통과했고, V14 history checksum `1004514371` 불변·V15 checksum `-1498394209`·RLS/FK/index 계약을 확인했다. #237 develop 통합 후 같은 검증을 다시 수행한다.
 
 ## 2026-08-02 - Issue #233 로그인 사용자 비밀번호 변경
 
