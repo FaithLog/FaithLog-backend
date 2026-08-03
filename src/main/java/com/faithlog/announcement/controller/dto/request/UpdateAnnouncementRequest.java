@@ -1,6 +1,7 @@
 package com.faithlog.announcement.controller.dto.request;
 
 import com.faithlog.announcement.service.command.UpdateAnnouncementCommand;
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -13,7 +14,7 @@ public record UpdateAnnouncementRequest(
 	@NotBlank @Size(max = 100) String title,
 	@NotBlank @Size(max = 5000) String content,
 	boolean isPinned,
-	Instant publishAt,
+	@Future Instant publishAt,
 	List<@Positive Long> imageAssetIds
 ) {
 	public UpdateAnnouncementRequest(Long categoryId, String title, String content, boolean isPinned, Instant publishAt) {
