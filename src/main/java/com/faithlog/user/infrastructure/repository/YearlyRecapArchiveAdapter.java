@@ -10,9 +10,7 @@ import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Function;
 import org.springframework.stereotype.Repository;
 
@@ -22,14 +20,14 @@ public class YearlyRecapArchiveAdapter implements YearlyRecapArchivePort {
 	private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
 	private final EntityManager entityManager;
-	private final YearlyRecapArchiveFactRepository factRepository;
+	private final YearlyRecapArchiveFactWriter factWriter;
 
 	public YearlyRecapArchiveAdapter(
 		EntityManager entityManager,
-		YearlyRecapArchiveFactRepository factRepository
+		YearlyRecapArchiveFactWriter factWriter
 	) {
 		this.entityManager = entityManager;
-		this.factRepository = factRepository;
+		this.factWriter = factWriter;
 	}
 
 	@Override
@@ -158,15 +156,6 @@ public class YearlyRecapArchiveAdapter implements YearlyRecapArchivePort {
 		if (rows.isEmpty()) {
 			return;
 		}
-		List<Long> sourceIds = rows.stream().map(row -> (Long) row[0]).toList();
-		Set<Long> existing = new HashSet<>(factRepository.findExistingSourceIds(factType, sourceIds));
-		List<YearlyRecapArchiveFact> missing = rows.stream()
-			.filter(row -> !existing.contains((Long) row[0]))
-			.map(mapper)
-			.toList();
-		if (!missing.isEmpty()) {
-			factRepository.saveAll(missing);
-			factRepository.flush();
-		}
+		factWriter.saveMissing(factType, rows.stream().map(mapper).toList());
 	}
 }
