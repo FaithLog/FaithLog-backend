@@ -379,7 +379,7 @@ class DataRetentionCleanupServiceTest {
 	}
 
 	@Test
-	void cleanupDaily_before_first_yearly_recap_snapshot_must_not_erase_prior_year_poll_activity() {
+	void cleanupDaily_before_first_yearly_recap_snapshot_must_not_erase_prior_year_comment_activity() {
 		User user = saveUser("retention-recap-poll-user@example.com");
 		Campus campus = saveCampus("retention-recap-poll");
 		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
@@ -387,9 +387,7 @@ class DataRetentionCleanupServiceTest {
 		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
 		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
 
-		assertThat(recap.data().pollActivity().participatedCount()).isEqualTo(1);
-		assertThat(recap.data().pollActivity().customPollCount()).isEqualTo(1);
-		assertThat(recap.data().pollActivity().commentCount()).isEqualTo(1);
+		assertThat(recap.data().commentActivity().writtenCount()).isEqualTo(1);
 	}
 
 	@Test
@@ -421,7 +419,7 @@ class DataRetentionCleanupServiceTest {
 		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
 		var afterCleanup = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
 
-		assertThat(beforeCleanup.data().pollActivity().participatedCount()).isEqualTo(1);
+		assertThat(beforeCleanup.data().commentActivity().writtenCount()).isEqualTo(1);
 		assertThat(afterCleanup.data()).isEqualTo(beforeCleanup.data());
 	}
 

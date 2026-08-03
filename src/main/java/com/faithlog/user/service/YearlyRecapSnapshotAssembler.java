@@ -1,14 +1,15 @@
 package com.faithlog.user.service;
 
-import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.user.service.port.CampusRecapActivity;
+import com.faithlog.user.service.port.CommentActivityRecapAggregate;
 import com.faithlog.user.service.port.DevotionDailyActivity;
 import com.faithlog.user.service.port.DevotionRecapSource;
-import com.faithlog.user.service.port.PollRecapAggregate;
+import com.faithlog.user.service.port.PenaltySummaryRecapAggregate;
 import com.faithlog.user.service.port.PrayerRecapAggregate;
 import com.faithlog.user.service.result.CampusJourneyResult;
+import com.faithlog.user.service.result.CommentActivityRecapResult;
 import com.faithlog.user.service.result.DevotionRecapResult;
-import com.faithlog.user.service.result.PollActivityRecapResult;
+import com.faithlog.user.service.result.PenaltySummaryRecapResult;
 import com.faithlog.user.service.result.PrayerActivityRecapResult;
 import com.faithlog.user.service.result.YearlyRecapSnapshotData;
 import java.time.LocalDate;
@@ -25,7 +26,8 @@ public class YearlyRecapSnapshotAssembler {
 		List<CampusRecapActivity> campusActivities,
 		DevotionRecapSource devotionSource,
 		PrayerRecapAggregate prayerAggregate,
-		PollRecapAggregate pollAggregate
+		CommentActivityRecapAggregate commentAggregate,
+		PenaltySummaryRecapAggregate penaltyAggregate
 	) {
 		List<CampusJourneyResult> campuses = campusActivities.stream()
 			.sorted(Comparator.comparing(CampusRecapActivity::campusId))
@@ -41,23 +43,26 @@ public class YearlyRecapSnapshotAssembler {
 			prayerAggregate.submittedWeekCount(),
 			prayerAggregate.participatedSeasonCount()
 		);
-		PollActivityRecapResult poll = new PollActivityRecapResult(
-			pollAggregate.participatedCount(),
-			pollAggregate.count(PollType.WED_SERVICE),
-			pollAggregate.count(PollType.SATURDAY_LEADER),
-			pollAggregate.count(PollType.COFFEE),
-			pollAggregate.count(PollType.MEAL),
-			pollAggregate.count(PollType.CUSTOM),
-			pollAggregate.commentCount()
+		CommentActivityRecapResult commentActivity = new CommentActivityRecapResult(
+			commentAggregate.writtenCount()
+		);
+		PenaltySummaryRecapResult penaltySummary = new PenaltySummaryRecapResult(
+			penaltyAggregate.totalCount(),
+			penaltyAggregate.totalAmount(),
+			penaltyAggregate.paidCount(),
+			penaltyAggregate.paidAmount(),
+			penaltyAggregate.unpaidCount(),
+			penaltyAggregate.unpaidAmount()
 		);
 		boolean hasRecapData = !campuses.isEmpty()
 			|| hasDevotionData(devotion)
 			|| prayer.submittedWeekCount() > 0
 			|| prayer.participatedSeasonCount() > 0
-			|| poll.participatedCount() > 0
-			|| poll.commentCount() > 0;
+			|| commentActivity.writtenCount() > 0
+			|| penaltySummary.totalCount() > 0;
 
-		return new YearlyRecapSnapshotData(recapYear, hasRecapData, campuses, devotion, prayer, poll);
+		return new YearlyRecapSnapshotData(
+			recapYear, hasRecapData, campuses, devotion, prayer, commentActivity, penaltySummary);
 	}
 
 	private DevotionRecapResult assembleDevotion(DevotionRecapSource source) {

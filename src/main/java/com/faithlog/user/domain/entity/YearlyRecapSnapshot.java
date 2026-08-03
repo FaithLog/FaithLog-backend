@@ -1,7 +1,8 @@
 package com.faithlog.user.domain.entity;
 
+import com.faithlog.user.service.result.CommentActivityRecapResult;
 import com.faithlog.user.service.result.DevotionRecapResult;
-import com.faithlog.user.service.result.PollActivityRecapResult;
+import com.faithlog.user.service.result.PenaltySummaryRecapResult;
 import com.faithlog.user.service.result.PrayerActivityRecapResult;
 import com.faithlog.user.service.result.YearlyRecapSnapshotData;
 import jakarta.persistence.Column;
@@ -51,20 +52,20 @@ public class YearlyRecapSnapshot {
 	private int prayerSubmittedWeekCount;
 	@Column(name = "prayer_participated_season_count", nullable = false)
 	private int prayerParticipatedSeasonCount;
-	@Column(name = "poll_participated_count", nullable = false)
-	private int pollParticipatedCount;
-	@Column(name = "poll_wed_service_count", nullable = false)
-	private int pollWedServiceCount;
-	@Column(name = "poll_saturday_leader_count", nullable = false)
-	private int pollSaturdayLeaderCount;
-	@Column(name = "poll_coffee_count", nullable = false)
-	private int pollCoffeeCount;
-	@Column(name = "poll_meal_count", nullable = false)
-	private int pollMealCount;
-	@Column(name = "poll_custom_count", nullable = false)
-	private int pollCustomCount;
-	@Column(name = "poll_comment_count", nullable = false)
-	private int pollCommentCount;
+	@Column(name = "comment_written_count", nullable = false)
+	private long commentWrittenCount;
+	@Column(name = "penalty_total_count", nullable = false)
+	private long penaltyTotalCount;
+	@Column(name = "penalty_total_amount", nullable = false)
+	private long penaltyTotalAmount;
+	@Column(name = "penalty_paid_count", nullable = false)
+	private long penaltyPaidCount;
+	@Column(name = "penalty_paid_amount", nullable = false)
+	private long penaltyPaidAmount;
+	@Column(name = "penalty_unpaid_count", nullable = false)
+	private long penaltyUnpaidCount;
+	@Column(name = "penalty_unpaid_amount", nullable = false)
+	private long penaltyUnpaidAmount;
 	@Column(name = "first_presented_at")
 	private Instant firstPresentedAt;
 	@Column(name = "created_at", nullable = false, updatable = false)
@@ -90,14 +91,15 @@ public class YearlyRecapSnapshot {
 		PrayerActivityRecapResult prayer = data.prayerActivity();
 		this.prayerSubmittedWeekCount = prayer.submittedWeekCount();
 		this.prayerParticipatedSeasonCount = prayer.participatedSeasonCount();
-		PollActivityRecapResult poll = data.pollActivity();
-		this.pollParticipatedCount = poll.participatedCount();
-		this.pollWedServiceCount = poll.wedServicePollCount();
-		this.pollSaturdayLeaderCount = poll.saturdayLeaderPollCount();
-		this.pollCoffeeCount = poll.coffeePollCount();
-		this.pollMealCount = poll.mealPollCount();
-		this.pollCustomCount = poll.customPollCount();
-		this.pollCommentCount = poll.commentCount();
+		CommentActivityRecapResult comment = data.commentActivity();
+		this.commentWrittenCount = comment.writtenCount();
+		PenaltySummaryRecapResult penalty = data.penaltySummary();
+		this.penaltyTotalCount = penalty.totalCount();
+		this.penaltyTotalAmount = penalty.totalAmount();
+		this.penaltyPaidCount = penalty.paidCount();
+		this.penaltyPaidAmount = penalty.paidAmount();
+		this.penaltyUnpaidCount = penalty.unpaidCount();
+		this.penaltyUnpaidAmount = penalty.unpaidAmount();
 		this.createdAt = now;
 		this.updatedAt = now;
 	}
@@ -124,9 +126,10 @@ public class YearlyRecapSnapshot {
 				devotionLongestStreakDays, devotionMostActiveMonth
 			),
 			new PrayerActivityRecapResult(prayerSubmittedWeekCount, prayerParticipatedSeasonCount),
-			new PollActivityRecapResult(
-				pollParticipatedCount, pollWedServiceCount, pollSaturdayLeaderCount,
-				pollCoffeeCount, pollMealCount, pollCustomCount, pollCommentCount
+			new CommentActivityRecapResult(commentWrittenCount),
+			new PenaltySummaryRecapResult(
+				penaltyTotalCount, penaltyTotalAmount, penaltyPaidCount, penaltyPaidAmount,
+				penaltyUnpaidCount, penaltyUnpaidAmount
 			)
 		);
 	}

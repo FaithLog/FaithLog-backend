@@ -8,7 +8,8 @@ public record YearlyRecapSnapshotData(
 	List<CampusJourneyResult> campuses,
 	DevotionRecapResult devotion,
 	PrayerActivityRecapResult prayerActivity,
-	PollActivityRecapResult pollActivity
+	CommentActivityRecapResult commentActivity,
+	PenaltySummaryRecapResult penaltySummary
 ) {
 	public YearlyRecapSnapshotData {
 		campuses = List.copyOf(campuses);

@@ -671,9 +671,9 @@ class PostgresFlywayMigrationTest {
 					+ "devotion_quiet_time_count, devotion_bible_reading_count, devotion_prayer_count, "
 					+ "devotion_all_completed_day_count, devotion_submitted_week_count, "
 					+ "devotion_longest_streak_days, prayer_submitted_week_count, "
-					+ "prayer_participated_season_count, poll_participated_count, "
-					+ "poll_wed_service_count, poll_saturday_leader_count, poll_coffee_count, "
-					+ "poll_meal_count, poll_custom_count, poll_comment_count, created_at, updated_at) "
+					+ "prayer_participated_season_count, comment_written_count, "
+					+ "penalty_total_count, penalty_total_amount, penalty_paid_count, penalty_paid_amount, "
+					+ "penalty_unpaid_count, penalty_unpaid_amount, created_at, updated_at) "
 					+ "values (9223372036854770000, 2025, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
 					+ "0, 0, 0, 0, 0, 0, now(), now())"
 			);

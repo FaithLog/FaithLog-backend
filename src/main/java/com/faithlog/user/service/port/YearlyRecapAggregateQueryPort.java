@@ -1,6 +1,5 @@
 package com.faithlog.user.service.port;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -12,5 +11,15 @@ public interface YearlyRecapAggregateQueryPort {
 
 	PrayerRecapAggregate findPrayer(Long userId, LocalDate startDate, LocalDate endDateExclusive);
 
-	PollRecapAggregate findPoll(Long userId, Instant startInclusive, Instant endExclusive);
+	CommentActivityRecapAggregate findCommentActivity(
+		Long userId,
+		LocalDate startDate,
+		LocalDate endDateExclusive
+	);
+
+	PenaltySummaryRecapAggregate findPenaltySummary(
+		Long userId,
+		LocalDate startDate,
+		LocalDate endDateExclusive
+	);
 }

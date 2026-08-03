@@ -2,15 +2,14 @@ package com.faithlog.user.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.user.service.port.CampusRecapActivity;
+import com.faithlog.user.service.port.CommentActivityRecapAggregate;
 import com.faithlog.user.service.port.DevotionDailyActivity;
 import com.faithlog.user.service.port.DevotionRecapSource;
-import com.faithlog.user.service.port.PollRecapAggregate;
+import com.faithlog.user.service.port.PenaltySummaryRecapAggregate;
 import com.faithlog.user.service.port.PrayerRecapAggregate;
 import com.faithlog.user.service.result.YearlyRecapSnapshotData;
 import java.time.LocalDate;
-import java.util.EnumMap;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -26,19 +25,13 @@ class YearlyRecapSnapshotAssemblerTest {
 			new DevotionDailyActivity(LocalDate.of(2026, 2, 1), true, true, true),
 			new DevotionDailyActivity(LocalDate.of(2026, 2, 2), true, true, true)
 		), 40);
-		EnumMap<PollType, Integer> pollCounts = new EnumMap<>(PollType.class);
-		pollCounts.put(PollType.WED_SERVICE, 4);
-		pollCounts.put(PollType.SATURDAY_LEADER, 3);
-		pollCounts.put(PollType.COFFEE, 10);
-		pollCounts.put(PollType.MEAL, 8);
-		pollCounts.put(PollType.CUSTOM, 6);
-
 		YearlyRecapSnapshotData result = assembler.assemble(
 			2026,
 			List.of(new CampusRecapActivity(10L, "서울 캠퍼스", LocalDate.of(2026, 3, 10))),
 			devotion,
 			new PrayerRecapAggregate(22, 2),
-			new PollRecapAggregate(pollCounts, 6)
+			new CommentActivityRecapAggregate(6),
+			new PenaltySummaryRecapAggregate(4, 12_000, 3, 9_000)
 		);
 
 		assertThat(result.hasRecapData()).isTrue();
@@ -55,13 +48,11 @@ class YearlyRecapSnapshotAssemblerTest {
 		assertThat(result.devotion().mostActiveMonth()).isEqualTo(1);
 		assertThat(result.prayerActivity().submittedWeekCount()).isEqualTo(22);
 		assertThat(result.prayerActivity().participatedSeasonCount()).isEqualTo(2);
-		assertThat(result.pollActivity().participatedCount()).isEqualTo(31);
-		assertThat(result.pollActivity().wedServicePollCount()).isEqualTo(4);
-		assertThat(result.pollActivity().saturdayLeaderPollCount()).isEqualTo(3);
-		assertThat(result.pollActivity().coffeePollCount()).isEqualTo(10);
-		assertThat(result.pollActivity().mealPollCount()).isEqualTo(8);
-		assertThat(result.pollActivity().customPollCount()).isEqualTo(6);
-		assertThat(result.pollActivity().commentCount()).isEqualTo(6);
+		assertThat(result.commentActivity().writtenCount()).isEqualTo(6);
+		assertThat(result.penaltySummary().totalCount()).isEqualTo(7);
+		assertThat(result.penaltySummary().totalAmount()).isEqualTo(21_000);
+		assertThat(result.penaltySummary().paidCount()).isEqualTo(4);
+		assertThat(result.penaltySummary().unpaidCount()).isEqualTo(3);
 	}
 
 	@Test
@@ -71,7 +62,8 @@ class YearlyRecapSnapshotAssemblerTest {
 			List.of(),
 			new DevotionRecapSource(List.of(), 0),
 			new PrayerRecapAggregate(0, 0),
-			PollRecapAggregate.empty()
+			new CommentActivityRecapAggregate(0),
+			new PenaltySummaryRecapAggregate(0, 0, 0, 0)
 		);
 
 		assertThat(result.hasRecapData()).isFalse();
@@ -85,8 +77,9 @@ class YearlyRecapSnapshotAssemblerTest {
 		assertThat(result.devotion().mostActiveMonth()).isNull();
 		assertThat(result.prayerActivity().submittedWeekCount()).isZero();
 		assertThat(result.prayerActivity().participatedSeasonCount()).isZero();
-		assertThat(result.pollActivity().participatedCount()).isZero();
-		assertThat(result.pollActivity().commentCount()).isZero();
+		assertThat(result.commentActivity().writtenCount()).isZero();
+		assertThat(result.penaltySummary().totalCount()).isZero();
+		assertThat(result.penaltySummary().totalAmount()).isZero();
 	}
 
 	@Test
@@ -96,7 +89,8 @@ class YearlyRecapSnapshotAssemblerTest {
 			List.of(new CampusRecapActivity(10L, "서울 캠퍼스", LocalDate.of(2025, 5, 1))),
 			new DevotionRecapSource(List.of(), 0),
 			new PrayerRecapAggregate(0, 0),
-			PollRecapAggregate.empty()
+			new CommentActivityRecapAggregate(0),
+			new PenaltySummaryRecapAggregate(0, 0, 0, 0)
 		);
 
 		assertThat(result.hasRecapData()).isTrue();
@@ -117,7 +111,8 @@ class YearlyRecapSnapshotAssemblerTest {
 				new DevotionDailyActivity(sameDate, false, true, false)
 			), 0),
 			new PrayerRecapAggregate(0, 0),
-			PollRecapAggregate.empty()
+			new CommentActivityRecapAggregate(0),
+			new PenaltySummaryRecapAggregate(0, 0, 0, 0)
 		);
 
 		assertThat(result.devotion().quietTimeCount()).isEqualTo(1);

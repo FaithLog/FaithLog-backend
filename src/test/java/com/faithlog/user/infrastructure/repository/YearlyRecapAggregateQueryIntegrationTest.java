@@ -2,6 +2,13 @@ package com.faithlog.user.infrastructure.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.faithlog.billing.domain.entity.ChargeItem;
+import com.faithlog.billing.domain.entity.PaymentAccount;
+import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.ChargeStatus;
+import com.faithlog.billing.domain.type.PaymentCategory;
+import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
+import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.domain.entity.Campus;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.devotion.domain.entity.DevotionDailyCheck;
@@ -26,7 +33,8 @@ import com.faithlog.prayer.infrastructure.repository.PrayerWeekRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.port.DevotionRecapSource;
-import com.faithlog.user.service.port.PollRecapAggregate;
+import com.faithlog.user.service.port.CommentActivityRecapAggregate;
+import com.faithlog.user.service.port.PenaltySummaryRecapAggregate;
 import com.faithlog.user.service.port.PrayerRecapAggregate;
 import com.faithlog.user.service.port.YearlyRecapAggregateQueryPort;
 import jakarta.persistence.EntityManager;
@@ -63,6 +71,8 @@ class YearlyRecapAggregateQueryIntegrationTest {
 	@Autowired private PollRepository pollRepository;
 	@Autowired private PollResponseRepository pollResponseRepository;
 	@Autowired private PollCommentRepository pollCommentRepository;
+	@Autowired private PaymentAccountRepository paymentAccountRepository;
+	@Autowired private ChargeItemRepository chargeItemRepository;
 	@Autowired private JdbcTemplate jdbcTemplate;
 	@Autowired private EntityManager entityManager;
 	@Autowired private EntityManagerFactory entityManagerFactory;
@@ -160,7 +170,8 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		var campuses = queryPort.findActiveCampuses(target.id(), end);
 		DevotionRecapSource devotion = queryPort.findDevotion(target.id(), start, end);
 		PrayerRecapAggregate prayer = queryPort.findPrayer(target.id(), start, end);
-		PollRecapAggregate poll = queryPort.findPoll(target.id(), startInstant, endInstant);
+		CommentActivityRecapAggregate comment = queryPort.findCommentActivity(target.id(), start, end);
+		PenaltySummaryRecapAggregate penalty = queryPort.findPenaltySummary(target.id(), start, end);
 
 		assertThat(campuses)
 			.extracting(activity -> activity.campusId())
@@ -174,12 +185,65 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		assertThat(devotion.submittedWeekCount()).isEqualTo(1);
 		assertThat(prayer.submittedWeekCount()).isEqualTo(1);
 		assertThat(prayer.participatedSeasonCount()).isEqualTo(2);
-		assertThat(poll.participatedCount()).isEqualTo(5);
-		for (PollType pollType : PollType.values()) {
-			assertThat(poll.count(pollType)).isEqualTo(1);
-		}
-		assertThat(poll.commentCount()).isEqualTo(1);
+		assertThat(comment.writtenCount()).isEqualTo(1);
+		assertThat(penalty.totalCount()).isZero();
+		assertThat(penalty.totalAmount()).isZero();
 		assertThat(statistics.getPrepareStatementCount()).isEqualTo(6L);
+	}
+
+	@Test
+	void penalty_summary_includes_only_own_devotion_penalties_in_year_and_paid_or_unpaid_status() {
+		User target = userRepository.saveAndFlush(User.create("벌금 회고", "recap-penalty@example.com", "hash"));
+		User other = userRepository.saveAndFlush(User.create("다른 사용자", "recap-penalty-other@example.com", "hash"));
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"벌금 회고 캠퍼스", "서울", "벌금 집계", "RECAP-PENALTY-236"));
+		insertActiveMembership(campus.id(), target.id());
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.PENALTY, "벌금", "은행", "000-000", "회계", target.id()));
+		WeeklyDevotionRecord target2026 = weeklyRepository.saveAndFlush(
+			WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(2026, 6, 1)));
+		WeeklyDevotionRecord target2025 = weeklyRepository.saveAndFlush(
+			WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(2025, 12, 29)));
+		WeeklyDevotionRecord target2027 = weeklyRepository.saveAndFlush(
+			WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(2027, 1, 4)));
+		WeeklyDevotionRecord other2026 = weeklyRepository.saveAndFlush(
+			WeeklyDevotionRecord.create(campus.id(), other.id(), LocalDate.of(2026, 6, 1)));
+
+		saveCharge(campus.id(), target.id(), account.id(), target2026.id(), PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 1_000, ChargeStatus.PAID);
+		WeeklyDevotionRecord secondTarget2026 = weeklyRepository.saveAndFlush(
+			WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(2026, 6, 8)));
+		ChargeItem unpaid = saveCharge(campus.id(), target.id(), account.id(), secondTarget2026.id(),
+			PaymentCategory.PENALTY, ChargeSourceType.DEVOTION_RECORD, 2_000, ChargeStatus.UNPAID);
+		saveCharge(campus.id(), target.id(), account.id(), target2026.id() + 20_000, PaymentCategory.COFFEE,
+			ChargeSourceType.DEVOTION_RECORD, 9_000, ChargeStatus.PAID);
+		saveCharge(campus.id(), target.id(), account.id(), target2026.id() + 30_000, PaymentCategory.PENALTY,
+			ChargeSourceType.POLL_RESPONSE, 9_000, ChargeStatus.PAID);
+		saveCharge(campus.id(), target.id(), account.id(), target2025.id(), PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 9_000, ChargeStatus.PAID);
+		saveCharge(campus.id(), target.id(), account.id(), target2027.id(), PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 9_000, ChargeStatus.PAID);
+		saveCharge(campus.id(), other.id(), account.id(), other2026.id(), PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 9_000, ChargeStatus.PAID);
+		WeeklyDevotionRecord waivedWeekly = weeklyRepository.saveAndFlush(
+			WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(2026, 6, 15)));
+		WeeklyDevotionRecord canceledWeekly = weeklyRepository.saveAndFlush(
+			WeeklyDevotionRecord.create(campus.id(), target.id(), LocalDate.of(2026, 6, 22)));
+		saveCharge(campus.id(), target.id(), account.id(), waivedWeekly.id(), PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 3_000, ChargeStatus.WAIVED);
+		saveCharge(campus.id(), target.id(), account.id(), canceledWeekly.id(), PaymentCategory.PENALTY,
+			ChargeSourceType.DEVOTION_RECORD, 4_000, ChargeStatus.CANCELED);
+		assertThat(unpaid.id()).isNotNull();
+
+		PenaltySummaryRecapAggregate result = queryPort.findPenaltySummary(
+			target.id(), LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1));
+
+		assertThat(result.totalCount()).isEqualTo(2);
+		assertThat(result.totalAmount()).isEqualTo(3_000);
+		assertThat(result.paidCount()).isEqualTo(1);
+		assertThat(result.paidAmount()).isEqualTo(1_000);
+		assertThat(result.unpaidCount()).isEqualTo(1);
+		assertThat(result.unpaidAmount()).isEqualTo(2_000);
 	}
 
 	private Poll createPoll(Long campusId, Long userId, PollType pollType, Instant startsAt) {
@@ -225,5 +289,28 @@ class YearlyRecapAggregateQueryIntegrationTest {
 			(campus_id, user_id, campus_role, status, joined_at, created_at, updated_at)
 			values (?, ?, 'MEMBER', 'ACTIVE', ?, ?, ?)
 			""", campusId, userId, joinedAt, joinedAt, joinedAt);
+	}
+
+	private ChargeItem saveCharge(
+		Long campusId,
+		Long userId,
+		Long accountId,
+		Long sourceId,
+		PaymentCategory category,
+		ChargeSourceType sourceType,
+		int amount,
+		ChargeStatus status
+	) {
+		ChargeItem charge = ChargeItem.create(
+			campusId, userId, category, accountId, "은행", "000-000", "회계",
+			sourceType, sourceId, "회고 벌금", "회고", amount, null);
+		if (status == ChargeStatus.PAID) {
+			charge.markPaid(Instant.parse("2026-07-01T00:00:00Z"));
+		} else if (status == ChargeStatus.WAIVED) {
+			charge.waive();
+		} else if (status == ChargeStatus.CANCELED) {
+			charge.cancel();
+		}
+		return chargeItemRepository.saveAndFlush(charge);
 	}
 }

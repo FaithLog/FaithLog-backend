@@ -13,8 +13,6 @@ import com.faithlog.user.service.port.YearlyRecapAggregateQueryPort;
 import com.faithlog.user.service.result.YearlyRecapSnapshotData;
 import com.faithlog.user.service.result.YearlyRecapStoredSnapshot;
 import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -22,8 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class YearlyRecapSnapshotService {
-
-	private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
 	private final UserRepository userRepository;
 	private final YearlyRecapSnapshotRepository snapshotRepository;
@@ -64,14 +60,13 @@ public class YearlyRecapSnapshotService {
 			return stored(existing);
 		}
 
-		Instant startInclusive = period.yearStart().atStartOfDay(SEOUL).toInstant();
-		Instant endExclusive = period.yearEndExclusive().atStartOfDay(SEOUL).toInstant();
 		YearlyRecapSnapshotData data = assembler.assemble(
 			period.recapYear(),
 			aggregateQueryPort.findActiveCampuses(userId, period.yearEndExclusive()),
 			aggregateQueryPort.findDevotion(userId, period.yearStart(), period.yearEndExclusive()),
 			aggregateQueryPort.findPrayer(userId, period.yearStart(), period.yearEndExclusive()),
-			aggregateQueryPort.findPoll(userId, startInclusive, endExclusive)
+			aggregateQueryPort.findCommentActivity(userId, period.yearStart(), period.yearEndExclusive()),
+			aggregateQueryPort.findPenaltySummary(userId, period.yearStart(), period.yearEndExclusive())
 		);
 		YearlyRecapSnapshot saved = snapshotRepository.saveAndFlush(
 			YearlyRecapSnapshot.create(userId, data, clock.instant())

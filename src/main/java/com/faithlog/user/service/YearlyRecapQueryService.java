@@ -42,7 +42,8 @@ public class YearlyRecapQueryService {
 			data.campuses(),
 			data.devotion(),
 			data.prayerActivity(),
-			data.pollActivity()
+			data.commentActivity(),
+			data.penaltySummary()
 		);
 	}
 }

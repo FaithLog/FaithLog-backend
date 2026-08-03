@@ -1,8 +1,9 @@
 package com.faithlog.user.controller.dto.response;
 
 import com.faithlog.user.service.result.CampusJourneyResult;
+import com.faithlog.user.service.result.CommentActivityRecapResult;
 import com.faithlog.user.service.result.DevotionRecapResult;
-import com.faithlog.user.service.result.PollActivityRecapResult;
+import com.faithlog.user.service.result.PenaltySummaryRecapResult;
 import com.faithlog.user.service.result.PrayerActivityRecapResult;
 import com.faithlog.user.service.result.YearlyRecapPresentationResult;
 import com.faithlog.user.service.result.YearlyRecapResult;
@@ -18,7 +19,8 @@ public record YearlyRecapResponse(
 	CampusJourneyResponse campusJourney,
 	DevotionResponse devotion,
 	PrayerActivityResponse prayerActivity,
-	PollActivityResponse pollActivity
+	CommentActivityResponse commentActivity,
+	PenaltySummaryResponse penaltySummary
 ) {
 	public static YearlyRecapResponse from(YearlyRecapResult result) {
 		return new YearlyRecapResponse(
@@ -28,7 +30,8 @@ public record YearlyRecapResponse(
 			new CampusJourneyResponse(result.campuses().stream().map(CampusResponse::from).toList()),
 			DevotionResponse.from(result.devotion()),
 			PrayerActivityResponse.from(result.prayerActivity()),
-			PollActivityResponse.from(result.pollActivity())
+			CommentActivityResponse.from(result.commentActivity()),
+			PenaltySummaryResponse.from(result.penaltySummary())
 		);
 	}
 
@@ -94,20 +97,24 @@ public record YearlyRecapResponse(
 		}
 	}
 
-	public record PollActivityResponse(
-		int participatedCount,
-		int wedServicePollCount,
-		int saturdayLeaderPollCount,
-		int coffeePollCount,
-		int mealPollCount,
-		int customPollCount,
-		int commentCount
+	public record CommentActivityResponse(long writtenCount) {
+		static CommentActivityResponse from(CommentActivityRecapResult result) {
+			return new CommentActivityResponse(result.writtenCount());
+		}
+	}
+
+	public record PenaltySummaryResponse(
+		long totalCount,
+		long totalAmount,
+		long paidCount,
+		long paidAmount,
+		long unpaidCount,
+		long unpaidAmount
 	) {
-		static PollActivityResponse from(PollActivityRecapResult result) {
-			return new PollActivityResponse(
-				result.participatedCount(), result.wedServicePollCount(),
-				result.saturdayLeaderPollCount(), result.coffeePollCount(),
-				result.mealPollCount(), result.customPollCount(), result.commentCount()
+		static PenaltySummaryResponse from(PenaltySummaryRecapResult result) {
+			return new PenaltySummaryResponse(
+				result.totalCount(), result.totalAmount(), result.paidCount(), result.paidAmount(),
+				result.unpaidCount(), result.unpaidAmount()
 			);
 		}
 	}

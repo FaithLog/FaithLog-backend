@@ -12,13 +12,13 @@ CREATE TABLE yearly_recap_snapshots (
     devotion_most_active_month INTEGER,
     prayer_submitted_week_count INTEGER NOT NULL,
     prayer_participated_season_count INTEGER NOT NULL,
-    poll_participated_count INTEGER NOT NULL,
-    poll_wed_service_count INTEGER NOT NULL,
-    poll_saturday_leader_count INTEGER NOT NULL,
-    poll_coffee_count INTEGER NOT NULL,
-    poll_meal_count INTEGER NOT NULL,
-    poll_custom_count INTEGER NOT NULL,
-    poll_comment_count INTEGER NOT NULL,
+    comment_written_count BIGINT NOT NULL,
+    penalty_total_count BIGINT NOT NULL,
+    penalty_total_amount BIGINT NOT NULL,
+    penalty_paid_count BIGINT NOT NULL,
+    penalty_paid_amount BIGINT NOT NULL,
+    penalty_unpaid_count BIGINT NOT NULL,
+    penalty_unpaid_amount BIGINT NOT NULL,
     first_presented_at TIMESTAMP(6) WITH TIME ZONE,
     created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
@@ -37,13 +37,17 @@ CREATE TABLE yearly_recap_snapshots (
         AND devotion_longest_streak_days >= 0
         AND prayer_submitted_week_count >= 0
         AND prayer_participated_season_count >= 0
-        AND poll_participated_count >= 0
-        AND poll_wed_service_count >= 0
-        AND poll_saturday_leader_count >= 0
-        AND poll_coffee_count >= 0
-        AND poll_meal_count >= 0
-        AND poll_custom_count >= 0
-        AND poll_comment_count >= 0
+        AND comment_written_count >= 0
+        AND penalty_total_count >= 0
+        AND penalty_total_amount >= 0
+        AND penalty_paid_count >= 0
+        AND penalty_paid_amount >= 0
+        AND penalty_unpaid_count >= 0
+        AND penalty_unpaid_amount >= 0
+    ),
+    CONSTRAINT ck_yearly_recap_snapshots_penalty_totals CHECK (
+        penalty_total_count = penalty_paid_count + penalty_unpaid_count
+        AND penalty_total_amount = penalty_paid_amount + penalty_unpaid_amount
     )
 );
 

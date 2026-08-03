@@ -24,8 +24,9 @@ import com.faithlog.global.security.SessionRevocationChecker;
 import com.faithlog.user.service.YearlyRecapPresentationCommandService;
 import com.faithlog.user.service.YearlyRecapQueryService;
 import com.faithlog.user.service.result.CampusJourneyResult;
+import com.faithlog.user.service.result.CommentActivityRecapResult;
 import com.faithlog.user.service.result.DevotionRecapResult;
-import com.faithlog.user.service.result.PollActivityRecapResult;
+import com.faithlog.user.service.result.PenaltySummaryRecapResult;
 import com.faithlog.user.service.result.PrayerActivityRecapResult;
 import com.faithlog.user.service.result.YearlyRecapPresentationResult;
 import com.faithlog.user.service.result.YearlyRecapResult;
@@ -91,13 +92,13 @@ class YearlyRecapApiRestDocsTest {
 					fieldWithPath("data.devotion.mostActiveMonth").optional().description("체크 합계가 가장 높은 가장 이른 월. 활동이 없으면 null"),
 					fieldWithPath("data.prayerActivity.submittedWeekCount").description("기도 주차 기준 제출 주차 수"),
 					fieldWithPath("data.prayerActivity.participatedSeasonCount").description("제출로 참여한 distinct 기도 시즌 수"),
-					fieldWithPath("data.pollActivity.participatedCount").description("참여한 투표 총수"),
-					fieldWithPath("data.pollActivity.wedServicePollCount").description("WED_SERVICE 참여 수"),
-					fieldWithPath("data.pollActivity.saturdayLeaderPollCount").description("SATURDAY_LEADER 참여 수"),
-					fieldWithPath("data.pollActivity.coffeePollCount").description("COFFEE 참여 수"),
-					fieldWithPath("data.pollActivity.mealPollCount").description("MEAL 참여 수"),
-					fieldWithPath("data.pollActivity.customPollCount").description("CUSTOM 참여 수"),
-					fieldWithPath("data.pollActivity.commentCount").description("본인이 작성한 삭제되지 않은 댓글 수"),
+					fieldWithPath("data.commentActivity.writtenCount").description("본인이 작성한 삭제되지 않은 댓글 수"),
+					fieldWithPath("data.penaltySummary.totalCount").description("경건 벌금 PAID/UNPAID 총 건수"),
+					fieldWithPath("data.penaltySummary.totalAmount").description("경건 벌금 PAID/UNPAID 총액"),
+					fieldWithPath("data.penaltySummary.paidCount").description("납부 완료 경건 벌금 건수"),
+					fieldWithPath("data.penaltySummary.paidAmount").description("납부 완료 경건 벌금 금액"),
+					fieldWithPath("data.penaltySummary.unpaidCount").description("미납 경건 벌금 건수"),
+					fieldWithPath("data.penaltySummary.unpaidAmount").description("미납 경건 벌금 금액"),
 					fieldWithPath("timestamp").description("응답 생성 시각")
 				)
 			));
@@ -143,7 +144,8 @@ class YearlyRecapApiRestDocsTest {
 			List.of(new CampusJourneyResult(1L, "서울 캠퍼스", LocalDate.of(2026, 3, 10), true)),
 			new DevotionRecapResult(210, 185, 230, 150, 40, 12, 8),
 			new PrayerActivityRecapResult(22, 2),
-			new PollActivityRecapResult(31, 4, 3, 10, 8, 6, 6)
+			new CommentActivityRecapResult(6),
+			new PenaltySummaryRecapResult(7, 21_000, 4, 12_000, 3, 9_000)
 		);
 	}
 }

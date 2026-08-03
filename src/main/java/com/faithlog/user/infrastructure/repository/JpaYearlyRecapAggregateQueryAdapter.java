@@ -1,18 +1,20 @@
 package com.faithlog.user.infrastructure.repository;
 
+import com.faithlog.billing.domain.type.ChargeSourceType;
+import com.faithlog.billing.domain.type.ChargeStatus;
+import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.campus.domain.type.CampusMemberStatus;
-import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.user.service.port.CampusRecapActivity;
+import com.faithlog.user.service.port.CommentActivityRecapAggregate;
 import com.faithlog.user.service.port.DevotionDailyActivity;
 import com.faithlog.user.service.port.DevotionRecapSource;
-import com.faithlog.user.service.port.PollRecapAggregate;
+import com.faithlog.user.service.port.PenaltySummaryRecapAggregate;
 import com.faithlog.user.service.port.PrayerRecapAggregate;
 import com.faithlog.user.service.port.YearlyRecapAggregateQueryPort;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.EnumMap;
 import java.util.List;
 import org.springframework.stereotype.Repository;
 
@@ -112,38 +114,85 @@ public class JpaYearlyRecapAggregateQueryAdapter implements YearlyRecapAggregate
 	}
 
 	@Override
-	public PollRecapAggregate findPoll(Long userId, Instant startInclusive, Instant endExclusive) {
-		EnumMap<PollType, Integer> counts = new EnumMap<>(PollType.class);
-		entityManager.createQuery("""
-			select poll.pollType, count(distinct poll.id)
-			from PollResponse response, Poll poll
-			where response.pollId = poll.id
-			  and response.userId = :userId
-			  and poll.startsAt >= :startInclusive
-			  and poll.startsAt < :endExclusive
-			group by poll.pollType
-			""", Object[].class)
-			.setParameter("userId", userId)
-			.setParameter("startInclusive", startInclusive)
-			.setParameter("endExclusive", endExclusive)
-			.getResultList()
-			.forEach(row -> counts.put(
-				(PollType) row[0],
-				Math.toIntExact(((Number) row[1]).longValue())
-			));
+	public CommentActivityRecapAggregate findCommentActivity(
+		Long userId,
+		LocalDate startDate,
+		LocalDate endDateExclusive
+	) {
+		Instant startInclusive = startDate.atStartOfDay(SEOUL).toInstant();
+		Instant endExclusive = endDateExclusive.atStartOfDay(SEOUL).toInstant();
 		long commentCount = entityManager.createQuery("""
 			select count(comment.id)
 			from PollComment comment, Poll poll
 			where comment.pollId = poll.id
 			  and comment.userId = :userId
 			  and comment.deletedAt is null
+			  and exists (
+			    select member.id from CampusMember member
+			    where member.userId = :userId
+			      and member.campusId = poll.campusId
+			      and member.status = :activeStatus
+			  )
 			  and poll.startsAt >= :startInclusive
 			  and poll.startsAt < :endExclusive
 			""", Long.class)
 			.setParameter("userId", userId)
+			.setParameter("activeStatus", CampusMemberStatus.ACTIVE)
 			.setParameter("startInclusive", startInclusive)
 			.setParameter("endExclusive", endExclusive)
 			.getSingleResult();
-		return new PollRecapAggregate(counts, Math.toIntExact(commentCount));
+		return new CommentActivityRecapAggregate(commentCount);
+	}
+
+	@Override
+	public PenaltySummaryRecapAggregate findPenaltySummary(
+		Long userId,
+		LocalDate startDate,
+		LocalDate endDateExclusive
+	) {
+		long paidCount = 0;
+		long paidAmount = 0;
+		long unpaidCount = 0;
+		long unpaidAmount = 0;
+		List<Object[]> rows = entityManager.createQuery("""
+			select charge.status, count(charge.id), coalesce(sum(charge.amount), 0)
+			from ChargeItem charge, WeeklyDevotionRecord weekly
+			where charge.sourceId = weekly.id
+			  and charge.userId = weekly.userId
+			  and charge.userId = :userId
+			  and charge.paymentCategory = :paymentCategory
+			  and charge.sourceType = :sourceType
+			  and charge.status in :statuses
+			  and exists (
+			    select member.id from CampusMember member
+			    where member.userId = :userId
+			      and member.campusId = weekly.campusId
+			      and member.status = :activeStatus
+			  )
+			  and weekly.weekStartDate >= :startDate
+			  and weekly.weekStartDate < :endDateExclusive
+			group by charge.status
+			""", Object[].class)
+			.setParameter("userId", userId)
+			.setParameter("paymentCategory", PaymentCategory.PENALTY)
+			.setParameter("sourceType", ChargeSourceType.DEVOTION_RECORD)
+			.setParameter("statuses", List.of(ChargeStatus.PAID, ChargeStatus.UNPAID))
+			.setParameter("activeStatus", CampusMemberStatus.ACTIVE)
+			.setParameter("startDate", startDate)
+			.setParameter("endDateExclusive", endDateExclusive)
+			.getResultList();
+		for (Object[] row : rows) {
+			ChargeStatus status = (ChargeStatus) row[0];
+			long count = ((Number) row[1]).longValue();
+			long amount = ((Number) row[2]).longValue();
+			if (status == ChargeStatus.PAID) {
+				paidCount = count;
+				paidAmount = amount;
+			} else if (status == ChargeStatus.UNPAID) {
+				unpaidCount = count;
+				unpaidAmount = amount;
+			}
+		}
+		return new PenaltySummaryRecapAggregate(paidCount, paidAmount, unpaidCount, unpaidAmount);
 	}
 }
