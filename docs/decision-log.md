@@ -17,7 +17,8 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: 활동과 ACTIVE 캠퍼스 여정이 모두 없으면 zero payload, `hasRecapData=false`, `shouldAutoPresent=false`, `homeCardVisible=false`를 반환한다. 이 상태의 valid presented 요청은 200 no-op이며 표시 시각을 만들지 않는다. `mostActiveMonth` 동률은 가장 이른 월이고 전 달 0이면 null이다.
 - Decision: 캠퍼스 여정은 현재 ACTIVE `campus_members.joined_at`의 Asia/Seoul 날짜와 current rejoin 의미를 사용한다. 기도는 `submitted_at IS NOT NULL`인 submission을 `prayer_weeks.week_start_date` 연도로 귀속해 distinct week/season을 집계한다. 투표 연도는 `polls.starts_at`을 Asia/Seoul 경계로 귀속하고 현재 `PollType` 다섯 값 `WED_SERVICE`, `SATURDAY_LEADER`, `COFFEE`, `MEAL`, `CUSTOM`을 그대로 집계한다.
 - Privacy/Performance: 응답과 snapshot에는 기도문, 투표 선택·메모·댓글 본문, 이메일, 계좌·납부·청구 금액, JWT/session/device/FCM token을 저장하거나 반환하지 않는다. 집계 port는 활동 row 수와 무관한 고정 6개 query 경계를 가지며 1,000 ACTIVE member fixture에서 이를 회귀 검증한다.
-- Schema/Integration: provisional Flyway V14가 `yearly_recap_snapshots`와 `yearly_recap_campuses`를 추가한다. #237/#238 병렬 브랜치와 번호가 충돌할 수 있으므로 develop 통합 직전에 최신 migration을 다시 확인하고 필요하면 재번호한다.
+- Aggregation clarification: 다중 ACTIVE 캠퍼스에 같은 날짜/달력 주차 기록이 있어도 경건 일별·경건 제출 주차·기도 제출 주차는 날짜 또는 `weekStartDate` 기준으로 한 번만 센다. 기도 참여 시즌 수는 `seasonId` distinct를 독립적으로 유지한다.
+- Schema/Integration: #237이 Flyway V14를 먼저 통합하고 #236은 별도 `V15__add_yearly_recap_snapshots.sql`을 사용한다. 두 이슈 SQL은 합치지 않으며 #237 통합 후 최신 develop에 rebase하여 V14→V15 순서, checksum, clean/upgrade를 재검증한다. #236 V15 SQL SHA-256은 `da23f130727718b22f7f880c6f0e9d6a9c0903f1d74e7ca6f915b68930be2716`이다. 통합 전 전용 PostgreSQL 17에서 #237 exact V14를 build-only로 결속한 clean V1→V15와 V14→V15가 모두 통과했고 Flyway history checksum은 V14 `1004514371`, V15 `365369066`이었다.
 
 ### 2026-08-02 - Issue #233 Authenticated Password Change
 

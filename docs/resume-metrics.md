@@ -12,10 +12,10 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 ## 2026-08-03 - Issue #236 작년도 기록 돌아보기
 
 - 사용자·연도별 immutable 회고 snapshot과 다중 기기 멱등 표시 완료 상태를 구현했다. 시간 경계는 injectable `Clock`과 `Asia/Seoul`로 통일하고 Jan 1, Jan 14/15, 늦은 첫 실행, 윤년을 테스트했다.
-- ACTIVE 캠퍼스 여정, 경건 완료·연속일·활동 월, 기도 distinct 제출 주차·시즌, 현재 다섯 PollType 참여를 집계하되 기도문, 투표 선택·메모·댓글 본문, 이메일, 결제 정보, JWT/session/device/FCM token은 저장하거나 반환하지 않는다.
+- ACTIVE 캠퍼스 여정, 경건 완료·연속일·활동 월, 기도 distinct 제출 주차·시즌, 현재 다섯 PollType 참여를 집계하되 기도문, 투표 선택·메모·댓글 본문, 이메일, 결제 정보, JWT/session/device/FCM token은 저장하거나 반환하지 않는다. 다중 캠퍼스의 같은 날짜와 같은 달력 주차는 한 번만 집계하고 기도 시즌 수는 독립적으로 유지하는 통합 회귀를 추가했다.
 - 1,000 ACTIVE member fixture에서도 aggregate adapter가 정확히 6 prepared statements만 사용하는 것을 검증했다. 이는 테스트에서 관찰한 query-count 불변식이며 production latency나 capacity 성과 수치가 아니다.
-- 집중 검증은 policy 5, assembler 4, API 5, concurrency 1, aggregate/query-count 1, REST Docs 2 tests를 포함한다. 최종 `./gradlew test build asciidoctor`는 9분 8초에 `701 tests / failures 0 / errors 0 / skipped 9`, REST Docs snippet group 184개와 HTML 생성을 확인했다. 병렬 #237 test executor가 같은 host 자원을 사용해 실행 시간이 늘었으며 이 시간은 제품 성능 수치가 아니다.
-- Docker daemon 조회가 `EOF`로 실패해 별도 임시 PostgreSQL의 V1→V14 실마이그레이션은 실행하지 않았다. H2 schema integration과 Flyway SQL contract는 GREEN이지만 실제 PostgreSQL migration은 PM 통합 전 pending이다.
+- 집중 검증은 policy 5, assembler 4, API 5, concurrency 1, aggregate/query-count 1, REST Docs 2 tests를 포함한다. V15 재번호와 달력 주차 중복 제거 뒤 최종 `./gradlew test build asciidoctor`는 6분 33초에 `702 tests / failures 0 / errors 0 / skipped 10`, REST Docs snippet group 184개와 HTML 생성을 확인했다. 이 실행 시간은 제품 성능 수치가 아니다.
+- 사용자 승인 통합 순서에 따라 #237 V14와 #236 V15를 분리했고, #236 V15 SQL SHA-256은 `da23f130727718b22f7f880c6f0e9d6a9c0903f1d74e7ca6f915b68930be2716`이다. 전용 PostgreSQL 17에서 #237 exact V14를 포함한 clean V1→V15와 V14→V15 단일 upgrade가 통과했고, V14 history checksum `1004514371` 불변·V15 checksum `365369066`·두 회고 테이블 생성을 확인했다. 임시 DB/container와 build-only V14는 검증 후 제거했으며 #237 develop 통합 후 같은 검증을 다시 수행한다.
 
 ## 2026-08-02 - Issue #233 로그인 사용자 비밀번호 변경
 

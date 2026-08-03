@@ -26,8 +26,8 @@ The snapshot stores only aggregate counts and ACTIVE campus journey metadata. `p
 ## Aggregation
 
 - Campus: current ACTIVE memberships, campus name, `joined_at` as an `Asia/Seoul` date, and whether that date belongs to the recap year.
-- Devotion: quiet time, Bible reading, prayer, all-completed days, submitted weeks, longest all-completed streak, and earliest positive most-active month.
-- Prayer activity: distinct submitted weeks and seasons, where `submitted_at` is non-null and year attribution comes from `prayer_weeks.week_start_date`.
+- Devotion: quiet time, Bible reading, prayer, all-completed days, submitted weeks, longest all-completed streak, and earliest positive most-active month. The same calendar date and submitted `week_start_date` are counted once across multiple campuses.
+- Prayer activity: distinct submitted calendar weeks and seasons, where `submitted_at` is non-null and year attribution comes from `prayer_weeks.week_start_date`. The same `week_start_date` across campuses counts once while distinct seasons remain independent.
 - Poll activity: participation for `WED_SERVICE`, `SATURDAY_LEADER`, `COFFEE`, `MEAL`, and `CUSTOM`, plus the user's non-deleted comment count. Year attribution uses `polls.starts_at` in `Asia/Seoul`.
 
 The aggregate adapter has a fixed six-statement boundary and does not issue one query per member or activity row.
@@ -38,6 +38,6 @@ The response and snapshot exclude prayer text, poll selections, poll memo/commen
 
 ## Migration
 
-The branch currently uses provisional Flyway V14 for `yearly_recap_snapshots` and `yearly_recap_campuses`. Since Issues #237 and #238 are developed in parallel, the migration version must be re-audited and renumbered before integration.
+Issue #237 owns Flyway V14. Issue #236 uses the separate `V15__add_yearly_recap_snapshots.sql` for `yearly_recap_snapshots` and `yearly_recap_campuses`; the two migrations must not be combined. The V15 SQL SHA-256 is `da23f130727718b22f7f880c6f0e9d6a9c0903f1d74e7ca6f915b68930be2716`. Final integration must rebase on develop after #237 and verify the exact V14-to-V15 order again.
 
-The full repository gate completed with 701 tests, no failures or errors, 9 skipped tests, 184 REST Docs snippet groups, and rendered HTML. The environment's Docker daemon returned `EOF`, so a dedicated PostgreSQL V1-to-V14 migration remains an integration prerequisite rather than a claimed verification result.
+The final repository gate after V15 renumbering and calendar-week deduplication completed with 702 tests, no failures or errors, 10 skipped tests, 184 REST Docs snippet groups, and rendered HTML. A dedicated PostgreSQL 17 verification also passed both clean V1-to-V15 and V14-to-V15 upgrade paths using #237's exact V14 SQL: V14 history checksum `1004514371` remained unchanged, V15 checksum was `365369066`, and both recap tables existed. Re-run the migration gate once more after #237 is actually integrated into develop.

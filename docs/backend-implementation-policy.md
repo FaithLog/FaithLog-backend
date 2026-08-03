@@ -122,12 +122,12 @@ Redis TTL policy:
 - `POST /api/v1/users/me/yearly-recaps/{recapYear}/presented` accepts only the server's current previous year, preserves the first presentation timestamp, and is idempotent. When `hasRecapData=false`, it returns success without creating a presentation timestamp.
 - Automatic presentation and the home-card window are independent. An unpresented recap may auto-present after January 14, while the home card is visible only through January 14 23:59:59 in `Asia/Seoul` and only when recap data exists.
 - Campus journeys use every current ACTIVE membership and `campus_members.joined_at` converted to an `Asia/Seoul` date. Current reactivation semantics determine the latest rejoin date.
-- Devotion daily counts deduplicate the same date across multiple campuses. `mostActiveMonth` chooses the earliest month on a positive tie and is null when every month is zero.
-- Prayer aggregation counts only submissions with a non-null `submittedAt`, attributes the year by `prayer_weeks.week_start_date`, and returns distinct submitted weeks and distinct participated seasons.
+- Devotion daily counts deduplicate the same date across multiple campuses, and submitted-week counts deduplicate the same `weekStartDate` across campuses. `mostActiveMonth` chooses the earliest month on a positive tie and is null when every month is zero.
+- Prayer aggregation counts only submissions with a non-null `submittedAt`, attributes the year by `prayer_weeks.week_start_date`, deduplicates the same calendar week across campuses, and independently returns distinct participated seasons.
 - Poll participation is attributed by `polls.starts_at` at the `Asia/Seoul` year boundary and uses the exact current `PollType` values `WED_SERVICE`, `SATURDAY_LEADER`, `COFFEE`, `MEAL`, and `CUSTOM`. Comment counts exclude soft-deleted comments.
 - The response and persisted snapshot must not contain prayer content, poll selections, poll memo/comment content, email, account/payment/charge amounts, JWT, session, device, or FCM token data.
 - One-user aggregation must use a fixed query boundary rather than per-activity lookups. The approved adapter uses six statements for campus, devotion daily, devotion submitted weeks, prayer, poll participation, and poll comments, independent of the number of active campus members or activity rows.
-- The provisional migration version for Issue #236 is V14. Re-audit and renumber it immediately before integration if another parallel branch has claimed that version.
+- Issue #237 owns Flyway V14 and Issue #236 owns the separate V15 yearly-recap migration. Never combine the two SQL files. Rebase #236 after #237 integration and revalidate the exact V14-to-V15 order before merge.
 
 ## Pagination And Sorting
 
