@@ -256,12 +256,16 @@ class FlywayMigrationContractTest {
 		assertThat(sql).contains(
 			"CREATE TABLE yearly_recap_snapshots",
 			"CREATE TABLE yearly_recap_campuses",
+			"CONSTRAINT fk_yearly_recap_snapshots_user FOREIGN KEY (user_id) REFERENCES users (id)",
+			"CONSTRAINT fk_yearly_recap_campuses_snapshot FOREIGN KEY (yearly_recap_snapshot_id) "
+				+ "REFERENCES yearly_recap_snapshots (id)",
 			"CONSTRAINT uk_yearly_recap_snapshots_user_year UNIQUE (user_id, recap_year)",
 			"CONSTRAINT ck_yearly_recap_snapshots_counts CHECK",
 			"CONSTRAINT uk_yearly_recap_campuses_snapshot_campus UNIQUE",
 			"ALTER TABLE yearly_recap_snapshots ENABLE ROW LEVEL SECURITY",
 			"ALTER TABLE yearly_recap_campuses ENABLE ROW LEVEL SECURITY"
 		);
+		assertThat(sql).doesNotContain("CREATE INDEX idx_yearly_recap_campuses_snapshot");
 	}
 
 	@Test

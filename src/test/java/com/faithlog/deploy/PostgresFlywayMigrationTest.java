@@ -61,7 +61,7 @@ class PostgresFlywayMigrationTest {
 		assertIndexExists(jdbcUrl, username, password, "users", "uk_users_email_lower");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
-		assertYearlyRecapRlsEnabled(jdbcUrl, username, password);
+		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("15"));
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
@@ -104,7 +104,7 @@ class PostgresFlywayMigrationTest {
 		assertThat(migrationChecksum(jdbcUrl, username, password, "15")).isNotNull();
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
-		assertYearlyRecapRlsEnabled(jdbcUrl, username, password);
+		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 	}
 
 	@Test
@@ -373,11 +373,59 @@ class PostgresFlywayMigrationTest {
 		);
 	}
 
-	private static void assertYearlyRecapRlsEnabled(
+	private static void assertYearlyRecapSecurityAndIntegrity(
 		String jdbcUrl, String username, String password
 	) throws Exception {
 		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "yearly_recap_snapshots");
 		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "yearly_recap_campuses");
+		assertConstraintExists(
+			jdbcUrl, username, password, "yearly_recap_snapshots", "fk_yearly_recap_snapshots_user"
+		);
+		assertConstraintExists(
+			jdbcUrl, username, password, "yearly_recap_campuses", "fk_yearly_recap_campuses_snapshot"
+		);
+		assertYearlyRecapOrphansRejected(jdbcUrl, username, password);
+		assertThat(queryCount(
+			jdbcUrl,
+			username,
+			password,
+			"select count(*) from pg_indexes where schemaname = 'public' "
+				+ "and tablename = 'yearly_recap_campuses' "
+				+ "and indexdef like '%(yearly_recap_snapshot_id, campus_id)%'"
+		)).isEqualTo(1L);
+	}
+
+	private static void assertYearlyRecapOrphansRejected(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement orphanSnapshot = connection.prepareStatement(
+				"insert into yearly_recap_snapshots (user_id, recap_year, has_recap_data, "
+					+ "devotion_quiet_time_count, devotion_bible_reading_count, devotion_prayer_count, "
+					+ "devotion_all_completed_day_count, devotion_submitted_week_count, "
+					+ "devotion_longest_streak_days, prayer_submitted_week_count, "
+					+ "prayer_participated_season_count, poll_participated_count, "
+					+ "poll_wed_service_count, poll_saturday_leader_count, poll_coffee_count, "
+					+ "poll_meal_count, poll_custom_count, poll_comment_count, created_at, updated_at) "
+					+ "values (9223372036854770000, 2025, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+					+ "0, 0, 0, 0, 0, 0, now(), now())"
+			);
+			PreparedStatement orphanCampus = connection.prepareStatement(
+				"insert into yearly_recap_campuses (yearly_recap_snapshot_id, campus_id, "
+					+ "campus_name, joined_date, joined_during_recap_year) "
+					+ "values (9223372036854770000, 1, 'orphan', date '2025-01-01', false)"
+			)
+		) {
+			assertThatThrownBy(orphanSnapshot::executeUpdate)
+				.isInstanceOf(java.sql.SQLException.class)
+				.hasFieldOrPropertyWithValue("SQLState", "23503")
+				.hasMessageContaining("fk_yearly_recap_snapshots_user");
+			assertThatThrownBy(orphanCampus::executeUpdate)
+				.isInstanceOf(java.sql.SQLException.class)
+				.hasFieldOrPropertyWithValue("SQLState", "23503")
+				.hasMessageContaining("fk_yearly_recap_campuses_snapshot");
+		}
 	}
 
 	private static void assertRowLevelSecurityEnabled(
@@ -412,6 +460,17 @@ class PostgresFlywayMigrationTest {
 				assertThat(resultSet.next()).isTrue();
 				return resultSet.getBoolean(1);
 			}
+		}
+	}
+
+	private static long queryCount(String jdbcUrl, String username, String password, String sql) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement statement = connection.prepareStatement(sql);
+			ResultSet resultSet = statement.executeQuery()
+		) {
+			assertThat(resultSet.next()).isTrue();
+			return resultSet.getLong(1);
 		}
 	}
 }
