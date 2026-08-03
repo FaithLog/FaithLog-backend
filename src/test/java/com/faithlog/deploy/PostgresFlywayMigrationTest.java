@@ -3,17 +3,25 @@ package com.faithlog.deploy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.faithlog.user.service.YearlyRecapSnapshotService;
+import com.faithlog.user.service.policy.YearlyRecapPeriod;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 class PostgresFlywayMigrationTest {
 
@@ -62,6 +70,7 @@ class PostgresFlywayMigrationTest {
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
+		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
 		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("15"));
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
@@ -425,6 +434,59 @@ class PostgresFlywayMigrationTest {
 				.isInstanceOf(java.sql.SQLException.class)
 				.hasFieldOrPropertyWithValue("SQLState", "23503")
 				.hasMessageContaining("fk_yearly_recap_campuses_snapshot");
+		}
+	}
+
+	private static void assertSixYearlyRecapQueriesShareOnePostgresSnapshot(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		Transactional transactional = AnnotatedElementUtils.findMergedAnnotation(
+			YearlyRecapSnapshotService.class.getDeclaredMethod(
+				"getOrCreate", Long.class, YearlyRecapPeriod.class
+			),
+			Transactional.class
+		);
+		assertThat(transactional).isNotNull();
+
+		try (
+			Connection reader = DriverManager.getConnection(jdbcUrl, username, password);
+			Connection writer = DriverManager.getConnection(jdbcUrl, username, password)
+		) {
+			reader.setAutoCommit(false);
+			if (transactional.isolation() != Isolation.DEFAULT) {
+				reader.setTransactionIsolation(transactional.isolation().value());
+			}
+			List<Long> observedCounts = new ArrayList<>();
+			observedCounts.add(queryUserCount(reader));
+			insertSnapshotIsolationUser(writer);
+			for (int query = 1; query < 6; query++) {
+				observedCounts.add(queryUserCount(reader));
+			}
+			reader.rollback();
+
+			assertThat(transactional.isolation()).isEqualTo(Isolation.REPEATABLE_READ);
+			assertThat(reader.getTransactionIsolation()).isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+			assertThat(observedCounts).containsOnly(observedCounts.getFirst());
+		}
+	}
+
+	private static long queryUserCount(Connection connection) throws Exception {
+		try (
+			PreparedStatement statement = connection.prepareStatement("select count(*) from users");
+			ResultSet resultSet = statement.executeQuery()
+		) {
+			assertThat(resultSet.next()).isTrue();
+			return resultSet.getLong(1);
+		}
+	}
+
+	private static void insertSnapshotIsolationUser(Connection connection) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
+				+ "values ('snapshot isolation', ?, 'hash', 'USER', true, 0, now(), now())"
+		)) {
+			statement.setString(1, "snapshot-isolation-" + UUID.randomUUID() + "@example.com");
+			statement.executeUpdate();
 		}
 	}
 
