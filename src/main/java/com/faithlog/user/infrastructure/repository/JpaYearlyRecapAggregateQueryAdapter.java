@@ -193,8 +193,8 @@ public class JpaYearlyRecapAggregateQueryAdapter implements YearlyRecapAggregate
 			  join polls poll on poll.id = comment.poll_id
 			  where comment.user_id = :userId
 			    and comment.deleted_at is null
-			    and poll.starts_at >= :startInclusive
-			    and poll.starts_at < :endExclusive
+			    and comment.created_at >= :startInclusive
+			    and comment.created_at < :endExclusive
 			    and not exists (
 			      select 1 from yearly_recap_archive_facts fact
 			      where fact.fact_type = 'COMMENT' and fact.source_id = comment.id

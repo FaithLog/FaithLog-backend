@@ -36,7 +36,7 @@ public class YearlyRecapArchiveAdapter implements YearlyRecapArchivePort {
 			return;
 		}
 		List<Object[]> rows = entityManager.createQuery("""
-			select comment.id, comment.userId, poll.campusId, poll.startsAt
+			select comment.id, comment.userId, poll.campusId, comment.createdAt
 			from PollComment comment, Poll poll
 			where comment.pollId = poll.id
 			  and poll.id in :pollIds
@@ -46,9 +46,9 @@ public class YearlyRecapArchiveAdapter implements YearlyRecapArchivePort {
 			.setParameter("pollIds", pollIds)
 			.getResultList();
 		saveMissing(YearlyRecapArchiveFactType.COMMENT, rows, row -> {
-			Instant startsAt = (Instant) row[3];
+			Instant createdAt = (Instant) row[3];
 			return YearlyRecapArchiveFact.comment(
-				(Long) row[0], (Long) row[1], startsAt.atZone(SEOUL).getYear(), (Long) row[2]);
+				(Long) row[0], (Long) row[1], createdAt.atZone(SEOUL).getYear(), (Long) row[2]);
 		});
 	}
 
