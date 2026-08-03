@@ -4,7 +4,6 @@ import com.faithlog.batch.service.port.YearlyRecapArchivePort;
 import com.faithlog.billing.domain.type.ChargeSourceType;
 import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.domain.type.PaymentCategory;
-import com.faithlog.campus.domain.type.CampusMemberStatus;
 import com.faithlog.user.domain.entity.YearlyRecapArchiveFact;
 import com.faithlog.user.domain.type.YearlyRecapArchiveFactType;
 import jakarta.persistence.EntityManager;
@@ -44,16 +43,9 @@ public class YearlyRecapArchiveAdapter implements YearlyRecapArchivePort {
 			where comment.pollId = poll.id
 			  and poll.id in :pollIds
 			  and comment.deletedAt is null
-			  and exists (
-			    select member.id from CampusMember member
-			    where member.userId = comment.userId
-			      and member.campusId = poll.campusId
-			      and member.status = :activeStatus
-			  )
 			order by comment.id asc
 			""", Object[].class)
 			.setParameter("pollIds", pollIds)
-			.setParameter("activeStatus", CampusMemberStatus.ACTIVE)
 			.getResultList();
 		saveMissing(YearlyRecapArchiveFactType.COMMENT, rows, row -> {
 			Instant startsAt = (Instant) row[3];
@@ -142,18 +134,11 @@ public class YearlyRecapArchiveAdapter implements YearlyRecapArchivePort {
 			  and charge.status in :statuses
 			  and weekly.weekStartDate >= :startDate
 			  and weekly.weekStartDate < :endDateExclusive
-			  and exists (
-			    select member.id from CampusMember member
-			    where member.userId = charge.userId
-			      and member.campusId = weekly.campusId
-			      and member.status = :activeStatus
-			  )
 			order by charge.id asc
 			""", Object[].class)
 			.setParameter("paymentCategory", PaymentCategory.PENALTY)
 			.setParameter("sourceType", ChargeSourceType.DEVOTION_RECORD)
 			.setParameter("statuses", List.of(ChargeStatus.PAID, ChargeStatus.UNPAID))
-			.setParameter("activeStatus", CampusMemberStatus.ACTIVE)
 			.setParameter("startDate", startDate)
 			.setParameter("endDateExclusive", endDateExclusive)
 			.getResultList();

@@ -193,12 +193,6 @@ public class JpaYearlyRecapAggregateQueryAdapter implements YearlyRecapAggregate
 			  join polls poll on poll.id = comment.poll_id
 			  where comment.user_id = :userId
 			    and comment.deleted_at is null
-			    and exists (
-			      select 1 from campus_members member
-			      where member.user_id = :userId
-			        and member.campus_id = poll.campus_id
-			        and member.status = 'ACTIVE'
-			    )
 			    and poll.starts_at >= :startInclusive
 			    and poll.starts_at < :endExclusive
 			    and not exists (
@@ -246,12 +240,6 @@ public class JpaYearlyRecapAggregateQueryAdapter implements YearlyRecapAggregate
 			    and charge.status in ('PAID', 'UNPAID')
 			    and weekly.week_start_date >= :startDate
 			    and weekly.week_start_date < :endDateExclusive
-			    and exists (
-			      select 1 from campus_members member
-			      where member.user_id = :userId
-			        and member.campus_id = weekly.campus_id
-			        and member.status = 'ACTIVE'
-			    )
 			), live_archived as (
 			  select charge.id as source_id, charge.status as status_value, charge.amount as amount_value
 			  from charge_items charge
