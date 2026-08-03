@@ -8,6 +8,8 @@ public interface AnnouncementCategoryRepositoryPort {
 
 	AnnouncementCategory save(AnnouncementCategory category);
 
+	AnnouncementCategory saveAndFlush(AnnouncementCategory category);
+
 	boolean existsByCampusIdAndNameIgnoreCase(Long campusId, String name);
 
 	boolean existsByCampusIdAndNameIgnoreCaseAndIdNot(Long campusId, String name, Long categoryId);

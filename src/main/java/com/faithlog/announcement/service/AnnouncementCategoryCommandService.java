@@ -38,7 +38,7 @@ public class AnnouncementCategoryCommandService {
 			command.campusId(), command.name(), command.color(), command.displayOrder());
 		requireUniqueName(command.campusId(), category.name(), null);
 		try {
-			return AnnouncementCategoryResult.from(categoryRepository.save(category));
+			return AnnouncementCategoryResult.from(categoryRepository.saveAndFlush(category));
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_DUPLICATE);
 		}
@@ -55,7 +55,7 @@ public class AnnouncementCategoryCommandService {
 		requireUniqueName(command.campusId(), candidate.name(), command.categoryId());
 		category.update(command.name(), command.color(), command.displayOrder());
 		try {
-			return AnnouncementCategoryResult.from(categoryRepository.save(category));
+			return AnnouncementCategoryResult.from(categoryRepository.saveAndFlush(category));
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_DUPLICATE);
 		}
