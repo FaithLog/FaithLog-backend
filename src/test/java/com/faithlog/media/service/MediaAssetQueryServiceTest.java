@@ -1,8 +1,12 @@
 package com.faithlog.media.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
+import com.faithlog.global.exception.BusinessException;
+import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
 import java.net.URI;
 import java.time.Clock;
@@ -38,5 +42,40 @@ class MediaAssetQueryServiceTest {
 
 		assertThat(result).extracting(item -> item.assetId()).containsExactly(32L, 31L);
 		assertThat(result).extracting(item -> item.sha256()).containsExactly("c".repeat(64), "b".repeat(64));
+	}
+
+	@Test
+	void thumbnail_presign_failure_is_converted_to_typed_storage_unavailable_without_provider_details() {
+		when(snapshots.authorize(7L, 11L, List.of(31L))).thenReturn(List.of(
+			new MediaAssetAccessSnapshotService.AccessSnapshot(
+				31L, "b".repeat(64), "private/secret-thumbnail", "private/secret-detail")));
+		doThrow(new IllegalStateException("provider-secret private/secret-thumbnail"))
+			.when(storage).presignDownload("private/secret-thumbnail");
+		var service = new MediaAssetQueryService(snapshots, storage, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThatThrownBy(() -> service.getAccessUrls(7L, 11L, List.of(31L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception -> {
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+				assertThat(exception.getMessage()).doesNotContain("provider-secret", "private/secret-thumbnail");
+				assertThat(exception.getCause()).isNull();
+			});
+	}
+
+	@Test
+	void detail_presign_failure_is_converted_to_typed_storage_unavailable_without_provider_details() {
+		when(snapshots.authorize(7L, 11L, List.of(31L))).thenReturn(List.of(
+			new MediaAssetAccessSnapshotService.AccessSnapshot(
+				31L, "b".repeat(64), "private/secret-thumbnail", "private/secret-detail")));
+		when(storage.presignDownload("private/secret-thumbnail")).thenReturn(URI.create("https://example/thumb"));
+		doThrow(new IllegalStateException("provider-secret private/secret-detail"))
+			.when(storage).presignDownload("private/secret-detail");
+		var service = new MediaAssetQueryService(snapshots, storage, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThatThrownBy(() -> service.getAccessUrls(7L, 11L, List.of(31L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception -> {
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+				assertThat(exception.getMessage()).doesNotContain("provider-secret", "private/secret-detail");
+				assertThat(exception.getCause()).isNull();
+			});
 	}
 }
