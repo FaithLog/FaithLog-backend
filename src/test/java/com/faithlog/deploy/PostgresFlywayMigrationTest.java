@@ -59,11 +59,50 @@ class PostgresFlywayMigrationTest {
 		);
 		assertIndexExists(jdbcUrl, username, password, "campus_members", "idx_campus_members_user_id_id");
 		assertIndexExists(jdbcUrl, username, password, "users", "uk_users_email_lower");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("15"));
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v15UpgradesIssue237V14WithoutChangingItsChecksum() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway issue237 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("14")
+			.load();
+
+		issue237.clean();
+		assertThat(issue237.migrate().success).isTrue();
+		assertThat(issue237.info().current()).isNotNull();
+		assertThat(issue237.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("14"));
+		Integer issue237Checksum = migrationChecksum(jdbcUrl, username, password, "14");
+		assertFlywayVersionMissing(jdbcUrl, username, password, "15");
+
+		Flyway issue236 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.load();
+		MigrateResult result = issue236.migrate();
+
+		assertThat(result.success).isTrue();
+		assertThat(result.migrationsExecuted).isEqualTo(1);
+		assertThat(issue236.info().current()).isNotNull();
+		assertThat(issue236.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("15"));
+		assertThat(migrationChecksum(jdbcUrl, username, password, "14")).isEqualTo(issue237Checksum);
+		assertThat(migrationChecksum(jdbcUrl, username, password, "15")).isNotNull();
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
 	}
 
 	@Test
@@ -220,6 +259,23 @@ class PostgresFlywayMigrationTest {
 			"select exists (select 1 from flyway_schema_history where version = ?)",
 			version
 		)).isFalse();
+	}
+
+	private static Integer migrationChecksum(
+		String jdbcUrl, String username, String password, String version
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement statement = connection.prepareStatement(
+				"select checksum from flyway_schema_history where version = ? and success"
+			)
+		) {
+			statement.setString(1, version);
+			try (ResultSet result = statement.executeQuery()) {
+				assertThat(result.next()).isTrue();
+				return result.getObject(1, Integer.class);
+			}
+		}
 	}
 
 	private static void assertLegacyInvalidChargePreserved(String jdbcUrl, String username, String password)
