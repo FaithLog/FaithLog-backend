@@ -1099,6 +1099,14 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Boundary: App-side image cache remains a frontend contract: `expo-file-system`, key `assetId + sha256 + variant`, seven days since last access, 200MB LRU, clear on logout/account change, and redownload after OS eviction. The backend returns private 10-minute URLs and stores no mobile cache state.
 - Verification boundary: The integrated clean Gradle gate passed 810 tests with no failures or errors and generated build/REST Docs artifacts. The Docker API socket remained unresponsive under a bounded read-only probe and no local PostgreSQL binary was available, so the integrated V1-to-V16 and V15-to-V16 actual PostgreSQL gate is still pending; no daemon reset or shared database/container lifecycle was attempted.
 
+### 2026-08-03 - Issue #238 Post-integration Review Findings Pending Policy Decisions
+
+- Correction: Image variants now use the longest input dimension. Thumbnail output satisfies `max(width,height) <= 480`, detail satisfies `max(width,height) <= 1600`, aspect ratio is preserved, smaller inputs are not enlarged, and the existing 4096 input boundary plus JPEG re-encoding remain unchanged.
+- Pending recap decision: A test-only RED proves that a first yearly-recap snapshot created after poll, prayer, or devotion retention cannot recover deleted prior-year activity. An existing immutable snapshot remains unaffected. Production retention and snapshot scheduling are unchanged pending user approval.
+- Recap recommendation: Retain prior-year source rows through January, materialize every eligible active user's immutable snapshot in a checkpointed and retryable January batch, and allow February cleanup only after that batch completes. This reuses the current snapshot model but retains poll memo/comment and prayer source data for up to roughly 13 months. Alternatives are a transactional per-user/year aggregate ledger or an asynchronous recap event accumulator; both preserve shorter raw-data retention at substantially higher write-path and recovery complexity.
+- Pending cleanup decision: A separate test-only RED proves that 100 permanently failing R2 deletions can occupy the fixed `id ASC limit 100` cleanup window and starve candidate 101. Existing transient retry, successful deletion, READY temporary-key clearing, and attached READY protection remain covered. Production cleanup selection is unchanged pending user approval.
+- Cleanup recommendation: Persist generic attempt count, next-attempt time, and last-failure time, then apply bounded exponential backoff with jitter plus alert/dead-letter handling. This releases the head window deterministically without recording provider errors or object keys. A durable wrap-around cursor is a smaller but less observable alternative; random ordering or over-fetching is not treated as a correctness guarantee.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope
