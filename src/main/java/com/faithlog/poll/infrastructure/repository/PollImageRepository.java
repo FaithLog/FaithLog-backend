@@ -3,7 +3,9 @@ package com.faithlog.poll.infrastructure.repository;
 import com.faithlog.poll.domain.entity.PollImage;
 import java.time.Instant;
 import java.util.List;
+import java.util.Collection;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -14,6 +16,10 @@ public interface PollImageRepository extends JpaRepository<PollImage, Long> {
 	List<PollImage> findByPollIdInOrderByPollIdAscDisplayOrderAscIdAsc(List<Long> pollIds);
 
 	void deleteByPollId(Long pollId);
+
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("delete from PollImage image where image.pollId in :pollIds")
+	int deleteByPollIdIn(@Param("pollIds") Collection<Long> pollIds);
 
 	@Query("""
 		select image.mediaAssetId from PollImage image

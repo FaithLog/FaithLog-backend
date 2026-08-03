@@ -55,6 +55,10 @@ public class PollImage {
 		return pollId;
 	}
 
+	public Long campusId() {
+		return campusId;
+	}
+
 	public Long mediaAssetId() {
 		return mediaAssetId;
 	}

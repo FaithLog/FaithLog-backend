@@ -22,6 +22,10 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long>, M
 	@Query("select asset from MediaAsset asset where asset.id = :assetId")
 	Optional<MediaAsset> findByIdForUpdate(@Param("assetId") Long assetId);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select asset from MediaAsset asset where asset.id in :assetIds order by asset.id")
+	List<MediaAsset> findByIdInForUpdate(@Param("assetIds") List<Long> assetIds);
+
 	@Query("select asset from MediaAsset asset where asset.campusId = :campusId and asset.id in :assetIds order by asset.id")
 	List<MediaAsset> findByCampusIdAndIdIn(@Param("campusId") Long campusId, @Param("assetIds") List<Long> assetIds);
 

@@ -8,7 +8,13 @@ import com.faithlog.devotion.infrastructure.repository.WeeklyDevotionRecordRepos
 import com.faithlog.notification.service.NotificationLockKey;
 import com.faithlog.notification.service.NotificationLockService;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
+import com.faithlog.media.domain.entity.MediaAsset;
+import com.faithlog.media.domain.type.MediaAssetStatus;
+import com.faithlog.media.service.port.MediaAssetRepositoryPort;
+import com.faithlog.poll.domain.entity.PollImage;
 import com.faithlog.poll.infrastructure.repository.PollCommentRepository;
+import com.faithlog.poll.infrastructure.repository.PollImageRepository;
+import com.faithlog.poll.infrastructure.repository.PollNotificationOutboxRepository;
 import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseOptionRepository;
@@ -20,6 +26,8 @@ import java.time.LocalDate;
 import java.time.Month;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -33,6 +41,7 @@ public class DataRetentionCleanupService {
 	private static final Duration NOTIFICATION_LOG_RETENTION = Duration.ofDays(14);
 	private static final Duration POLL_RETENTION = Duration.ofDays(30);
 	private static final Duration SOFT_DELETED_COMMENT_RETENTION = Duration.ofDays(30);
+	private static final int MEDIA_LOCK_BATCH_SIZE = 100;
 	private static final List<ChargeStatus> TERMINAL_CHARGE_STATUSES = List.of(
 		ChargeStatus.PAID,
 		ChargeStatus.WAIVED,
@@ -45,6 +54,9 @@ public class DataRetentionCleanupService {
 	private final PollResponseRepository pollResponseRepository;
 	private final PollCommentRepository pollCommentRepository;
 	private final PollOptionRepository pollOptionRepository;
+	private final PollImageRepository pollImageRepository;
+	private final PollNotificationOutboxRepository pollNotificationOutboxRepository;
+	private final MediaAssetRepositoryPort mediaAssetRepository;
 	private final PrayerSubmissionRepository prayerSubmissionRepository;
 	private final DevotionDailyCheckRepository dailyCheckRepository;
 	private final WeeklyDevotionRecordRepository weeklyRecordRepository;
@@ -59,6 +71,9 @@ public class DataRetentionCleanupService {
 		PollResponseRepository pollResponseRepository,
 		PollCommentRepository pollCommentRepository,
 		PollOptionRepository pollOptionRepository,
+		PollImageRepository pollImageRepository,
+		PollNotificationOutboxRepository pollNotificationOutboxRepository,
+		MediaAssetRepositoryPort mediaAssetRepository,
 		PrayerSubmissionRepository prayerSubmissionRepository,
 		DevotionDailyCheckRepository dailyCheckRepository,
 		WeeklyDevotionRecordRepository weeklyRecordRepository,
@@ -72,6 +87,9 @@ public class DataRetentionCleanupService {
 		this.pollResponseRepository = pollResponseRepository;
 		this.pollCommentRepository = pollCommentRepository;
 		this.pollOptionRepository = pollOptionRepository;
+		this.pollImageRepository = pollImageRepository;
+		this.pollNotificationOutboxRepository = pollNotificationOutboxRepository;
+		this.mediaAssetRepository = mediaAssetRepository;
 		this.prayerSubmissionRepository = prayerSubmissionRepository;
 		this.dailyCheckRepository = dailyCheckRepository;
 		this.weeklyRecordRepository = weeklyRecordRepository;
@@ -131,6 +149,9 @@ public class DataRetentionCleanupService {
 		int pollOptionsDeleted = 0;
 		int pollsDeleted = 0;
 		if (!expiredPollIds.isEmpty()) {
+			orphanExpiredPollMedia(expiredPollIds, now);
+			pollImageRepository.deleteByPollIdIn(expiredPollIds);
+			pollNotificationOutboxRepository.deleteByPollIdIn(expiredPollIds);
 			pollResponseOptionsDeleted = pollResponseOptionRepository.deleteByPollIdIn(expiredPollIds);
 			pollResponsesDeleted = pollResponseRepository.deleteByPollIdIn(expiredPollIds);
 			pollCommentsDeleted = pollCommentRepository.deleteByPollIdIn(expiredPollIds);
@@ -153,6 +174,39 @@ public class DataRetentionCleanupService {
 			0,
 			0
 		);
+	}
+
+	private void orphanExpiredPollMedia(List<Long> expiredPollIds, Instant now) {
+		List<PollImage> attachments = pollImageRepository
+			.findByPollIdInOrderByPollIdAscDisplayOrderAscIdAsc(expiredPollIds);
+		if (attachments.isEmpty()) {
+			return;
+		}
+		List<Long> sortedAssetIds = attachments.stream()
+			.map(PollImage::mediaAssetId)
+			.distinct()
+			.sorted()
+			.toList();
+		Map<Long, MediaAsset> assetsById = new LinkedHashMap<>();
+		for (int start = 0; start < sortedAssetIds.size(); start += MEDIA_LOCK_BATCH_SIZE) {
+			List<Long> batch = sortedAssetIds.subList(
+				start,
+				Math.min(start + MEDIA_LOCK_BATCH_SIZE, sortedAssetIds.size()));
+			mediaAssetRepository.findByIdInForUpdate(batch)
+				.forEach(asset -> assetsById.put(asset.id(), asset));
+		}
+		if (assetsById.size() != sortedAssetIds.size()) {
+			throw new IllegalStateException("expired poll media asset is missing");
+		}
+		for (PollImage attachment : attachments) {
+			MediaAsset asset = assetsById.get(attachment.mediaAssetId());
+			if (asset == null
+				|| !asset.campusId().equals(attachment.campusId())
+				|| asset.status() != MediaAssetStatus.READY) {
+				throw new IllegalStateException("expired poll media asset is not ready");
+			}
+		}
+		assetsById.values().forEach(asset -> asset.markOrphaned(now));
 	}
 
 	private DataRetentionCleanupResult cleanupAnnualInTransaction(LocalDate businessDate) {
