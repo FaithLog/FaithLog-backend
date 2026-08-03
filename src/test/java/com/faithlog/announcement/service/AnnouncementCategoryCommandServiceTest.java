@@ -15,6 +15,7 @@ import com.faithlog.campus.service.port.CampusRepositoryPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.util.Optional;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,7 +44,8 @@ class AnnouncementCategoryCommandServiceTest {
 		Campus campus = Campus.create("캠퍼스", "서울", null, "ABC123");
 		when(campusRepository.findById(1L)).thenReturn(Optional.of(campus));
 		when(categoryRepository.existsByCampusIdAndNameIgnoreCase(1L, "예배 안내")).thenReturn(false);
-		when(categoryRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
+		when(categoryRepository.saveAndFlush(org.mockito.ArgumentMatchers.any()))
+			.thenAnswer(invocation -> invocation.getArgument(0));
 
 		var result = service.createCategory(new CreateAnnouncementCategoryCommand(
 			1L, 10L, "  예배 안내  ", "#3b82f6", 2
@@ -53,6 +55,19 @@ class AnnouncementCategoryCommandServiceTest {
 		assertThat(result.name()).isEqualTo("예배 안내");
 		assertThat(result.color()).isEqualTo("#3B82F6");
 		assertThat(result.displayOrder()).isEqualTo(2);
+	}
+
+	@Test
+	void create_maps_concurrent_database_duplicate_to_typed_conflict() {
+		when(campusRepository.findById(1L)).thenReturn(Optional.of(Campus.create("캠퍼스", null, null, "ABC123")));
+		when(categoryRepository.existsByCampusIdAndNameIgnoreCase(1L, "일반")).thenReturn(false);
+		when(categoryRepository.saveAndFlush(org.mockito.ArgumentMatchers.any()))
+			.thenThrow(new DataIntegrityViolationException("concurrent duplicate"));
+
+		assertThatThrownBy(() -> service.createCategory(new CreateAnnouncementCategoryCommand(
+			1L, 10L, "일반", "#ABCDEF", 0)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.ANNOUNCEMENT_CATEGORY_DUPLICATE));
 	}
 
 	@Test
