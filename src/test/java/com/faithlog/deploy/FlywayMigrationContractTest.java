@@ -32,6 +32,9 @@ class FlywayMigrationContractTest {
 	private static final Path CASE_INSENSITIVE_EMAIL_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V13__enforce_case_insensitive_user_email.sql"
 	);
+	private static final Path YEARLY_RECAP_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V14__add_yearly_recap_snapshots.sql"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -242,6 +245,22 @@ class FlywayMigrationContractTest {
 			"update users",
 			"delete from users",
 			"alter column email"
+		);
+	}
+
+	@Test
+	void v14AddsImmutableYearlyRecapSnapshotSchema() throws IOException {
+		assertThat(YEARLY_RECAP_MIGRATION).exists();
+		String sql = Files.readString(YEARLY_RECAP_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE TABLE yearly_recap_snapshots",
+			"CREATE TABLE yearly_recap_campuses",
+			"CONSTRAINT uk_yearly_recap_snapshots_user_year UNIQUE (user_id, recap_year)",
+			"CONSTRAINT ck_yearly_recap_snapshots_counts CHECK",
+			"CONSTRAINT uk_yearly_recap_campuses_snapshot_campus UNIQUE",
+			"CREATE INDEX idx_yearly_recap_campuses_snapshot",
+			"ON yearly_recap_campuses (yearly_recap_snapshot_id, campus_id)"
 		);
 	}
 
