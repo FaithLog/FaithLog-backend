@@ -3,6 +3,7 @@ package com.faithlog.announcement.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,7 +38,7 @@ class AnnouncementImageAttachmentServiceTest {
 		MediaAsset asset = readyAsset(31L, 7L, 11L);
 		when(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of());
 		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(asset));
-		when(images.existsByMediaAssetIdAndAnnouncementIdNot(31L, 101L)).thenReturn(true);
+		when(images.findAttachedAssetIdsForOtherAnnouncements(101L, List.of(31L))).thenReturn(List.of(31L));
 
 		assertThatThrownBy(() -> service.replace(101L, 7L, 11L, List.of(31L)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
@@ -46,12 +47,38 @@ class AnnouncementImageAttachmentServiceTest {
 		verify(images, never()).deleteByAnnouncementId(101L);
 	}
 
+	@Test
+	void validation_locks_and_checks_assets_in_ordered_batches_then_flushes_replacement_before_insert() {
+		List<Long> requested = java.util.stream.LongStream.rangeClosed(1, 101).boxed()
+			.sorted(java.util.Comparator.reverseOrder()).toList();
+		List<Long> firstBatch = java.util.stream.LongStream.rangeClosed(1, 100).boxed().toList();
+		List<Long> secondBatch = List.of(101L);
+		List<MediaAsset> firstAssets = firstBatch.stream().map(id -> readyAsset(id, 7L, 11L)).toList();
+		List<MediaAsset> secondAssets = secondBatch.stream().map(id -> readyAsset(id, 7L, 11L)).toList();
+		when(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of());
+		when(assets.findByCampusIdAndIdInForUpdate(7L, firstBatch)).thenReturn(firstAssets);
+		when(assets.findByCampusIdAndIdInForUpdate(7L, secondBatch)).thenReturn(secondAssets);
+		when(images.findAttachedAssetIdsForOtherAnnouncements(101L, firstBatch)).thenReturn(List.of());
+		when(images.findAttachedAssetIdsForOtherAnnouncements(101L, secondBatch)).thenReturn(List.of());
+
+		service.replace(101L, 7L, 11L, requested);
+
+		var ordered = inOrder(images);
+		ordered.verify(images).deleteByAnnouncementId(101L);
+		ordered.verify(images).flush();
+		ordered.verify(images).save(org.mockito.ArgumentMatchers.any());
+		verify(images, org.mockito.Mockito.never())
+			.existsByMediaAssetIdAndAnnouncementIdNot(org.mockito.ArgumentMatchers.anyLong(),
+				org.mockito.ArgumentMatchers.anyLong());
+	}
+
 	private MediaAsset readyAsset(Long id, Long campusId, Long ownerId) {
 		MediaAsset asset = MediaAsset.reserve(campusId, ownerId, "image/jpeg", 10, "a".repeat(64),
-			"temporary/asset/original", Instant.parse("2026-08-04T00:00:00Z"));
+			"temporary/" + id + "/original", Instant.parse("2026-08-04T00:00:00Z"));
 		ReflectionTestUtils.setField(asset, "id", id);
 		asset.startProcessing();
-		asset.complete("media/a/thumbnail.jpg", "media/a/detail.jpg", 100, 100, 20, "b".repeat(64));
+		asset.complete("media/" + id + "/thumbnail.jpg", "media/" + id + "/detail.jpg",
+			100, 100, 20, "b".repeat(64));
 		return asset;
 	}
 }
