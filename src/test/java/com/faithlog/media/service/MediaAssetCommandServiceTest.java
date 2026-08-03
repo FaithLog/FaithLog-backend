@@ -109,6 +109,33 @@ class MediaAssetCommandServiceTest {
 		assertThat(asset.temporaryObjectKey()).isNull();
 	}
 
+	@Test
+	void ready_result_is_preserved_when_temporary_original_deletion_fails() {
+		doThrow(new IllegalStateException("delete unavailable"))
+			.when(storage).deleteObject("temporary/asset/original");
+
+		var result = service.complete(7L, 31L, 11L);
+
+		assertThat(result.status()).isEqualTo(MediaAssetStatus.READY);
+		assertThat(asset.status()).isEqualTo(MediaAssetStatus.READY);
+		assertThat(asset.temporaryObjectKey()).isEqualTo("temporary/asset/original");
+	}
+
+	@Test
+	void already_ready_asset_remains_idempotent_when_temporary_original_deletion_fails() {
+		asset.startProcessing();
+		asset.recordProcessingObjectKeys("media/asset/thumbnail.jpg", "media/asset/detail.jpg");
+		asset.complete("media/asset/thumbnail.jpg", "media/asset/detail.jpg", 100, 80, 6, "b".repeat(64));
+		doThrow(new IllegalStateException("delete unavailable"))
+			.when(storage).deleteObject("temporary/asset/original");
+
+		var result = service.complete(7L, 31L, 11L);
+
+		assertThat(result.status()).isEqualTo(MediaAssetStatus.READY);
+		assertThat(asset.status()).isEqualTo(MediaAssetStatus.READY);
+		assertThat(asset.temporaryObjectKey()).isEqualTo("temporary/asset/original");
+	}
+
 	private String sha256(byte[] bytes) {
 		try {
 			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
