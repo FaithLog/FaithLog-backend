@@ -1108,6 +1108,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Cleanup decision: V18 stores per-asset attempt, next-attempt, last-failure, generic failure code, and expiring lease metadata. Storage failures receive bounded exponential backoff capped at 24 hours, so the first 100 failures stop occupying the current due page and candidate 101 proceeds. Active claims are excluded, expired claims are recoverable, and attached READY assets remain ineligible.
 - Migration decision: Preserve physical V14 -> corrected V15 -> V16 -> V17 -> V18 order and the existing V16 checksum/meaning. The dedicated PostgreSQL 17 gate verifies clean latest migration plus V15/V16/V17/V18 upgrade boundaries without touching the shared QA database.
 - Scale correction: Annual archive facts are checked and flushed in batches of at most 500. This keeps a 1,000-member year from constructing one unbounded `IN` predicate while preserving source-ID idempotency and the archive/delete transaction boundary.
+- Year attribution correction: `commentActivity` uses each comment's own `created_at` in `Asia/Seoul`, both while live and when V17 archives it. A poll that began in another year therefore cannot move a comment into the wrong recap.
 
 ## Pending Decisions
 
