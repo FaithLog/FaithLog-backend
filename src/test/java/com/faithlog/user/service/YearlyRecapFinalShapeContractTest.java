@@ -34,9 +34,9 @@ class YearlyRecapFinalShapeContractTest {
 			.doesNotContain("pollParticipatedCount", "pollWedServiceCount", "pollSaturdayLeaderCount",
 				"pollCoffeeCount", "pollMealCount", "pollCustomCount");
 		assertThat(adapter)
-			.contains("comment.userId = :userId", "comment.deletedAt is null",
-				"PaymentCategory.PENALTY", "ChargeSourceType.DEVOTION_RECORD",
-				"ChargeStatus.PAID", "ChargeStatus.UNPAID")
+			.contains("comment.user_id = :userId", "comment.deleted_at is null",
+				"charge.payment_category = 'PENALTY'", "charge.source_type = 'DEVOTION_RECORD'",
+				"charge.status in ('PAID', 'UNPAID')")
 			.doesNotContain("PollResponse", "group by poll.pollType");
 		assertThat(migration)
 			.contains("comment_written_count", "penalty_total_count", "penalty_total_amount",

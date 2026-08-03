@@ -18,9 +18,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -35,6 +37,15 @@ class YearlyRecapConcurrencyIntegrationTest {
 	@Autowired private YearlyRecapQueryService queryService;
 	@Autowired private YearlyRecapPresentationCommandService presentationCommandService;
 	@Autowired private YearlyRecapPolicy policy;
+	@Autowired private JdbcTemplate jdbcTemplate;
+
+	@AfterEach
+	void resetArchiveCoverage() {
+		jdbcTemplate.update(
+			"update yearly_recap_archive_coverage set complete_from_year = ?",
+			policy.previousPeriod().recapYear() + 2
+		);
+	}
 
 	@Test
 	void concurrent_first_get_and_presented_create_one_snapshot_and_preserve_one_first_time() throws Exception {
@@ -48,6 +59,7 @@ class YearlyRecapConcurrencyIntegrationTest {
 		ReflectionTestUtils.setField(membership, "joinedAt", Instant.parse("2020-01-01T00:00:00Z"));
 		campusMemberRepository.saveAndFlush(membership);
 		int recapYear = policy.previousPeriod().recapYear();
+		markArchiveCoverageComplete(recapYear);
 
 		runConcurrently(8, () -> queryService.getPrevious(user.id()));
 
@@ -92,6 +104,16 @@ class YearlyRecapConcurrencyIntegrationTest {
 			return results;
 		} finally {
 			executor.shutdownNow();
+		}
+	}
+
+	private void markArchiveCoverageComplete(int recapYear) {
+		for (String factType : new String[]{
+			"COMMENT", "PRAYER", "DEVOTION_DAILY", "DEVOTION_WEEKLY", "PENALTY"}) {
+			jdbcTemplate.update("""
+				merge into yearly_recap_archive_coverage (fact_type, complete_from_year)
+				key (fact_type) values (?, ?)
+				""", factType, recapYear);
 		}
 	}
 

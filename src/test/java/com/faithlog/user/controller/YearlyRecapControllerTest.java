@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import org.junit.jupiter.api.AfterEach;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -53,10 +54,19 @@ class YearlyRecapControllerTest {
 	@Autowired
 	private YearlyRecapPolicy yearlyRecapPolicy;
 
+	@AfterEach
+	void resetArchiveCoverage() {
+		jdbcTemplate.update(
+			"update yearly_recap_archive_coverage set complete_from_year = ?",
+			yearlyRecapPolicy.previousPeriod().recapYear() + 2
+		);
+	}
+
 	@Test
 	void no_data_returns_an_exact_zero_payload_without_private_fields() throws Exception {
 		Tokens tokens = signupAndLogin("recap-zero@example.com");
 		int recapYear = yearlyRecapPolicy.previousPeriod().recapYear();
+		markArchiveCoverageComplete(recapYear);
 
 		mockMvc.perform(get("/api/v1/users/me/yearly-recaps/previous")
 				.header("Authorization", "Bearer " + tokens.accessToken()))
@@ -156,6 +166,7 @@ class YearlyRecapControllerTest {
 		Tokens tokens = signupAndLogin("recap-snapshot@example.com");
 		User user = userRepository.findByEmail("recap-snapshot@example.com").orElseThrow();
 		int recapYear = yearlyRecapPolicy.previousPeriod().recapYear();
+		markArchiveCoverageComplete(recapYear);
 		Campus campus = campusRepository.saveAndFlush(Campus.create(
 			"처음 캠퍼스", "서울", "회고 snapshot", "RECAP-SNAPSHOT-236"
 		));
@@ -237,6 +248,16 @@ class YearlyRecapControllerTest {
 			.getContentAsString();
 		JsonNode data = objectMapper.readTree(body).path("data");
 		return new Tokens(data.path("accessToken").asText(), data.path("refreshToken").asText());
+	}
+
+	private void markArchiveCoverageComplete(int recapYear) {
+		for (String factType : new String[]{
+			"COMMENT", "PRAYER", "DEVOTION_DAILY", "DEVOTION_WEEKLY", "PENALTY"}) {
+			jdbcTemplate.update("""
+				merge into yearly_recap_archive_coverage (fact_type, complete_from_year)
+				key (fact_type) values (?, ?)
+				""", factType, recapYear);
+		}
 	}
 
 	private record Tokens(String accessToken, String refreshToken) {
