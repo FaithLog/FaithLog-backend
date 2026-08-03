@@ -65,6 +65,43 @@ class MediaAssetCleanupServiceTest {
 		verify(repository, never()).delete(ready);
 	}
 
+	@Test
+	void cleanup_removes_only_expired_temporary_original_from_ready_asset() {
+		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
+		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(4L));
+		MediaAsset ready = readyAsset(4L, NOW.minusSeconds(1));
+		when(repository.findByIdForUpdate(4L)).thenReturn(Optional.of(ready));
+		MediaAssetCleanupService service = new MediaAssetCleanupService(
+			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThat(service.cleanupBatch()).isEqualTo(1);
+		verify(storage).deleteObject("temporary/3/original");
+		verify(storage, never()).deleteObject("media/2/thumbnail.jpg");
+		verify(storage, never()).deleteObject("media/2/detail.jpg");
+		verify(repository, never()).delete(ready);
+		assertThat(ready.temporaryObjectKey()).isNull();
+		assertThat(ready.thumbnailObjectKey()).isEqualTo("media/2/thumbnail.jpg");
+	}
+
+	@Test
+	void cleanup_retries_every_tracked_object_for_failed_processing() {
+		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
+		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(5L));
+		MediaAsset failed = pendingAsset(5L);
+		failed.startProcessing();
+		failed.recordProcessingObjectKeys("media/5/thumbnail.jpg", "media/5/detail.jpg");
+		failed.markFailed("PROCESSING_FAILED");
+		when(repository.findByIdForUpdate(5L)).thenReturn(Optional.of(failed));
+		MediaAssetCleanupService service = new MediaAssetCleanupService(
+			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThat(service.cleanupBatch()).isEqualTo(1);
+		verify(storage).deleteObject("temporary/1/original");
+		verify(storage).deleteObject("media/5/thumbnail.jpg");
+		verify(storage).deleteObject("media/5/detail.jpg");
+		verify(repository).delete(failed);
+	}
+
 	private MediaAsset pendingAsset(Long id) {
 		MediaAsset asset = MediaAsset.reserve(7L, 11L, "image/jpeg", 10, "a".repeat(64),
 			"temporary/1/original", NOW.minusSeconds(1));
@@ -79,8 +116,12 @@ class MediaAssetCleanupServiceTest {
 	}
 
 	private MediaAsset readyAsset(Long id) {
+		return readyAsset(id, NOW.plusSeconds(3600));
+	}
+
+	private MediaAsset readyAsset(Long id, Instant expiresAt) {
 		MediaAsset asset = MediaAsset.reserve(7L, 11L, "image/jpeg", 10, "a".repeat(64),
-			"temporary/3/original", NOW.plusSeconds(3600));
+			"temporary/3/original", expiresAt);
 		ReflectionTestUtils.setField(asset, "id", id);
 		asset.startProcessing();
 		asset.complete("media/2/thumbnail.jpg", "media/2/detail.jpg", 100, 100, 20, "b".repeat(64));

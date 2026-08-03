@@ -23,4 +23,13 @@ class R2MediaStoragePropertiesTest {
 			Duration.ofHours(2), Duration.ofMinutes(5)))
 			.isInstanceOf(IllegalArgumentException.class);
 	}
+
+	@Test
+	void enabled_config_requires_exact_ten_minute_download_ttl() {
+		assertThatThrownBy(() -> new R2MediaStorageProperties(
+			true, URI.create("https://example.r2.cloudflarestorage.com"), "bucket", "access", "secret",
+			Duration.ofMinutes(5), Duration.ofMinutes(9)))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("downloadUrlTtl");
+	}
 }

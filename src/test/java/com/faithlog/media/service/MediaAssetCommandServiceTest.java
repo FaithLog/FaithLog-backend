@@ -82,6 +82,21 @@ class MediaAssetCommandServiceTest {
 	}
 
 	@Test
+	void failed_compensation_keeps_variant_keys_for_durable_cleanup() {
+		doThrow(new IllegalStateException("provider unavailable"))
+			.when(storage).putObject(contains("/detail.jpg"), anyString(), any(byte[].class));
+		doThrow(new IllegalStateException("delete unavailable"))
+			.when(storage).deleteObject(anyString());
+
+		assertThatThrownBy(() -> service.complete(7L, 31L, 11L))
+			.isInstanceOf(BusinessException.class);
+
+		assertThat(asset.status()).isEqualTo(MediaAssetStatus.FAILED);
+		assertThat(asset.thumbnailObjectKey()).startsWith("media/").endsWith("/thumbnail.jpg");
+		assertThat(asset.detailObjectKey()).startsWith("media/").endsWith("/detail.jpg");
+	}
+
+	@Test
 	void ready_state_is_committed_before_temporary_original_is_deleted() {
 		doAnswer(invocation -> {
 			assertThat(asset.status()).isEqualTo(MediaAssetStatus.READY);
