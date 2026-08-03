@@ -36,7 +36,8 @@ public class MediaAssetQueryService {
 		var snapshots = snapshotService.authorize(campusId, requesterId, orderedIds);
 		Instant expiresAt = clock.instant().plus(Duration.ofMinutes(10));
 		return snapshots.stream().map(snapshot -> {
-			return new MediaAccessUrlResult(snapshot.assetId(), storage.presignDownload(snapshot.thumbnailObjectKey()),
+			return new MediaAccessUrlResult(snapshot.assetId(), snapshot.sha256(),
+				storage.presignDownload(snapshot.thumbnailObjectKey()),
 				storage.presignDownload(snapshot.detailObjectKey()), expiresAt);
 		}).toList();
 	}

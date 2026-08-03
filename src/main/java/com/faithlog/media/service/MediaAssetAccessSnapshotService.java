@@ -48,7 +48,7 @@ public class MediaAssetAccessSnapshotService {
 		}
 		return orderedIds.stream().map(id -> {
 			var asset = byId.get(id);
-			return new AccessSnapshot(asset.id(), asset.thumbnailObjectKey(), asset.detailObjectKey());
+			return new AccessSnapshot(asset.id(), asset.outputSha256(), asset.thumbnailObjectKey(), asset.detailObjectKey());
 		}).toList();
 	}
 
@@ -64,6 +64,6 @@ public class MediaAssetAccessSnapshotService {
 		}
 	}
 
-	public record AccessSnapshot(Long assetId, String thumbnailObjectKey, String detailObjectKey) {
+	public record AccessSnapshot(Long assetId, String sha256, String thumbnailObjectKey, String detailObjectKey) {
 	}
 }
