@@ -10,6 +10,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.faithlog.announcement.service.policy.AnnouncementAccessPolicy;
@@ -135,6 +136,21 @@ class MediaAssetCommandServiceTest {
 		assertThat(result.status()).isEqualTo(MediaAssetStatus.READY);
 		assertThat(asset.status()).isEqualTo(MediaAssetStatus.READY);
 		assertThat(asset.temporaryObjectKey()).isEqualTo("temporary/asset/original");
+	}
+
+	@Test
+	void expired_pending_reservation_is_rejected_before_storage_or_processing() {
+		asset = MediaAsset.reserve(7L, 11L, "image/jpeg", SOURCE.length, sha256(SOURCE),
+			"temporary/expired/original", NOW);
+		ReflectionTestUtils.setField(asset, "id", 31L);
+		when(repository.findByCampusIdAndIdForUpdate(7L, 31L)).thenReturn(Optional.of(asset));
+
+		assertThatThrownBy(() -> service.complete(7L, 31L, 11L))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(com.faithlog.global.exception.ErrorCode.MEDIA_ASSET_STATE_CONFLICT));
+
+		assertThat(asset.status()).isEqualTo(MediaAssetStatus.PENDING);
+		verifyNoInteractions(storage, imageProcessor);
 	}
 
 	private String sha256(byte[] bytes) {
