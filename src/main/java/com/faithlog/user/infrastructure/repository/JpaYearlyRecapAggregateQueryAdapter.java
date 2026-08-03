@@ -28,17 +28,20 @@ public class JpaYearlyRecapAggregateQueryAdapter implements YearlyRecapAggregate
 	}
 
 	@Override
-	public List<CampusRecapActivity> findActiveCampuses(Long userId) {
+	public List<CampusRecapActivity> findActiveCampuses(Long userId, LocalDate endDateExclusive) {
+		Instant joinedBefore = endDateExclusive.atStartOfDay(SEOUL).toInstant();
 		return entityManager.createQuery("""
 			select member.campusId, campus.name, member.joinedAt
 			from CampusMember member, Campus campus
 			where member.campusId = campus.id
 			  and member.userId = :userId
 			  and member.status = :status
+			  and member.joinedAt < :joinedBefore
 			order by member.campusId asc
 			""", Object[].class)
 			.setParameter("userId", userId)
 			.setParameter("status", CampusMemberStatus.ACTIVE)
+			.setParameter("joinedBefore", joinedBefore)
 			.getResultList()
 			.stream()
 			.map(row -> new CampusRecapActivity(

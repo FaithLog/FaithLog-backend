@@ -6,7 +6,7 @@ import java.util.List;
 
 public interface YearlyRecapAggregateQueryPort {
 
-	List<CampusRecapActivity> findActiveCampuses(Long userId);
+	List<CampusRecapActivity> findActiveCampuses(Long userId, LocalDate endDateExclusive);
 
 	DevotionRecapSource findDevotion(Long userId, LocalDate startDate, LocalDate endDateExclusive);
 

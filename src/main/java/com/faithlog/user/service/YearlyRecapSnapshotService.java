@@ -67,7 +67,7 @@ public class YearlyRecapSnapshotService {
 		Instant endExclusive = period.yearEndExclusive().atStartOfDay(SEOUL).toInstant();
 		YearlyRecapSnapshotData data = assembler.assemble(
 			period.recapYear(),
-			aggregateQueryPort.findActiveCampuses(userId),
+			aggregateQueryPort.findActiveCampuses(userId, period.yearEndExclusive()),
 			aggregateQueryPort.findDevotion(userId, period.yearStart(), period.yearEndExclusive()),
 			aggregateQueryPort.findPrayer(userId, period.yearStart(), period.yearEndExclusive()),
 			aggregateQueryPort.findPoll(userId, startInclusive, endExclusive)
