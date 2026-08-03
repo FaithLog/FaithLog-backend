@@ -75,6 +75,7 @@ class YearlyRecapAggregateQueryIntegrationTest {
 	@Autowired private PaymentAccountRepository paymentAccountRepository;
 	@Autowired private ChargeItemRepository chargeItemRepository;
 	@Autowired private YearlyRecapArchiveFactRepository archiveFactRepository;
+	@Autowired private YearlyRecapArchiveAdapter archiveAdapter;
 	@Autowired private JdbcTemplate jdbcTemplate;
 	@Autowired private EntityManager entityManager;
 	@Autowired private EntityManagerFactory entityManagerFactory;
@@ -305,6 +306,37 @@ class YearlyRecapAggregateQueryIntegrationTest {
 			target.id(), LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1));
 
 		assertThat(result.writtenCount()).isEqualTo(1);
+	}
+
+	@Test
+	void comment_year_is_attributed_by_its_own_created_at_not_the_poll_start() {
+		User target = userRepository.saveAndFlush(User.create(
+			"댓글 연도", "recap-comment-year@example.com", "hash"));
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"댓글 연도 캠퍼스", "서울", "댓글 작성 시각 기준", "RECAP-COMMENT-YEAR-238"));
+		Poll priorYearPoll = createPoll(
+			campus.id(), target.id(), PollType.CUSTOM, Instant.parse("2025-12-31T00:00:00Z"));
+		PollComment comment = pollCommentRepository.saveAndFlush(PollComment.create(
+			priorYearPoll.id(), target.id(), "2026년에 작성한 댓글"));
+		jdbcTemplate.update(
+			"update poll_comments set created_at = ? where id = ?",
+			Instant.parse("2026-01-01T00:00:00Z"), comment.id());
+		entityManager.flush();
+		entityManager.clear();
+
+		CommentActivityRecapAggregate live = queryPort.findCommentActivity(
+			target.id(), LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1));
+		archiveAdapter.archiveExpiredPolls(List.of(priorYearPoll.id()));
+		entityManager.flush();
+		entityManager.clear();
+		YearlyRecapArchiveFact archived = archiveFactRepository.findAll().stream()
+			.filter(fact -> fact.factType() == com.faithlog.user.domain.type.YearlyRecapArchiveFactType.COMMENT)
+			.filter(fact -> fact.sourceId().equals(comment.id()))
+			.findFirst()
+			.orElseThrow();
+
+		assertThat(live.writtenCount()).isEqualTo(1);
+		assertThat(archived.recapYear()).isEqualTo(2026);
 	}
 
 	private Poll createPoll(Long campusId, Long userId, PollType pollType, Instant startsAt) {
