@@ -73,7 +73,7 @@ public class JpaYearlyRecapAggregateQueryAdapter implements YearlyRecapAggregate
 			))
 			.toList();
 		long submittedWeeks = entityManager.createQuery("""
-			select count(weekly.id)
+			select count(distinct weekly.weekStartDate)
 			from WeeklyDevotionRecord weekly
 			where weekly.userId = :userId
 			  and weekly.submittedAt is not null
@@ -90,7 +90,7 @@ public class JpaYearlyRecapAggregateQueryAdapter implements YearlyRecapAggregate
 	@Override
 	public PrayerRecapAggregate findPrayer(Long userId, LocalDate startDate, LocalDate endDateExclusive) {
 		Object[] row = entityManager.createQuery("""
-			select count(distinct week.id), count(distinct week.seasonId)
+			select count(distinct week.weekStartDate), count(distinct week.seasonId)
 			from PrayerSubmission submission, PrayerWeek week
 			where submission.prayerWeekId = week.id
 			  and submission.userId = :userId
