@@ -7,6 +7,8 @@ import com.faithlog.notification.domain.type.NotificationType;
 import com.faithlog.poll.controller.dto.response.PollDetailResponse;
 import com.faithlog.poll.controller.dto.response.PollListResponse;
 import com.faithlog.poll.controller.dto.response.PollResponse;
+import com.faithlog.poll.controller.AdminPollController;
+import com.faithlog.poll.controller.MealPollController;
 import com.faithlog.poll.domain.entity.Poll;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -14,7 +16,9 @@ import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
+import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.bind.annotation.PatchMapping;
 
 class PollNoticePublicationContractTest {
 
@@ -52,9 +56,43 @@ class PollNoticePublicationContractTest {
 		assertThat(outbox.getDeclaredField("processedAt").getType()).isEqualTo(java.time.Instant.class);
 	}
 
+	@Test
+	void title_and_notice_request_trims_blank_and_enforces_approved_limits() throws Exception {
+		Class<?> requestType = Class.forName("com.faithlog.poll.controller.dto.request.UpdatePollNoticeRequest");
+		var constructor = requestType.getDeclaredConstructor(String.class, String.class);
+		Object normalized = constructor.newInstance("  수정 제목  ", "  공지 본문  ");
+		assertThat(requestType.getMethod("title").invoke(normalized)).isEqualTo("수정 제목");
+		assertThat(requestType.getMethod("notice").invoke(normalized)).isEqualTo("공지 본문");
+
+		Object blankNotice = constructor.newInstance("제목", "   ");
+		assertThat(requestType.getMethod("notice").invoke(blankNotice)).isNull();
+
+		try (var validatorFactory = Validation.buildDefaultValidatorFactory()) {
+			var validator = validatorFactory.getValidator();
+			assertThat(validator.validate(constructor.newInstance("제목", "가".repeat(5_000)))).isEmpty();
+			assertThat(validator.validate(constructor.newInstance("제목", "가".repeat(5_001)))).isNotEmpty();
+			assertThat(validator.validate(constructor.newInstance("가".repeat(200), null))).isEmpty();
+			assertThat(validator.validate(constructor.newInstance("가".repeat(201), null))).isNotEmpty();
+		}
+	}
+
+	@Test
+	void generic_and_meal_notice_patch_paths_are_separate() throws Exception {
+		assertPatchPath(AdminPollController.class, "updatePollNotice", "/{pollId}/notice");
+		assertPatchPath(MealPollController.class, "updatePollNotice", "/{pollId}/notice");
+	}
+
 	private Set<String> componentNames(Class<?> recordType) {
 		return Arrays.stream(recordType.getRecordComponents())
 			.map(RecordComponent::getName)
 			.collect(Collectors.toSet());
+	}
+
+	private void assertPatchPath(Class<?> controllerType, String methodName, String expectedPath) {
+		Method method = Arrays.stream(controllerType.getDeclaredMethods())
+			.filter(candidate -> candidate.getName().equals(methodName))
+			.findFirst()
+			.orElseThrow();
+		assertThat(method.getAnnotation(PatchMapping.class).value()).containsExactly(expectedPath);
 	}
 }
