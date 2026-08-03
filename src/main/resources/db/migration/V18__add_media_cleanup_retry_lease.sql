@@ -24,3 +24,7 @@ ALTER TABLE media_assets
 
 CREATE INDEX idx_media_assets_cleanup_due
     ON media_assets (cleanup_next_attempt_at, cleanup_lease_expires_at, id);
+
+CREATE INDEX idx_media_assets_cleanup_processing_stale
+    ON media_assets (updated_at, id)
+    WHERE status = 'PROCESSING';

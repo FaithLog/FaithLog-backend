@@ -39,7 +39,8 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void cleanup_claims_only_expired_temporary_and_24_hour_orphan_candidates() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(1L, 2L));
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100)).thenReturn(List.of(1L, 2L));
 		MediaAsset pending = pendingAsset(1L);
 		MediaAsset orphaned = orphanedAsset(2L);
 		when(repository.findByIdForUpdate(1L)).thenReturn(Optional.of(pending));
@@ -59,7 +60,8 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void cleanup_never_deletes_ready_attached_assets_even_if_repository_returns_a_stale_id() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(3L));
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100)).thenReturn(List.of(3L));
 		MediaAsset ready = readyAsset(3L);
 		when(repository.findByIdForUpdate(3L)).thenReturn(Optional.of(ready));
 
@@ -74,7 +76,8 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void cleanup_removes_only_expired_temporary_original_from_ready_asset() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(4L));
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100)).thenReturn(List.of(4L));
 		MediaAsset ready = readyAsset(4L, NOW.minusSeconds(1));
 		when(repository.findByIdForUpdate(4L)).thenReturn(Optional.of(ready));
 		MediaAssetCleanupService service = new MediaAssetCleanupService(
@@ -92,7 +95,8 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void cleanup_retries_every_tracked_object_for_failed_processing() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(5L));
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100)).thenReturn(List.of(5L));
 		MediaAsset failed = pendingAsset(5L);
 		failed.startProcessing();
 		failed.recordProcessingObjectKeys("media/5/thumbnail.jpg", "media/5/detail.jpg");
@@ -111,7 +115,8 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void cleanup_recovers_stale_processing_with_all_planned_keys_after_hard_crash() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(6L));
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100)).thenReturn(List.of(6L));
 		MediaAsset processing = processingAsset(6L, NOW.minusSeconds(86_401));
 		when(repository.findByIdForUpdate(6L)).thenReturn(Optional.of(processing));
 		MediaAssetCleanupService service = new MediaAssetCleanupService(
@@ -131,7 +136,8 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void cleanup_never_claims_active_processing() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(7L));
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100)).thenReturn(List.of(7L));
 		MediaAsset processing = processingAsset(7L, NOW.minusSeconds(86_399));
 		when(repository.findByIdForUpdate(7L)).thenReturn(Optional.of(processing));
 		MediaAssetCleanupService service = new MediaAssetCleanupService(
@@ -146,7 +152,8 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void stale_processing_storage_failure_uses_generic_retry_metadata_without_provider_detail() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(8L));
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100)).thenReturn(List.of(8L));
 		MediaAsset processing = processingAsset(8L, NOW.minusSeconds(86_401));
 		when(repository.findByIdForUpdate(8L)).thenReturn(Optional.of(processing));
 		doThrow(new IllegalStateException("provider bucket and object detail"))
@@ -166,10 +173,11 @@ class MediaAssetCleanupServiceTest {
 	void cleanup_must_not_let_one_hundred_permanent_failures_starve_the_next_candidate() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
 		List<Long> blockedIds = LongStream.rangeClosed(1, 100).boxed().toList();
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100))
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100))
 			.thenReturn(blockedIds);
 		when(repository.findCleanupCandidateIds(
-			NOW.plusSeconds(60), NOW.minusSeconds(86_340), 100))
+			NOW.plusSeconds(60), NOW.minusSeconds(86_340), NOW.minusSeconds(86_340), 100))
 			.thenReturn(List.of(101L));
 		for (Long id : blockedIds) {
 			when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(pendingAssetWithKey(id)));
@@ -203,10 +211,11 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void cleanup_retries_a_transient_storage_failure_and_deletes_after_success() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100))
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100))
 			.thenReturn(List.of(101L));
 		when(repository.findCleanupCandidateIds(
-			NOW.plusSeconds(60), NOW.minusSeconds(86_340), 100))
+			NOW.plusSeconds(60), NOW.minusSeconds(86_340), NOW.minusSeconds(86_340), 100))
 			.thenReturn(List.of(101L));
 		MediaAsset candidate = pendingAssetWithKey(101L);
 		when(repository.findByIdForUpdate(101L)).thenReturn(Optional.of(candidate));
@@ -239,7 +248,8 @@ class MediaAssetCleanupServiceTest {
 	@Test
 	void cleanup_retry_backoff_is_bounded_at_twenty_four_hours() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
-		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(301L));
+		when(repository.findCleanupCandidateIds(
+			NOW, NOW.minusSeconds(86_400), NOW.minusSeconds(86_400), 100)).thenReturn(List.of(301L));
 		MediaAsset candidate = pendingAssetWithKey(301L);
 		ReflectionTestUtils.setField(candidate, "cleanupAttemptCount", 20);
 		when(repository.findByIdForUpdate(301L)).thenReturn(Optional.of(candidate));

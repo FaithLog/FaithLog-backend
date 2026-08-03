@@ -406,7 +406,8 @@ class FlywayMigrationContractTest {
 			"cleanup_attempt_count", "cleanup_next_attempt_at", "cleanup_last_failed_at",
 			"cleanup_failure_code", "cleanup_lease_token", "cleanup_lease_expires_at",
 			"ck_media_assets_cleanup_retry_pair", "ck_media_assets_cleanup_lease_pair",
-			"idx_media_assets_cleanup_due"
+			"idx_media_assets_cleanup_due", "idx_media_assets_cleanup_processing_stale",
+			"WHERE status = 'PROCESSING'"
 		);
 		assertThat(sql).doesNotContain("DROP TABLE", "DROP COLUMN", "object_key", "credential");
 	}

@@ -40,7 +40,8 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long>, M
 		select id from media_assets
 		where ((status in ('PENDING', 'FAILED') and expires_at <= :expiresAt)
 			or (status = 'READY' and temporary_object_key is not null and expires_at <= :expiresAt)
-			or (status = 'ORPHANED' and orphaned_at <= :orphanedBefore))
+			or (status = 'ORPHANED' and orphaned_at <= :orphanedBefore)
+			or (status = 'PROCESSING' and updated_at <= :processingUpdatedBefore))
 		  and (cleanup_next_attempt_at is null or cleanup_next_attempt_at <= :expiresAt)
 		  and (cleanup_lease_expires_at is null or cleanup_lease_expires_at <= :expiresAt)
 		order by id
@@ -49,6 +50,7 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long>, M
 	List<Long> findCleanupCandidateIds(
 		@Param("expiresAt") Instant expiresAt,
 		@Param("orphanedBefore") Instant orphanedBefore,
+		@Param("processingUpdatedBefore") Instant processingUpdatedBefore,
 		@Param("limit") int limit
 	);
 }

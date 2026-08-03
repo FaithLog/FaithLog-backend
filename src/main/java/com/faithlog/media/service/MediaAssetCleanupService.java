@@ -19,6 +19,7 @@ public class MediaAssetCleanupService {
 
 	private static final int BATCH_SIZE = 100;
 	private static final Duration ORPHAN_RETENTION = Duration.ofHours(24);
+	private static final Duration PROCESSING_STALE_AFTER = Duration.ofHours(24);
 	private static final Duration CLEANUP_LEASE_TTL = Duration.ofMinutes(5);
 	private static final Duration MAX_RETRY_BACKOFF = Duration.ofHours(24);
 	private static final String STORAGE_DELETE_FAILURE = "STORAGE_DELETE_FAILED";
@@ -43,11 +44,13 @@ public class MediaAssetCleanupService {
 	public int cleanupBatch() {
 		Instant now = clock.instant();
 		Instant orphanedBefore = now.minus(ORPHAN_RETENTION);
-		List<Long> candidateIds = repository.findCleanupCandidateIds(now, orphanedBefore, BATCH_SIZE);
+		Instant processingUpdatedBefore = now.minus(PROCESSING_STALE_AFTER);
+		List<Long> candidateIds = repository.findCleanupCandidateIds(
+			now, orphanedBefore, processingUpdatedBefore, BATCH_SIZE);
 		int cleaned = 0;
 		for (Long candidateId : candidateIds) {
 			CleanupSnapshot snapshot = transactionTemplate.execute(
-				status -> claim(candidateId, now, orphanedBefore));
+				status -> claim(candidateId, now, orphanedBefore, processingUpdatedBefore));
 			if (snapshot == null) {
 				continue;
 			}
@@ -67,13 +70,34 @@ public class MediaAssetCleanupService {
 		return cleaned;
 	}
 
-	private CleanupSnapshot claim(Long assetId, Instant now, Instant orphanedBefore) {
+	private CleanupSnapshot claim(
+		Long assetId,
+		Instant now,
+		Instant orphanedBefore,
+		Instant processingUpdatedBefore
+	) {
 		String leaseToken = UUID.randomUUID().toString();
 		return repository.findByIdForUpdate(assetId)
-			.filter(asset -> eligible(asset, now, orphanedBefore))
-			.filter(asset -> asset.claimCleanup(leaseToken, now, CLEANUP_LEASE_TTL))
-			.map(asset -> new CleanupSnapshot(asset.id(), asset.status(), objectKeys(asset), leaseToken))
+			.map(asset -> claim(asset, leaseToken, now, orphanedBefore, processingUpdatedBefore))
 			.orElse(null);
+	}
+
+	private CleanupSnapshot claim(
+		MediaAsset asset,
+		String leaseToken,
+		Instant now,
+		Instant orphanedBefore,
+		Instant processingUpdatedBefore
+	) {
+		if (asset.status() == MediaAssetStatus.PROCESSING
+			&& !asset.recoverStaleProcessingForCleanup(processingUpdatedBefore, now)) {
+			return null;
+		}
+		if (!eligible(asset, now, orphanedBefore)
+			|| !asset.claimCleanup(leaseToken, now, CLEANUP_LEASE_TTL)) {
+			return null;
+		}
+		return new CleanupSnapshot(asset.id(), asset.status(), objectKeys(asset), leaseToken);
 	}
 
 	private void recordFailure(CleanupSnapshot snapshot, Instant failedAt, Instant orphanedBefore) {

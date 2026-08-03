@@ -33,7 +33,7 @@ class MediaAssetCleanupRepositoryIntegrationTest {
 		}
 		repository.saveAllAndFlush(assets);
 		List<Long> firstPage = repository.findCleanupCandidateIds(
-			NOW, NOW.minus(Duration.ofHours(24)), 100);
+			NOW, NOW.minus(Duration.ofHours(24)), NOW.minus(Duration.ofHours(24)), 100);
 
 		for (Long id : firstPage) {
 			MediaAsset asset = repository.findByIdForUpdate(id).orElseThrow();
@@ -45,7 +45,7 @@ class MediaAssetCleanupRepositoryIntegrationTest {
 		repository.flush();
 
 		assertThat(repository.findCleanupCandidateIds(
-			NOW, NOW.minus(Duration.ofHours(24)), 100))
+			NOW, NOW.minus(Duration.ofHours(24)), NOW.minus(Duration.ofHours(24)), 100))
 			.containsExactly(assets.get(100).id());
 	}
 
@@ -58,9 +58,10 @@ class MediaAssetCleanupRepositoryIntegrationTest {
 		repository.flush();
 
 		assertThat(repository.findCleanupCandidateIds(
-			NOW.plusSeconds(299), NOW.minus(Duration.ofHours(24)), 100)).isEmpty();
+			NOW.plusSeconds(299), NOW.minus(Duration.ofHours(24)), NOW.minus(Duration.ofHours(24)), 100)).isEmpty();
 		assertThat(repository.findCleanupCandidateIds(
-			NOW.plusSeconds(300), NOW.minus(Duration.ofHours(24)), 100)).containsExactly(asset.id());
+			NOW.plusSeconds(300), NOW.minus(Duration.ofHours(24)), NOW.minus(Duration.ofHours(24)), 100))
+			.containsExactly(asset.id());
 	}
 
 	@Test
@@ -69,13 +70,13 @@ class MediaAssetCleanupRepositoryIntegrationTest {
 		MediaAsset active = processingAsset("active");
 		repository.saveAllAndFlush(List.of(stale, active));
 		org.springframework.test.util.ReflectionTestUtils.setField(
-			stale, "updatedAt", NOW.minus(Duration.ofHours(24)).minusNanos(1));
+			stale, "updatedAt", NOW.minus(Duration.ofHours(24)).minusSeconds(1));
 		org.springframework.test.util.ReflectionTestUtils.setField(
-			active, "updatedAt", NOW.minus(Duration.ofHours(24)).plusNanos(1));
+			active, "updatedAt", NOW.minus(Duration.ofHours(24)).plusSeconds(1));
 		repository.flush();
 
 		assertThat(repository.findCleanupCandidateIds(
-			NOW, NOW.minus(Duration.ofHours(24)), 100))
+			NOW, NOW.minus(Duration.ofHours(24)), NOW.minus(Duration.ofHours(24)), 100))
 			.contains(stale.id())
 			.doesNotContain(active.id());
 	}

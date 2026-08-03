@@ -208,6 +208,20 @@ public class MediaAsset {
 		this.updatedAt = Instant.now();
 	}
 
+	public boolean recoverStaleProcessingForCleanup(Instant staleBefore, Instant recoveredAt) {
+		java.util.Objects.requireNonNull(staleBefore);
+		java.util.Objects.requireNonNull(recoveredAt);
+		if (status != MediaAssetStatus.PROCESSING
+			|| updatedAt == null
+			|| updatedAt.isAfter(staleBefore)) {
+			return false;
+		}
+		status = MediaAssetStatus.FAILED;
+		failureReason = "PROCESSING_STALE";
+		updatedAt = recoveredAt;
+		return true;
+	}
+
 	public boolean claimCleanup(String leaseToken, Instant now, Duration leaseDuration) {
 		if (leaseToken == null || leaseToken.isBlank()) {
 			throw new IllegalArgumentException("cleanup lease token is required");
