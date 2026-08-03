@@ -272,6 +272,17 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
+	void v14ExtendsNotificationLogTypeConstraintForAnnouncementPublishing() throws IOException {
+		String sql = Files.readString(ANNOUNCEMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"DROP CONSTRAINT ck_notification_logs_type",
+			"ADD CONSTRAINT ck_notification_logs_type CHECK",
+			"'ANNOUNCEMENT_PUBLISHED'"
+		);
+	}
+
+	@Test
 	void v12MigrationAddsOnlyPlanProvenPerformanceIndexes() throws IOException {
 		assertThat(PERFORMANCE_QUERY_INDEX_MIGRATION).exists();
 		String sql = Files.readString(PERFORMANCE_QUERY_INDEX_MIGRATION);

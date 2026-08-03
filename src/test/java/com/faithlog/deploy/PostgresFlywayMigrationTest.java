@@ -64,6 +64,31 @@ class PostgresFlywayMigrationTest {
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
+		assertAnnouncementNotificationTypeBoundary(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v14UpgradeAcceptsAnnouncementNotificationAndRejectsUnknownType() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway beforeV14 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("13")
+			.load();
+
+		beforeV14.clean();
+		assertThat(beforeV14.migrate().success).isTrue();
+		Flyway v14 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.load();
+
+		assertThat(v14.migrate().success).isTrue();
+		assertAnnouncementNotificationTypeBoundary(jdbcUrl, username, password);
 	}
 
 	@Test
@@ -256,6 +281,34 @@ class PostgresFlywayMigrationTest {
 			} finally {
 				session.execute("set session_replication_role = origin");
 			}
+		}
+	}
+
+	private static void assertAnnouncementNotificationTypeBoundary(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement statement = connection.createStatement()
+		) {
+			long suffix = Math.abs(java.util.UUID.randomUUID().getMostSignificantBits());
+			String email = "migration-" + suffix + "@example.com";
+			statement.executeUpdate("insert into users (name, email, password_hash, role, is_active, token_version, "
+				+ "created_at, updated_at) values ('migration-user', '" + email
+				+ "', 'hash', 'USER', true, 0, now(), now())");
+			long userId;
+			try (ResultSet result = statement.executeQuery("select id from users where email = '" + email + "'")) {
+				assertThat(result.next()).isTrue();
+				userId = result.getLong(1);
+			}
+			statement.executeUpdate("insert into notification_logs (user_id, notification_type, title, body, "
+				+ "send_status, created_at) values (" + userId
+				+ ", 'ANNOUNCEMENT_PUBLISHED', 'title', 'body', 'PENDING', now())");
+			assertThatThrownBy(() -> statement.executeUpdate(
+				"insert into notification_logs (user_id, notification_type, title, body, send_status, created_at) "
+					+ "values (" + userId + ", 'UNAPPROVED_TYPE', 'title', 'body', 'PENDING', now())"))
+				.isInstanceOf(java.sql.SQLException.class)
+				.hasMessageContaining("ck_notification_logs_type");
 		}
 	}
 
