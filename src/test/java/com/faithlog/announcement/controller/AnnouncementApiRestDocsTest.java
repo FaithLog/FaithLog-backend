@@ -166,9 +166,9 @@ class AnnouncementApiRestDocsTest {
 		when(mediaCommands.complete(7L, 31L, 11L)).thenReturn(
 			new MediaAssetResult(31L, 7L, MediaAssetStatus.READY, "b".repeat(64), 1600, 1200, 12345L));
 		when(mediaQueries.getAccessUrls(7L, 11L, List.of(31L, 32L))).thenReturn(List.of(
-			new MediaAccessUrlResult(31L, URI.create("https://download.example/31-thumb"),
+			new MediaAccessUrlResult(31L, "b".repeat(64), URI.create("https://download.example/31-thumb"),
 				URI.create("https://download.example/31-detail"), NOW.plusSeconds(600)),
-			new MediaAccessUrlResult(32L, URI.create("https://download.example/32-thumb"),
+			new MediaAccessUrlResult(32L, "c".repeat(64), URI.create("https://download.example/32-thumb"),
 				URI.create("https://download.example/32-detail"), NOW.plusSeconds(600))));
 
 		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/media-assets/upload-reservations", 7L)
@@ -199,6 +199,7 @@ class AnnouncementApiRestDocsTest {
 				.content("{\"assetIds\":[31,32]}"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data[0].assetId").value(31))
+			.andExpect(jsonPath("$.data[0].sha256").value("b".repeat(64)))
 			.andDo(document("media-access-urls", preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
 				campusPath(), requestFields(
 					fieldWithPath("assetIds").description("원래 순서를 보존하는 asset ID 배열. 요청당 최대 100개"),
@@ -206,6 +207,7 @@ class AnnouncementApiRestDocsTest {
 				relaxedResponseFields(
 					fieldWithPath("data[]").description("입력 순서와 동일한 signed URL 결과"),
 					fieldWithPath("data[].assetId").description("asset ID"),
+					fieldWithPath("data[].sha256").description("기기 variant cache key에 사용하는 immutable SHA-256"),
 					fieldWithPath("data[].thumbnailUrl").description("10분 수명의 thumbnail URL"),
 					fieldWithPath("data[].detailUrl").description("10분 수명의 detail URL"),
 					fieldWithPath("data[].expiresAt").description("signed GET 만료 시각"))));
