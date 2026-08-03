@@ -108,7 +108,7 @@ public class NotificationRequestCommandService {
 				continue;
 			}
 			if (!activeTokenUserIds.contains(targetUserId)) {
-				notificationLogRepository.save(NotificationLog.skipped(
+					notificationLogRepository.save(NotificationLog.skipped(
 					requestId,
 					targetUserId,
 					command.campusId(),
@@ -117,6 +117,7 @@ public class NotificationRequestCommandService {
 					command.targetId(),
 					command.title(),
 					command.body(),
+					command.data(),
 					"NO_ACTIVE_FCM_TOKEN"
 				));
 				createdCount++;
@@ -130,7 +131,8 @@ public class NotificationRequestCommandService {
 				command.targetWeekStartDate(),
 				command.targetId(),
 				command.title(),
-				command.body()
+				command.body(),
+				command.data()
 			));
 			queuedCount++;
 			createdCount++;
