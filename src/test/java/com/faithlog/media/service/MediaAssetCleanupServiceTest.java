@@ -2,6 +2,7 @@ package com.faithlog.media.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,6 +14,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -102,9 +104,56 @@ class MediaAssetCleanupServiceTest {
 		verify(repository).delete(failed);
 	}
 
+	@Test
+	void cleanup_must_not_let_one_hundred_permanent_failures_starve_the_next_candidate() {
+		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
+		List<Long> blockedIds = LongStream.rangeClosed(1, 100).boxed().toList();
+		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100))
+			.thenReturn(blockedIds, blockedIds);
+		for (Long id : blockedIds) {
+			when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(pendingAssetWithKey(id)));
+		}
+		doThrow(new IllegalStateException("storage unavailable"))
+			.when(storage).deleteObject(org.mockito.ArgumentMatchers.anyString());
+		MediaAssetCleanupService service = new MediaAssetCleanupService(
+			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThat(service.cleanupBatch()).isZero();
+		assertThat(service.cleanupBatch()).isZero();
+
+		verify(repository).findByIdForUpdate(101L);
+	}
+
+	@Test
+	void cleanup_retries_a_transient_storage_failure_and_deletes_after_success() {
+		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
+		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100))
+			.thenReturn(List.of(101L), List.of(101L));
+		MediaAsset candidate = pendingAssetWithKey(101L);
+		when(repository.findByIdForUpdate(101L)).thenReturn(Optional.of(candidate));
+		doThrow(new IllegalStateException("temporary storage failure"))
+			.doNothing()
+			.when(storage).deleteObject("temporary/101/original");
+		MediaAssetCleanupService service = new MediaAssetCleanupService(
+			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThat(service.cleanupBatch()).isZero();
+		assertThat(service.cleanupBatch()).isEqualTo(1);
+
+		verify(storage, org.mockito.Mockito.times(2)).deleteObject("temporary/101/original");
+		verify(repository).delete(candidate);
+	}
+
 	private MediaAsset pendingAsset(Long id) {
 		MediaAsset asset = MediaAsset.reserve(7L, 11L, "image/jpeg", 10, "a".repeat(64),
 			"temporary/1/original", NOW.minusSeconds(1));
+		ReflectionTestUtils.setField(asset, "id", id);
+		return asset;
+	}
+
+	private MediaAsset pendingAssetWithKey(Long id) {
+		MediaAsset asset = MediaAsset.reserve(7L, 11L, "image/jpeg", 10, "a".repeat(64),
+			"temporary/" + id + "/original", NOW.minusSeconds(1));
 		ReflectionTestUtils.setField(asset, "id", id);
 		return asset;
 	}
