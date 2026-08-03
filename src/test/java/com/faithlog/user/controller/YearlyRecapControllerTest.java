@@ -8,6 +8,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusMember;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
+import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.policy.YearlyRecapPolicy;
@@ -19,6 +23,9 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.time.Instant;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -33,6 +40,12 @@ class YearlyRecapControllerTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Autowired
+	private CampusRepository campusRepository;
+
+	@Autowired
+	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
@@ -135,6 +148,66 @@ class YearlyRecapControllerTest {
 		mockMvc.perform(post("/api/v1/users/me/yearly-recaps/{recapYear}/presented", recapYear))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+	}
+
+	@Test
+	void first_get_freezes_the_snapshot_and_presented_preserves_the_first_time() throws Exception {
+		Tokens tokens = signupAndLogin("recap-snapshot@example.com");
+		User user = userRepository.findByEmail("recap-snapshot@example.com").orElseThrow();
+		int recapYear = yearlyRecapPolicy.previousPeriod().recapYear();
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"처음 캠퍼스", "서울", "회고 snapshot", "RECAP-SNAPSHOT-236"
+		));
+		CampusMember member = CampusMember.createMember(campus.id(), user.id());
+		ReflectionTestUtils.setField(
+			member,
+			"joinedAt",
+			Instant.parse(recapYear + "-03-10T15:00:00Z")
+		);
+		campusMemberRepository.saveAndFlush(member);
+
+		mockMvc.perform(get("/api/v1/users/me/yearly-recaps/previous")
+				.header("Authorization", "Bearer " + tokens.accessToken()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.hasRecapData").value(true))
+			.andExpect(jsonPath("$.data.presentation.shouldAutoPresent").value(true))
+			.andExpect(jsonPath("$.data.campusJourney.campuses[0].campusName").value("처음 캠퍼스"))
+			.andExpect(jsonPath("$.data.campusJourney.campuses[0].joinedDate")
+				.value(recapYear + "-03-11"))
+			.andExpect(jsonPath("$.data.campusJourney.campuses[0].joinedDuringRecapYear").value(true));
+
+		campus.update("나중 캠퍼스", null, null, null);
+		campusRepository.saveAndFlush(campus);
+
+		mockMvc.perform(get("/api/v1/users/me/yearly-recaps/previous")
+				.header("Authorization", "Bearer " + tokens.accessToken()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.campusJourney.campuses[0].campusName").value("처음 캠퍼스"));
+
+		mockMvc.perform(post("/api/v1/users/me/yearly-recaps/{recapYear}/presented", recapYear)
+				.header("Authorization", "Bearer " + tokens.accessToken()))
+			.andExpect(status().isOk());
+		Instant firstPresentedAt = jdbcTemplate.queryForObject("""
+			select first_presented_at
+			from yearly_recap_snapshots
+			where user_id = ? and recap_year = ?
+			""", Instant.class, user.id(), recapYear);
+
+		mockMvc.perform(post("/api/v1/users/me/yearly-recaps/{recapYear}/presented", recapYear)
+				.header("Authorization", "Bearer " + tokens.accessToken()))
+			.andExpect(status().isOk());
+		Instant afterSecondCall = jdbcTemplate.queryForObject("""
+			select first_presented_at
+			from yearly_recap_snapshots
+			where user_id = ? and recap_year = ?
+			""", Instant.class, user.id(), recapYear);
+		assertThat(afterSecondCall).isEqualTo(firstPresentedAt);
+
+		mockMvc.perform(get("/api/v1/users/me/yearly-recaps/previous")
+				.header("Authorization", "Bearer " + tokens.accessToken()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.presentation.shouldAutoPresent").value(false))
+			.andExpect(jsonPath("$.data.presentation.firstPresentedAt").exists());
 	}
 
 	private Tokens signupAndLogin(String email) throws Exception {

@@ -33,9 +33,13 @@ class YearlyRecapPolicyTest {
 
 	@Test
 	void exposes_the_home_card_through_the_end_of_january_fourteenth() {
+		YearlyRecapPeriod beforeWindow = policyAt("2026-12-31T14:59:59Z").previousPeriod();
+		YearlyRecapPeriod firstSecond = policyAt("2026-12-31T15:00:00Z").previousPeriod();
 		YearlyRecapPeriod lastSecond = policyAt("2027-01-14T14:59:59Z").previousPeriod();
 		YearlyRecapPeriod firstSecondAfter = policyAt("2027-01-14T15:00:00Z").previousPeriod();
 
+		assertThat(beforeWindow.homeCardVisible()).isFalse();
+		assertThat(firstSecond.homeCardVisible()).isTrue();
 		assertThat(lastSecond.homeCardVisible()).isTrue();
 		assertThat(lastSecond.homeCardVisibleUntil())
 			.isEqualTo(OffsetDateTime.parse("2027-01-14T23:59:59+09:00"));
