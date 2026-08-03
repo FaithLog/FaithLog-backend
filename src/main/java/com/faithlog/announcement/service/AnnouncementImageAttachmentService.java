@@ -29,6 +29,7 @@ public class AnnouncementImageAttachmentService {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
 		var existing = images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(announcementId);
+		var existingAssetIds = new HashSet<>(existing.stream().map(AnnouncementImage::mediaAssetId).toList());
 		List<Long> sortedIds = requested.stream().sorted().toList();
 		var loaded = new java.util.ArrayList<com.faithlog.media.domain.entity.MediaAsset>();
 		var conflictingIds = new HashSet<Long>();
@@ -41,7 +42,8 @@ public class AnnouncementImageAttachmentService {
 		loaded.forEach(asset -> byId.put(asset.id(), asset));
 		if (byId.size() != requested.size() || requested.stream().anyMatch(id -> {
 			var asset = byId.get(id);
-			return asset == null || asset.status() != MediaAssetStatus.READY || !asset.ownerUserId().equals(ownerId);
+			return asset == null || asset.status() != MediaAssetStatus.READY
+				|| (!existingAssetIds.contains(id) && !asset.ownerUserId().equals(ownerId));
 		})) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
