@@ -92,6 +92,34 @@ class AnnouncementCommandServiceTest {
 	}
 
 	@Test
+	void invalid_schedule_time_is_a_typed_validation_failure() {
+		AnnouncementCategory category = activeCategory(1L);
+		when(categoryRepository.findByCampusIdAndId(1L, 2L)).thenReturn(Optional.of(category));
+
+		assertThatThrownBy(() -> service.createAnnouncement(new CreateAnnouncementCommand(
+			1L, 10L, 2L, "공지", "본문", false, NOW.minusSeconds(1)
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED));
+	}
+
+	@Test
+	void missing_schedule_time_on_scheduled_update_is_a_typed_validation_failure() {
+		Announcement announcement = Announcement.createScheduled(
+			1L, 2L, 10L, "공지", "본문", false, NOW.plusSeconds(3600), NOW.minusSeconds(10));
+		ReflectionTestUtils.setField(announcement, "id", 100L);
+		AnnouncementCategory category = activeCategory(1L);
+		when(announcementRepository.findByCampusIdAndIdForUpdate(1L, 100L)).thenReturn(Optional.of(announcement));
+		when(categoryRepository.findByCampusIdAndId(1L, 2L)).thenReturn(Optional.of(category));
+
+		assertThatThrownBy(() -> service.updateAnnouncement(new UpdateAnnouncementCommand(
+			1L, 100L, 20L, 2L, "수정", "본문", false, null
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED));
+	}
+
+	@Test
 	void inactive_category_is_rejected_for_create_and_update() {
 		AnnouncementCategory inactive = activeCategory(1L);
 		inactive.deactivate();
