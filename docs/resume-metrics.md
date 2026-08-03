@@ -1754,3 +1754,10 @@ Metric candidates:
 - 고정 시각 `2026-07-16T00:00:00Z`를 fixture의 `created_at`과 `paidAt`에 함께 결속했다. 현재 월 계산, sleep, tolerance, assertion 완화 없이 focused 2/2가 GREEN으로 전환됐다.
 - 변경은 Billing test와 문서에만 한정했으며 production Java, API, DB/Flyway, dependency, Docker 동작 변경은 0이다.
 - #227 이름 수정과 #228 test-only 수정을 합친 exact integration tree에서 `./gradlew test build asciidoctor`가 670 tests / failures 0 / errors 0 / skipped 9로 최종 GREEN이었다.
+## 2026-08-03 Issue #237 Campus announcements and private media
+
+- Added campus-managed announcement categories, immediate/scheduled publishing, archival, stable paginated reads, and a durable unique publication outbox with author exclusion and ID-only FCM data payload.
+- Added private R2 media reservation/finalize/access lifecycle with AWS SDK S3 `2.46.8`, Thumbnailator `0.4.21`, JPEG/PNG 5MiB and 4096x4096 validation, EXIF-free thumbnail/detail variants, ordered attachment IDs, and 24-hour orphan cleanup.
+- TDD captured domain, application service, query ordering, notification payload/outbox, Flyway, default category, R2 configuration, attachment conflict, cleanup, response image IDs, and finalize compensation boundaries before GREEN implementations.
+- Focused announcement/media tests and REST Docs are GREEN. The full repository test run completed successfully in 2m19s after a Redis-disabled context finding was corrected with a reservation-only fail-closed fallback.
+- No real R2, Docker, Cloud Run, FCM delivery, or production DB operation was executed. These are implementation and verification facts, not latency, throughput, or delivery-rate claims.

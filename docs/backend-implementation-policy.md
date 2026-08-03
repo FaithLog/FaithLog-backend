@@ -571,3 +571,16 @@ Keep these out of MVP scope:
 - Payment API integration
 - KakaoTalk automatic integration
 - QR check-in
+
+## Campus Announcements And Media
+
+- Campus announcement categories are campus-owned data, not a server enum. Names are trim-normalized, 1~30 characters, and case-insensitively unique per campus. Every campus has an active default `일반` category with color `#3B82F6` and display order 0.
+- Announcements use `SCHEDULED`, `PUBLISHED`, and `ARCHIVED`; physical deletion and restore are not exposed. Public reads require an ACTIVE campus member, while management reuses the existing campus-manager policy.
+- Manual and scheduled publication create exactly one durable announcement outbox row in the publication transaction. Delivery targets ACTIVE members, excludes the author, and sends only category/title plus ID-only data payload.
+- Media binary is stored only in a private Cloudflare R2 Standard bucket. DB rows contain immutable random object keys and metadata, never public URLs or image binary.
+- Upload reservation requires both user and campus Redis limits of 30 requests per fixed 10-minute window. Redis failure blocks only new reservations.
+- Finalize performs R2 reads and image processing outside DB transactions. JPEG/PNG input is limited to 5MiB and 4096x4096; HEIC is rejected. Thumbnail width is at most 480 and detail width at most 1600. Re-encoding removes EXIF/GPS.
+- READY assets attach to exactly one announcement. Removal transitions the asset to ORPHANED inside the announcement transaction; R2 deletion happens only in cleanup after 24 hours. Archived announcement attachments remain READY and retained.
+- Member media access is limited to READY assets attached to PUBLISHED announcements. Managers may preview own-campus READY assets. Presigned GET generation occurs outside the DB authorization transaction and expires after 10 minutes.
+- Announcement responses expose ordered asset IDs only. Clients request signed URLs in ordered chunks of at most 100 and must not treat that chunk size as a product attachment limit.
+- Issue #237 must not implement poll image tables or poll API behavior. Issue #238 reuses the shared media ports and asset lifecycle.

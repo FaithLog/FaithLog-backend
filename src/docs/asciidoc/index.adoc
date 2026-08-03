@@ -3252,3 +3252,43 @@ include::{snippets}/meal-poll-management-detail-other-duty-redacted-success/http
 
 include::{snippets}/meal-charges-my-accounts-success/http-request.adoc[]
 include::{snippets}/meal-charges-my-accounts-success/http-response.adoc[]
+
+== Campus Announcements And Private Media
+
+캠퍼스 공지는 해당 캠퍼스 ACTIVE 멤버만 조회한다. 생성·수정·게시·보관과 카테고리 관리는 기존 캠퍼스 관리자 권한을 재사용한다. 이미지 binary와 URL은 공지 응답이나 FCM payload에 저장하지 않고, ordered `imageAssetIds`를 권한 검증된 배치 URL API로 교환한다.
+
+=== Create Announcement
+
+include::{snippets}/announcement-create-success/http-request.adoc[]
+include::{snippets}/announcement-create-success/request-fields.adoc[]
+include::{snippets}/announcement-create-success/http-response.adoc[]
+include::{snippets}/announcement-create-success/response-fields.adoc[]
+
+즉시 게시는 `publishAt=null`, 예약 게시는 미래 `publishAt`을 사용한다. 공지와 게시 알림 outbox는 같은 DB transaction에서 결속되며 이미지 순서는 `imageAssetIds` 그대로 보존된다.
+
+=== Announcement Errors
+
+include::{snippets}/announcement-create-validation/http-response.adoc[]
+include::{snippets}/announcement-manage-forbidden/http-response.adoc[]
+include::{snippets}/announcement-not-found/http-response.adoc[]
+include::{snippets}/announcement-status-conflict/http-response.adoc[]
+
+=== Reserve And Complete Private Image Upload
+
+앱은 예약 응답의 private R2 Presigned PUT URL과 필수 header를 사용해 직접 업로드한다. 서버 complete는 원본의 content type, byte size, SHA-256, magic bytes, 최대 4096x4096 크기를 검증하고 EXIF/GPS가 제거된 thumbnail/detail JPEG variant를 생성한다.
+
+include::{snippets}/media-upload-reservation/http-request.adoc[]
+include::{snippets}/media-upload-reservation/request-fields.adoc[]
+include::{snippets}/media-upload-reservation/http-response.adoc[]
+include::{snippets}/media-upload-reservation/response-fields.adoc[]
+include::{snippets}/media-upload-complete/http-request.adoc[]
+include::{snippets}/media-upload-complete/http-response.adoc[]
+
+=== Get Batched Media Access URLs
+
+요청당 최대 100개는 기술적 chunk 크기이며 공지당 이미지 개수 제한이 아니다. 응답은 요청 순서를 보존하고 URL은 10분 동안만 유효하다.
+
+include::{snippets}/media-access-urls/http-request.adoc[]
+include::{snippets}/media-access-urls/request-fields.adoc[]
+include::{snippets}/media-access-urls/http-response.adoc[]
+include::{snippets}/media-access-urls/response-fields.adoc[]
