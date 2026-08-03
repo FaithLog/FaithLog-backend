@@ -44,7 +44,7 @@ CREATE TABLE yearly_recap_archive_coverage (
 );
 
 INSERT INTO yearly_recap_archive_coverage (fact_type, complete_from_year)
-SELECT fact_type, EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER + 1
+SELECT fact_type, EXTRACT(YEAR FROM CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::INTEGER + 1
 FROM (VALUES
     ('COMMENT'),
     ('PRAYER'),
