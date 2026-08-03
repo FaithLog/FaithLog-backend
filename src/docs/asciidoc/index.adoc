@@ -3275,7 +3275,7 @@ include::{snippets}/announcement-status-conflict/http-response.adoc[]
 
 === Reserve And Complete Private Image Upload
 
-앱은 예약 응답의 private R2 Presigned PUT URL과 필수 header를 사용해 직접 업로드한다. 서버 complete는 원본의 content type, byte size, SHA-256, magic bytes, 최대 4096x4096 크기를 검증하고 EXIF/GPS가 제거된 thumbnail/detail JPEG variant를 생성한다.
+앱은 예약 응답의 private R2 Presigned PUT URL과 필수 header를 사용해 직접 업로드한다. 만료된 PENDING 예약은 storage 접근 전에 거부한다. 서버 complete는 원본의 content type, byte size, SHA-256, magic bytes, 최대 4096x4096 크기를 검증하고 EXIF/GPS가 제거된 thumbnail/detail JPEG variant를 생성한다.
 
 include::{snippets}/media-upload-reservation/http-request.adoc[]
 include::{snippets}/media-upload-reservation/request-fields.adoc[]
@@ -3286,7 +3286,7 @@ include::{snippets}/media-upload-complete/http-response.adoc[]
 
 === Get Batched Media Access URLs
 
-요청당 최대 100개는 기술적 chunk 크기이며 공지당 이미지 개수 제한이 아니다. 응답은 요청 순서를 보존하고 URL은 10분 동안만 유효하다.
+요청당 최대 100개는 기술적 chunk 크기이며 공지당 이미지 개수 제한이 아니다. 응답은 요청 순서를 보존하고 각 asset의 immutable `sha256`을 포함하며 URL은 10분 동안만 유효하다. 앱은 `assetId + sha256 + variant`를 기기 캐시 키로 사용한다. Presign provider 장애는 object key나 원인 정보를 노출하지 않는 `MEDIA_STORAGE_UNAVAILABLE` 응답으로 변환된다.
 
 include::{snippets}/media-access-urls/http-request.adoc[]
 include::{snippets}/media-access-urls/request-fields.adoc[]
