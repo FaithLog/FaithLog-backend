@@ -35,6 +35,9 @@ class FlywayMigrationContractTest {
 	private static final Path ANNOUNCEMENT_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V14__add_campus_announcements_and_media.sql"
 	);
+	private static final Path POSTGRES_MIGRATION_TEST = Path.of(
+		"src/test/java/com/faithlog/deploy/PostgresFlywayMigrationTest.java"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -292,6 +295,24 @@ class FlywayMigrationContractTest {
 			"campus_id BIGINT NOT NULL",
 			"FOREIGN KEY (campus_id, announcement_id) REFERENCES announcements (campus_id, id)",
 			"FOREIGN KEY (campus_id, media_asset_id) REFERENCES media_assets (campus_id, id)"
+		);
+	}
+
+	@Test
+	void postgresV14FixturesSatisfyRequiredColumnsAndUsePreparedStatements() throws IOException {
+		String source = Files.readString(POSTGRES_MIGRATION_TEST);
+		String fixtures = source.substring(
+			source.indexOf("private static void assertAnnouncementNotificationTypeBoundary"),
+			source.indexOf("private static String envOrDefault")
+		);
+
+		assertThat(fixtures).contains(
+			"insert into notification_logs (request_id, user_id, campus_id, notification_type",
+			"connection.prepareStatement"
+		);
+		assertThat(fixtures).doesNotContain(
+			"Statement statement",
+			"insertAndReturnId(Connection connection, String sql)"
 		);
 	}
 
