@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +38,7 @@ class YearlyRecapPolicyTest {
 
 		assertThat(lastSecond.homeCardVisible()).isTrue();
 		assertThat(lastSecond.homeCardVisibleUntil())
-			.isEqualTo("2027-01-14T23:59:59+09:00");
+			.isEqualTo(OffsetDateTime.parse("2027-01-14T23:59:59+09:00"));
 		assertThat(firstSecondAfter.homeCardVisible()).isFalse();
 	}
 
