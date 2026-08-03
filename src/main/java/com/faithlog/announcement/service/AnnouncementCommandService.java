@@ -14,6 +14,7 @@ import com.faithlog.global.exception.ErrorCode;
 import java.time.Clock;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -23,7 +24,25 @@ public class AnnouncementCommandService {
 	private final AnnouncementCategoryRepositoryPort categoryRepository;
 	private final AnnouncementAccessPolicy accessPolicy;
 	private final AnnouncementPublishedEventPort publishedEventPort;
+	private final AnnouncementImageAttachmentService imageAttachmentService;
 	private final Clock clock;
+
+	@Autowired
+	public AnnouncementCommandService(
+		AnnouncementRepositoryPort announcementRepository,
+		AnnouncementCategoryRepositoryPort categoryRepository,
+		AnnouncementAccessPolicy accessPolicy,
+		AnnouncementPublishedEventPort publishedEventPort,
+		AnnouncementImageAttachmentService imageAttachmentService,
+		Clock clock
+	) {
+		this.announcementRepository = announcementRepository;
+		this.categoryRepository = categoryRepository;
+		this.accessPolicy = accessPolicy;
+		this.publishedEventPort = publishedEventPort;
+		this.imageAttachmentService = imageAttachmentService;
+		this.clock = clock;
+	}
 
 	public AnnouncementCommandService(
 		AnnouncementRepositoryPort announcementRepository,
@@ -32,11 +51,7 @@ public class AnnouncementCommandService {
 		AnnouncementPublishedEventPort publishedEventPort,
 		Clock clock
 	) {
-		this.announcementRepository = announcementRepository;
-		this.categoryRepository = categoryRepository;
-		this.accessPolicy = accessPolicy;
-		this.publishedEventPort = publishedEventPort;
-		this.clock = clock;
+		this(announcementRepository, categoryRepository, accessPolicy, publishedEventPort, null, clock);
 	}
 
 	@Transactional
@@ -52,10 +67,13 @@ public class AnnouncementCommandService {
 				command.campusId(), command.categoryId(), command.requesterId(),
 				command.title(), command.content(), command.pinned(), command.publishAt(), now);
 		announcement = announcementRepository.save(announcement);
+		if (imageAttachmentService != null) {
+			imageAttachmentService.replace(announcement.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
+		}
 		if (announcement.publishedAt() != null) {
 			publishedEventPort.recordPublished(announcement, category);
 		}
-		return AnnouncementResult.from(announcement, category);
+		return AnnouncementResult.from(announcement, category, imageAssetIds(announcement.id()));
 	}
 
 	@Transactional
@@ -69,7 +87,10 @@ public class AnnouncementCommandService {
 		} catch (IllegalStateException exception) {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT);
 		}
-		return AnnouncementResult.from(announcement, category);
+		if (imageAttachmentService != null) {
+			imageAttachmentService.replace(announcement.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
+		}
+		return AnnouncementResult.from(announcement, category, imageAssetIds(announcement.id()));
 	}
 
 	@Transactional
@@ -83,7 +104,7 @@ public class AnnouncementCommandService {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT);
 		}
 		publishedEventPort.recordPublished(announcement, category);
-		return AnnouncementResult.from(announcement, category);
+		return AnnouncementResult.from(announcement, category, imageAssetIds(announcement.id()));
 	}
 
 	@Transactional
@@ -104,5 +125,10 @@ public class AnnouncementCommandService {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_INACTIVE);
 		}
 		return category;
+	}
+
+	private java.util.List<Long> imageAssetIds(Long announcementId) {
+		return imageAttachmentService == null ? java.util.List.of()
+			: imageAttachmentService.getOrderedAssetIds(announcementId);
 	}
 }

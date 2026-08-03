@@ -4,6 +4,7 @@ import com.faithlog.announcement.domain.entity.Announcement;
 import com.faithlog.announcement.domain.entity.AnnouncementCategory;
 import com.faithlog.announcement.domain.type.AnnouncementStatus;
 import java.time.Instant;
+import java.util.List;
 
 public record AnnouncementResult(
 	Long id,
@@ -17,10 +18,22 @@ public record AnnouncementResult(
 	Instant publishAt,
 	Instant publishedAt,
 	Instant createdAt,
-	Instant updatedAt
+	Instant updatedAt,
+	List<Long> imageAssetIds
 ) {
+	public AnnouncementResult {
+		imageAssetIds = imageAssetIds == null ? List.of() : List.copyOf(imageAssetIds);
+	}
 
 	public static AnnouncementResult from(Announcement announcement, AnnouncementCategory category) {
+		return from(announcement, category, List.of());
+	}
+
+	public static AnnouncementResult from(
+		Announcement announcement,
+		AnnouncementCategory category,
+		List<Long> imageAssetIds
+	) {
 		return new AnnouncementResult(
 			announcement.id(),
 			announcement.campusId(),
@@ -33,7 +46,8 @@ public record AnnouncementResult(
 			announcement.publishAt(),
 			announcement.publishedAt(),
 			announcement.createdAt(),
-			announcement.updatedAt()
+			announcement.updatedAt(),
+			imageAssetIds
 		);
 	}
 }

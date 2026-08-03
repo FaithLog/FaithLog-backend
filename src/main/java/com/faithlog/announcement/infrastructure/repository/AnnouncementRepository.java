@@ -29,6 +29,10 @@ public interface AnnouncementRepository extends JpaRepository<Announcement, Long
 		@Param("announcementId") Long announcementId
 	);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select announcement from Announcement announcement where announcement.id = :announcementId")
+	Optional<Announcement> findByIdForUpdate(@Param("announcementId") Long announcementId);
+
 	Page<Announcement> findByCampusIdAndStatus(
 		Long campusId,
 		AnnouncementStatus status,

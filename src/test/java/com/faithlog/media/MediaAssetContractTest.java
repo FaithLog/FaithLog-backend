@@ -42,6 +42,8 @@ class MediaAssetContractTest {
 			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		);
 		assertThat(asset.status()).isEqualTo(MediaAssetStatus.READY);
+		assertThat(asset.temporaryObjectKey()).isNotNull();
+		asset.clearTemporaryObjectKey();
 		assertThat(asset.temporaryObjectKey()).isNull();
 	}
 

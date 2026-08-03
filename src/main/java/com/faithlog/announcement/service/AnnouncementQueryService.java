@@ -16,6 +16,7 @@ import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -25,15 +26,27 @@ public class AnnouncementQueryService {
 	private final AnnouncementRepositoryPort announcementRepository;
 	private final AnnouncementCategoryRepositoryPort categoryRepository;
 	private final AnnouncementAccessPolicy accessPolicy;
+	private final AnnouncementImageAttachmentService imageAttachmentService;
+
+	@Autowired
+	public AnnouncementQueryService(
+		AnnouncementRepositoryPort announcementRepository,
+		AnnouncementCategoryRepositoryPort categoryRepository,
+		AnnouncementAccessPolicy accessPolicy,
+		AnnouncementImageAttachmentService imageAttachmentService
+	) {
+		this.announcementRepository = announcementRepository;
+		this.categoryRepository = categoryRepository;
+		this.accessPolicy = accessPolicy;
+		this.imageAttachmentService = imageAttachmentService;
+	}
 
 	public AnnouncementQueryService(
 		AnnouncementRepositoryPort announcementRepository,
 		AnnouncementCategoryRepositoryPort categoryRepository,
 		AnnouncementAccessPolicy accessPolicy
 	) {
-		this.announcementRepository = announcementRepository;
-		this.categoryRepository = categoryRepository;
-		this.accessPolicy = accessPolicy;
+		this(announcementRepository, categoryRepository, accessPolicy, null);
 	}
 
 	public Page<AnnouncementResult> getAnnouncements(
@@ -45,9 +58,11 @@ public class AnnouncementQueryService {
 		requireStatusAccess(campusId, requesterId, status);
 		Page<Announcement> announcements = announcementRepository.findByCampusIdAndStatus(campusId, status, pageable);
 		Map<Long, AnnouncementCategory> categories = categoriesById(campusId, announcements.getContent());
+		Map<Long, List<Long>> imagesByAnnouncement = imageAssetIdsByAnnouncement(announcements.getContent());
 		return announcements.map(announcement -> AnnouncementResult.from(
 			announcement,
-			requireCategory(categories, announcement.categoryId())
+			requireCategory(categories, announcement.categoryId()),
+			imagesByAnnouncement.getOrDefault(announcement.id(), List.of())
 		));
 	}
 
@@ -57,7 +72,8 @@ public class AnnouncementQueryService {
 		requireStatusAccess(campusId, requesterId, announcement.status());
 		AnnouncementCategory category = categoryRepository.findByCampusIdAndId(campusId, announcement.categoryId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_NOT_FOUND));
-		return AnnouncementResult.from(announcement, category);
+		return AnnouncementResult.from(announcement, category,
+			imageAttachmentService == null ? List.of() : imageAttachmentService.getOrderedAssetIds(announcement.id()));
 	}
 
 	private void requireStatusAccess(Long campusId, Long requesterId, AnnouncementStatus status) {
@@ -90,5 +106,13 @@ public class AnnouncementQueryService {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_NOT_FOUND);
 		}
 		return category;
+	}
+
+	private Map<Long, List<Long>> imageAssetIdsByAnnouncement(List<Announcement> announcements) {
+		if (imageAttachmentService == null || announcements.isEmpty()) {
+			return Map.of();
+		}
+		return imageAttachmentService.getOrderedAssetIdsByAnnouncementIds(
+			announcements.stream().map(Announcement::id).toList());
 	}
 }

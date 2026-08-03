@@ -4,6 +4,8 @@ import com.faithlog.announcement.domain.entity.AnnouncementNotificationOutbox;
 import com.faithlog.announcement.service.port.AnnouncementNotificationOutboxRepositoryPort;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
+import java.util.List;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -15,4 +17,7 @@ public interface AnnouncementNotificationOutboxRepository
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select outbox from AnnouncementNotificationOutbox outbox where outbox.id = :outboxId")
 	Optional<AnnouncementNotificationOutbox> findByIdForUpdate(@Param("outboxId") Long outboxId);
+
+	@Query("select outbox.id from AnnouncementNotificationOutbox outbox where outbox.processedAt is null order by outbox.id")
+	List<Long> findPendingIds(Pageable pageable);
 }

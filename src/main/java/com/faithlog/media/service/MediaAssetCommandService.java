@@ -75,11 +75,13 @@ public class MediaAssetCommandService {
 		accessPolicy.requireManager(campusId, requesterId);
 		FinalizeSnapshot snapshot = transactionTemplate.execute(status -> claim(campusId, assetId, requesterId));
 		if (snapshot.readyResult() != null) {
+			deleteTemporaryOriginal(campusId, assetId, snapshot.temporaryKey());
 			return snapshot.readyResult();
 		}
 		String variantRoot = "media/" + UUID.randomUUID();
 		String thumbnailKey = variantRoot + "/thumbnail.jpg";
 		String detailKey = variantRoot + "/detail.jpg";
+		boolean readyCommitted = false;
 		try {
 			var stored = storage.getObject(snapshot.temporaryKey(), MediaAsset.MAX_INPUT_BYTES);
 			if (!snapshot.contentType().equals(stored.contentType()) || stored.content().length != snapshot.byteSize()
@@ -89,22 +91,56 @@ public class MediaAssetCommandService {
 			var variants = imageProcessor.process(stored.content(), snapshot.contentType());
 			storage.putObject(thumbnailKey, variants.outputContentType(), variants.thumbnailBytes());
 			storage.putObject(detailKey, variants.outputContentType(), variants.detailBytes());
-			storage.deleteObject(snapshot.temporaryKey());
-			return transactionTemplate.execute(status -> {
+			MediaAssetResult result = transactionTemplate.execute(status -> {
 				MediaAsset asset = requireForUpdate(campusId, assetId);
 				asset.complete(thumbnailKey, detailKey, variants.sourceWidth(), variants.sourceHeight(),
 					(long) variants.thumbnailBytes().length + variants.detailBytes().length,
 					sha256(variants.detailBytes()));
 				return MediaAssetResult.from(asset);
 			});
+			readyCommitted = true;
+			deleteTemporaryOriginal(campusId, assetId, snapshot.temporaryKey());
+			return result;
 		} catch (RuntimeException exception) {
-			transactionTemplate.executeWithoutResult(status -> {
-				MediaAsset asset = requireForUpdate(campusId, assetId);
-				if (asset.status() == MediaAssetStatus.PROCESSING) {
-					asset.markFailed("PROCESSING_FAILED");
-				}
-			});
-			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
+			if (!readyCommitted) {
+				compensateVariant(thumbnailKey);
+				compensateVariant(detailKey);
+				transactionTemplate.executeWithoutResult(status -> {
+					MediaAsset asset = requireForUpdate(campusId, assetId);
+					if (asset.status() == MediaAssetStatus.PROCESSING) {
+						asset.markFailed("PROCESSING_FAILED");
+					}
+				});
+			}
+			if (exception instanceof BusinessException businessException) {
+				throw businessException;
+			}
+			throw new BusinessException(exception instanceof IllegalArgumentException
+				? ErrorCode.MEDIA_ASSET_INVALID : ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+		}
+	}
+
+	private void deleteTemporaryOriginal(Long campusId, Long assetId, String temporaryKey) {
+		if (temporaryKey == null) {
+			return;
+		}
+		storage.deleteObject(temporaryKey);
+		transactionTemplate.executeWithoutResult(status -> {
+			MediaAsset asset = requireForUpdate(campusId, assetId);
+			if (asset.status() != MediaAssetStatus.READY) {
+				throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
+			}
+			if (temporaryKey.equals(asset.temporaryObjectKey())) {
+				asset.clearTemporaryObjectKey();
+			}
+		});
+	}
+
+	private void compensateVariant(String objectKey) {
+		try {
+			storage.deleteObject(objectKey);
+		} catch (RuntimeException ignored) {
+			// The FAILED row remains as durable evidence; cleanup retries tracked objects.
 		}
 	}
 
@@ -114,7 +150,8 @@ public class MediaAssetCommandService {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_ACCESS_FORBIDDEN);
 		}
 		if (asset.status() == MediaAssetStatus.READY) {
-			return new FinalizeSnapshot(null, null, 0, null, MediaAssetResult.from(asset));
+			return new FinalizeSnapshot(
+				asset.temporaryObjectKey(), null, 0, null, MediaAssetResult.from(asset));
 		}
 		if (asset.status() != MediaAssetStatus.PENDING) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);

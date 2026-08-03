@@ -158,9 +158,16 @@ public class MediaAsset {
 		this.height = height;
 		this.outputByteSize = outputByteSize;
 		this.outputSha256 = outputSha256;
-		this.temporaryObjectKey = null;
 		this.status = MediaAssetStatus.READY;
 		this.failureReason = null;
+		this.updatedAt = Instant.now();
+	}
+
+	public void clearTemporaryObjectKey() {
+		if (status != MediaAssetStatus.READY) {
+			throw new IllegalStateException("only ready media can clear its temporary object");
+		}
+		this.temporaryObjectKey = null;
 		this.updatedAt = Instant.now();
 	}
 
@@ -174,12 +181,16 @@ public class MediaAsset {
 	}
 
 	public void markOrphaned() {
+		markOrphaned(Instant.now());
+	}
+
+	public void markOrphaned(Instant orphanedAt) {
 		if (status != MediaAssetStatus.READY) {
 			throw new IllegalStateException("only ready media can become orphaned");
 		}
 		status = MediaAssetStatus.ORPHANED;
-		orphanedAt = Instant.now();
-		updatedAt = orphanedAt;
+		this.orphanedAt = java.util.Objects.requireNonNull(orphanedAt);
+		updatedAt = this.orphanedAt;
 	}
 
 	@PrePersist

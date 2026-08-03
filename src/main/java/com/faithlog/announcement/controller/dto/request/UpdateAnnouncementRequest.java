@@ -6,14 +6,19 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.util.List;
 
 public record UpdateAnnouncementRequest(
 	@NotNull @Positive Long categoryId,
 	@NotBlank @Size(max = 100) String title,
 	@NotBlank @Size(max = 5000) String content,
 	boolean isPinned,
-	Instant publishAt
+	Instant publishAt,
+	List<@Positive Long> imageAssetIds
 ) {
+	public UpdateAnnouncementRequest(Long categoryId, String title, String content, boolean isPinned, Instant publishAt) {
+		this(categoryId, title, content, isPinned, publishAt, List.of());
+	}
 	public UpdateAnnouncementRequest {
 		title = title == null ? null : title.trim();
 		content = content == null ? null : content.trim();
@@ -21,6 +26,7 @@ public record UpdateAnnouncementRequest(
 
 	public UpdateAnnouncementCommand toCommand(Long campusId, Long announcementId, Long requesterId) {
 		return new UpdateAnnouncementCommand(
-			campusId, announcementId, requesterId, categoryId, title, content, isPinned, publishAt);
+			campusId, announcementId, requesterId, categoryId, title, content, isPinned, publishAt,
+			imageAssetIds == null ? List.of() : imageAssetIds);
 	}
 }

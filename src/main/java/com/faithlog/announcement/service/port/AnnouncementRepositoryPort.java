@@ -15,6 +15,7 @@ public interface AnnouncementRepositoryPort {
 	Optional<Announcement> findByCampusIdAndId(Long campusId, Long announcementId);
 
 	Optional<Announcement> findByCampusIdAndIdForUpdate(Long campusId, Long announcementId);
+	Optional<Announcement> findByIdForUpdate(Long announcementId);
 
 	Page<Announcement> findByCampusIdAndStatus(Long campusId, AnnouncementStatus status, Pageable pageable);
 
