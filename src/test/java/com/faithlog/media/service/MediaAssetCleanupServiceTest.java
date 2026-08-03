@@ -1,8 +1,9 @@
 package com.faithlog.media.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -10,8 +11,10 @@ import com.faithlog.media.domain.entity.MediaAsset;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.LongStream;
@@ -109,39 +112,94 @@ class MediaAssetCleanupServiceTest {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
 		List<Long> blockedIds = LongStream.rangeClosed(1, 100).boxed().toList();
 		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100))
-			.thenReturn(blockedIds, blockedIds);
+			.thenReturn(blockedIds);
+		when(repository.findCleanupCandidateIds(
+			NOW.plusSeconds(60), NOW.minusSeconds(86_340), 100))
+			.thenReturn(List.of(101L));
 		for (Long id : blockedIds) {
 			when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(pendingAssetWithKey(id)));
 		}
-		doThrow(new IllegalStateException("storage unavailable"))
-			.when(storage).deleteObject(org.mockito.ArgumentMatchers.anyString());
+		MediaAsset nextCandidate = pendingAssetWithKey(101L);
+		when(repository.findByIdForUpdate(101L)).thenReturn(Optional.of(nextCandidate));
+		doAnswer(invocation -> {
+			String objectKey = invocation.getArgument(0);
+			if (!objectKey.equals("temporary/101/original")) {
+				throw new IllegalStateException("storage unavailable");
+			}
+			return null;
+		}).when(storage).deleteObject(org.mockito.ArgumentMatchers.anyString());
+		MutableClock clock = new MutableClock(NOW);
 		MediaAssetCleanupService service = new MediaAssetCleanupService(
-			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+			repository, storage, transactionManager, clock);
 
 		assertThat(service.cleanupBatch()).isZero();
-		assertThat(service.cleanupBatch()).isZero();
+		assertThat(blockedIds.stream().map(this::assetById).toList())
+			.allSatisfy(asset -> {
+				assertThat(asset.cleanupAttemptCount()).isEqualTo(1);
+				assertThat(asset.cleanupNextAttemptAt()).isEqualTo(NOW.plusSeconds(60));
+				assertThat(asset.cleanupFailureCode()).isEqualTo("STORAGE_DELETE_FAILED");
+			});
+		clock.advance(Duration.ofMinutes(1));
+		assertThat(service.cleanupBatch()).isEqualTo(1);
 
-		verify(repository).findByIdForUpdate(101L);
+		verify(repository, org.mockito.Mockito.times(2)).findByIdForUpdate(101L);
 	}
 
 	@Test
 	void cleanup_retries_a_transient_storage_failure_and_deletes_after_success() {
 		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
 		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100))
-			.thenReturn(List.of(101L), List.of(101L));
+			.thenReturn(List.of(101L));
+		when(repository.findCleanupCandidateIds(
+			NOW.plusSeconds(60), NOW.minusSeconds(86_340), 100))
+			.thenReturn(List.of(101L));
 		MediaAsset candidate = pendingAssetWithKey(101L);
 		when(repository.findByIdForUpdate(101L)).thenReturn(Optional.of(candidate));
 		doThrow(new IllegalStateException("temporary storage failure"))
 			.doNothing()
 			.when(storage).deleteObject("temporary/101/original");
+		MutableClock clock = new MutableClock(NOW);
 		MediaAssetCleanupService service = new MediaAssetCleanupService(
-			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+			repository, storage, transactionManager, clock);
 
 		assertThat(service.cleanupBatch()).isZero();
+		assertThat(candidate.cleanupNextAttemptAt()).isEqualTo(NOW.plusSeconds(60));
+		clock.advance(Duration.ofMinutes(1));
 		assertThat(service.cleanupBatch()).isEqualTo(1);
 
 		verify(storage, org.mockito.Mockito.times(2)).deleteObject("temporary/101/original");
 		verify(repository).delete(candidate);
+	}
+
+	@Test
+	void cleanup_lease_is_recoverable_only_after_expiry() {
+		MediaAsset candidate = pendingAssetWithKey(201L);
+
+		assertThat(candidate.claimCleanup("lease-a", NOW, Duration.ofMinutes(5))).isTrue();
+		assertThat(candidate.claimCleanup("lease-b", NOW.plusSeconds(299), Duration.ofMinutes(5))).isFalse();
+		assertThat(candidate.claimCleanup("lease-b", NOW.plusSeconds(300), Duration.ofMinutes(5))).isTrue();
+		assertThat(candidate.cleanupLeaseToken()).isEqualTo("lease-b");
+	}
+
+	@Test
+	void cleanup_retry_backoff_is_bounded_at_twenty_four_hours() {
+		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
+		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(301L));
+		MediaAsset candidate = pendingAssetWithKey(301L);
+		ReflectionTestUtils.setField(candidate, "cleanupAttemptCount", 20);
+		when(repository.findByIdForUpdate(301L)).thenReturn(Optional.of(candidate));
+		doThrow(new IllegalStateException("storage unavailable"))
+			.when(storage).deleteObject("temporary/301/original");
+		MediaAssetCleanupService service = new MediaAssetCleanupService(
+			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThat(service.cleanupBatch()).isZero();
+		assertThat(candidate.cleanupAttemptCount()).isEqualTo(21);
+		assertThat(candidate.cleanupNextAttemptAt()).isEqualTo(NOW.plus(Duration.ofHours(24)));
+	}
+
+	private MediaAsset assetById(Long id) {
+		return repository.findByIdForUpdate(id).orElseThrow();
 	}
 
 	private MediaAsset pendingAsset(Long id) {
@@ -175,5 +233,32 @@ class MediaAssetCleanupServiceTest {
 		asset.startProcessing();
 		asset.complete("media/2/thumbnail.jpg", "media/2/detail.jpg", 100, 100, 20, "b".repeat(64));
 		return asset;
+	}
+
+	private static final class MutableClock extends Clock {
+		private Instant instant;
+
+		private MutableClock(Instant instant) {
+			this.instant = instant;
+		}
+
+		void advance(Duration duration) {
+			instant = instant.plus(duration);
+		}
+
+		@Override
+		public ZoneId getZone() {
+			return ZoneOffset.UTC;
+		}
+
+		@Override
+		public Clock withZone(ZoneId zone) {
+			return this;
+		}
+
+		@Override
+		public Instant instant() {
+			return instant;
+		}
 	}
 }

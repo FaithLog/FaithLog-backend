@@ -41,6 +41,12 @@ class FlywayMigrationContractTest {
 	private static final Path POLL_NOTICE_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V16__add_poll_notice_images_and_notification_outbox.sql"
 	);
+	private static final Path YEARLY_RECAP_ARCHIVE_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V17__add_yearly_recap_compact_archive.sql"
+	);
+	private static final Path MEDIA_CLEANUP_RETRY_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V18__add_media_cleanup_retry_lease.sql"
+	);
 	private static final Path POSTGRES_MIGRATION_TEST = Path.of(
 		"src/test/java/com/faithlog/deploy/PostgresFlywayMigrationTest.java"
 	);
@@ -344,7 +350,7 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
-	void postgresV16FixturesRequireThePhysicalV14ToV15ToV16Order() throws IOException {
+	void postgresFixturesRequireThePhysicalV14ToV15ToV16ToV17ToV18Order() throws IOException {
 		String source = Files.readString(POSTGRES_MIGRATION_TEST);
 		String cleanFixture = source.substring(
 			source.indexOf("void flywayMigratesCleanPostgresDatabase"),
@@ -354,10 +360,53 @@ class FlywayMigrationContractTest {
 			source.indexOf("void v16UpgradeAddsPollNoticeImagesAndOpenNotificationTypes"),
 			source.indexOf("void v15UpgradesIssue237V14WithoutChangingItsChecksum")
 		);
+		String v17UpgradeFixture = source.substring(
+			source.indexOf("void v17UpgradesV16WithCompactArchiveWithoutChangingV16Checksum"),
+			source.indexOf("void v18UpgradesV17WithDurableMediaCleanupRetryAndLease")
+		);
+		String v18UpgradeFixture = source.substring(
+			source.indexOf("void v18UpgradesV17WithDurableMediaCleanupRetryAndLease"),
+			source.indexOf("void v13FailsClosedWithoutChangingLegacyDuplicateEmails")
+		);
 
-		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"16\")");
+		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"18\")");
 		assertThat(v16UpgradeFixture).contains(".target(\"15\")");
 		assertThat(v16UpgradeFixture).doesNotContain(".target(\"14\")");
+		assertThat(v17UpgradeFixture).contains(".target(\"16\")", ".target(\"17\")");
+		assertThat(v18UpgradeFixture).contains(".target(\"17\")", "MigrationVersion.fromVersion(\"18\")");
+	}
+
+	@Test
+	void v17AddsOnlyCompactRecapFactsAndFailClosedCoverage() throws IOException {
+		assertThat(YEARLY_RECAP_ARCHIVE_MIGRATION).exists();
+		String sql = Files.readString(YEARLY_RECAP_ARCHIVE_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE TABLE yearly_recap_archive_facts",
+			"CREATE TABLE yearly_recap_archive_coverage",
+			"complete_from_year",
+			"ON DELETE CASCADE",
+			"'COMMENT'", "'PRAYER'", "'DEVOTION_DAILY'", "'DEVOTION_WEEKLY'", "'PENALTY'",
+			"ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql).doesNotContain(
+			"comment_content", "prayer_content", "poll_response", "option_id", "memo",
+			"account_number", "bank_name", "account_holder"
+		);
+	}
+
+	@Test
+	void v18AddsDurableCleanupRetryAndLeaseWithoutChangingMediaOwnership() throws IOException {
+		assertThat(MEDIA_CLEANUP_RETRY_MIGRATION).exists();
+		String sql = Files.readString(MEDIA_CLEANUP_RETRY_MIGRATION);
+
+		assertThat(sql).contains(
+			"cleanup_attempt_count", "cleanup_next_attempt_at", "cleanup_last_failed_at",
+			"cleanup_failure_code", "cleanup_lease_token", "cleanup_lease_expires_at",
+			"ck_media_assets_cleanup_retry_pair", "ck_media_assets_cleanup_lease_pair",
+			"idx_media_assets_cleanup_due"
+		);
+		assertThat(sql).doesNotContain("DROP TABLE", "DROP COLUMN", "object_key", "credential");
 	}
 
 	@Test

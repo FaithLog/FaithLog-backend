@@ -69,9 +69,12 @@ class PostgresFlywayMigrationTest {
 		assertIndexExists(jdbcUrl, username, password, "users", "uk_users_email_lower");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_archive_facts");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_archive_coverage");
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "cleanup_attempt_count");
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
-		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("16"));
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("18"));
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
@@ -126,6 +129,7 @@ class PostgresFlywayMigrationTest {
 		Flyway v16 = Flyway.configure()
 			.dataSource(jdbcUrl, username, password)
 			.locations("classpath:db/migration")
+			.target("16")
 			.load();
 
 		assertThat(v16.migrate().success).isTrue();
@@ -157,6 +161,7 @@ class PostgresFlywayMigrationTest {
 		Flyway issue236 = Flyway.configure()
 			.dataSource(jdbcUrl, username, password)
 			.locations("classpath:db/migration")
+			.target("15")
 			.load();
 		MigrateResult result = issue236.migrate();
 
@@ -169,6 +174,73 @@ class PostgresFlywayMigrationTest {
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v17UpgradesV16WithCompactArchiveWithoutChangingV16Checksum() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway v16 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("16")
+			.load();
+
+		v16.clean();
+		assertThat(v16.migrate().success).isTrue();
+		Integer v16Checksum = migrationChecksum(jdbcUrl, username, password, "16");
+		Flyway v17 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.target("17")
+			.load();
+
+		assertThat(v17.migrate().success).isTrue();
+		assertThat(v17.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("17"));
+		assertThat(migrationChecksum(jdbcUrl, username, password, "16")).isEqualTo(v16Checksum);
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_archive_facts");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_archive_coverage");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "yearly_recap_archive_facts");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "yearly_recap_archive_coverage");
+		assertThat(queryCount(
+			jdbcUrl, username, password, "select count(*) from yearly_recap_archive_coverage"
+		)).isEqualTo(5L);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v18UpgradesV17WithDurableMediaCleanupRetryAndLease() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway v17 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("17")
+			.load();
+
+		v17.clean();
+		assertThat(v17.migrate().success).isTrue();
+		Flyway v18 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.load();
+
+		assertThat(v18.migrate().success).isTrue();
+		assertThat(v18.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("18"));
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "cleanup_attempt_count");
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "cleanup_next_attempt_at");
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "cleanup_last_failed_at");
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "cleanup_lease_token");
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "cleanup_lease_expires_at");
+		assertConstraintExists(
+			jdbcUrl, username, password, "media_assets", "ck_media_assets_cleanup_retry_pair");
+		assertConstraintExists(
+			jdbcUrl, username, password, "media_assets", "ck_media_assets_cleanup_lease_pair");
 	}
 
 	@Test
@@ -428,7 +500,8 @@ class PostgresFlywayMigrationTest {
 		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
 			String suffix = java.util.UUID.randomUUID().toString();
 			long userId = insertUser(connection, "poll-notification-user", "poll-notification-" + suffix + "@example.com");
-			long campusId = insertCampus(connection, "poll-notification-campus", "poll-notification-" + suffix);
+			long campusId = insertCampus(
+				connection, "poll-notification-campus", "poll-notification-" + suffix.substring(0, 12));
 
 			insertNotificationLog(connection, java.util.UUID.randomUUID(), userId, campusId, "MEAL_POLL_OPEN");
 			insertNotificationLog(connection, java.util.UUID.randomUUID(), userId, campusId, "CUSTOM_POLL_OPEN");

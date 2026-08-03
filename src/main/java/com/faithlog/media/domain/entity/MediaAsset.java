@@ -10,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -67,6 +68,24 @@ public class MediaAsset {
 	@Column(name = "orphaned_at")
 	private Instant orphanedAt;
 
+	@Column(name = "cleanup_attempt_count", nullable = false)
+	private int cleanupAttemptCount;
+
+	@Column(name = "cleanup_next_attempt_at")
+	private Instant cleanupNextAttemptAt;
+
+	@Column(name = "cleanup_last_failed_at")
+	private Instant cleanupLastFailedAt;
+
+	@Column(name = "cleanup_failure_code", length = 40)
+	private String cleanupFailureCode;
+
+	@Column(name = "cleanup_lease_token", length = 64)
+	private String cleanupLeaseToken;
+
+	@Column(name = "cleanup_lease_expires_at")
+	private Instant cleanupLeaseExpiresAt;
+
 	@Column(name = "expires_at", nullable = false)
 	private Instant expiresAt;
 
@@ -108,6 +127,7 @@ public class MediaAsset {
 		this.temporaryObjectKey = temporaryObjectKey;
 		this.expiresAt = java.util.Objects.requireNonNull(expiresAt);
 		this.status = MediaAssetStatus.PENDING;
+		this.cleanupAttemptCount = 0;
 	}
 
 	public static MediaAsset reserve(
@@ -184,7 +204,75 @@ public class MediaAsset {
 			throw new IllegalStateException("only ready media can clear its temporary object");
 		}
 		this.temporaryObjectKey = null;
+		clearCleanupState();
 		this.updatedAt = Instant.now();
+	}
+
+	public boolean claimCleanup(String leaseToken, Instant now, Duration leaseDuration) {
+		if (leaseToken == null || leaseToken.isBlank()) {
+			throw new IllegalArgumentException("cleanup lease token is required");
+		}
+		if (leaseDuration == null || leaseDuration.isZero() || leaseDuration.isNegative()) {
+			throw new IllegalArgumentException("cleanup lease duration must be positive");
+		}
+		if (cleanupNextAttemptAt != null && cleanupNextAttemptAt.isAfter(now)) {
+			return false;
+		}
+		if (cleanupLeaseExpiresAt != null && cleanupLeaseExpiresAt.isAfter(now)) {
+			return false;
+		}
+		cleanupLeaseToken = leaseToken;
+		cleanupLeaseExpiresAt = now.plus(leaseDuration);
+		updatedAt = now;
+		return true;
+	}
+
+	public void recordCleanupFailure(
+		String leaseToken,
+		Instant failedAt,
+		Instant nextAttemptAt,
+		String failureCode
+	) {
+		requireCleanupLease(leaseToken);
+		if (nextAttemptAt == null || !nextAttemptAt.isAfter(failedAt)) {
+			throw new IllegalArgumentException("cleanup next attempt must follow failure");
+		}
+		if (failureCode == null || failureCode.isBlank() || failureCode.length() > 40) {
+			throw new IllegalArgumentException("cleanup failure code is invalid");
+		}
+		cleanupAttemptCount = Math.addExact(cleanupAttemptCount, 1);
+		cleanupLastFailedAt = failedAt;
+		cleanupNextAttemptAt = nextAttemptAt;
+		cleanupFailureCode = failureCode;
+		cleanupLeaseToken = null;
+		cleanupLeaseExpiresAt = null;
+		updatedAt = failedAt;
+	}
+
+	public boolean ownsCleanupLease(String leaseToken) {
+		return cleanupLeaseToken != null && cleanupLeaseToken.equals(leaseToken);
+	}
+
+	public void releaseCleanupLease(String leaseToken, Instant now) {
+		requireCleanupLease(leaseToken);
+		cleanupLeaseToken = null;
+		cleanupLeaseExpiresAt = null;
+		updatedAt = now;
+	}
+
+	private void clearCleanupState() {
+		cleanupAttemptCount = 0;
+		cleanupNextAttemptAt = null;
+		cleanupLastFailedAt = null;
+		cleanupFailureCode = null;
+		cleanupLeaseToken = null;
+		cleanupLeaseExpiresAt = null;
+	}
+
+	private void requireCleanupLease(String leaseToken) {
+		if (!ownsCleanupLease(leaseToken)) {
+			throw new IllegalStateException("cleanup lease does not match");
+		}
 	}
 
 	public void markFailed(String reason) {
@@ -239,4 +327,10 @@ public class MediaAsset {
 	public Integer height() { return height; }
 	public Long outputByteSize() { return outputByteSize; }
 	public String outputSha256() { return outputSha256; }
+	public int cleanupAttemptCount() { return cleanupAttemptCount; }
+	public Instant cleanupNextAttemptAt() { return cleanupNextAttemptAt; }
+	public Instant cleanupLastFailedAt() { return cleanupLastFailedAt; }
+	public String cleanupFailureCode() { return cleanupFailureCode; }
+	public String cleanupLeaseToken() { return cleanupLeaseToken; }
+	public Instant cleanupLeaseExpiresAt() { return cleanupLeaseExpiresAt; }
 }

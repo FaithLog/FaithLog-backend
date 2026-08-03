@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -18,6 +19,9 @@ public class MediaAssetCleanupService {
 
 	private static final int BATCH_SIZE = 100;
 	private static final Duration ORPHAN_RETENTION = Duration.ofHours(24);
+	private static final Duration CLEANUP_LEASE_TTL = Duration.ofMinutes(5);
+	private static final Duration MAX_RETRY_BACKOFF = Duration.ofHours(24);
+	private static final String STORAGE_DELETE_FAILURE = "STORAGE_DELETE_FAILED";
 
 	private final MediaAssetRepositoryPort repository;
 	private final MediaObjectStoragePort storage;
@@ -50,6 +54,9 @@ public class MediaAssetCleanupService {
 			try {
 				snapshot.objectKeys().forEach(storage::deleteObject);
 			} catch (RuntimeException exception) {
+				Instant failedAt = clock.instant();
+				transactionTemplate.executeWithoutResult(
+					status -> recordFailure(snapshot, failedAt, orphanedBefore));
 				continue;
 			}
 			Boolean deleted = transactionTemplate.execute(status -> deleteIfUnchanged(snapshot, now, orphanedBefore));
@@ -61,14 +68,34 @@ public class MediaAssetCleanupService {
 	}
 
 	private CleanupSnapshot claim(Long assetId, Instant now, Instant orphanedBefore) {
+		String leaseToken = UUID.randomUUID().toString();
 		return repository.findByIdForUpdate(assetId)
 			.filter(asset -> eligible(asset, now, orphanedBefore))
-			.map(asset -> new CleanupSnapshot(asset.id(), asset.status(), objectKeys(asset)))
+			.filter(asset -> asset.claimCleanup(leaseToken, now, CLEANUP_LEASE_TTL))
+			.map(asset -> new CleanupSnapshot(asset.id(), asset.status(), objectKeys(asset), leaseToken))
 			.orElse(null);
+	}
+
+	private void recordFailure(CleanupSnapshot snapshot, Instant failedAt, Instant orphanedBefore) {
+		repository.findByIdForUpdate(snapshot.assetId()).ifPresent(asset -> {
+			if (!asset.ownsCleanupLease(snapshot.leaseToken())) {
+				return;
+			}
+			if (asset.status() != snapshot.status()
+				|| !eligible(asset, failedAt, orphanedBefore)
+				|| !Objects.equals(objectKeys(asset), snapshot.objectKeys())) {
+				asset.releaseCleanupLease(snapshot.leaseToken(), failedAt);
+				return;
+			}
+			Duration backoff = retryBackoff(asset.cleanupAttemptCount());
+			asset.recordCleanupFailure(
+				snapshot.leaseToken(), failedAt, failedAt.plus(backoff), STORAGE_DELETE_FAILURE);
+		});
 	}
 
 	private boolean deleteIfUnchanged(CleanupSnapshot snapshot, Instant now, Instant orphanedBefore) {
 		return repository.findByIdForUpdate(snapshot.assetId())
+			.filter(asset -> asset.ownsCleanupLease(snapshot.leaseToken()))
 			.filter(asset -> asset.status() == snapshot.status())
 			.filter(asset -> eligible(asset, now, orphanedBefore))
 			.filter(asset -> Objects.equals(objectKeys(asset), snapshot.objectKeys()))
@@ -81,6 +108,12 @@ public class MediaAssetCleanupService {
 				return true;
 			})
 			.orElse(false);
+	}
+
+	private Duration retryBackoff(int previousAttemptCount) {
+		int shift = Math.min(previousAttemptCount, 11);
+		long minutes = Math.min(1L << shift, MAX_RETRY_BACKOFF.toMinutes());
+		return Duration.ofMinutes(minutes);
 	}
 
 	private boolean eligible(MediaAsset asset, Instant now, Instant orphanedBefore) {
@@ -108,7 +141,12 @@ public class MediaAssetCleanupService {
 			.toList();
 	}
 
-	private record CleanupSnapshot(Long assetId, MediaAssetStatus status, List<String> objectKeys) {
+	private record CleanupSnapshot(
+		Long assetId,
+		MediaAssetStatus status,
+		List<String> objectKeys,
+		String leaseToken
+	) {
 		private CleanupSnapshot {
 			objectKeys = List.copyOf(objectKeys);
 		}
