@@ -58,3 +58,6 @@ CREATE TABLE yearly_recap_campuses (
 
 CREATE INDEX idx_yearly_recap_campuses_snapshot
     ON yearly_recap_campuses (yearly_recap_snapshot_id, campus_id);
+
+ALTER TABLE yearly_recap_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE yearly_recap_campuses ENABLE ROW LEVEL SECURITY;
