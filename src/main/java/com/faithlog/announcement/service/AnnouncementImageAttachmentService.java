@@ -29,7 +29,7 @@ public class AnnouncementImageAttachmentService {
 		}
 		var existing = images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(announcementId);
 		var loaded = requested.isEmpty() ? List.<com.faithlog.media.domain.entity.MediaAsset>of()
-			: assets.findByCampusIdAndIdIn(campusId, requested);
+			: assets.findByCampusIdAndIdInForUpdate(campusId, requested);
 		var byId = new LinkedHashMap<Long, com.faithlog.media.domain.entity.MediaAsset>();
 		loaded.forEach(asset -> byId.put(asset.id(), asset));
 		if (byId.size() != requested.size() || requested.stream().anyMatch(id -> {

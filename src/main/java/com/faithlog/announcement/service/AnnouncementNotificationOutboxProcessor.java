@@ -47,7 +47,7 @@ public class AnnouncementNotificationOutboxProcessor {
 			.filter(userId -> !userId.equals(outbox.authorId()))
 			.distinct()
 			.toList();
-		notificationRequestCommandService.requestAutomaticNotification(new AutomaticNotificationRequestCommand(
+		notificationRequestCommandService.requestRequiredAutomaticNotification(new AutomaticNotificationRequestCommand(
 			outbox.campusId(),
 			NotificationType.ANNOUNCEMENT_PUBLISHED,
 			null,

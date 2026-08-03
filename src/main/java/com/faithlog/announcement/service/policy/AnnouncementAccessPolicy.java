@@ -33,9 +33,6 @@ public class AnnouncementAccessPolicy {
 
 	public void requireActiveMember(Long campusId, Long requesterId) {
 		CampusUserLookupResult requester = campusAccessPolicy.getActiveUser(requesterId);
-		if (requester.isAdmin()) {
-			return;
-		}
 		CampusMember membership = campusMemberRepository.findByCampusIdAndUserId(campusId, requester.userId())
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.ANNOUNCEMENT_ACCESS_FORBIDDEN));

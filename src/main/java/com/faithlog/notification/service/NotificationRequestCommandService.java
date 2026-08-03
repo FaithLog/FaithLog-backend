@@ -25,6 +25,7 @@ import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import java.util.LinkedHashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +34,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class NotificationRequestCommandService {
@@ -90,20 +93,50 @@ public class NotificationRequestCommandService {
 
 	@Transactional
 	public int requestAutomaticNotification(AutomaticNotificationRequestCommand command) {
+		return requestAutomaticNotification(command, false, new ArrayList<>());
+	}
+
+	@Transactional
+	public int requestRequiredAutomaticNotification(AutomaticNotificationRequestCommand command) {
+		List<NotificationDeduplicationReservation> reservations = new ArrayList<>();
+		registerRequiredReservationRollback(reservations);
+		try {
+			return requestAutomaticNotification(command, true, reservations);
+		} catch (RuntimeException exception) {
+			reservations.forEach(notificationDeduplicationService::releaseRequiredNotification);
+			reservations.clear();
+			throw exception;
+		}
+	}
+
+	private int requestAutomaticNotification(
+		AutomaticNotificationRequestCommand command,
+		boolean required,
+		List<NotificationDeduplicationReservation> reservations
+	) {
 		UUID requestId = UUID.randomUUID();
 		int queuedCount = 0;
 		int createdCount = 0;
 		Set<Long> activeTokenUserIds = findActiveTokenUserIds(command.targetUserIds());
 		for (Long targetUserId : command.targetUserIds()) {
-			boolean reserved = notificationDeduplicationService.reserveDailyAutomaticNotification(
-				new NotificationDeduplicationCommand(
+			NotificationDeduplicationCommand deduplicationCommand = new NotificationDeduplicationCommand(
 					command.notificationType(),
 					command.campusId(),
 					command.scopeId(),
 					targetUserId,
 					command.businessDate()
-				)
-			);
+				);
+			boolean reserved;
+			if (required) {
+				var reservation = notificationDeduplicationService
+					.reserveDailyRequiredNotification(deduplicationCommand)
+					.orElseThrow(() -> new IllegalStateException("required notification is already reserved"));
+				reservations.add(reservation);
+				reserved = true;
+			} else {
+				reserved = notificationDeduplicationService
+					.reserveDailyAutomaticNotification(deduplicationCommand);
+			}
 			if (!reserved) {
 				continue;
 			}
@@ -141,6 +174,20 @@ public class NotificationRequestCommandService {
 			notificationDispatchPort.dispatch(requestId);
 		}
 		return createdCount;
+	}
+
+	private void registerRequiredReservationRollback(List<NotificationDeduplicationReservation> reservations) {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			return;
+		}
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCompletion(int status) {
+				if (status != STATUS_COMMITTED) {
+					reservations.forEach(notificationDeduplicationService::releaseRequiredNotification);
+				}
+			}
+		});
 	}
 
 	private SendNotificationResult requestNotificationWithLock(SendNotificationCommand command) {

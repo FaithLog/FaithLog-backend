@@ -11,6 +11,7 @@ public interface MediaAssetRepositoryPort {
 	Optional<MediaAsset> findByCampusIdAndIdForUpdate(Long campusId, Long assetId);
 	Optional<MediaAsset> findByIdForUpdate(Long assetId);
 	List<MediaAsset> findByCampusIdAndIdIn(Long campusId, List<Long> assetIds);
+	List<MediaAsset> findByCampusIdAndIdInForUpdate(Long campusId, List<Long> assetIds);
 	List<Long> findCleanupCandidateIds(Instant expiresAt, Instant orphanedBefore, int limit);
 	void delete(MediaAsset asset);
 }
