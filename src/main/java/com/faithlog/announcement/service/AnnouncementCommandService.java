@@ -85,7 +85,9 @@ public class AnnouncementCommandService {
 	public AnnouncementResult updateAnnouncement(UpdateAnnouncementCommand command) {
 		accessPolicy.requireManager(command.campusId(), command.requesterId());
 		Announcement announcement = requireAnnouncementForUpdate(command.campusId(), command.announcementId());
-		AnnouncementCategory category = requireActiveCategory(command.campusId(), command.categoryId());
+		AnnouncementCategory category = announcement.categoryId().equals(command.categoryId())
+			? requireCategory(command.campusId(), command.categoryId())
+			: requireActiveCategory(command.campusId(), command.categoryId());
 		try {
 			announcement.update(
 				command.categoryId(), command.title(), command.content(), command.pinned(), command.publishAt(), clock.instant());
@@ -104,7 +106,7 @@ public class AnnouncementCommandService {
 	public AnnouncementResult publishAnnouncement(Long campusId, Long announcementId, Long requesterId) {
 		accessPolicy.requireManager(campusId, requesterId);
 		Announcement announcement = requireAnnouncementForUpdate(campusId, announcementId);
-		AnnouncementCategory category = requireActiveCategory(campusId, announcement.categoryId());
+		AnnouncementCategory category = requireCategory(campusId, announcement.categoryId());
 		try {
 			announcement.publish(clock.instant());
 		} catch (IllegalStateException exception) {
@@ -126,12 +128,16 @@ public class AnnouncementCommandService {
 	}
 
 	private AnnouncementCategory requireActiveCategory(Long campusId, Long categoryId) {
-		AnnouncementCategory category = categoryRepository.findByCampusIdAndId(campusId, categoryId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_NOT_FOUND));
+		AnnouncementCategory category = requireCategory(campusId, categoryId);
 		if (!category.isActive()) {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_INACTIVE);
 		}
 		return category;
+	}
+
+	private AnnouncementCategory requireCategory(Long campusId, Long categoryId) {
+		return categoryRepository.findByCampusIdAndId(campusId, categoryId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_NOT_FOUND));
 	}
 
 	private java.util.List<Long> imageAssetIds(Long announcementId) {
