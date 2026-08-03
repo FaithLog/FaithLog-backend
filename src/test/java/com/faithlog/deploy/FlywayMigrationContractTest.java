@@ -283,6 +283,19 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
+	void v14EnforcesAnnouncementImageCampusOwnershipWithCompositeForeignKeys() throws IOException {
+		String sql = Files.readString(ANNOUNCEMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"CONSTRAINT uk_media_assets_campus_id_id UNIQUE (campus_id, id)",
+			"CREATE TABLE announcement_images",
+			"campus_id BIGINT NOT NULL",
+			"FOREIGN KEY (campus_id, announcement_id) REFERENCES announcements (campus_id, id)",
+			"FOREIGN KEY (campus_id, media_asset_id) REFERENCES media_assets (campus_id, id)"
+		);
+	}
+
+	@Test
 	void v12MigrationAddsOnlyPlanProvenPerformanceIndexes() throws IOException {
 		assertThat(PERFORMANCE_QUERY_INDEX_MIGRATION).exists();
 		String sql = Files.readString(PERFORMANCE_QUERY_INDEX_MIGRATION);

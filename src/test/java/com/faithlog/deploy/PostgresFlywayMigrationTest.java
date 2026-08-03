@@ -65,6 +65,7 @@ class PostgresFlywayMigrationTest {
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
 		assertAnnouncementNotificationTypeBoundary(jdbcUrl, username, password);
+		assertCrossCampusAnnouncementImageRejected(jdbcUrl, username, password);
 	}
 
 	@Test
@@ -89,6 +90,7 @@ class PostgresFlywayMigrationTest {
 
 		assertThat(v14.migrate().success).isTrue();
 		assertAnnouncementNotificationTypeBoundary(jdbcUrl, username, password);
+		assertCrossCampusAnnouncementImageRejected(jdbcUrl, username, password);
 	}
 
 	@Test
@@ -309,6 +311,53 @@ class PostgresFlywayMigrationTest {
 					+ "values (" + userId + ", 'UNAPPROVED_TYPE', 'title', 'body', 'PENDING', now())"))
 				.isInstanceOf(java.sql.SQLException.class)
 				.hasMessageContaining("ck_notification_logs_type");
+		}
+	}
+
+	private static void assertCrossCampusAnnouncementImageRejected(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+			long suffix = Math.abs(java.util.UUID.randomUUID().getMostSignificantBits());
+			long userId = insertAndReturnId(connection,
+				"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
+					+ "values ('tenant-user', 'tenant-" + suffix
+					+ "@example.com', 'hash', 'USER', true, 0, now(), now()) returning id");
+			long announcementCampusId = insertAndReturnId(connection,
+				"insert into campuses (name, invite_code, is_active, created_at, updated_at) values "
+					+ "('announcement-campus', 'announcement-" + suffix + "', true, now(), now()) returning id");
+			long mediaCampusId = insertAndReturnId(connection,
+				"insert into campuses (name, invite_code, is_active, created_at, updated_at) values "
+					+ "('media-campus', 'media-" + suffix + "', true, now(), now()) returning id");
+			long categoryId = insertAndReturnId(connection,
+				"insert into announcement_categories (campus_id, name, color, display_order, is_active) values ("
+					+ announcementCampusId + ", 'tenant-category', '#3B82F6', 0, true) returning id");
+			long announcementId = insertAndReturnId(connection,
+				"insert into announcements (campus_id, category_id, author_id, title, content, is_pinned, status, "
+					+ "publish_at, published_at) values (" + announcementCampusId + ", " + categoryId + ", "
+					+ userId + ", 'tenant-title', 'tenant-content', false, 'PUBLISHED', now(), now()) returning id");
+			long mediaAssetId = insertAndReturnId(connection,
+				"insert into media_assets (campus_id, owner_user_id, input_content_type, input_byte_size, "
+					+ "expected_sha256, thumbnail_object_key, detail_object_key, output_sha256, width, height, "
+					+ "output_byte_size, status, expires_at) values (" + mediaCampusId + ", " + userId
+					+ ", 'image/jpeg', 10, '" + "a".repeat(64) + "', 'tenant/" + suffix
+					+ "/thumb', 'tenant/" + suffix + "/detail', '" + "b".repeat(64)
+					+ "', 100, 100, 20, 'READY', now() + interval '1 day') returning id");
+
+			try (Statement statement = connection.createStatement()) {
+				assertThatThrownBy(() -> statement.executeUpdate(
+					"insert into announcement_images (campus_id, announcement_id, media_asset_id, display_order) "
+						+ "values (" + announcementCampusId + ", " + announcementId + ", " + mediaAssetId + ", 0)"))
+					.isInstanceOf(java.sql.SQLException.class)
+					.hasMessageContaining("fk_announcement_images_media_asset");
+			}
+		}
+	}
+
+	private static long insertAndReturnId(Connection connection, String sql) throws Exception {
+		try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
+			assertThat(result.next()).isTrue();
+			return result.getLong(1);
 		}
 	}
 
