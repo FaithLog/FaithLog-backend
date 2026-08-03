@@ -16,8 +16,8 @@ import org.springframework.stereotype.Component;
 public class ThumbnailatorImageVariantProcessor implements ImageVariantProcessorPort {
 
 	private static final int MAX_DIMENSION = 4096;
-	private static final int THUMBNAIL_MAX_WIDTH = 480;
-	private static final int DETAIL_MAX_WIDTH = 1600;
+	private static final int THUMBNAIL_MAX_DIMENSION = 480;
+	private static final int DETAIL_MAX_DIMENSION = 1600;
 
 	@Override
 	public ProcessedVariants process(byte[] source, String declaredContentType) {
@@ -48,8 +48,8 @@ public class ThumbnailatorImageVariantProcessor implements ImageVariantProcessor
 					throw new IllegalArgumentException("image dimensions are invalid");
 				}
 				BufferedImage decoded = reader.read(0);
-				BufferedImage thumbnail = resize(decoded, THUMBNAIL_MAX_WIDTH);
-				BufferedImage detail = resize(decoded, DETAIL_MAX_WIDTH);
+				BufferedImage thumbnail = resize(decoded, THUMBNAIL_MAX_DIMENSION);
+				BufferedImage detail = resize(decoded, DETAIL_MAX_DIMENSION);
 				return new ProcessedVariants(
 					encodeJpeg(thumbnail),
 					encodeJpeg(detail),
@@ -71,11 +71,14 @@ public class ThumbnailatorImageVariantProcessor implements ImageVariantProcessor
 		}
 	}
 
-	private BufferedImage resize(BufferedImage source, int maxWidth) throws Exception {
-		if (source.getWidth() <= maxWidth) {
+	private BufferedImage resize(BufferedImage source, int maxDimension) throws Exception {
+		int longestDimension = Math.max(source.getWidth(), source.getHeight());
+		if (longestDimension <= maxDimension) {
 			return Thumbnails.of(source).scale(1.0).asBufferedImage();
 		}
-		return Thumbnails.of(source).width(maxWidth).asBufferedImage();
+		return Thumbnails.of(source)
+			.scale((double) maxDimension / longestDimension)
+			.asBufferedImage();
 	}
 
 	private byte[] encodeJpeg(BufferedImage image) throws Exception {
