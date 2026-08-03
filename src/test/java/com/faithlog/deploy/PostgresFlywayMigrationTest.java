@@ -66,6 +66,8 @@ class PostgresFlywayMigrationTest {
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
 		assertAnnouncementNotificationTypeBoundary(jdbcUrl, username, password);
 		assertCrossCampusAnnouncementImageRejected(jdbcUrl, username, password);
+		assertPollNotificationTypeBoundary(jdbcUrl, username, password);
+		assertCrossCampusPollImageRejected(jdbcUrl, username, password);
 	}
 
 	@Test
@@ -91,6 +93,32 @@ class PostgresFlywayMigrationTest {
 		assertThat(v14.migrate().success).isTrue();
 		assertAnnouncementNotificationTypeBoundary(jdbcUrl, username, password);
 		assertCrossCampusAnnouncementImageRejected(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v16UpgradeAddsPollNoticeImagesAndOpenNotificationTypes() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway beforeV16 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("14")
+			.load();
+
+		beforeV16.clean();
+		assertThat(beforeV16.migrate().success).isTrue();
+		Flyway v16 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.load();
+
+		assertThat(v16.migrate().success).isTrue();
+		assertColumnExists(jdbcUrl, username, password, "polls", "notice");
+		assertPollNotificationTypeBoundary(jdbcUrl, username, password);
+		assertCrossCampusPollImageRejected(jdbcUrl, username, password);
 	}
 
 	@Test
@@ -327,6 +355,38 @@ class PostgresFlywayMigrationTest {
 		}
 	}
 
+	private static void assertPollNotificationTypeBoundary(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+			String suffix = java.util.UUID.randomUUID().toString();
+			long userId = insertUser(connection, "poll-notification-user", "poll-notification-" + suffix + "@example.com");
+			long campusId = insertCampus(connection, "poll-notification-campus", "poll-notification-" + suffix);
+
+			insertNotificationLog(connection, java.util.UUID.randomUUID(), userId, campusId, "MEAL_POLL_OPEN");
+			insertNotificationLog(connection, java.util.UUID.randomUUID(), userId, campusId, "CUSTOM_POLL_OPEN");
+		}
+	}
+
+	private static void assertCrossCampusPollImageRejected(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+			String suffix = java.util.UUID.randomUUID().toString();
+			long userId = insertUser(connection, "poll-tenant-user", "poll-tenant-" + suffix + "@example.com");
+			long pollCampusId = insertCampus(connection, "poll-campus", "poll-" + suffix);
+			long mediaCampusId = insertCampus(connection, "poll-media-campus", "poll-media-" + suffix);
+			long pollId = insertPoll(connection, pollCampusId, userId);
+			long mediaAssetId = insertReadyMediaAsset(connection, mediaCampusId, userId, suffix);
+
+			assertThatThrownBy(() -> insertPollImage(connection, pollCampusId, pollId, mediaAssetId))
+				.isInstanceOfSatisfying(java.sql.SQLException.class, exception -> {
+					assertThat(exception.getSQLState()).isEqualTo("23503");
+					assertThat(exception.getMessage()).contains("fk_poll_images_media_asset");
+				});
+		}
+	}
+
 	private static long insertUser(Connection connection, String name, String email) throws Exception {
 		try (PreparedStatement statement = connection.prepareStatement(
 			"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
@@ -387,6 +447,32 @@ class PostgresFlywayMigrationTest {
 			statement.setLong(2, categoryId);
 			statement.setLong(3, userId);
 			return returnedId(statement);
+		}
+	}
+
+	private static long insertPoll(Connection connection, long campusId, long userId) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into polls (campus_id, title, poll_type, selection_type, is_anonymous, allow_user_option_add, "
+				+ "charge_generation_type, starts_at, ends_at, status, created_by, created_at, updated_at) "
+				+ "values (?, 'tenant-poll', 'CUSTOM', 'SINGLE', false, false, 'NONE', now(), now() + interval '1 hour', "
+				+ "'OPEN', ?, now(), now()) returning id"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, userId);
+			return returnedId(statement);
+		}
+	}
+
+	private static void insertPollImage(
+		Connection connection, long campusId, long pollId, long mediaAssetId
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into poll_images (campus_id, poll_id, media_asset_id, display_order) values (?, ?, ?, 0)"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, pollId);
+			statement.setLong(3, mediaAssetId);
+			statement.executeUpdate();
 		}
 	}
 

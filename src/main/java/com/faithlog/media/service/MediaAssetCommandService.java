@@ -1,6 +1,5 @@
 package com.faithlog.media.service;
 
-import com.faithlog.announcement.service.policy.AnnouncementAccessPolicy;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.domain.entity.MediaAsset;
@@ -9,6 +8,7 @@ import com.faithlog.media.service.port.ImageVariantProcessorPort;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
 import com.faithlog.media.service.port.MediaUploadRateLimitPort;
+import com.faithlog.media.service.policy.MediaAssetAccessPolicy;
 import com.faithlog.media.service.result.MediaAssetResult;
 import com.faithlog.media.service.result.MediaUploadReservationResult;
 import java.security.MessageDigest;
@@ -30,7 +30,7 @@ public class MediaAssetCommandService {
 	private final MediaObjectStoragePort storage;
 	private final ImageVariantProcessorPort imageProcessor;
 	private final MediaUploadRateLimitPort rateLimit;
-	private final AnnouncementAccessPolicy accessPolicy;
+	private final MediaAssetAccessPolicy accessPolicy;
 	private final TransactionTemplate transactionTemplate;
 	private final Clock clock;
 
@@ -39,7 +39,7 @@ public class MediaAssetCommandService {
 		MediaObjectStoragePort storage,
 		ImageVariantProcessorPort imageProcessor,
 		MediaUploadRateLimitPort rateLimit,
-		AnnouncementAccessPolicy accessPolicy,
+		MediaAssetAccessPolicy accessPolicy,
 		PlatformTransactionManager transactionManager,
 		Clock clock
 	) {
@@ -55,7 +55,7 @@ public class MediaAssetCommandService {
 	public MediaUploadReservationResult reserve(
 		Long campusId, Long requesterId, String contentType, long byteSize, String sha256
 	) {
-		accessPolicy.requireManager(campusId, requesterId);
+		accessPolicy.requireUploadPermission(campusId, requesterId);
 		if (!rateLimit.acquire(campusId, requesterId)) {
 			throw new BusinessException(ErrorCode.MEDIA_UPLOAD_RATE_LIMITED);
 		}
@@ -72,7 +72,7 @@ public class MediaAssetCommandService {
 	}
 
 	public MediaAssetResult complete(Long campusId, Long assetId, Long requesterId) {
-		accessPolicy.requireManager(campusId, requesterId);
+		accessPolicy.requireUploadPermission(campusId, requesterId);
 		FinalizeSnapshot snapshot = transactionTemplate.execute(status -> claim(campusId, assetId, requesterId));
 		if (snapshot.readyResult() != null) {
 			deleteTemporaryOriginal(campusId, assetId, snapshot.temporaryKey());

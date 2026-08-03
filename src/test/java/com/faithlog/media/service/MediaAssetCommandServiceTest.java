@@ -13,7 +13,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.faithlog.announcement.service.policy.AnnouncementAccessPolicy;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.media.domain.entity.MediaAsset;
 import com.faithlog.media.domain.type.MediaAssetStatus;
@@ -21,6 +20,7 @@ import com.faithlog.media.service.port.ImageVariantProcessorPort;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
 import com.faithlog.media.service.port.MediaUploadRateLimitPort;
+import com.faithlog.media.service.policy.MediaAssetAccessPolicy;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
@@ -47,7 +47,7 @@ class MediaAssetCommandServiceTest {
 	@Mock private MediaObjectStoragePort storage;
 	@Mock private ImageVariantProcessorPort imageProcessor;
 	@Mock private MediaUploadRateLimitPort rateLimit;
-	@Mock private AnnouncementAccessPolicy accessPolicy;
+	@Mock private MediaAssetAccessPolicy accessPolicy;
 	@Mock private PlatformTransactionManager transactionManager;
 	@Mock private TransactionStatus transactionStatus;
 	private MediaAssetCommandService service;

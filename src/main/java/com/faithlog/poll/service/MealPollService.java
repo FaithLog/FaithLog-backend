@@ -14,11 +14,13 @@ import com.faithlog.poll.service.command.CreateMealPollOptionCommand;
 import com.faithlog.poll.service.result.PollResult;
 import java.time.Instant;
 import java.time.Clock;
+import com.faithlog.poll.service.port.PollPublishedEventPort;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -30,14 +32,19 @@ public class MealPollService {
 	private final PollOptionRepository pollOptionRepository;
 	private final PollResultAssembler pollResultAssembler;
 	private final Clock clock;
+	private final PollPublishedEventPort publishedEvents;
+	private final PollImageAttachmentService imageAttachmentService;
 
+	@Autowired
 	public MealPollService(
 		MealDutyAccessService mealDutyAccessService,
 		PollRepository pollRepository,
 		PollLookupSupport pollLookupSupport,
 		PollOptionRepository pollOptionRepository,
 		PollResultAssembler pollResultAssembler,
-		Clock clock
+		Clock clock,
+		PollPublishedEventPort publishedEvents,
+		PollImageAttachmentService imageAttachmentService
 	) {
 		this.mealDutyAccessService = mealDutyAccessService;
 		this.pollRepository = pollRepository;
@@ -45,6 +52,21 @@ public class MealPollService {
 		this.pollOptionRepository = pollOptionRepository;
 		this.pollResultAssembler = pollResultAssembler;
 		this.clock = clock;
+		this.publishedEvents = publishedEvents;
+		this.imageAttachmentService = imageAttachmentService;
+	}
+
+	public MealPollService(
+		MealDutyAccessService mealDutyAccessService,
+		PollRepository pollRepository,
+		PollLookupSupport pollLookupSupport,
+		PollOptionRepository pollOptionRepository,
+		PollResultAssembler pollResultAssembler,
+		Clock clock,
+		PollPublishedEventPort publishedEvents
+	) {
+		this(mealDutyAccessService, pollRepository, pollLookupSupport, pollOptionRepository,
+			pollResultAssembler, clock, publishedEvents, null);
 	}
 
 	@Transactional
@@ -58,16 +80,21 @@ public class MealPollService {
 		Poll poll = pollRepository.save(Poll.createMeal(
 			command.campusId(),
 			command.title().trim(),
+			command.notice(),
 			command.isAnonymous(),
 			command.allowUserOptionAdd(),
 			now,
 			command.endsAt(),
 			command.requesterId()
 		));
+		publishedEvents.recordOpened(poll, now);
 		pollOptionRepository.saveAll(command.options().stream()
 			.sorted(java.util.Comparator.comparingInt(CreateMealPollOptionCommand::sortOrder))
 			.map(option -> PollOption.create(poll.id(), option.content().trim(), null, 0, option.sortOrder()))
 			.toList());
+		if (imageAttachmentService != null) {
+			imageAttachmentService.replace(poll.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
+		}
 		return pollResultAssembler.toResult(poll);
 	}
 

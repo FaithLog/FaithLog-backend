@@ -8,6 +8,9 @@ import java.time.Instant;
 public record MealPollManagementListItemResponse(
 	Long id,
 	String title,
+	boolean hasNotice,
+	boolean hasImages,
+	Long thumbnailAssetId,
 	PollStatus status,
 	Instant startsAt,
 	Instant endsAt,
@@ -16,7 +19,8 @@ public record MealPollManagementListItemResponse(
 
 	public static MealPollManagementListItemResponse from(MealPollManagementListItemResult result) {
 		return new MealPollManagementListItemResponse(
-			result.id(), result.title(), result.status(), result.startsAt(), result.endsAt(), result.settlementStatus()
+			result.id(), result.title(), result.hasNotice(), result.hasImages(), result.thumbnailAssetId(),
+			result.status(), result.startsAt(), result.endsAt(), result.settlementStatus()
 		);
 	}
 }

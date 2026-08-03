@@ -35,6 +35,9 @@ class FlywayMigrationContractTest {
 	private static final Path ANNOUNCEMENT_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V14__add_campus_announcements_and_media.sql"
 	);
+	private static final Path POLL_NOTICE_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V16__add_poll_notice_images_and_notification_outbox.sql"
+	);
 	private static final Path POSTGRES_MIGRATION_TEST = Path.of(
 		"src/test/java/com/faithlog/deploy/PostgresFlywayMigrationTest.java"
 	);
@@ -314,6 +317,27 @@ class FlywayMigrationContractTest {
 			"connection.createStatement()",
 			"insertAndReturnId(Connection connection, String sql)"
 		);
+	}
+
+	@Test
+	void v16AddsPollNoticeImagesTenantKeysAndDurablePublicationOutbox() throws IOException {
+		assertThat(POLL_NOTICE_MIGRATION).exists();
+		String sql = Files.readString(POLL_NOTICE_MIGRATION);
+
+		assertThat(sql).contains(
+			"ADD COLUMN notice TEXT",
+			"char_length(notice) BETWEEN 1 AND 5000",
+			"CREATE TABLE poll_notification_outbox",
+			"UNIQUE (poll_id)",
+			"CREATE TABLE poll_images",
+			"FOREIGN KEY (campus_id, poll_id) REFERENCES polls (campus_id, id)",
+			"FOREIGN KEY (campus_id, media_asset_id) REFERENCES media_assets (campus_id, id)",
+			"UNIQUE (media_asset_id)",
+			"'MEAL_POLL_OPEN'",
+			"'CUSTOM_POLL_OPEN'",
+			"ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql.toLowerCase()).doesNotContain("delete from polls", "update polls");
 	}
 
 	@Test

@@ -12,6 +12,9 @@ import com.faithlog.poll.controller.dto.response.PollResponse;
 import com.faithlog.poll.service.MealPollService;
 import com.faithlog.poll.service.MealPollSettlementService;
 import com.faithlog.poll.service.MealPollManagementQueryService;
+import com.faithlog.poll.service.PollNoticeCommandService;
+import com.faithlog.poll.service.command.UpdatePollNoticeCommand;
+import com.faithlog.poll.controller.dto.request.UpdatePollNoticeRequest;
 import com.faithlog.poll.domain.type.PollStatus;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -37,15 +40,31 @@ public class MealPollController {
 	private final MealPollService mealPollService;
 	private final MealPollSettlementService mealPollSettlementService;
 	private final MealPollManagementQueryService mealPollManagementQueryService;
+	private final PollNoticeCommandService pollNoticeCommandService;
 
 	public MealPollController(
 		MealPollService mealPollService,
 		MealPollSettlementService mealPollSettlementService,
-		MealPollManagementQueryService mealPollManagementQueryService
+		MealPollManagementQueryService mealPollManagementQueryService,
+		PollNoticeCommandService pollNoticeCommandService
 	) {
 		this.mealPollService = mealPollService;
 		this.mealPollSettlementService = mealPollSettlementService;
 		this.mealPollManagementQueryService = mealPollManagementQueryService;
+		this.pollNoticeCommandService = pollNoticeCommandService;
+	}
+
+	@PatchMapping("/{pollId}/notice")
+	public ApiResponse<PollResponse> updatePollNotice(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@PathVariable Long pollId,
+		@Valid @RequestBody UpdatePollNoticeRequest request
+	) {
+		return ApiResponse.success(PollResponse.from(pollNoticeCommandService.updateMealPoll(
+			new UpdatePollNoticeCommand(campusId, pollId, authenticatedUser.userId(), request.title(), request.notice(),
+				request.imageAssetIds())
+		)));
 	}
 
 	@PostMapping

@@ -14,6 +14,7 @@ public record PollDetailResponse(
 	Long campusId,
 	Long templateId,
 	String title,
+	String notice,
 	PollType pollType,
 	SelectionType selectionType,
 	boolean isAnonymous,
@@ -26,7 +27,8 @@ public record PollDetailResponse(
 	PollStatus status,
 	boolean manageableByMe,
 	List<PollOptionResponse> options,
-	PollMyResponseResponse myResponse
+	PollMyResponseResponse myResponse,
+	List<Long> imageAssetIds
 ) {
 
 	public static PollDetailResponse from(PollDetailResult result) {
@@ -35,6 +37,7 @@ public record PollDetailResponse(
 			result.poll().campusId(),
 			result.poll().templateId(),
 			result.poll().title(),
+			result.poll().notice(),
 			result.poll().pollType(),
 			result.poll().selectionType(),
 			result.poll().isAnonymous(),
@@ -47,7 +50,8 @@ public record PollDetailResponse(
 			result.poll().status(),
 			result.manageableByMe(),
 			result.poll().options().stream().map(PollOptionResponse::from).toList(),
-			PollMyResponseResponse.from(result.myResponse())
+			PollMyResponseResponse.from(result.myResponse()),
+			result.poll().imageAssetIds()
 		);
 	}
 }

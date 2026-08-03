@@ -34,6 +34,9 @@ public class Poll {
 	@Column(nullable = false, length = 200)
 	private String title;
 
+	@Column(columnDefinition = "text")
+	private String notice;
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "poll_type", nullable = false, length = 40)
 	private PollType pollType;
@@ -85,6 +88,7 @@ public class Poll {
 		Long campusId,
 		Long templateId,
 		String title,
+		String notice,
 		PollType pollType,
 		SelectionType selectionType,
 		boolean isAnonymous,
@@ -99,6 +103,7 @@ public class Poll {
 		this.campusId = campusId;
 		this.templateId = templateId;
 		this.title = title;
+		this.notice = normalizeNotice(notice);
 		this.pollType = pollType;
 		this.selectionType = selectionType;
 		this.isAnonymous = isAnonymous;
@@ -127,10 +132,31 @@ public class Poll {
 		Instant endsAt,
 		Long createdBy
 	) {
+		return create(campusId, templateId, title, null, pollType, selectionType, isAnonymous,
+			allowUserOptionAdd, chargeGenerationType, paymentCategory, paymentAccountId, startsAt, endsAt, createdBy);
+	}
+
+	public static Poll create(
+		Long campusId,
+		Long templateId,
+		String title,
+		String notice,
+		PollType pollType,
+		SelectionType selectionType,
+		boolean isAnonymous,
+		boolean allowUserOptionAdd,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory,
+		Long paymentAccountId,
+		Instant startsAt,
+		Instant endsAt,
+		Long createdBy
+	) {
 		return new Poll(
 			campusId,
 			templateId,
 			title,
+			notice,
 			pollType,
 			selectionType,
 			isAnonymous,
@@ -153,10 +179,24 @@ public class Poll {
 		Instant endsAt,
 		Long createdBy
 	) {
+		return createMeal(campusId, title, null, isAnonymous, allowUserOptionAdd, now, endsAt, createdBy);
+	}
+
+	public static Poll createMeal(
+		Long campusId,
+		String title,
+		String notice,
+		boolean isAnonymous,
+		boolean allowUserOptionAdd,
+		Instant now,
+		Instant endsAt,
+		Long createdBy
+	) {
 		Poll poll = new Poll(
 			campusId,
 			null,
 			title,
+			notice,
 			PollType.MEAL,
 			SelectionType.SINGLE,
 			isAnonymous,
@@ -204,6 +244,14 @@ public class Poll {
 
 	public String title() {
 		return title;
+	}
+
+	public String notice() {
+		return notice;
+	}
+
+	public boolean hasNotice() {
+		return notice != null;
 	}
 
 	public PollType pollType() {
@@ -267,5 +315,25 @@ public class Poll {
 		if (closedAt.isBefore(this.endsAt)) {
 			this.endsAt = closedAt;
 		}
+	}
+
+	public void updateTitleAndNotice(String title, String notice) {
+		String normalizedTitle = title == null ? null : title.trim();
+		if (normalizedTitle == null || normalizedTitle.isEmpty() || normalizedTitle.length() > 200) {
+			throw new IllegalArgumentException("Poll title must contain between 1 and 200 characters");
+		}
+		this.title = normalizedTitle;
+		this.notice = normalizeNotice(notice);
+	}
+
+	private static String normalizeNotice(String notice) {
+		if (notice == null || notice.isBlank()) {
+			return null;
+		}
+		String normalized = notice.trim();
+		if (normalized.length() > 5_000) {
+			throw new IllegalArgumentException("Poll notice must not exceed 5000 characters");
+		}
+		return normalized;
 	}
 }

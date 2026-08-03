@@ -23,6 +23,9 @@ public interface AnnouncementImageRepository extends JpaRepository<AnnouncementI
 		@Param("assetIds") List<Long> assetIds
 	);
 
+	@Query("select image.mediaAssetId from AnnouncementImage image where image.mediaAssetId in :assetIds")
+	List<Long> findAttachedAssetIds(@Param("assetIds") List<Long> assetIds);
+
 	@Query("""
 		select image.mediaAssetId from AnnouncementImage image
 		join Announcement announcement on announcement.id = image.announcementId

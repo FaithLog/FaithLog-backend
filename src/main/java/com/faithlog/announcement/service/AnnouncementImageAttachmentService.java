@@ -6,20 +6,34 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.domain.type.MediaAssetStatus;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
+import com.faithlog.poll.infrastructure.repository.PollImageRepository;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public class AnnouncementImageAttachmentService {
 	private static final int VALIDATION_BATCH_SIZE = 100;
 	private final AnnouncementImageRepository images;
 	private final MediaAssetRepositoryPort assets;
+	private final PollImageRepository pollImages;
+
+	@Autowired
+	public AnnouncementImageAttachmentService(
+		AnnouncementImageRepository images,
+		MediaAssetRepositoryPort assets,
+		PollImageRepository pollImages
+	) {
+		this.images = images;
+		this.assets = assets;
+		this.pollImages = pollImages;
+	}
 
 	public AnnouncementImageAttachmentService(AnnouncementImageRepository images, MediaAssetRepositoryPort assets) {
-		this.images = images; this.assets = assets;
+		this(images, assets, null);
 	}
 
 	public void replace(Long announcementId, Long campusId, Long ownerId, List<Long> orderedAssetIds) {
@@ -36,6 +50,9 @@ public class AnnouncementImageAttachmentService {
 			List<Long> batch = sortedIds.subList(start, Math.min(start + VALIDATION_BATCH_SIZE, sortedIds.size()));
 			loaded.addAll(assets.findByCampusIdAndIdInForUpdate(campusId, batch));
 			conflictingIds.addAll(images.findAttachedAssetIdsForOtherAnnouncements(announcementId, batch));
+			if (pollImages != null) {
+				conflictingIds.addAll(pollImages.findAttachedAssetIds(batch));
+			}
 		}
 		var byId = new LinkedHashMap<Long, com.faithlog.media.domain.entity.MediaAsset>();
 		loaded.forEach(asset -> byId.put(asset.id(), asset));

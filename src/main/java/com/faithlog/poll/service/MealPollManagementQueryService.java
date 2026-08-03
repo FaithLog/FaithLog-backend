@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -45,6 +46,30 @@ public class MealPollManagementQueryService {
 	private final MealPollSettlementRepository settlementRepository;
 	private final MealPollChargeGroupRepository chargeGroupRepository;
 	private final Clock clock;
+	private final PollImageAttachmentService imageAttachmentService;
+
+	@Autowired
+	public MealPollManagementQueryService(
+		MealDutyAccessService mealDutyAccessService,
+		PollRepository pollRepository,
+		PollOptionRepository pollOptionRepository,
+		PollResponseRepository pollResponseRepository,
+		PollResponseOptionRepository pollResponseOptionRepository,
+		MealPollSettlementRepository settlementRepository,
+		MealPollChargeGroupRepository chargeGroupRepository,
+		Clock clock,
+		PollImageAttachmentService imageAttachmentService
+	) {
+		this.mealDutyAccessService = mealDutyAccessService;
+		this.pollRepository = pollRepository;
+		this.pollOptionRepository = pollOptionRepository;
+		this.pollResponseRepository = pollResponseRepository;
+		this.pollResponseOptionRepository = pollResponseOptionRepository;
+		this.settlementRepository = settlementRepository;
+		this.chargeGroupRepository = chargeGroupRepository;
+		this.clock = clock;
+		this.imageAttachmentService = imageAttachmentService;
+	}
 
 	public MealPollManagementQueryService(
 		MealDutyAccessService mealDutyAccessService,
@@ -56,14 +81,8 @@ public class MealPollManagementQueryService {
 		MealPollChargeGroupRepository chargeGroupRepository,
 		Clock clock
 	) {
-		this.mealDutyAccessService = mealDutyAccessService;
-		this.pollRepository = pollRepository;
-		this.pollOptionRepository = pollOptionRepository;
-		this.pollResponseRepository = pollResponseRepository;
-		this.pollResponseOptionRepository = pollResponseOptionRepository;
-		this.settlementRepository = settlementRepository;
-		this.chargeGroupRepository = chargeGroupRepository;
-		this.clock = clock;
+		this(mealDutyAccessService, pollRepository, pollOptionRepository, pollResponseRepository,
+			pollResponseOptionRepository, settlementRepository, chargeGroupRepository, clock, null);
 	}
 
 	@Transactional(readOnly = true)
@@ -87,7 +106,10 @@ public class MealPollManagementQueryService {
 		);
 		Set<Long> chargedPollIds = settlementRepository.findByPollIdIn(polls.getContent().stream().map(Poll::id).toList())
 			.stream().map(MealPollSettlement::pollId).collect(Collectors.toSet());
-		return polls.map(poll -> MealPollManagementListItemResult.of(poll, chargedPollIds.contains(poll.id())));
+		var imagesByPoll = imageAttachmentService == null ? Map.<Long, List<Long>>of()
+			: imageAttachmentService.getOrderedAssetIdsByPollIds(polls.getContent().stream().map(Poll::id).toList());
+		return polls.map(poll -> MealPollManagementListItemResult.of(
+			poll, chargedPollIds.contains(poll.id()), imagesByPoll.getOrDefault(poll.id(), List.of())));
 	}
 
 	@Transactional(readOnly = true)
@@ -105,12 +127,13 @@ public class MealPollManagementQueryService {
 				.collect(Collectors.toMap(MealPollChargeGroup::optionId, group -> group));
 		boolean chargedByMe = settlement != null && settlement.chargedByUserId().equals(requesterId);
 		return new MealPollManagementDetailResult(
-			poll.id(), poll.campusId(), poll.title(), poll.pollType(), poll.selectionType(), poll.isAnonymous(),
+			poll.id(), poll.campusId(), poll.title(), poll.notice(), poll.pollType(), poll.selectionType(), poll.isAnonymous(),
 			poll.allowUserOptionAdd(), poll.startsAt(), poll.endsAt(), poll.status(),
 			options.stream().map(option -> new MealPollManagementOptionResult(
 				option.id(), option.content(), responseCounts.getOrDefault(option.id(), 0), option.userAdded(),
 				chargeResult(groups.get(option.id()), settlement, chargedByMe)
-			)).toList()
+			)).toList(),
+			imageAttachmentService == null ? List.of() : imageAttachmentService.getOrderedAssetIds(poll.id())
 		);
 	}
 
