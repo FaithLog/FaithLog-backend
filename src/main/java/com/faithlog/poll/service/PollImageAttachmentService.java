@@ -42,6 +42,9 @@ public class PollImageAttachmentService {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
 		List<PollImage> existing = images.findByPollIdOrderByDisplayOrderAscIdAsc(pollId);
+		HashSet<Long> existingAssetIds = existing.stream()
+			.map(PollImage::mediaAssetId)
+			.collect(Collectors.toCollection(HashSet::new));
 		List<Long> sortedIds = requested.stream().sorted().toList();
 		List<MediaAsset> loaded = new ArrayList<>();
 		HashSet<Long> conflictingIds = new HashSet<>();
@@ -55,7 +58,9 @@ public class PollImageAttachmentService {
 		loaded.forEach(asset -> byId.put(asset.id(), asset));
 		if (byId.size() != requested.size() || requested.stream().anyMatch(id -> {
 			MediaAsset asset = byId.get(id);
-			return asset == null || asset.status() != MediaAssetStatus.READY || !asset.ownerUserId().equals(ownerId);
+			return asset == null
+				|| asset.status() != MediaAssetStatus.READY
+				|| (!existingAssetIds.contains(id) && !asset.ownerUserId().equals(ownerId));
 		})) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
