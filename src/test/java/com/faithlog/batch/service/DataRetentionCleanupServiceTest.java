@@ -55,6 +55,7 @@ import com.faithlog.prayer.infrastructure.repository.PrayerWeekRepository;
 import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -63,13 +64,18 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -153,6 +159,12 @@ class DataRetentionCleanupServiceTest {
 	private JdbcTemplate jdbcTemplate;
 
 	@Autowired
+	private EntityManager entityManager;
+
+	@Autowired
+	private PlatformTransactionManager transactionManager;
+
+	@Autowired
 	private InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
 
 	@AfterEach
@@ -229,28 +241,55 @@ class DataRetentionCleanupServiceTest {
 	}
 
 	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	void cleanupDaily_fails_before_partial_orphan_or_delete_when_attached_media_is_not_ready() {
-		User user = saveUser("retention-poll-invalid-media-user@example.com");
-		Campus campus = saveCampus("retention-poll-invalid-media");
-		Poll expired = savePoll(campus.id(), DAILY_NOW.minusSeconds(31L * 24 * 60 * 60));
-		MediaAsset ready = saveReadyMediaAsset(campus.id(), user.id(), "ready-before-failure");
-		MediaAsset orphaned = saveReadyMediaAsset(campus.id(), user.id(), "invalid-orphaned");
-		orphaned.markOrphaned(DAILY_NOW.minusSeconds(60));
-		mediaAssetRepository.saveAndFlush(orphaned);
-		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), ready.id(), 0));
-		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), orphaned.id(), 1));
-		pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
-			expired.id(), campus.id(), user.id(), PollType.CUSTOM, expired.title(), expired.endsAt()));
+		RetentionFailureGraph graph = inNewTransaction(() -> {
+			User user = saveUser("retention-poll-invalid-media-user@example.com");
+			Campus campus = saveCampus("retention-poll-invalid-media");
+			Poll expired = savePoll(campus.id(), DAILY_NOW.minusSeconds(31L * 24 * 60 * 60));
+			MediaAsset ready = saveReadyMediaAsset(campus.id(), user.id(), "ready-before-failure");
+			MediaAsset orphaned = saveReadyMediaAsset(campus.id(), user.id(), "invalid-orphaned");
+			orphaned.markOrphaned(DAILY_NOW.minusSeconds(60));
+			mediaAssetRepository.saveAndFlush(orphaned);
+			pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), ready.id(), 0));
+			pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), orphaned.id(), 1));
+			pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
+				expired.id(), campus.id(), user.id(), PollType.CUSTOM, expired.title(), expired.endsAt()));
+			return new RetentionFailureGraph(
+				user.id(), campus.id(), expired.id(), ready.id(), orphaned.id());
+		});
 
-		org.assertj.core.api.Assertions.assertThatThrownBy(
-			() -> dataRetentionCleanupService.cleanupDaily(DAILY_NOW))
-			.isInstanceOf(IllegalStateException.class);
+		try {
+			org.assertj.core.api.Assertions.assertThatThrownBy(
+				() -> dataRetentionCleanupService.cleanupDaily(DAILY_NOW))
+				.isInstanceOf(IllegalStateException.class);
 
-		assertThat(ready.status()).isEqualTo(MediaAssetStatus.READY);
-		assertThat(orphaned.status()).isEqualTo(MediaAssetStatus.ORPHANED);
-		assertThat(pollRepository.findById(expired.id())).isPresent();
-		assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(expired.id())).hasSize(2);
-		assertThat(pollNotificationOutboxRepository.existsByPollId(expired.id())).isTrue();
+			inNewTransaction(() -> {
+				entityManager.clear();
+				assertThat(mediaAssetRepository.findById(graph.readyAssetId()).orElseThrow().status())
+					.isEqualTo(MediaAssetStatus.READY);
+				assertThat(mediaAssetRepository.findById(graph.orphanedAssetId()).orElseThrow().status())
+					.isEqualTo(MediaAssetStatus.ORPHANED);
+				assertThat(pollRepository.findById(graph.pollId())).isPresent();
+				assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(graph.pollId()))
+					.hasSize(2);
+				assertThat(pollNotificationOutboxRepository.existsByPollId(graph.pollId())).isTrue();
+				return null;
+			});
+		} finally {
+			inNewTransaction(() -> {
+				jdbcTemplate.update("delete from poll_images where poll_id = ?", graph.pollId());
+				jdbcTemplate.update("delete from poll_notification_outbox where poll_id = ?", graph.pollId());
+				jdbcTemplate.update("delete from polls where id = ?", graph.pollId());
+				jdbcTemplate.update(
+					"delete from media_assets where id in (?, ?)",
+					graph.readyAssetId(),
+					graph.orphanedAssetId());
+				jdbcTemplate.update("delete from campuses where id = ?", graph.campusId());
+				jdbcTemplate.update("delete from users where id = ?", graph.userId());
+				return null;
+			});
+		}
 	}
 
 	@Test
@@ -599,7 +638,22 @@ class DataRetentionCleanupServiceTest {
 		jdbcTemplate.update("update " + tableName + " set created_at = ? where id = ?", Instant.parse(createdAt), id);
 	}
 
+	private <T> T inNewTransaction(Supplier<T> supplier) {
+		TransactionTemplate template = new TransactionTemplate(transactionManager);
+		template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		return template.execute(status -> supplier.get());
+	}
+
 	private record PollGraph(Long pollId, Long optionId, Long responseId, Long responseOptionId, Long commentId) {
+	}
+
+	private record RetentionFailureGraph(
+		Long userId,
+		Long campusId,
+		Long pollId,
+		Long readyAssetId,
+		Long orphanedAssetId
+	) {
 	}
 
 	private record SettledMealPollGraph(
