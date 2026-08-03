@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.faithlog.media.domain.entity.MediaAsset;
+import com.faithlog.media.domain.type.MediaAssetStatus;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
 import java.time.Clock;
@@ -105,6 +106,60 @@ class MediaAssetCleanupServiceTest {
 		verify(storage).deleteObject("media/5/thumbnail.jpg");
 		verify(storage).deleteObject("media/5/detail.jpg");
 		verify(repository).delete(failed);
+	}
+
+	@Test
+	void cleanup_recovers_stale_processing_with_all_planned_keys_after_hard_crash() {
+		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
+		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(6L));
+		MediaAsset processing = processingAsset(6L, NOW.minusSeconds(86_401));
+		when(repository.findByIdForUpdate(6L)).thenReturn(Optional.of(processing));
+		MediaAssetCleanupService service = new MediaAssetCleanupService(
+			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThat(service.cleanupBatch()).isEqualTo(1);
+		assertThat(processing.status()).isEqualTo(MediaAssetStatus.FAILED);
+		verify(storage).deleteObject("temporary/6/original");
+		verify(storage).deleteObject("media/6/thumbnail.jpg");
+		verify(storage).deleteObject("media/6/detail.jpg");
+		verify(repository).delete(processing);
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> processing.complete(
+			"media/6/thumbnail.jpg", "media/6/detail.jpg", 100, 100, 20, "b".repeat(64)))
+			.isInstanceOf(IllegalStateException.class);
+	}
+
+	@Test
+	void cleanup_never_claims_active_processing() {
+		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
+		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(7L));
+		MediaAsset processing = processingAsset(7L, NOW.minusSeconds(86_399));
+		when(repository.findByIdForUpdate(7L)).thenReturn(Optional.of(processing));
+		MediaAssetCleanupService service = new MediaAssetCleanupService(
+			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThat(service.cleanupBatch()).isZero();
+		assertThat(processing.status()).isEqualTo(MediaAssetStatus.PROCESSING);
+		verify(storage, never()).deleteObject(org.mockito.ArgumentMatchers.anyString());
+		verify(repository, never()).delete(processing);
+	}
+
+	@Test
+	void stale_processing_storage_failure_uses_generic_retry_metadata_without_provider_detail() {
+		when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(transactionStatus);
+		when(repository.findCleanupCandidateIds(NOW, NOW.minusSeconds(86_400), 100)).thenReturn(List.of(8L));
+		MediaAsset processing = processingAsset(8L, NOW.minusSeconds(86_401));
+		when(repository.findByIdForUpdate(8L)).thenReturn(Optional.of(processing));
+		doThrow(new IllegalStateException("provider bucket and object detail"))
+			.when(storage).deleteObject("temporary/8/original");
+		MediaAssetCleanupService service = new MediaAssetCleanupService(
+			repository, storage, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThat(service.cleanupBatch()).isZero();
+		assertThat(processing.status()).isEqualTo(MediaAssetStatus.FAILED);
+		assertThat(processing.cleanupAttemptCount()).isEqualTo(1);
+		assertThat(processing.cleanupNextAttemptAt()).isEqualTo(NOW.plusSeconds(60));
+		assertThat(processing.cleanupFailureCode()).isEqualTo("STORAGE_DELETE_FAILED");
+		assertThat(processing.cleanupFailureCode()).doesNotContain("provider", "bucket", "object");
 	}
 
 	@Test
@@ -213,6 +268,16 @@ class MediaAssetCleanupServiceTest {
 		MediaAsset asset = MediaAsset.reserve(7L, 11L, "image/jpeg", 10, "a".repeat(64),
 			"temporary/" + id + "/original", NOW.minusSeconds(1));
 		ReflectionTestUtils.setField(asset, "id", id);
+		return asset;
+	}
+
+	private MediaAsset processingAsset(Long id, Instant updatedAt) {
+		MediaAsset asset = MediaAsset.reserve(7L, 11L, "image/jpeg", 10, "a".repeat(64),
+			"temporary/" + id + "/original", NOW.minusSeconds(1));
+		ReflectionTestUtils.setField(asset, "id", id);
+		asset.startProcessing();
+		asset.recordProcessingObjectKeys("media/" + id + "/thumbnail.jpg", "media/" + id + "/detail.jpg");
+		ReflectionTestUtils.setField(asset, "updatedAt", updatedAt);
 		return asset;
 	}
 

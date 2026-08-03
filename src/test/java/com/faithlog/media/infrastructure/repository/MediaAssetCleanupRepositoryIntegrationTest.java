@@ -62,4 +62,32 @@ class MediaAssetCleanupRepositoryIntegrationTest {
 		assertThat(repository.findCleanupCandidateIds(
 			NOW.plusSeconds(300), NOW.minus(Duration.ofHours(24)), 100)).containsExactly(asset.id());
 	}
+
+	@Test
+	void stale_processing_is_selected_but_active_processing_is_not() {
+		MediaAsset stale = processingAsset("stale");
+		MediaAsset active = processingAsset("active");
+		repository.saveAllAndFlush(List.of(stale, active));
+		org.springframework.test.util.ReflectionTestUtils.setField(
+			stale, "updatedAt", NOW.minus(Duration.ofHours(24)).minusNanos(1));
+		org.springframework.test.util.ReflectionTestUtils.setField(
+			active, "updatedAt", NOW.minus(Duration.ofHours(24)).plusNanos(1));
+		repository.flush();
+
+		assertThat(repository.findCleanupCandidateIds(
+			NOW, NOW.minus(Duration.ofHours(24)), 100))
+			.contains(stale.id())
+			.doesNotContain(active.id());
+	}
+
+	private MediaAsset processingAsset(String suffix) {
+		MediaAsset asset = MediaAsset.reserve(
+			7L, 11L, "image/jpeg", 10, (suffix.equals("stale") ? "a" : "b").repeat(64),
+			"temporary/repository/processing/" + suffix, NOW.minusSeconds(1));
+		asset.startProcessing();
+		asset.recordProcessingObjectKeys(
+			"media/repository/processing/" + suffix + "/thumbnail.jpg",
+			"media/repository/processing/" + suffix + "/detail.jpg");
+		return asset;
+	}
 }
