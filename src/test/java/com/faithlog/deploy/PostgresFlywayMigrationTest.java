@@ -71,7 +71,7 @@ class PostgresFlywayMigrationTest {
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
-		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("15"));
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("16"));
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
@@ -118,7 +118,7 @@ class PostgresFlywayMigrationTest {
 			.dataSource(jdbcUrl, username, password)
 			.cleanDisabled(false)
 			.locations("classpath:db/migration")
-			.target("14")
+			.target("15")
 			.load();
 
 		beforeV16.clean();
