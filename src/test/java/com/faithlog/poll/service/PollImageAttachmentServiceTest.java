@@ -13,7 +13,7 @@ import com.faithlog.media.domain.entity.MediaAsset;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.poll.domain.entity.PollImage;
 import com.faithlog.poll.infrastructure.repository.PollImageRepository;
-import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
+import com.faithlog.poll.service.port.AnnouncementMediaAttachmentPort;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +28,7 @@ class PollImageAttachmentServiceTest {
 
 	@Mock private PollImageRepository images;
 	@Mock private MediaAssetRepositoryPort assets;
-	@Mock private AnnouncementImageRepository announcementImages;
+	@Mock private AnnouncementMediaAttachmentPort announcementImages;
 	private PollImageAttachmentService service;
 
 	@BeforeEach

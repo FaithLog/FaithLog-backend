@@ -1,10 +1,9 @@
 package com.faithlog.media.service.policy;
 
-import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
-import com.faithlog.announcement.service.policy.AnnouncementAccessPolicy;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
-import com.faithlog.poll.service.policy.PollMediaAccessPolicy;
+import com.faithlog.media.service.port.AnnouncementMediaAccessPort;
+import com.faithlog.media.service.port.PollMediaAccessPort;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -13,17 +12,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class MediaAssetAccessPolicy {
 
-	private final AnnouncementAccessPolicy announcements;
-	private final AnnouncementImageRepository announcementImages;
-	private final PollMediaAccessPolicy polls;
+	private final AnnouncementMediaAccessPort announcements;
+	private final PollMediaAccessPort polls;
 
 	public MediaAssetAccessPolicy(
-		AnnouncementAccessPolicy announcements,
-		AnnouncementImageRepository announcementImages,
-		PollMediaAccessPolicy polls
+		AnnouncementMediaAccessPort announcements,
+		PollMediaAccessPort polls
 	) {
 		this.announcements = announcements;
-		this.announcementImages = announcementImages;
 		this.polls = polls;
 	}
 
@@ -38,8 +34,7 @@ public class MediaAssetAccessPolicy {
 			return Set.copyOf(assetIds);
 		}
 		announcements.requireActiveMember(campusId, requesterId);
-		HashSet<Long> readable = new HashSet<>(
-			announcementImages.findPublishedAttachedAssetIds(campusId, assetIds));
+		HashSet<Long> readable = new HashSet<>(announcements.findPublishedAttachedAssetIds(campusId, assetIds));
 		readable.addAll(polls.readableAttachedAssetIds(campusId, requesterId, assetIds));
 		return Set.copyOf(readable);
 	}
@@ -49,14 +44,6 @@ public class MediaAssetAccessPolicy {
 	}
 
 	private boolean isAnnouncementManager(Long campusId, Long requesterId) {
-		try {
-			announcements.requireManager(campusId, requesterId);
-			return true;
-		} catch (BusinessException exception) {
-			if (exception.errorCode() != ErrorCode.ANNOUNCEMENT_MANAGE_FORBIDDEN) {
-				throw exception;
-			}
-			return false;
-		}
+		return announcements.canManage(campusId, requesterId);
 	}
 }

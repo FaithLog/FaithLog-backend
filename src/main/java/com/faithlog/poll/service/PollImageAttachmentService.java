@@ -7,7 +7,7 @@ import com.faithlog.media.domain.type.MediaAssetStatus;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.poll.domain.entity.PollImage;
 import com.faithlog.poll.infrastructure.repository.PollImageRepository;
-import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
+import com.faithlog.poll.service.port.AnnouncementMediaAttachmentPort;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -23,12 +23,12 @@ public class PollImageAttachmentService {
 
 	private final PollImageRepository images;
 	private final MediaAssetRepositoryPort assets;
-	private final AnnouncementImageRepository announcementImages;
+	private final AnnouncementMediaAttachmentPort announcementImages;
 
 	public PollImageAttachmentService(
 		PollImageRepository images,
 		MediaAssetRepositoryPort assets,
-		AnnouncementImageRepository announcementImages
+		AnnouncementMediaAttachmentPort announcementImages
 	) {
 		this.images = images;
 		this.assets = assets;

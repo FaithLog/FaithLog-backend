@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
+import com.faithlog.announcement.service.port.PollMediaAttachmentPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.domain.entity.MediaAsset;
@@ -26,11 +27,12 @@ class AnnouncementImageAttachmentServiceTest {
 
 	@Mock private AnnouncementImageRepository images;
 	@Mock private MediaAssetRepositoryPort assets;
+	@Mock private PollMediaAttachmentPort pollImages;
 	private AnnouncementImageAttachmentService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new AnnouncementImageAttachmentService(images, assets);
+		service = new AnnouncementImageAttachmentService(images, assets, pollImages);
 	}
 
 	@Test
