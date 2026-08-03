@@ -113,6 +113,7 @@ CREATE TABLE media_assets (
         FOREIGN KEY (campus_id) REFERENCES campuses (id),
     CONSTRAINT fk_media_assets_owner
         FOREIGN KEY (owner_user_id) REFERENCES users (id),
+    CONSTRAINT uk_media_assets_campus_id_id UNIQUE (campus_id, id),
     CONSTRAINT uk_media_assets_temporary_object_key UNIQUE (temporary_object_key),
     CONSTRAINT uk_media_assets_thumbnail_object_key UNIQUE (thumbnail_object_key),
     CONSTRAINT uk_media_assets_detail_object_key UNIQUE (detail_object_key),
@@ -137,14 +138,15 @@ CREATE INDEX idx_media_assets_orphan_cleanup
 
 CREATE TABLE announcement_images (
     id BIGSERIAL PRIMARY KEY,
+    campus_id BIGINT NOT NULL,
     announcement_id BIGINT NOT NULL,
     media_asset_id BIGINT NOT NULL,
     display_order INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_announcement_images_announcement
-        FOREIGN KEY (announcement_id) REFERENCES announcements (id),
+        FOREIGN KEY (campus_id, announcement_id) REFERENCES announcements (campus_id, id),
     CONSTRAINT fk_announcement_images_media_asset
-        FOREIGN KEY (media_asset_id) REFERENCES media_assets (id),
+        FOREIGN KEY (campus_id, media_asset_id) REFERENCES media_assets (campus_id, id),
     CONSTRAINT uk_announcement_images_media_asset UNIQUE (media_asset_id),
     CONSTRAINT uk_announcement_images_order UNIQUE (announcement_id, display_order)
         DEFERRABLE INITIALLY IMMEDIATE,

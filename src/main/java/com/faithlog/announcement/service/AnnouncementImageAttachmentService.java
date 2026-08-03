@@ -56,7 +56,7 @@ public class AnnouncementImageAttachmentService {
 		images.deleteByAnnouncementId(announcementId);
 		images.flush();
 		for (int index = 0; index < requested.size(); index++) {
-			images.save(AnnouncementImage.create(announcementId, requested.get(index), index));
+			images.save(AnnouncementImage.create(campusId, announcementId, requested.get(index), index));
 		}
 	}
 
