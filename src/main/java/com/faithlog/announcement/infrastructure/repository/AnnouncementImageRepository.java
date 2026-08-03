@@ -11,7 +11,6 @@ public interface AnnouncementImageRepository extends JpaRepository<AnnouncementI
 	List<AnnouncementImage> findByAnnouncementIdInOrderByAnnouncementIdAscDisplayOrderAscIdAsc(
 		List<Long> announcementIds);
 	void deleteByAnnouncementId(Long announcementId);
-	boolean existsByMediaAssetIdAndAnnouncementIdNot(Long mediaAssetId, Long announcementId);
 
 	@Query("""
 		select image.mediaAssetId from AnnouncementImage image

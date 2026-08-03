@@ -67,9 +67,6 @@ class AnnouncementImageAttachmentServiceTest {
 		ordered.verify(images).deleteByAnnouncementId(101L);
 		ordered.verify(images).flush();
 		ordered.verify(images, org.mockito.Mockito.times(101)).save(org.mockito.ArgumentMatchers.any());
-		verify(images, org.mockito.Mockito.never())
-			.existsByMediaAssetIdAndAnnouncementIdNot(org.mockito.ArgumentMatchers.anyLong(),
-				org.mockito.ArgumentMatchers.anyLong());
 	}
 
 	private MediaAsset readyAsset(Long id, Long campusId, Long ownerId) {
