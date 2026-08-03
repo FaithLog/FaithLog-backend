@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class AnnouncementImageAttachmentService {
+	private static final int VALIDATION_BATCH_SIZE = 100;
 	private final AnnouncementImageRepository images;
 	private final MediaAssetRepositoryPort assets;
 
@@ -28,8 +29,14 @@ public class AnnouncementImageAttachmentService {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
 		var existing = images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(announcementId);
-		var loaded = requested.isEmpty() ? List.<com.faithlog.media.domain.entity.MediaAsset>of()
-			: assets.findByCampusIdAndIdInForUpdate(campusId, requested);
+		List<Long> sortedIds = requested.stream().sorted().toList();
+		var loaded = new java.util.ArrayList<com.faithlog.media.domain.entity.MediaAsset>();
+		var conflictingIds = new HashSet<Long>();
+		for (int start = 0; start < sortedIds.size(); start += VALIDATION_BATCH_SIZE) {
+			List<Long> batch = sortedIds.subList(start, Math.min(start + VALIDATION_BATCH_SIZE, sortedIds.size()));
+			loaded.addAll(assets.findByCampusIdAndIdInForUpdate(campusId, batch));
+			conflictingIds.addAll(images.findAttachedAssetIdsForOtherAnnouncements(announcementId, batch));
+		}
 		var byId = new LinkedHashMap<Long, com.faithlog.media.domain.entity.MediaAsset>();
 		loaded.forEach(asset -> byId.put(asset.id(), asset));
 		if (byId.size() != requested.size() || requested.stream().anyMatch(id -> {
@@ -38,14 +45,16 @@ public class AnnouncementImageAttachmentService {
 		})) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
-		if (requested.stream().anyMatch(id -> images.existsByMediaAssetIdAndAnnouncementIdNot(id, announcementId))) {
+		if (!conflictingIds.isEmpty()) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
 		}
-		existing.stream().filter(image -> !requested.contains(image.mediaAssetId())).forEach(image -> {
+		var requestedSet = new HashSet<>(requested);
+		existing.stream().filter(image -> !requestedSet.contains(image.mediaAssetId())).forEach(image -> {
 			var asset = assets.findByCampusIdAndIdForUpdate(campusId, image.mediaAssetId()).orElseThrow();
 			asset.markOrphaned();
 		});
 		images.deleteByAnnouncementId(announcementId);
+		images.flush();
 		for (int index = 0; index < requested.size(); index++) {
 			images.save(AnnouncementImage.create(announcementId, requested.get(index), index));
 		}

@@ -15,6 +15,17 @@ public interface AnnouncementImageRepository extends JpaRepository<AnnouncementI
 
 	@Query("""
 		select image.mediaAssetId from AnnouncementImage image
+		where image.announcementId <> :announcementId
+			and image.mediaAssetId in :assetIds
+		order by image.mediaAssetId
+		""")
+	List<Long> findAttachedAssetIdsForOtherAnnouncements(
+		@Param("announcementId") Long announcementId,
+		@Param("assetIds") List<Long> assetIds
+	);
+
+	@Query("""
+		select image.mediaAssetId from AnnouncementImage image
 		join Announcement announcement on announcement.id = image.announcementId
 		where announcement.campusId = :campusId
 			and announcement.status = com.faithlog.announcement.domain.type.AnnouncementStatus.PUBLISHED
