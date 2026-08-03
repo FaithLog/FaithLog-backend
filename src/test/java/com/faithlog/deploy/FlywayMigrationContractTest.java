@@ -33,7 +33,7 @@ class FlywayMigrationContractTest {
 		"src/main/resources/db/migration/V13__enforce_case_insensitive_user_email.sql"
 	);
 	private static final Path YEARLY_RECAP_MIGRATION = Path.of(
-		"src/main/resources/db/migration/V14__add_yearly_recap_snapshots.sql"
+		"src/main/resources/db/migration/V15__add_yearly_recap_snapshots.sql"
 	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
@@ -249,7 +249,7 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
-	void v14AddsImmutableYearlyRecapSnapshotSchema() throws IOException {
+	void v15AddsImmutableYearlyRecapSnapshotSchema() throws IOException {
 		assertThat(YEARLY_RECAP_MIGRATION).exists();
 		String sql = Files.readString(YEARLY_RECAP_MIGRATION);
 
