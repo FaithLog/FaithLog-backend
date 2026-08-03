@@ -11,6 +11,7 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.domain.entity.MediaAsset;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
+import com.faithlog.poll.domain.entity.PollImage;
 import com.faithlog.poll.infrastructure.repository.PollImageRepository;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
 import java.time.Instant;
@@ -57,6 +58,75 @@ class PollImageAttachmentServiceTest {
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_INVALID));
 
 		verify(images, never()).deleteByPollId(101L);
+	}
+
+	@Test
+	void meal_duty_editor_can_keep_and_reorder_images_uploaded_by_the_original_duty() {
+		PollImage first = PollImage.create(7L, 101L, 31L, 0);
+		PollImage second = PollImage.create(7L, 101L, 32L, 1);
+		when(images.findByPollIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of(first, second));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L, 32L)))
+			.thenReturn(List.of(readyAsset(31L, 7L, 11L), readyAsset(32L, 7L, 11L)));
+		when(images.findAttachedAssetIdsForOtherPolls(101L, List.of(31L, 32L))).thenReturn(List.of());
+		when(announcementImages.findAttachedAssetIds(List.of(31L, 32L))).thenReturn(List.of());
+
+		service.replace(101L, 7L, 12L, List.of(32L, 31L));
+
+		var captor = org.mockito.ArgumentCaptor.forClass(PollImage.class);
+		verify(images, org.mockito.Mockito.times(2)).save(captor.capture());
+		assertThat(captor.getAllValues()).extracting(PollImage::mediaAssetId).containsExactly(32L, 31L);
+		verify(assets, never()).findByCampusIdAndIdForUpdate(
+			org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
+	}
+
+	@Test
+	void general_manager_can_keep_existing_other_owner_image_and_add_only_own_new_image() {
+		PollImage existing = PollImage.create(7L, 101L, 31L, 0);
+		when(images.findByPollIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of(existing));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L, 32L)))
+			.thenReturn(List.of(readyAsset(31L, 7L, 11L), readyAsset(32L, 7L, 12L)));
+		when(images.findAttachedAssetIdsForOtherPolls(101L, List.of(31L, 32L))).thenReturn(List.of());
+		when(announcementImages.findAttachedAssetIds(List.of(31L, 32L))).thenReturn(List.of());
+
+		service.replace(101L, 7L, 12L, List.of(31L, 32L));
+
+		var captor = org.mockito.ArgumentCaptor.forClass(PollImage.class);
+		verify(images, org.mockito.Mockito.times(2)).save(captor.capture());
+		assertThat(captor.getAllValues()).extracting(PollImage::mediaAssetId).containsExactly(31L, 32L);
+	}
+
+	@Test
+	void manager_cannot_add_an_unattached_image_owned_by_another_user() {
+		PollImage existing = PollImage.create(7L, 101L, 31L, 0);
+		when(images.findByPollIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of(existing));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L, 32L)))
+			.thenReturn(List.of(readyAsset(31L, 7L, 11L), readyAsset(32L, 7L, 11L)));
+		when(images.findAttachedAssetIdsForOtherPolls(101L, List.of(31L, 32L))).thenReturn(List.of());
+		when(announcementImages.findAttachedAssetIds(List.of(31L, 32L))).thenReturn(List.of());
+
+		assertThatThrownBy(() -> service.replace(101L, 7L, 12L, List.of(31L, 32L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_INVALID));
+
+		verify(images, never()).deleteByPollId(101L);
+	}
+
+	@Test
+	void removing_an_existing_other_owner_image_marks_only_the_removed_asset_orphaned() {
+		PollImage retained = PollImage.create(7L, 101L, 31L, 0);
+		PollImage removed = PollImage.create(7L, 101L, 32L, 1);
+		MediaAsset retainedAsset = readyAsset(31L, 7L, 11L);
+		MediaAsset removedAsset = readyAsset(32L, 7L, 11L);
+		when(images.findByPollIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of(retained, removed));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(retainedAsset));
+		when(images.findAttachedAssetIdsForOtherPolls(101L, List.of(31L))).thenReturn(List.of());
+		when(announcementImages.findAttachedAssetIds(List.of(31L))).thenReturn(List.of());
+		when(assets.findByCampusIdAndIdForUpdate(7L, 32L)).thenReturn(java.util.Optional.of(removedAsset));
+
+		service.replace(101L, 7L, 12L, List.of(31L));
+
+		assertThat(retainedAsset.status()).isEqualTo(com.faithlog.media.domain.type.MediaAssetStatus.READY);
+		assertThat(removedAsset.status()).isEqualTo(com.faithlog.media.domain.type.MediaAssetStatus.ORPHANED);
 	}
 
 	@Test
