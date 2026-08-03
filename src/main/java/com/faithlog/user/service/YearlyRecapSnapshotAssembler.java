@@ -14,6 +14,7 @@ import com.faithlog.user.service.result.YearlyRecapSnapshotData;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
+import java.util.TreeMap;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -60,9 +61,7 @@ public class YearlyRecapSnapshotAssembler {
 	}
 
 	private DevotionRecapResult assembleDevotion(DevotionRecapSource source) {
-		List<DevotionDailyActivity> activities = source.dailyActivities().stream()
-			.sorted(Comparator.comparing(DevotionDailyActivity::recordDate))
-			.toList();
+		List<DevotionDailyActivity> activities = mergeDailyActivities(source.dailyActivities());
 		int quietTimeCount = 0;
 		int bibleReadingCount = 0;
 		int prayerCount = 0;
@@ -97,6 +96,19 @@ public class YearlyRecapSnapshotAssembler {
 			longestStreak,
 			mostActiveMonth(activityByMonth)
 		);
+	}
+
+	private List<DevotionDailyActivity> mergeDailyActivities(List<DevotionDailyActivity> source) {
+		TreeMap<LocalDate, DevotionDailyActivity> byDate = new TreeMap<>();
+		for (DevotionDailyActivity activity : source) {
+			byDate.merge(activity.recordDate(), activity, (left, right) -> new DevotionDailyActivity(
+				left.recordDate(),
+				left.quietTimeChecked() || right.quietTimeChecked(),
+				left.bibleReadingChecked() || right.bibleReadingChecked(),
+				left.prayerChecked() || right.prayerChecked()
+			));
+		}
+		return List.copyOf(byDate.values());
 	}
 
 	private Integer mostActiveMonth(int[] activityByMonth) {
