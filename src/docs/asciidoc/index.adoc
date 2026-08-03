@@ -406,6 +406,46 @@ include::{snippets}/users-me-password-change-same-password/http-response.adoc[]
 
 include::{snippets}/users-me-password-change-same-password/response-fields.adoc[]
 
+=== Get Previous Year Recap
+
+`GET /api/v1/users/me/yearly-recaps/previous`
+
+서버의 `Clock`과 `Asia/Seoul`을 기준으로 직전 연도를 계산한다. 사용자별·연도별 첫 조회에서 집계를 snapshot으로 고정하므로 이후 원본 데이터가 변경되어도 같은 회고를 반환한다. 자동 표시 여부와 1월 1일부터 14일까지의 홈 카드 노출 여부는 서로 독립이며, 실제 화면 렌더가 끝나기 전에는 presented API를 호출하지 않는다. 응답에는 기도문, 투표 선택·메모·댓글 본문, 이메일, 결제 정보, JWT/session/device/FCM token이 포함되지 않는다.
+
+==== Request
+
+include::{snippets}/users-me-yearly-recap-previous/http-request.adoc[]
+
+==== Success Response
+
+include::{snippets}/users-me-yearly-recap-previous/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/users-me-yearly-recap-previous/response-fields.adoc[]
+
+=== Mark Previous Year Recap Presented
+
+`POST /api/v1/users/me/yearly-recaps/{recapYear}/presented`
+
+회고 화면이 실제 렌더된 뒤 호출한다. 현재 직전 연도만 허용하며 최초 표시 시각을 한 번만 저장한다. 같은 요청은 멱등 성공하고, 회고 데이터가 없는 사용자는 표시 row나 시각을 만들지 않는 멱등 no-op으로 처리한다.
+
+==== Request
+
+include::{snippets}/users-me-yearly-recap-presented/http-request.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/users-me-yearly-recap-presented/path-parameters.adoc[]
+
+==== Success Response
+
+include::{snippets}/users-me-yearly-recap-presented/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/users-me-yearly-recap-presented/response-fields.adoc[]
+
 === Delete My Account
 
 `DELETE /api/v1/users/me`

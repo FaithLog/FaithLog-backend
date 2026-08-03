@@ -26,6 +26,7 @@ public enum ErrorCode {
 	USER_DELETE_PASSWORD_MISMATCH(HttpStatus.BAD_REQUEST, "비밀번호가 일치하지 않습니다."),
 	USER_DELETE_CONFIRM_TEXT_INVALID(HttpStatus.BAD_REQUEST, "확인 문구가 일치하지 않습니다."),
 	USER_ALREADY_DELETED(HttpStatus.CONFLICT, "이미 탈퇴한 계정입니다."),
+	USER_YEARLY_RECAP_INVALID_YEAR(HttpStatus.BAD_REQUEST, "조회할 수 없는 회고 연도입니다."),
 
 	ADMIN_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "서비스 관리자 권한이 없습니다."),
 	ADMIN_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),

@@ -35,6 +35,9 @@ class FlywayMigrationContractTest {
 	private static final Path ANNOUNCEMENT_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V14__add_campus_announcements_and_media.sql"
 	);
+	private static final Path YEARLY_RECAP_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V15__add_yearly_recap_snapshots.sql"
+	);
 	private static final Path POLL_NOTICE_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V16__add_poll_notice_images_and_notification_outbox.sql"
 	);
@@ -338,6 +341,26 @@ class FlywayMigrationContractTest {
 			"ENABLE ROW LEVEL SECURITY"
 		);
 		assertThat(sql.toLowerCase()).doesNotContain("delete from polls", "update polls");
+	}
+
+	@Test
+	void v15AddsImmutableYearlyRecapSnapshotSchema() throws IOException {
+		assertThat(YEARLY_RECAP_MIGRATION).exists();
+		String sql = Files.readString(YEARLY_RECAP_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE TABLE yearly_recap_snapshots",
+			"CREATE TABLE yearly_recap_campuses",
+			"CONSTRAINT fk_yearly_recap_snapshots_user FOREIGN KEY (user_id) REFERENCES users (id)",
+			"CONSTRAINT fk_yearly_recap_campuses_snapshot FOREIGN KEY (yearly_recap_snapshot_id) "
+				+ "REFERENCES yearly_recap_snapshots (id)",
+			"CONSTRAINT uk_yearly_recap_snapshots_user_year UNIQUE (user_id, recap_year)",
+			"CONSTRAINT ck_yearly_recap_snapshots_counts CHECK",
+			"CONSTRAINT uk_yearly_recap_campuses_snapshot_campus UNIQUE",
+			"ALTER TABLE yearly_recap_snapshots ENABLE ROW LEVEL SECURITY",
+			"ALTER TABLE yearly_recap_campuses ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql).doesNotContain("CREATE INDEX idx_yearly_recap_campuses_snapshot");
 	}
 
 	@Test

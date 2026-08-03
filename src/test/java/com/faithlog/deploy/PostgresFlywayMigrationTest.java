@@ -3,17 +3,25 @@ package com.faithlog.deploy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.faithlog.user.service.YearlyRecapSnapshotService;
+import com.faithlog.user.service.policy.YearlyRecapPeriod;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 class PostgresFlywayMigrationTest {
 
@@ -59,6 +67,11 @@ class PostgresFlywayMigrationTest {
 		);
 		assertIndexExists(jdbcUrl, username, password, "campus_members", "idx_campus_members_user_id_id");
 		assertIndexExists(jdbcUrl, username, password, "users", "uk_users_email_lower");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
+		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
+		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("15"));
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
@@ -119,6 +132,43 @@ class PostgresFlywayMigrationTest {
 		assertColumnExists(jdbcUrl, username, password, "polls", "notice");
 		assertPollNotificationTypeBoundary(jdbcUrl, username, password);
 		assertCrossCampusPollImageRejected(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v15UpgradesIssue237V14WithoutChangingItsChecksum() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway issue237 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("14")
+			.load();
+
+		issue237.clean();
+		assertThat(issue237.migrate().success).isTrue();
+		assertThat(issue237.info().current()).isNotNull();
+		assertThat(issue237.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("14"));
+		Integer issue237Checksum = migrationChecksum(jdbcUrl, username, password, "14");
+		assertFlywayVersionMissing(jdbcUrl, username, password, "15");
+
+		Flyway issue236 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration")
+			.load();
+		MigrateResult result = issue236.migrate();
+
+		assertThat(result.success).isTrue();
+		assertThat(result.migrationsExecuted).isEqualTo(1);
+		assertThat(issue236.info().current()).isNotNull();
+		assertThat(issue236.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("15"));
+		assertThat(migrationChecksum(jdbcUrl, username, password, "14")).isEqualTo(issue237Checksum);
+		assertThat(migrationChecksum(jdbcUrl, username, password, "15")).isNotNull();
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
+		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
+		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 	}
 
 	@Test
@@ -275,6 +325,23 @@ class PostgresFlywayMigrationTest {
 			"select exists (select 1 from flyway_schema_history where version = ?)",
 			version
 		)).isFalse();
+	}
+
+	private static Integer migrationChecksum(
+		String jdbcUrl, String username, String password, String version
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement statement = connection.prepareStatement(
+				"select checksum from flyway_schema_history where version = ? and success"
+			)
+		) {
+			statement.setString(1, version);
+			try (ResultSet result = statement.executeQuery()) {
+				assertThat(result.next()).isTrue();
+				return result.getObject(1, Integer.class);
+			}
+		}
 	}
 
 	private static void assertLegacyInvalidChargePreserved(String jdbcUrl, String username, String password)
@@ -572,6 +639,128 @@ class PostgresFlywayMigrationTest {
 		);
 	}
 
+	private static void assertYearlyRecapSecurityAndIntegrity(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "yearly_recap_snapshots");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "yearly_recap_campuses");
+		assertConstraintExists(
+			jdbcUrl, username, password, "yearly_recap_snapshots", "fk_yearly_recap_snapshots_user"
+		);
+		assertConstraintExists(
+			jdbcUrl, username, password, "yearly_recap_campuses", "fk_yearly_recap_campuses_snapshot"
+		);
+		assertYearlyRecapOrphansRejected(jdbcUrl, username, password);
+		assertThat(queryCount(
+			jdbcUrl,
+			username,
+			password,
+			"select count(*) from pg_indexes where schemaname = 'public' "
+				+ "and tablename = 'yearly_recap_campuses' "
+				+ "and indexdef like '%(yearly_recap_snapshot_id, campus_id)%'"
+		)).isEqualTo(1L);
+	}
+
+	private static void assertYearlyRecapOrphansRejected(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement orphanSnapshot = connection.prepareStatement(
+				"insert into yearly_recap_snapshots (user_id, recap_year, has_recap_data, "
+					+ "devotion_quiet_time_count, devotion_bible_reading_count, devotion_prayer_count, "
+					+ "devotion_all_completed_day_count, devotion_submitted_week_count, "
+					+ "devotion_longest_streak_days, prayer_submitted_week_count, "
+					+ "prayer_participated_season_count, poll_participated_count, "
+					+ "poll_wed_service_count, poll_saturday_leader_count, poll_coffee_count, "
+					+ "poll_meal_count, poll_custom_count, poll_comment_count, created_at, updated_at) "
+					+ "values (9223372036854770000, 2025, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+					+ "0, 0, 0, 0, 0, 0, now(), now())"
+			);
+			PreparedStatement orphanCampus = connection.prepareStatement(
+				"insert into yearly_recap_campuses (yearly_recap_snapshot_id, campus_id, "
+					+ "campus_name, joined_date, joined_during_recap_year) "
+					+ "values (9223372036854770000, 1, 'orphan', date '2025-01-01', false)"
+			)
+		) {
+			assertThatThrownBy(orphanSnapshot::executeUpdate)
+				.isInstanceOf(java.sql.SQLException.class)
+				.hasFieldOrPropertyWithValue("SQLState", "23503")
+				.hasMessageContaining("fk_yearly_recap_snapshots_user");
+			assertThatThrownBy(orphanCampus::executeUpdate)
+				.isInstanceOf(java.sql.SQLException.class)
+				.hasFieldOrPropertyWithValue("SQLState", "23503")
+				.hasMessageContaining("fk_yearly_recap_campuses_snapshot");
+		}
+	}
+
+	private static void assertSixYearlyRecapQueriesShareOnePostgresSnapshot(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		Transactional transactional = AnnotatedElementUtils.findMergedAnnotation(
+			YearlyRecapSnapshotService.class.getDeclaredMethod(
+				"getOrCreate", Long.class, YearlyRecapPeriod.class
+			),
+			Transactional.class
+		);
+		assertThat(transactional).isNotNull();
+
+		try (
+			Connection reader = DriverManager.getConnection(jdbcUrl, username, password);
+			Connection writer = DriverManager.getConnection(jdbcUrl, username, password)
+		) {
+			reader.setAutoCommit(false);
+			if (transactional.isolation() != Isolation.DEFAULT) {
+				reader.setTransactionIsolation(transactional.isolation().value());
+			}
+			List<Long> observedCounts = new ArrayList<>();
+			observedCounts.add(queryUserCount(reader));
+			insertSnapshotIsolationUser(writer);
+			for (int query = 1; query < 6; query++) {
+				observedCounts.add(queryUserCount(reader));
+			}
+			reader.rollback();
+
+			assertThat(transactional.isolation()).isEqualTo(Isolation.REPEATABLE_READ);
+			assertThat(reader.getTransactionIsolation()).isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+			assertThat(observedCounts).containsOnly(observedCounts.getFirst());
+		}
+	}
+
+	private static long queryUserCount(Connection connection) throws Exception {
+		try (
+			PreparedStatement statement = connection.prepareStatement("select count(*) from users");
+			ResultSet resultSet = statement.executeQuery()
+		) {
+			assertThat(resultSet.next()).isTrue();
+			return resultSet.getLong(1);
+		}
+	}
+
+	private static void insertSnapshotIsolationUser(Connection connection) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
+				+ "values ('snapshot isolation', ?, 'hash', 'USER', true, 0, now(), now())"
+		)) {
+			statement.setString(1, "snapshot-isolation-" + UUID.randomUUID() + "@example.com");
+			statement.executeUpdate();
+		}
+	}
+
+	private static void assertRowLevelSecurityEnabled(
+		String jdbcUrl, String username, String password, String tableName
+	) throws Exception {
+		assertExists(
+			jdbcUrl,
+			username,
+			password,
+			"select coalesce((select c.relrowsecurity from pg_class c "
+				+ "join pg_namespace n on n.oid = c.relnamespace "
+				+ "where n.nspname = 'public' and c.relname = ?), false)",
+			tableName
+		);
+	}
+
 	private static void assertExists(String jdbcUrl, String username, String password, String sql, String... params)
 		throws Exception {
 		assertThat(exists(jdbcUrl, username, password, sql, params)).isTrue();
@@ -590,6 +779,17 @@ class PostgresFlywayMigrationTest {
 				assertThat(resultSet.next()).isTrue();
 				return resultSet.getBoolean(1);
 			}
+		}
+	}
+
+	private static long queryCount(String jdbcUrl, String username, String password, String sql) throws Exception {
+		try (
+			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			PreparedStatement statement = connection.prepareStatement(sql);
+			ResultSet resultSet = statement.executeQuery()
+		) {
+			assertThat(resultSet.next()).isTrue();
+			return resultSet.getLong(1);
 		}
 	}
 }
