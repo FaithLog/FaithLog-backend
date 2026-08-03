@@ -55,6 +55,10 @@ class AnnouncementControllerContractTest {
 		assertThat(validator.validate(new UpdateAnnouncementRequest(
 			1L, "제목", "a".repeat(5001), false, Instant.now().plusSeconds(60)))).isNotEmpty();
 		assertThat(validator.validate(new CreateAnnouncementRequest(
+			1L, "제목", "본문", false, Instant.now().minusSeconds(1)))).isNotEmpty();
+		assertThat(validator.validate(new UpdateAnnouncementRequest(
+			1L, "제목", "본문", false, Instant.now().minusSeconds(1)))).isNotEmpty();
+		assertThat(validator.validate(new CreateAnnouncementRequest(
 			1L, "a".repeat(100), "a".repeat(5000), true, null))).isEmpty();
 	}
 
