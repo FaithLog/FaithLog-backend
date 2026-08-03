@@ -55,6 +55,8 @@ import com.faithlog.prayer.infrastructure.repository.PrayerWeekRepository;
 import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import com.faithlog.user.service.YearlyRecapSnapshotService;
+import com.faithlog.user.service.policy.YearlyRecapPeriod;
 import jakarta.persistence.EntityManager;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -151,6 +153,9 @@ class DataRetentionCleanupServiceTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Autowired
+	private YearlyRecapSnapshotService yearlyRecapSnapshotService;
 
 	@Autowired
 	private CampusRepository campusRepository;
@@ -371,6 +376,53 @@ class DataRetentionCleanupServiceTest {
 		assertThat(weeklyRecordRepository.findById(previousYearWeekly.id())).isEmpty();
 		assertThat(dailyCheckRepository.findById(currentYearDaily.id())).isPresent();
 		assertThat(weeklyRecordRepository.findById(currentYearWeekly.id())).isPresent();
+	}
+
+	@Test
+	void cleanupDaily_before_first_yearly_recap_snapshot_must_not_erase_prior_year_poll_activity() {
+		User user = saveUser("retention-recap-poll-user@example.com");
+		Campus campus = saveCampus("retention-recap-poll");
+		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
+
+		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(recap.data().pollActivity().participatedCount()).isEqualTo(1);
+		assertThat(recap.data().pollActivity().customPollCount()).isEqualTo(1);
+		assertThat(recap.data().pollActivity().commentCount()).isEqualTo(1);
+	}
+
+	@Test
+	void retention_before_first_yearly_recap_snapshot_must_not_erase_prayer_and_devotion_activity() {
+		User user = saveUser("retention-recap-faith-user@example.com");
+		Campus campus = saveCampus("retention-recap-faith");
+		PrayerSubmission prayer = savePrayerSubmission(campus.id(), user.id(), LocalDate.of(2026, 1, 5));
+		updateCreatedAt("prayer_submissions", prayer.id(), "2026-01-05T00:00:00Z");
+		WeeklyDevotionRecord weekly = saveWeeklyRecord(campus.id(), user.id(), LocalDate.of(2026, 6, 15));
+		saveDailyCheck(weekly.id(), LocalDate.of(2026, 6, 15));
+
+		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+		dataRetentionCleanupService.cleanupAnnualIfDue(ANNUAL_DUE);
+		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(recap.data().prayerActivity().submittedWeekCount()).isEqualTo(1);
+		assertThat(recap.data().prayerActivity().participatedSeasonCount()).isEqualTo(1);
+		assertThat(recap.data().devotion().submittedWeekCount()).isEqualTo(1);
+		assertThat(recap.data().devotion().quietTimeCount()).isEqualTo(1);
+	}
+
+	@Test
+	void existing_yearly_recap_snapshot_remains_immutable_after_source_retention_cleanup() {
+		User user = saveUser("retention-recap-snapshot-user@example.com");
+		Campus campus = saveCampus("retention-recap-snapshot");
+		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
+		var beforeCleanup = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+		var afterCleanup = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(beforeCleanup.data().pollActivity().participatedCount()).isEqualTo(1);
+		assertThat(afterCleanup.data()).isEqualTo(beforeCleanup.data());
 	}
 
 	@Test
@@ -636,6 +688,16 @@ class DataRetentionCleanupServiceTest {
 
 	private void updateCreatedAt(String tableName, Long id, String createdAt) {
 		jdbcTemplate.update("update " + tableName + " set created_at = ? where id = ?", Instant.parse(createdAt), id);
+	}
+
+	private YearlyRecapPeriod recapPeriod2026() {
+		return new YearlyRecapPeriod(
+			2026,
+			LocalDate.of(2026, 1, 1),
+			LocalDate.of(2027, 1, 1),
+			true,
+			null
+		);
 	}
 
 	private <T> T inNewTransaction(Supplier<T> supplier) {
