@@ -24,6 +24,7 @@ import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,7 +63,13 @@ class NotificationRequestCommandServiceBatchTest {
 
 		int created = service.requestAutomaticNotification(new AutomaticNotificationRequestCommand(
 			7L, NotificationType.PAYMENT_UNPAID, null, 99L, List.of(11L, 12L, 13L),
-			LocalDate.of(2026, 7, 17), "scope-99", "미납", "확인"
+			LocalDate.of(2026, 7, 17), "scope-99", "미납", "확인",
+			Map.of(
+				"eventType", "ANNOUNCEMENT_PUBLISHED",
+				"campusId", "7",
+				"announcementId", "99",
+				"categoryId", "3"
+			)
 		));
 
 		assertThat(created).isEqualTo(2);
@@ -75,6 +82,13 @@ class NotificationRequestCommandServiceBatchTest {
 		assertThat(logs.getAllValues()).extracting(NotificationLog::sendStatus)
 			.containsExactly(SendStatus.PENDING, SendStatus.SKIPPED);
 		assertThat(logs.getAllValues().get(1).failureReason()).isEqualTo("NO_ACTIVE_FCM_TOKEN");
+		assertThat(logs.getAllValues()).extracting(NotificationLog::data)
+			.containsOnly(Map.of(
+				"eventType", "ANNOUNCEMENT_PUBLISHED",
+				"campusId", "7",
+				"announcementId", "99",
+				"categoryId", "3"
+			));
 		verify(notificationDispatchPort).dispatch(logs.getAllValues().get(0).requestId());
 	}
 }
