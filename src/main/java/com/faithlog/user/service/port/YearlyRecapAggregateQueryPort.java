@@ -5,6 +5,8 @@ import java.util.List;
 
 public interface YearlyRecapAggregateQueryPort {
 
+	boolean isCoverageComplete(int recapYear);
+
 	List<CampusRecapActivity> findActiveCampuses(Long userId, LocalDate endDateExclusive);
 
 	DevotionRecapSource findDevotion(Long userId, LocalDate startDate, LocalDate endDateExclusive);

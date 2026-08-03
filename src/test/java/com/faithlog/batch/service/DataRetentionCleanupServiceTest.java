@@ -11,7 +11,9 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.devotion.domain.entity.DevotionDailyCheck;
 import com.faithlog.devotion.domain.entity.WeeklyDevotionRecord;
 import com.faithlog.devotion.infrastructure.repository.DevotionDailyCheckRepository;
@@ -65,6 +67,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
@@ -159,6 +162,9 @@ class DataRetentionCleanupServiceTest {
 
 	@Autowired
 	private CampusRepository campusRepository;
+
+	@Autowired
+	private CampusMemberRepository campusMemberRepository;
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
@@ -382,7 +388,9 @@ class DataRetentionCleanupServiceTest {
 	void cleanupDaily_before_first_yearly_recap_snapshot_must_not_erase_prior_year_comment_activity() {
 		User user = saveUser("retention-recap-poll-user@example.com");
 		Campus campus = saveCampus("retention-recap-poll");
+		saveMembership(campus.id(), user.id());
 		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
+		markArchiveCoverageComplete(2026);
 
 		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
 		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
@@ -394,10 +402,14 @@ class DataRetentionCleanupServiceTest {
 	void retention_before_first_yearly_recap_snapshot_must_not_erase_prayer_and_devotion_activity() {
 		User user = saveUser("retention-recap-faith-user@example.com");
 		Campus campus = saveCampus("retention-recap-faith");
+		saveMembership(campus.id(), user.id());
 		PrayerSubmission prayer = savePrayerSubmission(campus.id(), user.id(), LocalDate.of(2026, 1, 5));
 		updateCreatedAt("prayer_submissions", prayer.id(), "2026-01-05T00:00:00Z");
 		WeeklyDevotionRecord weekly = saveWeeklyRecord(campus.id(), user.id(), LocalDate.of(2026, 6, 15));
+		weekly.submit(Instant.parse("2026-06-21T00:00:00Z"));
+		weeklyRecordRepository.saveAndFlush(weekly);
 		saveDailyCheck(weekly.id(), LocalDate.of(2026, 6, 15));
+		markArchiveCoverageComplete(2026);
 
 		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
 		dataRetentionCleanupService.cleanupAnnualIfDue(ANNUAL_DUE);
@@ -413,7 +425,9 @@ class DataRetentionCleanupServiceTest {
 	void existing_yearly_recap_snapshot_remains_immutable_after_source_retention_cleanup() {
 		User user = saveUser("retention-recap-snapshot-user@example.com");
 		Campus campus = saveCampus("retention-recap-snapshot");
+		saveMembership(campus.id(), user.id());
 		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
+		markArchiveCoverageComplete(2026);
 		var beforeCleanup = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
 
 		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
@@ -421,6 +435,24 @@ class DataRetentionCleanupServiceTest {
 
 		assertThat(beforeCleanup.data().commentActivity().writtenCount()).isEqualTo(1);
 		assertThat(afterCleanup.data()).isEqualTo(beforeCleanup.data());
+	}
+
+	@Test
+	void incomplete_archive_coverage_hides_recap_without_freezing_an_inaccurate_snapshot() {
+		User user = saveUser("retention-recap-incomplete@example.com");
+		Campus campus = saveCampus("retention-recap-incomplete");
+		saveMembership(campus.id(), user.id());
+		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
+
+		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(recap.data().hasRecapData()).isFalse();
+		assertThat(recap.data().commentActivity().writtenCount()).isZero();
+		assertThat(jdbcTemplate.queryForObject(
+			"select count(*) from yearly_recap_snapshots where user_id = ? and recap_year = 2026",
+			Long.class,
+			user.id()
+		)).isZero();
 	}
 
 	@Test
@@ -450,6 +482,37 @@ class DataRetentionCleanupServiceTest {
 		assertThat(chargeItemRepository.findById(canceled.id())).isEmpty();
 		assertThat(chargeItemRepository.findById(unpaid.id())).isPresent();
 		assertThat(chargeItemRepository.findById(currentYearPaid.id())).isPresent();
+	}
+
+	@Test
+	void annual_cleanup_archives_devotion_penalties_and_first_recap_merges_remaining_live_charge_once() {
+		User user = saveUser("retention-recap-penalty@example.com");
+		Campus campus = saveCampus("retention-recap-penalty");
+		saveMembership(campus.id(), user.id());
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.PENALTY, "벌금 계좌", "테스트은행", "111-222", "회계", user.id()));
+		WeeklyDevotionRecord paidWeekly = saveWeeklyRecord(campus.id(), user.id(), LocalDate.of(2026, 5, 4));
+		WeeklyDevotionRecord unpaidWeekly = saveWeeklyRecord(campus.id(), user.id(), LocalDate.of(2026, 5, 11));
+		saveCharge(
+			campus.id(), user.id(), account.id(), paidWeekly.id(), ChargeStatus.PAID, "2026-06-01T00:00:00Z");
+		saveCharge(
+			campus.id(), user.id(), account.id(), unpaidWeekly.id(), ChargeStatus.UNPAID, "2026-06-01T00:00:00Z");
+		markArchiveCoverageComplete(2026);
+
+		dataRetentionCleanupService.cleanupAnnualIfDue(ANNUAL_DUE);
+		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(recap.data().penaltySummary().paidCount()).isEqualTo(1);
+		assertThat(recap.data().penaltySummary().paidAmount()).isEqualTo(1000);
+		assertThat(recap.data().penaltySummary().unpaidCount()).isEqualTo(1);
+		assertThat(recap.data().penaltySummary().unpaidAmount()).isEqualTo(1000);
+		assertThat(recap.data().penaltySummary().totalCount()).isEqualTo(2);
+		assertThat(recap.data().penaltySummary().totalAmount()).isEqualTo(2000);
+		assertThat(jdbcTemplate.queryForObject(
+			"select count(*) from yearly_recap_archive_facts where fact_type = 'PENALTY' and user_id = ?",
+			Long.class,
+			user.id()
+		)).isEqualTo(2);
 	}
 
 	@Test
@@ -682,6 +745,21 @@ class DataRetentionCleanupServiceTest {
 
 	private Campus saveCampus(String suffix) {
 		return campusRepository.saveAndFlush(Campus.create("정리캠퍼스", "서울", "테스트", "RET-" + suffix));
+	}
+
+	private void saveMembership(Long campusId, Long userId) {
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(campusId, userId));
+	}
+
+	private void markArchiveCoverageComplete(int recapYear) {
+		for (String factType : List.of(
+			"COMMENT", "PRAYER", "DEVOTION_DAILY", "DEVOTION_WEEKLY", "PENALTY")) {
+			jdbcTemplate.update(
+				"insert into yearly_recap_archive_coverage (fact_type, complete_from_year) values (?, ?)",
+				factType,
+				recapYear
+			);
+		}
 	}
 
 	private void updateCreatedAt(String tableName, Long id, String createdAt) {

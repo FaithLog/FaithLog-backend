@@ -9,6 +9,10 @@ import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.infrastructure.repository.YearlyRecapCampusSnapshotRepository;
 import com.faithlog.user.infrastructure.repository.YearlyRecapSnapshotRepository;
 import com.faithlog.user.service.policy.YearlyRecapPeriod;
+import com.faithlog.user.service.port.CommentActivityRecapAggregate;
+import com.faithlog.user.service.port.DevotionRecapSource;
+import com.faithlog.user.service.port.PenaltySummaryRecapAggregate;
+import com.faithlog.user.service.port.PrayerRecapAggregate;
 import com.faithlog.user.service.port.YearlyRecapAggregateQueryPort;
 import com.faithlog.user.service.result.YearlyRecapSnapshotData;
 import com.faithlog.user.service.result.YearlyRecapStoredSnapshot;
@@ -53,6 +57,9 @@ public class YearlyRecapSnapshotService {
 		if (existing != null) {
 			return stored(existing);
 		}
+		if (!aggregateQueryPort.isCoverageComplete(period.recapYear())) {
+			return emptyWithoutSnapshot(period);
+		}
 
 		requireActiveUser(userRepository.findByIdForUpdate(userId).orElse(null));
 		existing = snapshotRepository.findByUserIdAndRecapYear(userId, period.recapYear()).orElse(null);
@@ -77,6 +84,18 @@ public class YearlyRecapSnapshotService {
 		if (!campusSnapshots.isEmpty()) {
 			campusSnapshotRepository.saveAll(campusSnapshots);
 		}
+		return new YearlyRecapStoredSnapshot(data, null);
+	}
+
+	private YearlyRecapStoredSnapshot emptyWithoutSnapshot(YearlyRecapPeriod period) {
+		YearlyRecapSnapshotData data = assembler.assemble(
+			period.recapYear(),
+			List.of(),
+			new DevotionRecapSource(List.of(), 0),
+			new PrayerRecapAggregate(0, 0),
+			new CommentActivityRecapAggregate(0),
+			new PenaltySummaryRecapAggregate(0, 0, 0, 0)
+		);
 		return new YearlyRecapStoredSnapshot(data, null);
 	}
 

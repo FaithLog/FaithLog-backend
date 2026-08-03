@@ -1,6 +1,7 @@
 package com.faithlog.batch.service;
 
 import com.faithlog.batch.service.result.DataRetentionCleanupResult;
+import com.faithlog.batch.service.port.YearlyRecapArchivePort;
 import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.devotion.infrastructure.repository.DevotionDailyCheckRepository;
@@ -61,6 +62,7 @@ public class DataRetentionCleanupService {
 	private final DevotionDailyCheckRepository dailyCheckRepository;
 	private final WeeklyDevotionRecordRepository weeklyRecordRepository;
 	private final ChargeItemRepository chargeItemRepository;
+	private final YearlyRecapArchivePort yearlyRecapArchivePort;
 	private final NotificationLockService notificationLockService;
 	private final TransactionTemplate transactionTemplate;
 
@@ -78,6 +80,7 @@ public class DataRetentionCleanupService {
 		DevotionDailyCheckRepository dailyCheckRepository,
 		WeeklyDevotionRecordRepository weeklyRecordRepository,
 		ChargeItemRepository chargeItemRepository,
+		YearlyRecapArchivePort yearlyRecapArchivePort,
 		NotificationLockService notificationLockService,
 		PlatformTransactionManager transactionManager
 	) {
@@ -94,6 +97,7 @@ public class DataRetentionCleanupService {
 		this.dailyCheckRepository = dailyCheckRepository;
 		this.weeklyRecordRepository = weeklyRecordRepository;
 		this.chargeItemRepository = chargeItemRepository;
+		this.yearlyRecapArchivePort = yearlyRecapArchivePort;
 		this.notificationLockService = notificationLockService;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
@@ -149,6 +153,7 @@ public class DataRetentionCleanupService {
 		int pollOptionsDeleted = 0;
 		int pollsDeleted = 0;
 		if (!expiredPollIds.isEmpty()) {
+			yearlyRecapArchivePort.archiveExpiredPolls(expiredPollIds);
 			orphanExpiredPollMedia(expiredPollIds, now);
 			pollImageRepository.deleteByPollIdIn(expiredPollIds);
 			pollNotificationOutboxRepository.deleteByPollIdIn(expiredPollIds);
@@ -159,6 +164,7 @@ public class DataRetentionCleanupService {
 			pollsDeleted = pollRepository.deleteByIdIn(expiredPollIds);
 		}
 		int softDeletedCommentsDeleted = pollCommentRepository.deleteSoftDeletedBefore(softDeletedCommentCutoff);
+		yearlyRecapArchivePort.archivePrayerSubmissionsBefore(prayerSubmissionCutoff);
 		int prayerSubmissionsDeleted = prayerSubmissionRepository.deleteByCreatedAtBefore(prayerSubmissionCutoff);
 
 		return new DataRetentionCleanupResult(
@@ -216,6 +222,7 @@ public class DataRetentionCleanupService {
 		Instant startInstant = startDate.atStartOfDay(SEOUL_ZONE).toInstant();
 		Instant endExclusiveInstant = startDate.plusYears(1).atStartOfDay(SEOUL_ZONE).toInstant();
 
+		yearlyRecapArchivePort.archiveAnnualRecapFacts(startDate, startDate.plusYears(1));
 		int dailyChecksDeleted = dailyCheckRepository.deleteByRecordDateBetween(startDate, endDate);
 		int weeklyRecordsDeleted = weeklyRecordRepository.deleteByWeekStartDateBetween(startDate, endDate);
 		int chargeItemsDeleted = chargeItemRepository.deleteByStatusInAndCreatedAtBetween(

@@ -31,6 +31,7 @@ import com.faithlog.prayer.infrastructure.repository.PrayerSeasonRepository;
 import com.faithlog.prayer.infrastructure.repository.PrayerSubmissionRepository;
 import com.faithlog.prayer.infrastructure.repository.PrayerWeekRepository;
 import com.faithlog.user.domain.entity.User;
+import com.faithlog.user.domain.entity.YearlyRecapArchiveFact;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import com.faithlog.user.service.port.DevotionRecapSource;
 import com.faithlog.user.service.port.CommentActivityRecapAggregate;
@@ -73,6 +74,7 @@ class YearlyRecapAggregateQueryIntegrationTest {
 	@Autowired private PollCommentRepository pollCommentRepository;
 	@Autowired private PaymentAccountRepository paymentAccountRepository;
 	@Autowired private ChargeItemRepository chargeItemRepository;
+	@Autowired private YearlyRecapArchiveFactRepository archiveFactRepository;
 	@Autowired private JdbcTemplate jdbcTemplate;
 	@Autowired private EntityManager entityManager;
 	@Autowired private EntityManagerFactory entityManagerFactory;
@@ -244,6 +246,26 @@ class YearlyRecapAggregateQueryIntegrationTest {
 		assertThat(result.paidAmount()).isEqualTo(1_000);
 		assertThat(result.unpaidCount()).isEqualTo(1);
 		assertThat(result.unpaidAmount()).isEqualTo(2_000);
+	}
+
+	@Test
+	void archive_and_live_rows_with_the_same_source_id_are_counted_once() {
+		User target = userRepository.saveAndFlush(User.create(
+			"회고 중복 제거", "recap-archive-dedupe@example.com", "hash"));
+		Campus campus = campusRepository.saveAndFlush(Campus.create(
+			"회고 중복 제거 캠퍼스", "서울", "archive/live", "RECAP-ARCHIVE-DEDUPE-238"));
+		insertActiveMembership(campus.id(), target.id());
+		Poll poll = createPoll(
+			campus.id(), target.id(), PollType.CUSTOM, Instant.parse("2026-06-01T00:00:00Z"));
+		PollComment comment = pollCommentRepository.saveAndFlush(PollComment.create(
+			poll.id(), target.id(), "archive에 원문을 저장하지 않는 댓글"));
+		archiveFactRepository.saveAndFlush(YearlyRecapArchiveFact.comment(
+			comment.id(), target.id(), 2026, campus.id()));
+
+		CommentActivityRecapAggregate result = queryPort.findCommentActivity(
+			target.id(), LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1));
+
+		assertThat(result.writtenCount()).isEqualTo(1);
 	}
 
 	private Poll createPoll(Long campusId, Long userId, PollType pollType, Instant startsAt) {
