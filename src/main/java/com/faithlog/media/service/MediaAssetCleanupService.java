@@ -73,13 +73,22 @@ public class MediaAssetCleanupService {
 			.filter(asset -> eligible(asset, now, orphanedBefore))
 			.filter(asset -> Objects.equals(objectKeys(asset), snapshot.objectKeys()))
 			.map(asset -> {
-				repository.delete(asset);
+				if (asset.status() == MediaAssetStatus.READY) {
+					asset.clearTemporaryObjectKey();
+				} else {
+					repository.delete(asset);
+				}
 				return true;
 			})
 			.orElse(false);
 	}
 
 	private boolean eligible(MediaAsset asset, Instant now, Instant orphanedBefore) {
+		if (asset.status() == MediaAssetStatus.READY
+			&& asset.temporaryObjectKey() != null
+			&& !asset.expiresAt().isAfter(now)) {
+			return true;
+		}
 		if ((asset.status() == MediaAssetStatus.PENDING || asset.status() == MediaAssetStatus.FAILED)
 			&& !asset.expiresAt().isAfter(now)) {
 			return true;
@@ -90,10 +99,13 @@ public class MediaAssetCleanupService {
 	}
 
 	private List<String> objectKeys(MediaAsset asset) {
-		if (asset.status() == MediaAssetStatus.ORPHANED) {
-			return List.of(asset.thumbnailObjectKey(), asset.detailObjectKey());
+		if (asset.status() == MediaAssetStatus.READY) {
+			return asset.temporaryObjectKey() == null ? List.of() : List.of(asset.temporaryObjectKey());
 		}
-		return asset.temporaryObjectKey() == null ? List.of() : List.of(asset.temporaryObjectKey());
+		return java.util.stream.Stream.of(
+				asset.temporaryObjectKey(), asset.thumbnailObjectKey(), asset.detailObjectKey())
+			.filter(Objects::nonNull)
+			.toList();
 	}
 
 	private record CleanupSnapshot(Long assetId, MediaAssetStatus status, List<String> objectKeys) {

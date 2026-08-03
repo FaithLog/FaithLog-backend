@@ -2,11 +2,13 @@ package com.faithlog.media.controller;
 
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
+import com.faithlog.media.domain.entity.MediaAsset;
 import com.faithlog.media.service.MediaAssetCommandService;
 import com.faithlog.media.service.MediaAssetQueryService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -55,7 +57,7 @@ public class MediaAssetController {
 
 	public record UploadReservationRequest(
 		@NotBlank @Pattern(regexp = "^image/(jpeg|png)$") String contentType,
-		@Positive long byteSize,
+		@Positive @Max(MediaAsset.MAX_INPUT_BYTES) long byteSize,
 		@NotBlank @Pattern(regexp = "^[a-f0-9]{64}$") String sha256) {}
 	public record UploadReservationResponse(Long assetId, URI uploadUrl, Map<String, String> requiredHeaders, Instant expiresAt) {}
 	public record AccessUrlRequest(@NotEmpty @Size(max = 100) List<@Positive Long> assetIds) {}

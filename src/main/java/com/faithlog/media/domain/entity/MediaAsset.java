@@ -131,6 +131,23 @@ public class MediaAsset {
 		updatedAt = Instant.now();
 	}
 
+	public void recordProcessingObjectKeys(String thumbnailObjectKey, String detailObjectKey) {
+		if (status != MediaAssetStatus.PROCESSING) {
+			throw new IllegalStateException("only processing media can record variant object keys");
+		}
+		if (thumbnailObjectKey == null || thumbnailObjectKey.isBlank()
+			|| detailObjectKey == null || detailObjectKey.isBlank()) {
+			throw new IllegalArgumentException("variant object keys are required");
+		}
+		if ((this.thumbnailObjectKey != null && !this.thumbnailObjectKey.equals(thumbnailObjectKey))
+			|| (this.detailObjectKey != null && !this.detailObjectKey.equals(detailObjectKey))) {
+			throw new IllegalStateException("variant object keys cannot change during processing");
+		}
+		this.thumbnailObjectKey = thumbnailObjectKey;
+		this.detailObjectKey = detailObjectKey;
+		this.updatedAt = Instant.now();
+	}
+
 	public void complete(
 		String thumbnailObjectKey,
 		String detailObjectKey,
@@ -152,8 +169,7 @@ public class MediaAsset {
 		if (outputSha256 == null || !SHA_256.matcher(outputSha256).matches()) {
 			throw new IllegalArgumentException("outputSha256 is invalid");
 		}
-		this.thumbnailObjectKey = thumbnailObjectKey;
-		this.detailObjectKey = detailObjectKey;
+		recordProcessingObjectKeys(thumbnailObjectKey, detailObjectKey);
 		this.width = width;
 		this.height = height;
 		this.outputByteSize = outputByteSize;

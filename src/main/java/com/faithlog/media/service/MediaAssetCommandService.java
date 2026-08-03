@@ -81,6 +81,10 @@ public class MediaAssetCommandService {
 		String variantRoot = "media/" + UUID.randomUUID();
 		String thumbnailKey = variantRoot + "/thumbnail.jpg";
 		String detailKey = variantRoot + "/detail.jpg";
+		transactionTemplate.executeWithoutResult(status -> {
+			MediaAsset asset = requireForUpdate(campusId, assetId);
+			asset.recordProcessingObjectKeys(thumbnailKey, detailKey);
+		});
 		boolean readyCommitted = false;
 		try {
 			var stored = storage.getObject(snapshot.temporaryKey(), MediaAsset.MAX_INPUT_BYTES);

@@ -128,7 +128,8 @@ CREATE TABLE media_assets (
 
 CREATE INDEX idx_media_assets_temporary_cleanup
     ON media_assets (expires_at, id)
-    WHERE status IN ('PENDING', 'FAILED');
+    WHERE status IN ('PENDING', 'FAILED')
+       OR (status = 'READY' AND temporary_object_key IS NOT NULL);
 
 CREATE INDEX idx_media_assets_orphan_cleanup
     ON media_assets (orphaned_at, id)

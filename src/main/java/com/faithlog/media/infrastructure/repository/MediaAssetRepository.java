@@ -28,6 +28,7 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long>, M
 	@Query(value = """
 		select id from media_assets
 		where (status in ('PENDING', 'FAILED') and expires_at <= :expiresAt)
+			or (status = 'READY' and temporary_object_key is not null and expires_at <= :expiresAt)
 			or (status = 'ORPHANED' and orphaned_at <= :orphanedBefore)
 		order by id
 		limit :limit

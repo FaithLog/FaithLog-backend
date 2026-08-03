@@ -17,6 +17,7 @@ public record R2MediaStorageProperties(
 ) {
 	private static final Pattern BUCKET = Pattern.compile("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$");
 	private static final Duration MAX_URL_TTL = Duration.ofMinutes(15);
+	private static final Duration REQUIRED_DOWNLOAD_URL_TTL = Duration.ofMinutes(10);
 
 	public R2MediaStorageProperties {
 		if (enabled) {
@@ -32,7 +33,9 @@ public record R2MediaStorageProperties(
 				throw new IllegalArgumentException("R2 credentials are required");
 			}
 			requireShortPositiveTtl(uploadUrlTtl, "uploadUrlTtl");
-			requireShortPositiveTtl(downloadUrlTtl, "downloadUrlTtl");
+			if (!REQUIRED_DOWNLOAD_URL_TTL.equals(downloadUrlTtl)) {
+				throw new IllegalArgumentException("downloadUrlTtl must be exactly 10 minutes");
+			}
 		}
 	}
 
