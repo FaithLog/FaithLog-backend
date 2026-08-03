@@ -19,6 +19,9 @@ import com.faithlog.devotion.infrastructure.repository.WeeklyDevotionRecordRepos
 import com.faithlog.notification.domain.entity.NotificationLog;
 import com.faithlog.notification.domain.type.NotificationType;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
+import com.faithlog.media.domain.entity.MediaAsset;
+import com.faithlog.media.domain.type.MediaAssetStatus;
+import com.faithlog.media.infrastructure.repository.MediaAssetRepository;
 import com.faithlog.poll.domain.type.ChargeGenerationType;
 import com.faithlog.poll.domain.entity.MealPollChargeGroup;
 import com.faithlog.poll.domain.entity.MealPollSettlement;
@@ -27,6 +30,8 @@ import com.faithlog.poll.domain.entity.PollComment;
 import com.faithlog.poll.domain.entity.PollOption;
 import com.faithlog.poll.domain.entity.PollResponse;
 import com.faithlog.poll.domain.entity.PollResponseOption;
+import com.faithlog.poll.domain.entity.PollImage;
+import com.faithlog.poll.domain.entity.PollNotificationOutbox;
 import com.faithlog.poll.domain.type.MealChargeCalculationType;
 import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.domain.type.SelectionType;
@@ -37,6 +42,8 @@ import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
+import com.faithlog.poll.infrastructure.repository.PollImageRepository;
+import com.faithlog.poll.infrastructure.repository.PollNotificationOutboxRepository;
 import com.faithlog.prayer.domain.entity.PrayerGroup;
 import com.faithlog.prayer.domain.entity.PrayerSeason;
 import com.faithlog.prayer.domain.entity.PrayerSubmission;
@@ -96,6 +103,15 @@ class DataRetentionCleanupServiceTest {
 
 	@Autowired
 	private PollCommentRepository pollCommentRepository;
+
+	@Autowired
+	private PollImageRepository pollImageRepository;
+
+	@Autowired
+	private PollNotificationOutboxRepository pollNotificationOutboxRepository;
+
+	@Autowired
+	private MediaAssetRepository mediaAssetRepository;
 
 	@Autowired
 	private MealPollSettlementRepository mealPollSettlementRepository;
@@ -180,6 +196,61 @@ class DataRetentionCleanupServiceTest {
 		assertThat(pollResponseRepository.findById(fresh.responseId())).isPresent();
 		assertThat(pollResponseOptionRepository.findById(fresh.responseOptionId())).isPresent();
 		assertThat(pollCommentRepository.findById(fresh.commentId())).isPresent();
+	}
+
+	@Test
+	void cleanupDaily_orphans_expired_poll_media_and_deletes_links_and_outbox_while_preserving_fresh_graph() {
+		User user = saveUser("retention-poll-media-user@example.com");
+		Campus campus = saveCampus("retention-poll-media");
+		Poll expired = savePoll(campus.id(), DAILY_NOW.minusSeconds(31L * 24 * 60 * 60));
+		Poll fresh = savePoll(campus.id(), DAILY_NOW.minusSeconds(29L * 24 * 60 * 60));
+		MediaAsset expiredAsset = saveReadyMediaAsset(campus.id(), user.id(), "expired");
+		MediaAsset freshAsset = saveReadyMediaAsset(campus.id(), user.id(), "fresh");
+		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), expiredAsset.id(), 0));
+		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), fresh.id(), freshAsset.id(), 0));
+		pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
+			expired.id(), campus.id(), user.id(), PollType.CUSTOM, expired.title(), expired.endsAt()));
+		pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
+			fresh.id(), campus.id(), user.id(), PollType.CUSTOM, fresh.title(), fresh.endsAt()));
+
+		DataRetentionCleanupResult result = dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+
+		assertThat(result.pollsDeleted()).isEqualTo(1);
+		assertThat(pollRepository.findById(expired.id())).isEmpty();
+		assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(expired.id())).isEmpty();
+		assertThat(pollNotificationOutboxRepository.existsByPollId(expired.id())).isFalse();
+		assertThat(mediaAssetRepository.findById(expiredAsset.id()).orElseThrow().status())
+			.isEqualTo(MediaAssetStatus.ORPHANED);
+		assertThat(pollRepository.findById(fresh.id())).isPresent();
+		assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(fresh.id())).hasSize(1);
+		assertThat(pollNotificationOutboxRepository.existsByPollId(fresh.id())).isTrue();
+		assertThat(mediaAssetRepository.findById(freshAsset.id()).orElseThrow().status())
+			.isEqualTo(MediaAssetStatus.READY);
+	}
+
+	@Test
+	void cleanupDaily_fails_before_partial_orphan_or_delete_when_attached_media_is_not_ready() {
+		User user = saveUser("retention-poll-invalid-media-user@example.com");
+		Campus campus = saveCampus("retention-poll-invalid-media");
+		Poll expired = savePoll(campus.id(), DAILY_NOW.minusSeconds(31L * 24 * 60 * 60));
+		MediaAsset ready = saveReadyMediaAsset(campus.id(), user.id(), "ready-before-failure");
+		MediaAsset orphaned = saveReadyMediaAsset(campus.id(), user.id(), "invalid-orphaned");
+		orphaned.markOrphaned(DAILY_NOW.minusSeconds(60));
+		mediaAssetRepository.saveAndFlush(orphaned);
+		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), ready.id(), 0));
+		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), orphaned.id(), 1));
+		pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
+			expired.id(), campus.id(), user.id(), PollType.CUSTOM, expired.title(), expired.endsAt()));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+			() -> dataRetentionCleanupService.cleanupDaily(DAILY_NOW))
+			.isInstanceOf(IllegalStateException.class);
+
+		assertThat(ready.status()).isEqualTo(MediaAssetStatus.READY);
+		assertThat(orphaned.status()).isEqualTo(MediaAssetStatus.ORPHANED);
+		assertThat(pollRepository.findById(expired.id())).isPresent();
+		assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(expired.id())).hasSize(2);
+		assertThat(pollNotificationOutboxRepository.existsByPollId(expired.id())).isTrue();
 	}
 
 	@Test
@@ -421,6 +492,28 @@ class DataRetentionCleanupServiceTest {
 		);
 		poll.open();
 		return pollRepository.save(poll);
+	}
+
+	private MediaAsset saveReadyMediaAsset(Long campusId, Long ownerId, String suffix) {
+		MediaAsset asset = MediaAsset.reserve(
+			campusId,
+			ownerId,
+			"image/jpeg",
+			10,
+			"a".repeat(64),
+			"temporary/retention/" + suffix + "/original",
+			DAILY_NOW.plusSeconds(3600)
+		);
+		asset.startProcessing();
+		asset.complete(
+			"media/retention/" + suffix + "/thumbnail.jpg",
+			"media/retention/" + suffix + "/detail.jpg",
+			100,
+			100,
+			20,
+			"b".repeat(64)
+		);
+		return mediaAssetRepository.saveAndFlush(asset);
 	}
 
 	private PollComment saveComment(Long pollId, Long userId, boolean deleted, String deletedAt) {
