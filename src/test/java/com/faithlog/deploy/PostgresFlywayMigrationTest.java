@@ -61,6 +61,7 @@ class PostgresFlywayMigrationTest {
 		assertIndexExists(jdbcUrl, username, password, "users", "uk_users_email_lower");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
+		assertYearlyRecapRlsEnabled(jdbcUrl, username, password);
 		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("15"));
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
@@ -103,6 +104,7 @@ class PostgresFlywayMigrationTest {
 		assertThat(migrationChecksum(jdbcUrl, username, password, "15")).isNotNull();
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_snapshots");
 		assertTableExists(jdbcUrl, username, password, "yearly_recap_campuses");
+		assertYearlyRecapRlsEnabled(jdbcUrl, username, password);
 	}
 
 	@Test
@@ -368,6 +370,27 @@ class PostgresFlywayMigrationTest {
 				+ "where schemaname = 'public' and tablename = ? and indexname = ?)",
 			tableName,
 			indexName
+		);
+	}
+
+	private static void assertYearlyRecapRlsEnabled(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "yearly_recap_snapshots");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "yearly_recap_campuses");
+	}
+
+	private static void assertRowLevelSecurityEnabled(
+		String jdbcUrl, String username, String password, String tableName
+	) throws Exception {
+		assertExists(
+			jdbcUrl,
+			username,
+			password,
+			"select coalesce((select c.relrowsecurity from pg_class c "
+				+ "join pg_namespace n on n.oid = c.relnamespace "
+				+ "where n.nspname = 'public' and c.relname = ?), false)",
+			tableName
 		);
 	}
 

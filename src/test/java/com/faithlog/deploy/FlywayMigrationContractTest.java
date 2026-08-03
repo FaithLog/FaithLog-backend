@@ -259,8 +259,8 @@ class FlywayMigrationContractTest {
 			"CONSTRAINT uk_yearly_recap_snapshots_user_year UNIQUE (user_id, recap_year)",
 			"CONSTRAINT ck_yearly_recap_snapshots_counts CHECK",
 			"CONSTRAINT uk_yearly_recap_campuses_snapshot_campus UNIQUE",
-			"CREATE INDEX idx_yearly_recap_campuses_snapshot",
-			"ON yearly_recap_campuses (yearly_recap_snapshot_id, campus_id)"
+			"ALTER TABLE yearly_recap_snapshots ENABLE ROW LEVEL SECURITY",
+			"ALTER TABLE yearly_recap_campuses ENABLE ROW LEVEL SECURITY"
 		);
 	}
 
