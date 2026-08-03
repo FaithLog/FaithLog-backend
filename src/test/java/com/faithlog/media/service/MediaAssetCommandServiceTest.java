@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -60,9 +61,9 @@ class MediaAssetCommandServiceTest {
 			"temporary/asset/original", NOW.plusSeconds(3600));
 		ReflectionTestUtils.setField(asset, "id", 31L);
 		when(repository.findByCampusIdAndIdForUpdate(7L, 31L)).thenReturn(Optional.of(asset));
-		when(storage.getObject("temporary/asset/original", MediaAsset.MAX_INPUT_BYTES))
+		lenient().when(storage.getObject("temporary/asset/original", MediaAsset.MAX_INPUT_BYTES))
 			.thenReturn(new MediaObjectStoragePort.StoredObject("image/jpeg", SOURCE));
-		when(imageProcessor.process(SOURCE, "image/jpeg")).thenReturn(new ImageVariantProcessorPort.ProcessedVariants(
+		lenient().when(imageProcessor.process(SOURCE, "image/jpeg")).thenReturn(new ImageVariantProcessorPort.ProcessedVariants(
 			new byte[]{1, 2}, new byte[]{3, 4}, 100, 80, 100, 80, 100, 80, "image/jpeg"));
 	}
 

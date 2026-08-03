@@ -128,16 +128,20 @@ public class MediaAssetCommandService {
 		if (temporaryKey == null) {
 			return;
 		}
-		storage.deleteObject(temporaryKey);
-		transactionTemplate.executeWithoutResult(status -> {
-			MediaAsset asset = requireForUpdate(campusId, assetId);
-			if (asset.status() != MediaAssetStatus.READY) {
-				throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
-			}
-			if (temporaryKey.equals(asset.temporaryObjectKey())) {
-				asset.clearTemporaryObjectKey();
-			}
-		});
+		try {
+			storage.deleteObject(temporaryKey);
+			transactionTemplate.executeWithoutResult(status -> {
+				MediaAsset asset = requireForUpdate(campusId, assetId);
+				if (asset.status() != MediaAssetStatus.READY) {
+					throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
+				}
+				if (temporaryKey.equals(asset.temporaryObjectKey())) {
+					asset.clearTemporaryObjectKey();
+				}
+			});
+		} catch (RuntimeException ignored) {
+			// READY is already durable; the tracked temporary key is retried by scheduled cleanup.
+		}
 	}
 
 	private void compensateVariant(String objectKey) {
