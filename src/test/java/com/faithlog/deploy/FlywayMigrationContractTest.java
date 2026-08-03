@@ -311,7 +311,7 @@ class FlywayMigrationContractTest {
 			"connection.prepareStatement"
 		);
 		assertThat(fixtures).doesNotContain(
-			"Statement statement",
+			"connection.createStatement()",
 			"insertAndReturnId(Connection connection, String sql)"
 		);
 	}

@@ -289,28 +289,19 @@ class PostgresFlywayMigrationTest {
 	private static void assertAnnouncementNotificationTypeBoundary(
 		String jdbcUrl, String username, String password
 	) throws Exception {
-		try (
-			Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
-			Statement statement = connection.createStatement()
-		) {
-			long suffix = Math.abs(java.util.UUID.randomUUID().getMostSignificantBits());
-			String email = "migration-" + suffix + "@example.com";
-			statement.executeUpdate("insert into users (name, email, password_hash, role, is_active, token_version, "
-				+ "created_at, updated_at) values ('migration-user', '" + email
-				+ "', 'hash', 'USER', true, 0, now(), now())");
-			long userId;
-			try (ResultSet result = statement.executeQuery("select id from users where email = '" + email + "'")) {
-				assertThat(result.next()).isTrue();
-				userId = result.getLong(1);
-			}
-			statement.executeUpdate("insert into notification_logs (user_id, notification_type, title, body, "
-				+ "send_status, created_at) values (" + userId
-				+ ", 'ANNOUNCEMENT_PUBLISHED', 'title', 'body', 'PENDING', now())");
-			assertThatThrownBy(() -> statement.executeUpdate(
-				"insert into notification_logs (user_id, notification_type, title, body, send_status, created_at) "
-					+ "values (" + userId + ", 'UNAPPROVED_TYPE', 'title', 'body', 'PENDING', now())"))
-				.isInstanceOf(java.sql.SQLException.class)
-				.hasMessageContaining("ck_notification_logs_type");
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+			String suffix = java.util.UUID.randomUUID().toString();
+			long userId = insertUser(connection, "migration-user", "migration-" + suffix + "@example.com");
+			long campusId = insertCampus(connection, "migration-campus", "migration-" + suffix);
+			java.util.UUID requestId = java.util.UUID.randomUUID();
+
+			insertNotificationLog(connection, requestId, userId, campusId, "ANNOUNCEMENT_PUBLISHED");
+			assertThatThrownBy(() -> insertNotificationLog(
+				connection, java.util.UUID.randomUUID(), userId, campusId, "UNAPPROVED_TYPE"))
+				.isInstanceOfSatisfying(java.sql.SQLException.class, exception -> {
+					assertThat(exception.getSQLState()).isEqualTo("23514");
+					assertThat(exception.getMessage()).contains("ck_notification_logs_type");
+				});
 		}
 	}
 
@@ -318,44 +309,122 @@ class PostgresFlywayMigrationTest {
 		String jdbcUrl, String username, String password
 	) throws Exception {
 		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
-			long suffix = Math.abs(java.util.UUID.randomUUID().getMostSignificantBits());
-			long userId = insertAndReturnId(connection,
-				"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
-					+ "values ('tenant-user', 'tenant-" + suffix
-					+ "@example.com', 'hash', 'USER', true, 0, now(), now()) returning id");
-			long announcementCampusId = insertAndReturnId(connection,
-				"insert into campuses (name, invite_code, is_active, created_at, updated_at) values "
-					+ "('announcement-campus', 'announcement-" + suffix + "', true, now(), now()) returning id");
-			long mediaCampusId = insertAndReturnId(connection,
-				"insert into campuses (name, invite_code, is_active, created_at, updated_at) values "
-					+ "('media-campus', 'media-" + suffix + "', true, now(), now()) returning id");
-			long categoryId = insertAndReturnId(connection,
-				"insert into announcement_categories (campus_id, name, color, display_order, is_active) values ("
-					+ announcementCampusId + ", 'tenant-category', '#3B82F6', 0, true) returning id");
-			long announcementId = insertAndReturnId(connection,
-				"insert into announcements (campus_id, category_id, author_id, title, content, is_pinned, status, "
-					+ "publish_at, published_at) values (" + announcementCampusId + ", " + categoryId + ", "
-					+ userId + ", 'tenant-title', 'tenant-content', false, 'PUBLISHED', now(), now()) returning id");
-			long mediaAssetId = insertAndReturnId(connection,
-				"insert into media_assets (campus_id, owner_user_id, input_content_type, input_byte_size, "
-					+ "expected_sha256, thumbnail_object_key, detail_object_key, output_sha256, width, height, "
-					+ "output_byte_size, status, expires_at) values (" + mediaCampusId + ", " + userId
-					+ ", 'image/jpeg', 10, '" + "a".repeat(64) + "', 'tenant/" + suffix
-					+ "/thumb', 'tenant/" + suffix + "/detail', '" + "b".repeat(64)
-					+ "', 100, 100, 20, 'READY', now() + interval '1 day') returning id");
+			String suffix = java.util.UUID.randomUUID().toString();
+			long userId = insertUser(connection, "tenant-user", "tenant-" + suffix + "@example.com");
+			long announcementCampusId = insertCampus(
+				connection, "announcement-campus", "announcement-" + suffix);
+			long mediaCampusId = insertCampus(connection, "media-campus", "media-" + suffix);
+			long categoryId = insertCategory(connection, announcementCampusId, "tenant-category");
+			long announcementId = insertAnnouncement(connection, announcementCampusId, categoryId, userId);
+			long mediaAssetId = insertReadyMediaAsset(connection, mediaCampusId, userId, suffix);
 
-			try (Statement statement = connection.createStatement()) {
-				assertThatThrownBy(() -> statement.executeUpdate(
-					"insert into announcement_images (campus_id, announcement_id, media_asset_id, display_order) "
-						+ "values (" + announcementCampusId + ", " + announcementId + ", " + mediaAssetId + ", 0)"))
-					.isInstanceOf(java.sql.SQLException.class)
-					.hasMessageContaining("fk_announcement_images_media_asset");
-			}
+			assertThatThrownBy(() -> insertAnnouncementImage(
+				connection, announcementCampusId, announcementId, mediaAssetId))
+				.isInstanceOfSatisfying(java.sql.SQLException.class, exception -> {
+					assertThat(exception.getSQLState()).isEqualTo("23503");
+					assertThat(exception.getMessage()).contains("fk_announcement_images_media_asset");
+				});
 		}
 	}
 
-	private static long insertAndReturnId(Connection connection, String sql) throws Exception {
-		try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
+	private static long insertUser(Connection connection, String name, String email) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
+				+ "values (?, ?, 'hash', 'USER', true, 0, now(), now()) returning id"
+		)) {
+			statement.setString(1, name);
+			statement.setString(2, email);
+			return returnedId(statement);
+		}
+	}
+
+	private static long insertCampus(Connection connection, String name, String inviteCode) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into campuses (name, invite_code, is_active, created_at, updated_at) "
+				+ "values (?, ?, true, now(), now()) returning id"
+		)) {
+			statement.setString(1, name);
+			statement.setString(2, inviteCode);
+			return returnedId(statement);
+		}
+	}
+
+	private static void insertNotificationLog(
+		Connection connection, java.util.UUID requestId, long userId, long campusId, String notificationType
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into notification_logs (request_id, user_id, campus_id, notification_type, title, body, "
+				+ "send_status, created_at) values (?, ?, ?, ?, 'title', 'body', 'PENDING', now())"
+		)) {
+			statement.setObject(1, requestId);
+			statement.setLong(2, userId);
+			statement.setLong(3, campusId);
+			statement.setString(4, notificationType);
+			statement.executeUpdate();
+		}
+	}
+
+	private static long insertCategory(Connection connection, long campusId, String name) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into announcement_categories (campus_id, name, color, display_order, is_active) "
+				+ "values (?, ?, '#3B82F6', 0, true) returning id"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setString(2, name);
+			return returnedId(statement);
+		}
+	}
+
+	private static long insertAnnouncement(
+		Connection connection, long campusId, long categoryId, long userId
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into announcements (campus_id, category_id, author_id, title, content, is_pinned, status, "
+				+ "publish_at, published_at) values (?, ?, ?, 'tenant-title', 'tenant-content', false, "
+				+ "'PUBLISHED', now(), now()) returning id"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, categoryId);
+			statement.setLong(3, userId);
+			return returnedId(statement);
+		}
+	}
+
+	private static long insertReadyMediaAsset(
+		Connection connection, long campusId, long userId, String suffix
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into media_assets (campus_id, owner_user_id, input_content_type, input_byte_size, "
+				+ "expected_sha256, thumbnail_object_key, detail_object_key, output_sha256, width, height, "
+				+ "output_byte_size, status, expires_at) values (?, ?, 'image/jpeg', 10, ?, ?, ?, ?, "
+				+ "100, 100, 20, 'READY', now() + interval '1 day') returning id"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, userId);
+			statement.setString(3, "a".repeat(64));
+			statement.setString(4, "tenant/" + suffix + "/thumb");
+			statement.setString(5, "tenant/" + suffix + "/detail");
+			statement.setString(6, "b".repeat(64));
+			return returnedId(statement);
+		}
+	}
+
+	private static void insertAnnouncementImage(
+		Connection connection, long campusId, long announcementId, long mediaAssetId
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into announcement_images (campus_id, announcement_id, media_asset_id, display_order) "
+				+ "values (?, ?, ?, 0)"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, announcementId);
+			statement.setLong(3, mediaAssetId);
+			statement.executeUpdate();
+		}
+	}
+
+	private static long returnedId(PreparedStatement statement) throws Exception {
+		try (ResultSet result = statement.executeQuery()) {
 			assertThat(result.next()).isTrue();
 			return result.getLong(1);
 		}
