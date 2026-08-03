@@ -1075,6 +1075,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Impact: V13, the provider-neutral Google Cloud Tasks dependency/OAuth2 resource-server boundary, and Spring Boot mail are added. No Entity relationship, email-verification column, FCM behavior, or provider SDK is added. Operational rollout requires approved Cloud Tasks queue/IAM, worker HTTPS URL/OIDC identity, independent HMAC/AES/SMTP secrets, updated iOS/Android clients, and a later explicit switch to `FAITHLOG_AUTH_EMAIL_VERIFICATION_REQUIRED=true`.
 - Compatibility: Refresh Tokens issued before Issue #224 have no `tokenVersion` claim and fail closed with 401 after deployment. Their Access Tokens remain usable only until normal expiry while the persisted version still matches. Mobile refresh handling must clear auth state and require a fresh login on that 401.
 
+## 2026-08-03 - Issue #238 Poll Notice, Images, And Open Notification
+
+- Decision: Every poll type (`WED_SERVICE`, `SATURDAY_LEADER`, `COFFEE`, `MEAL`, `CUSTOM`) accepts optional plain-text notice up to 5,000 characters. Blank normalizes to null. The authorized editor may update title, notice, and the full ordered image ID set even while OPEN; edits never resend the open notification.
+- Decision: Reuse Issue #237's private R2/media reservation, finalize, thumbnail/detail, signed URL, rate limit, and 24-hour cleanup implementation. Store only ordered `poll_images`; never duplicate SigV4, binary processing, or object storage. Lists return `hasNotice`, `hasImages`, and `thumbnailAssetId`; detail/create return notice and ordered `imageAssetIds`.
+- Decision: Immediate OPEN creation and scheduled OPEN transition create one durable poll outbox in the same transaction. Serialize creation on the poll row and keep a unique poll boundary. Delivery targets ACTIVE members except the creator and uses exact title/body plus ID-only `POLL_OPEN` data. Downstream notification failure keeps the outbox pending and does not revert the poll.
+- Decision: Use Flyway V16 for poll notice, `poll_images`, and poll notification outbox. V14 remains the #237 announcement/media migration and V15 remains reserved for #236 annual recap integration order.
+- Release gate: Merge and validate Issue #236 V15 before Issue #238 V16. Do not deploy this branch's V16 against a database that has only reached V14, because a later lower-version V15 would not be applied by the normal ordered Flyway path.
+- Boundary: App-side image cache remains a frontend contract: `expo-file-system`, key `assetId + sha256 + variant`, seven days since last access, 200MB LRU, clear on logout/account change, and redownload after OS eviction. The backend returns private 10-minute URLs and stores no mobile cache state.
+
 ## Pending Decisions
 
 ### 2026-06-17 - Prayer Request Meeting Status Storage Scope

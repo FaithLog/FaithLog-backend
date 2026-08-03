@@ -2388,6 +2388,52 @@ include::{snippets}/poll-create-template-success/http-request.adoc[]
 
 include::{snippets}/poll-create-template-success/http-response.adoc[]
 
+=== Update Poll Title, Notice, And Images
+
+`PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/notice`
+
+기존 권한으로 투표 제목, 선택적 일반 텍스트 공지(최대 5,000자), ordered `imageAssetIds` 전체를 함께 교체한다. OPEN 투표도 수정할 수 있지만 공개 알림은 다시 생성하지 않는다. 목록은 `hasNotice`, `hasImages`, `thumbnailAssetId`만 반환하고 상세은 공지와 ordered asset ID를 반환한다. 이미지 URL은 공통 media batch API에서 최대 100개씩 10분 URL로 교환한다.
+
+==== Request
+
+include::{snippets}/poll-notice-update-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-notice-update-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-notice-update-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-notice-update-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-notice-update-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-notice-update-success/response-fields.adoc[]
+
+==== Validation Error
+
+include::{snippets}/poll-notice-update-validation/http-response.adoc[]
+
+==== Permission Error
+
+include::{snippets}/poll-notice-update-forbidden/http-response.adoc[]
+
+==== Not Found Error
+
+include::{snippets}/poll-notice-update-not-found/http-response.adoc[]
+
+==== Image Ownership Conflict
+
+include::{snippets}/poll-notice-update-image-conflict/http-response.adoc[]
+
 === Reject Coffee Poll Option Without Menu ID
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
@@ -3217,6 +3263,12 @@ include::{snippets}/meal-poll-user-option-add-success/http-response.adoc[]
 include::{snippets}/meal-poll-user-option-duplicate-conflict/http-response.adoc[]
 
 === Manage and Close Meal Poll
+
+MEAL 담당자는 `PATCH /api/v1/campuses/{campusId}/meal/polls/{pollId}/notice`로 동일한 제목·공지·ordered image 계약을 사용한다.
+
+include::{snippets}/meal-poll-notice-update-success/http-request.adoc[]
+
+include::{snippets}/meal-poll-notice-update-success/http-response.adoc[]
 
 관리 목록은 MEAL poll만 기본 10개씩 pagination한다. `includeArchived=false`에서는 `OPEN`/`SCHEDULED`를 기간 제한 없이 포함하고 `CLOSED`는 최근 90일만 반환한다. `includeArchived=true`이면 이전 마감 기록도 조회하며 데이터는 삭제하지 않는다. `settlementStatus`는 `NOT_CHARGED` 또는 `CHARGED`다. 수동 종료는 OPEN MEAL poll의 상태만 CLOSED로 바꾸며 기존 `endsAt`을 유지하고 settlement나 charge를 만들지 않는다. 전용 종료 API에서 다른 캠퍼스와 non-MEAL poll은 모두 `404 POLL_NOT_FOUND`로 숨기며, 일반 관리자 종료 API로도 MEAL poll을 우회할 수 없다.
 

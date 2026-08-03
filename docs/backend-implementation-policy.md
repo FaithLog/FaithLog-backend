@@ -501,6 +501,13 @@ Issue #34 is P0.
 
 ## Poll Response
 
+- Poll notice is optional plain text. Normalize surrounding whitespace, treat blank as null, and reject content longer than 5,000 characters.
+- Poll create requests accept ordered `imageAssetIds`. The dedicated poll content PATCH updates `title`, `notice`, and the complete ordered `imageAssetIds` set together; an OPEN poll may be edited without resending its publication notification.
+- Generic polls use `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/notice`; MEAL polls use `PATCH /api/v1/campuses/{campusId}/meal/polls/{pollId}/notice` and retain their duty-only permission.
+- Detail/create responses expose `notice` and ordered `imageAssetIds`. List responses omit notice text and expose `hasNotice`, `hasImages`, and the first `thumbnailAssetId` only.
+- READY media assets are shared infrastructure but poll ownership is stored only in `poll_images`. Attachment validation locks assets in stable 100-row batches, requires same-campus/request-owner READY state, rejects duplicate and announcement/poll reuse, preserves client order, and marks removed assets ORPHANED for the shared 24-hour cleanup.
+- Poll publication and one durable outbox row are committed together. Immediate polls record on OPEN creation; scheduled polls record only when they transition to OPEN under a poll row lock. Scheduler/restart/concurrent reads cannot create a second row for the same poll.
+- Poll-open push targets ACTIVE campus members except the poll creator. Copy is `새 투표가 등록되었어요` / `{poll.title} 투표에 참여해 주세요.` and data contains only `eventType=POLL_OPEN`, `campusId`, and `pollId`. Notice, options, and image URLs are prohibited from push payloads.
 - Poll response requests must use `optionIds`.
 - Selected options must be stored in `poll_response_options`.
 - Do not implement request field `optionId` or `poll_responses.option_id` from older API drafts.
@@ -590,5 +597,6 @@ Keep these out of MVP scope:
 - Public announcement/member media reads do not inherit the service-ADMIN management bypass; an ACTIVE campus membership is required. Outbox notification creation uses required deduplication and remains pending on Redis or transactional failure.
 - Announcement responses expose ordered asset IDs only. Clients request signed URLs in ordered chunks of at most 100; each ordered result includes immutable `sha256` for the `attachmentId + sha256 + variant` device-cache key. The chunk size is not a product attachment limit.
 - `announcement_images` stores `campus_id` and uses composite foreign keys to both announcement and media asset, so cross-campus attachment is rejected by PostgreSQL as well as by the service layer.
+- `poll_images` reuses the same `media_assets` rows and composite tenant foreign keys. A media-row lock plus cross-domain attachment checks prevents one asset from being attached to both an announcement and a poll.
 - Category create/update must flush inside the command service's duplicate-error boundary so concurrent case-insensitive unique violations return the typed category conflict instead of surfacing at transaction completion.
 - Issue #237 must not implement poll image tables or poll API behavior. Issue #238 reuses the shared media ports and asset lifecycle.
