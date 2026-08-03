@@ -36,7 +36,7 @@ class AnnouncementImageAttachmentServiceTest {
 	void ready_asset_already_attached_to_another_announcement_is_rejected_before_replacement() {
 		MediaAsset asset = readyAsset(31L, 7L, 11L);
 		when(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of());
-		when(assets.findByCampusIdAndIdIn(7L, List.of(31L))).thenReturn(List.of(asset));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(asset));
 		when(images.existsByMediaAssetIdAndAnnouncementIdNot(31L, 101L)).thenReturn(true);
 
 		assertThatThrownBy(() -> service.replace(101L, 7L, 11L, List.of(31L)))

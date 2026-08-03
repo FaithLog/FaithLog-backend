@@ -23,6 +23,7 @@ import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import java.time.LocalDate;
+import java.util.Optional;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -90,5 +91,32 @@ class NotificationRequestCommandServiceBatchTest {
 				"categoryId", "3"
 			));
 		verify(notificationDispatchPort).dispatch(logs.getAllValues().get(0).requestId());
+	}
+
+	@Test
+	void required_automatic_request_releases_reserved_dedupe_when_log_creation_fails() {
+		NotificationRequestCommandService service = new NotificationRequestCommandService(
+			notificationLogRepository, userFcmTokenRepository, userRepository, campusMemberRepository,
+			weeklyDevotionRecordRepository, pollRepository, pollResponseRepository, chargeItemRepository,
+			notificationDispatchPort, notificationDeduplicationService, notificationLockService
+		);
+		var reservation = new NotificationDeduplicationReservation(
+			NotificationDeduplicationKey.of("announcement-required"), "owner-token");
+		when(notificationDeduplicationService.reserveDailyRequiredNotification(any(
+			NotificationDeduplicationCommand.class))).thenReturn(Optional.of(reservation));
+		when(userFcmTokenRepository.findActiveSendableTokensByUserIdIn(Set.of(11L)))
+			.thenReturn(List.of());
+		when(notificationLogRepository.save(any(NotificationLog.class)))
+			.thenThrow(new IllegalStateException("database unavailable"));
+		var command = new AutomaticNotificationRequestCommand(
+			7L, NotificationType.ANNOUNCEMENT_PUBLISHED, null, 99L, List.of(11L),
+			LocalDate.of(2026, 8, 3), "announcement:99", "title", "body", Map.of());
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+			() -> service.requestRequiredAutomaticNotification(command))
+			.isInstanceOf(IllegalStateException.class);
+
+		verify(notificationDeduplicationService).releaseRequiredNotification(reservation);
+		verify(notificationDispatchPort, never()).dispatch(any());
 	}
 }

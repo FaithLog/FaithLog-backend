@@ -43,7 +43,7 @@ class AnnouncementNotificationOutboxProcessorTest {
 
 		ArgumentCaptor<AutomaticNotificationRequestCommand> command =
 			ArgumentCaptor.forClass(AutomaticNotificationRequestCommand.class);
-		verify(notificationRequestCommandService).requestAutomaticNotification(command.capture());
+		verify(notificationRequestCommandService).requestRequiredAutomaticNotification(command.capture());
 		assertThat(command.getValue().notificationType()).isEqualTo(NotificationType.ANNOUNCEMENT_PUBLISHED);
 		assertThat(command.getValue().targetUserIds()).containsExactly(12L, 13L);
 		assertThat(command.getValue().title()).isEqualTo("새 공지가 등록되었어요");
@@ -68,7 +68,25 @@ class AnnouncementNotificationOutboxProcessorTest {
 		).process(10L);
 
 		assertThat(processed).isFalse();
-		verify(notificationRequestCommandService, never()).requestAutomaticNotification(any());
+		verify(notificationRequestCommandService, never()).requestRequiredAutomaticNotification(any());
+	}
+
+	@Test
+	void required_notification_failure_keeps_outbox_pending_for_retry() {
+		AnnouncementNotificationOutbox outbox = outbox();
+		when(outboxRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(outbox));
+		when(campusMemberRepository.findByCampusIdAndStatusOrderByIdAsc(7L,
+			com.faithlog.campus.domain.type.CampusMemberStatus.ACTIVE))
+			.thenReturn(List.of(member(1L, 11L), member(2L, 12L)));
+		org.mockito.Mockito.doThrow(new com.faithlog.global.exception.BusinessException(
+			com.faithlog.global.exception.ErrorCode.NOTIFICATION_REDIS_UNAVAILABLE))
+			.when(notificationRequestCommandService).requestRequiredAutomaticNotification(any());
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> new AnnouncementNotificationOutboxProcessor(
+			outboxRepository, campusMemberRepository, notificationRequestCommandService).process(10L))
+			.isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+
+		assertThat(outbox.isProcessed()).isFalse();
 	}
 
 	private AnnouncementNotificationOutbox outbox() {
