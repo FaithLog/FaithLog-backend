@@ -22,6 +22,7 @@ CREATE TABLE yearly_recap_snapshots (
     first_presented_at TIMESTAMP(6) WITH TIME ZONE,
     created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    CONSTRAINT fk_yearly_recap_snapshots_user FOREIGN KEY (user_id) REFERENCES users (id),
     CONSTRAINT uk_yearly_recap_snapshots_user_year UNIQUE (user_id, recap_year),
     CONSTRAINT ck_yearly_recap_snapshots_year CHECK (recap_year BETWEEN 2000 AND 9999),
     CONSTRAINT ck_yearly_recap_snapshots_most_active_month CHECK (
@@ -53,11 +54,9 @@ CREATE TABLE yearly_recap_campuses (
     campus_name VARCHAR(100) NOT NULL,
     joined_date DATE NOT NULL,
     joined_during_recap_year BOOLEAN NOT NULL,
+    CONSTRAINT fk_yearly_recap_campuses_snapshot FOREIGN KEY (yearly_recap_snapshot_id) REFERENCES yearly_recap_snapshots (id),
     CONSTRAINT uk_yearly_recap_campuses_snapshot_campus UNIQUE (yearly_recap_snapshot_id, campus_id)
 );
-
-CREATE INDEX idx_yearly_recap_campuses_snapshot
-    ON yearly_recap_campuses (yearly_recap_snapshot_id, campus_id);
 
 ALTER TABLE yearly_recap_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE yearly_recap_campuses ENABLE ROW LEVEL SECURITY;
