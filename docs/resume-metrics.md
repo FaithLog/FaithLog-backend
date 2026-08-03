@@ -9,6 +9,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-08-03 - Issue #236 작년도 기록 돌아보기
+
+- 사용자·연도별 immutable 회고 snapshot과 다중 기기 멱등 표시 완료 상태를 구현했다. 시간 경계는 injectable `Clock`과 `Asia/Seoul`로 통일하고 Jan 1, Jan 14/15, 늦은 첫 실행, 윤년을 테스트했다.
+- ACTIVE 캠퍼스 여정, 경건 완료·연속일·활동 월, 기도 distinct 제출 주차·시즌, 현재 다섯 PollType 참여를 집계하되 기도문, 투표 선택·메모·댓글 본문, 이메일, 결제 정보, JWT/session/device/FCM token은 저장하거나 반환하지 않는다.
+- 1,000 ACTIVE member fixture에서도 aggregate adapter가 정확히 6 prepared statements만 사용하는 것을 검증했다. 이는 테스트에서 관찰한 query-count 불변식이며 production latency나 capacity 성과 수치가 아니다.
+- 집중 검증은 policy 5, assembler 4, API 5, concurrency 1, aggregate/query-count 1, REST Docs 2 tests를 포함한다. 최종 `./gradlew test build asciidoctor`는 9분 8초에 `701 tests / failures 0 / errors 0 / skipped 9`, REST Docs snippet group 184개와 HTML 생성을 확인했다. 병렬 #237 test executor가 같은 host 자원을 사용해 실행 시간이 늘었으며 이 시간은 제품 성능 수치가 아니다.
+- Docker daemon 조회가 `EOF`로 실패해 별도 임시 PostgreSQL의 V1→V14 실마이그레이션은 실행하지 않았다. H2 schema integration과 Flyway SQL contract는 GREEN이지만 실제 PostgreSQL migration은 PM 통합 전 pending이다.
+
 ## 2026-08-02 - Issue #233 로그인 사용자 비밀번호 변경
 
 - 비밀번호를 아는 로그인 사용자를 위한 `PATCH /api/v1/users/me/password`를 이메일 인증 기반 비밀번호 찾기와 분리했다. 현재 비밀번호 검증, 같은 비밀번호 재사용 거부, user row lock, BCrypt 변경을 전용 command service가 소유한다.

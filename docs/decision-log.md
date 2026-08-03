@@ -10,6 +10,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-08-03 - Issue #236 Previous-Year Recap Snapshot
+
+- Context: 로그인 복원 뒤 새해 첫 실행에서 직전 연도 활동을 한 번 자동 표시하고, 1월 1일부터 14일까지 홈에서 다시 열 수 있는 매년 재사용 가능한 회고가 필요하다. 기기 변경, 재설치, 다중 기기에서도 표시 완료 상태가 중복되면 안 되며 원본 retention이나 후속 수정이 과거 회고를 바꾸면 안 된다.
+- Decision: 서버 `Clock`과 `Asia/Seoul`로 `currentYear - 1`을 정하고, 첫 GET에서 `(user_id, recap_year)` UNIQUE snapshot을 transaction 안에서 idempotent하게 만든다. concurrent first GET은 user row lock과 unique constraint로 하나만 확정한다. 실제 화면 렌더 뒤 POST presented를 호출하며 최초 시각만 보존한다. 자동 표시는 presented 전까지 한 번 가능하고, 홈 카드는 데이터가 있는 경우에만 1월 1일 00:00:00부터 1월 14일 23:59:59까지 노출한다. 1월 15일 이후라도 미표시 사용자의 자동 표시는 가능하다.
+- Decision: 활동과 ACTIVE 캠퍼스 여정이 모두 없으면 zero payload, `hasRecapData=false`, `shouldAutoPresent=false`, `homeCardVisible=false`를 반환한다. 이 상태의 valid presented 요청은 200 no-op이며 표시 시각을 만들지 않는다. `mostActiveMonth` 동률은 가장 이른 월이고 전 달 0이면 null이다.
+- Decision: 캠퍼스 여정은 현재 ACTIVE `campus_members.joined_at`의 Asia/Seoul 날짜와 current rejoin 의미를 사용한다. 기도는 `submitted_at IS NOT NULL`인 submission을 `prayer_weeks.week_start_date` 연도로 귀속해 distinct week/season을 집계한다. 투표 연도는 `polls.starts_at`을 Asia/Seoul 경계로 귀속하고 현재 `PollType` 다섯 값 `WED_SERVICE`, `SATURDAY_LEADER`, `COFFEE`, `MEAL`, `CUSTOM`을 그대로 집계한다.
+- Privacy/Performance: 응답과 snapshot에는 기도문, 투표 선택·메모·댓글 본문, 이메일, 계좌·납부·청구 금액, JWT/session/device/FCM token을 저장하거나 반환하지 않는다. 집계 port는 활동 row 수와 무관한 고정 6개 query 경계를 가지며 1,000 ACTIVE member fixture에서 이를 회귀 검증한다.
+- Schema/Integration: provisional Flyway V14가 `yearly_recap_snapshots`와 `yearly_recap_campuses`를 추가한다. #237/#238 병렬 브랜치와 번호가 충돌할 수 있으므로 develop 통합 직전에 최신 migration을 다시 확인하고 필요하면 재번호한다.
+
 ### 2026-08-02 - Issue #233 Authenticated Password Change
 
 - Context: The app already supports email-code password reset for a user who forgot the password, but the signed-in profile screen needs a separate flow that proves knowledge of the current password without another email challenge.
