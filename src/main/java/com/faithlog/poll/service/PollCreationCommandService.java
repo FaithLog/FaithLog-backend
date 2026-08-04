@@ -20,6 +20,7 @@ import com.faithlog.poll.service.command.CreatePollCommand;
 import com.faithlog.poll.service.result.PollResult;
 import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -34,6 +35,32 @@ public class PollCreationCommandService {
 	private final PollAccessService pollAccessService;
 	private final PollStatusSynchronizer pollStatusSynchronizer;
 	private final PollResultAssembler pollResultAssembler;
+	private final PollImageAttachmentService imageAttachmentService;
+
+	@Autowired
+	public PollCreationCommandService(
+		PollRepository pollRepository,
+		PollOptionRepository pollOptionRepository,
+		PollTemplateRepository pollTemplateRepository,
+		PollTemplateOptionRepository pollTemplateOptionRepository,
+		PaymentAccountRepositoryPort paymentAccountRepository,
+		PollOptionSnapshotResolver optionSnapshotResolver,
+		PollAccessService pollAccessService,
+		PollStatusSynchronizer pollStatusSynchronizer,
+		PollResultAssembler pollResultAssembler,
+		PollImageAttachmentService imageAttachmentService
+	) {
+		this.pollRepository = pollRepository;
+		this.pollOptionRepository = pollOptionRepository;
+		this.pollTemplateRepository = pollTemplateRepository;
+		this.pollTemplateOptionRepository = pollTemplateOptionRepository;
+		this.paymentAccountRepository = paymentAccountRepository;
+		this.optionSnapshotResolver = optionSnapshotResolver;
+		this.pollAccessService = pollAccessService;
+		this.pollStatusSynchronizer = pollStatusSynchronizer;
+		this.pollResultAssembler = pollResultAssembler;
+		this.imageAttachmentService = imageAttachmentService;
+	}
 
 	public PollCreationCommandService(
 		PollRepository pollRepository,
@@ -46,15 +73,9 @@ public class PollCreationCommandService {
 		PollStatusSynchronizer pollStatusSynchronizer,
 		PollResultAssembler pollResultAssembler
 	) {
-		this.pollRepository = pollRepository;
-		this.pollOptionRepository = pollOptionRepository;
-		this.pollTemplateRepository = pollTemplateRepository;
-		this.pollTemplateOptionRepository = pollTemplateOptionRepository;
-		this.paymentAccountRepository = paymentAccountRepository;
-		this.optionSnapshotResolver = optionSnapshotResolver;
-		this.pollAccessService = pollAccessService;
-		this.pollStatusSynchronizer = pollStatusSynchronizer;
-		this.pollResultAssembler = pollResultAssembler;
+		this(pollRepository, pollOptionRepository, pollTemplateRepository, pollTemplateOptionRepository,
+			paymentAccountRepository, optionSnapshotResolver, pollAccessService, pollStatusSynchronizer,
+			pollResultAssembler, null);
 	}
 
 	@Transactional
@@ -101,7 +122,7 @@ public class PollCreationCommandService {
 			command.paymentAccountId(), command.campusId(), command.requesterId()
 		);
 		Poll poll = pollRepository.save(Poll.create(
-			command.campusId(), template.id(), command.title(), template.pollType(), template.selectionType(),
+			command.campusId(), template.id(), command.title(), command.notice(), template.pollType(), template.selectionType(),
 			command.isAnonymous(), template.allowUserOptionAdd(), template.chargeGenerationType(),
 			template.paymentCategory(), command.paymentAccountId(), command.startsAt(), command.endsAt(),
 			command.requesterId()
@@ -112,6 +133,7 @@ public class PollCreationCommandService {
 				poll.id(), option.content(), option.composeMenuCode(), option.priceAmount(), option.sortOrder()
 			))
 			.toList());
+		attachImages(poll, command);
 		return pollResultAssembler.toResult(poll);
 	}
 
@@ -138,7 +160,7 @@ public class PollCreationCommandService {
 			command.campusId(), command.requesterId()
 		);
 		Poll poll = pollRepository.save(Poll.create(
-			command.campusId(), null, command.title(), pollType, selectionType, command.isAnonymous(),
+			command.campusId(), null, command.title(), command.notice(), pollType, selectionType, command.isAnonymous(),
 			allowUserOptionAdd, chargeGenerationType, command.paymentCategory(), command.paymentAccountId(),
 			command.startsAt(), command.endsAt(), command.requesterId()
 		));
@@ -148,7 +170,14 @@ public class PollCreationCommandService {
 				poll.id(), snapshot.content(), snapshot.composeMenuCode(), snapshot.priceAmount(), snapshot.sortOrder()
 			))
 			.toList());
+		attachImages(poll, command);
 		return pollResultAssembler.toResult(poll);
+	}
+
+	private void attachImages(Poll poll, CreatePollCommand command) {
+		if (imageAttachmentService != null) {
+			imageAttachmentService.replace(poll.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
+		}
 	}
 
 	private void requireCoffeePrerequisitesIfNeeded(

@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Positive;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -20,6 +21,10 @@ public class CreateMealPollRequest {
 	@Size(max = 200)
 	@JsonProperty
 	private String title;
+
+	@Size(max = 5_000)
+	@JsonProperty
+	private String notice;
 
 	@JsonProperty
 	private boolean isAnonymous;
@@ -37,6 +42,9 @@ public class CreateMealPollRequest {
 	@JsonProperty
 	private List<@NotNull CreateMealPollOptionRequest> options;
 
+	@JsonProperty
+	private List<@Positive Long> imageAssetIds;
+
 	private final Set<String> unknownFields = new LinkedHashSet<>();
 
 	public CreateMealPollRequest() {
@@ -52,13 +60,15 @@ public class CreateMealPollRequest {
 			campusId,
 			authenticatedUser.userId(),
 			title,
+			notice == null || notice.isBlank() ? null : notice.trim(),
 			isAnonymous,
 			allowUserOptionAdd,
 			endsAt,
 			options.stream().map(option -> new CreateMealPollOptionCommand(
 				option.content(), option.sortOrder(), option.unknownFields()
 			)).toList(),
-			Set.copyOf(unknownFields)
+			Set.copyOf(unknownFields),
+			imageAssetIds == null ? List.of() : imageAssetIds
 		);
 	}
 }

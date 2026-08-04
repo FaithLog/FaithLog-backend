@@ -148,7 +148,7 @@ public class NotificationDeliveryWorker {
 		while (true) {
 			ensureLease(lease);
 			try {
-				fcmSendPort.send(new FcmSendCommand(token.token(), log.title(), log.body()));
+				fcmSendPort.send(new FcmSendCommand(token.token(), log.title(), log.body(), log.data()));
 				return;
 			} catch (FcmSendException exception) {
 				if (exception.failureType() == FcmSendFailureType.PERMANENT || attempt >= MAX_TRANSIENT_RETRIES) {

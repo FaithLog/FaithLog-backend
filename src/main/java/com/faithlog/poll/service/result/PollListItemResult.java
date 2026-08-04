@@ -10,6 +10,9 @@ public record PollListItemResult(
 	Long id,
 	Long campusId,
 	String title,
+	boolean hasNotice,
+	boolean hasImages,
+	Long thumbnailAssetId,
 	PollType pollType,
 	SelectionType selectionType,
 	boolean isAnonymous,
@@ -22,10 +25,22 @@ public record PollListItemResult(
 ) {
 
 	public static PollListItemResult of(Poll poll, boolean responded, boolean manageableByMe) {
+		return of(poll, responded, manageableByMe, java.util.List.of());
+	}
+
+	public static PollListItemResult of(
+		Poll poll,
+		boolean responded,
+		boolean manageableByMe,
+		java.util.List<Long> imageAssetIds
+	) {
 		return new PollListItemResult(
 			poll.id(),
 			poll.campusId(),
 			poll.title(),
+			poll.hasNotice(),
+			!imageAssetIds.isEmpty(),
+			imageAssetIds.isEmpty() ? null : imageAssetIds.getFirst(),
 			poll.pollType(),
 			poll.selectionType(),
 			poll.isAnonymous(),

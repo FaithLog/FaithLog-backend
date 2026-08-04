@@ -10,6 +10,7 @@ public record MealPollManagementDetailResult(
 	Long id,
 	Long campusId,
 	String title,
+	String notice,
 	PollType pollType,
 	SelectionType selectionType,
 	boolean isAnonymous,
@@ -17,6 +18,7 @@ public record MealPollManagementDetailResult(
 	Instant startsAt,
 	Instant endsAt,
 	PollStatus status,
-	List<MealPollManagementOptionResult> options
+	List<MealPollManagementOptionResult> options,
+	List<Long> imageAssetIds
 ) {
 }

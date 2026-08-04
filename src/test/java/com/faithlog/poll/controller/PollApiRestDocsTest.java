@@ -44,6 +44,10 @@ import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
 import com.faithlog.poll.infrastructure.repository.MealPollSettlementRepository;
 import com.faithlog.poll.infrastructure.repository.MealPollChargeGroupRepository;
+import com.faithlog.poll.infrastructure.repository.PollImageRepository;
+import com.faithlog.poll.domain.entity.PollImage;
+import com.faithlog.media.domain.entity.MediaAsset;
+import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.poll.infrastructure.repository.CoffeeMenuCatalogRepository;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
@@ -104,6 +108,95 @@ class PollApiRestDocsTest {
 	@Autowired
 	private MealPollChargeGroupRepository mealPollChargeGroupRepository;
 
+	@Autowired
+	private PollImageRepository pollImageRepository;
+
+	@Autowired
+	private MediaAssetRepositoryPort mediaAssetRepository;
+
+	@Test
+	void poll_title_notice_and_ordered_images_update_contracts() throws Exception {
+		String managerToken = signupAndLogin("poll-notice-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("poll-notice-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "238투표공지캠");
+		long campusId = campus.path("campusId").asLong();
+		JsonNode poll = createCustomPoll(managerToken, campusId, "수정 전 제목", false, "SINGLE");
+		long pollId = poll.path("id").asLong();
+		openPoll(pollId);
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/notice", campusId, pollId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"title":"  수정된 제목  ","notice":"  참여 전에 공지를 확인해 주세요.  ","imageAssetIds":[]}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.title").value("수정된 제목"))
+			.andExpect(jsonPath("$.data.notice").value("참여 전에 공지를 확인해 주세요."))
+			.andExpect(jsonPath("$.data.imageAssetIds").isArray())
+			.andDo(document("poll-notice-update-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
+				requestHeaders(headerWithName("Authorization").description("Access Token Bearer")),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("투표 ID")
+				),
+				requestFields(
+					fieldWithPath("title").description("trim 후 1~200자인 수정 제목"),
+					fieldWithPath("notice").optional().description("trim 후 최대 5,000자 일반 텍스트. blank는 null"),
+					fieldWithPath("imageAssetIds").description("READY 이미지 ID의 표시 순서. 제품 개수 상한 없음"),
+					fieldWithPath("imageAssetIds[]").optional().description("동일 캠퍼스·요청자 소유 READY asset ID")
+				),
+				relaxedResponseFields(
+					fieldWithPath("data.title").description("정규화된 제목"),
+					fieldWithPath("data.notice").optional().description("정규화된 공지 본문"),
+					fieldWithPath("data.imageAssetIds").description("정렬된 이미지 asset ID")
+				)));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/notice", campusId, pollId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"title\":\"수정\",\"notice\":\"%s\",\"imageAssetIds\":[]}".formatted("가".repeat(5001))))
+			.andExpect(status().isBadRequest())
+			.andDo(document("poll-notice-update-validation",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+
+		String memberToken = signupAndLogin("poll-notice-member@example.com", UserRole.USER);
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/notice", campusId, pollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"title\":\"권한 없음\",\"notice\":null,\"imageAssetIds\":[]}"))
+			.andExpect(status().isForbidden())
+			.andDo(document("poll-notice-update-forbidden",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/notice", campusId, 99999999L)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"title\":\"없음\",\"notice\":null,\"imageAssetIds\":[]}"))
+			.andExpect(status().isNotFound())
+			.andDo(document("poll-notice-update-not-found",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+
+		JsonNode otherPoll = createCustomPoll(managerToken, campusId, "이미지 소유 투표", false, "SINGLE");
+		MediaAsset asset = MediaAsset.reserve(campusId, manager.id(), "image/jpeg", 10, "a".repeat(64),
+			"temporary/poll-notice/original", Instant.now().plusSeconds(3600));
+		asset.startProcessing();
+		asset.complete("media/poll-notice/thumbnail.jpg", "media/poll-notice/detail.jpg", 100, 100, 20,
+			"b".repeat(64));
+		asset = mediaAssetRepository.save(asset);
+		pollImageRepository.saveAndFlush(PollImage.create(campusId, otherPoll.path("id").asLong(), asset.id(), 0));
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/notice", campusId, pollId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"title\":\"충돌\",\"notice\":null,\"imageAssetIds\":[%d]}".formatted(asset.id())))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("MEDIA_ASSET_STATE_CONFLICT"))
+			.andDo(document("poll-notice-update-image-conflict",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
+	}
+
 	@Test
 	void meal_poll_create_is_server_started_open_and_rejects_billing_fields() throws Exception {
 		String managerToken = signupAndLogin("meal-poll-manager@example.com", UserRole.MANAGER);
@@ -141,6 +234,17 @@ class PollApiRestDocsTest {
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())))
 			.andReturn().getResponse().getContentAsString();
 		long pollId = objectMapper.readTree(body).path("data").path("id").asLong();
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/meal/polls/{pollId}/notice", campusId, pollId)
+				.header("Authorization", "Bearer " + dutyToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"title":"  점심 메뉴 안내  ","notice":"  주문 전 확인해 주세요.  ","imageAssetIds":[]}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.title").value("점심 메뉴 안내"))
+			.andExpect(jsonPath("$.data.notice").value("주문 전 확인해 주세요."))
+			.andDo(document("meal-poll-notice-update-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint())));
 		com.faithlog.poll.domain.entity.Poll poll = pollRepository.findById(pollId).orElseThrow();
 		assertThat(poll.createdAt()).isEqualTo(poll.startsAt());
 		String memberToken = signupAndLogin("meal-poll-member@example.com", UserRole.USER);
