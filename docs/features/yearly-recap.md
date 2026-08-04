@@ -23,7 +23,7 @@ The first GET creates one `(user_id, recap_year)` snapshot in a `REPEATABLE_READ
 
 The snapshot stores only aggregate counts and ACTIVE campus journey metadata. `presented` preserves the first timestamp and is idempotent. For a no-data snapshot it is a successful no-op.
 
-V17 preserves only compact per-user/year facts immediately before retention deletes a source row. Archive upsert and source deletion share one database transaction. The first GET merges archived and still-live facts by stable source ID before freezing V15. A coverage watermark hides years that may already have lost data before V17 was deployed; incomplete years create no snapshot and are not presented as accurate recaps.
+V17 preserves only compact per-user/year facts immediately before retention deletes a source row. Archive upsert and source deletion share one database transaction. The first GET merges archived and still-live facts by stable source ID before freezing V15. A coverage watermark hides years that may already have lost data before V17 was deployed; incomplete years create no snapshot and are not presented as accurate recaps. Its initial complete-year boundary uses `CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'`, so PostgreSQL session or server timezone cannot make the first Seoul New Year hours look complete prematurely.
 
 ## Aggregation
 
@@ -43,4 +43,4 @@ The response, snapshot, and compact archive exclude prayer text, poll participat
 
 Issue #237 owns V14. The corrected V15 snapshot stores the final comment and penalty shape, V16 adds poll notice/image/outbox, V17 adds compact recap facts and coverage, and V18 adds durable media-cleanup retry/lease metadata. Physical order is always V14 -> V15 -> V16 -> V17 -> V18. Every recap table explicitly enables RLS; snapshot and archive foreign-key boundaries remain fail closed. The corrected V15 SQL SHA-256 is `bd7b956e8aba48d9c21dd0cd113cb09170aed41023002318aa723489d12dfb34`.
 
-The final exact-HEAD `clean test build asciidoctor` gate passed 836 tests with no failures or errors and 14 skipped tests. A disposable PostgreSQL 17 gate passed all 8 clean and protected upgrade cases through V18, including recap RLS/FK/CHECK constraints and migration order, without touching the shared QA database.
+The final exact-HEAD `clean test build asciidoctor` gate passed 843 tests with no failures or errors and 15 skipped tests. A disposable PostgreSQL 17 gate passed all 9 clean and protected upgrade cases through V18, including recap RLS/FK/CHECK constraints, migration order, timezone-independent Seoul coverage, and the stale-PROCESSING cleanup index, without touching the shared QA database.
