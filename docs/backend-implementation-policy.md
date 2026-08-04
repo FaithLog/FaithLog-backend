@@ -115,6 +115,23 @@ Redis TTL policy:
 - `auth:session:revoked:{userId}:{sessionId}` TTL is the configured refresh token lifetime plus 60 seconds.
 - Reuse-detection keys, when used, live until the refresh token expiration.
 
+## Previous-Year Recap
+
+- `GET /api/v1/users/me/yearly-recaps/previous` calculates the previous year from an injected server `Clock` in `Asia/Seoul`; application code must not scatter direct `LocalDate.now()` or `Instant.now()` calls.
+- The first GET stores one immutable `(user_id, recap_year)` snapshot inside a `REPEATABLE_READ` transaction. The presented POST uses the same effective isolation when it creates a missing snapshot. A user-row write lock, database unique constraint, and bounded transaction-level retry serialize concurrent first reads without retrying unrelated integrity failures. Later source retention or corrections must not change the stored recap.
+- `POST /api/v1/users/me/yearly-recaps/{recapYear}/presented` accepts only the server's current previous year, preserves the first presentation timestamp, and is idempotent. When `hasRecapData=false`, it returns success without creating a presentation timestamp.
+- Automatic presentation and the home-card window are independent. An unpresented recap may auto-present after January 14, while the home card is visible only through January 14 23:59:59 in `Asia/Seoul` and only when recap data exists.
+- Campus journeys use current ACTIVE memberships with `campus_members.joined_at` strictly before the recap-year end boundary, converted to an `Asia/Seoul` date. December 31 is included, next-year January 1 is excluded, and current reactivation semantics determine the latest rejoin date.
+- Devotion daily counts deduplicate the same date across multiple campuses, and submitted-week counts deduplicate the same `weekStartDate` across campuses. `mostActiveMonth` chooses the earliest month on a positive tie and is null when every month is zero.
+- Prayer aggregation counts only submissions with a non-null `submittedAt`, attributes the year by `prayer_weeks.week_start_date`, deduplicates the same calendar week across campuses, and independently returns distinct participated seasons.
+- Poll participation and `PollType` counts are not recap data. `commentActivity.writtenCount` counts only the authenticated user's non-deleted comments in the recap year and stores no comment body, poll title, selection, option, or memo.
+- `penaltySummary` includes only the authenticated user's `PENALTY + DEVOTION_RECORD` charges whose source weekly devotion belongs to the recap year. Only `PAID` and `UNPAID` contribute; aggregate count and won-denominated amount must satisfy exact paid-plus-unpaid arithmetic with overflow rejected.
+- Current ACTIVE membership gates only the campus-journey list. A user's own historical comment and devotion-penalty facts remain recap data after that campus membership becomes inactive; another user's facts never contribute.
+- The response and persisted snapshot must not contain prayer/comment content, poll selections or memo, email, account details, individual charge rows, JWT, session, device, or FCM token data. Only the approved penalty aggregate amounts are exposed.
+- One-user aggregation must use a fixed query boundary rather than per-activity lookups. The approved adapter uses six statements for campus, devotion daily, devotion submitted weeks, prayer, comments, and penalties, independent of the number of active campus members or activity rows.
+- V17 archives only compact per-user/year facts before source retention, in the same database transaction as deletion. First GET merges archive and live facts by source ID before freezing V15; incomplete pre-deployment coverage returns no recap and creates no inaccurate snapshot. Raw prayer/comment/poll/payment content is never archived.
+- Physical migration order is V14 announcements/media, corrected V15 yearly recap snapshots, V16 poll notice/images/outbox, V17 compact recap archive, and V18 media cleanup retry/lease. Every V15 and V17 recap table explicitly enables RLS; tenant and snapshot foreign-key boundaries remain fail closed.
+
 ## Pagination And Sorting
 
 - List APIs use common query parameters: `page`, `size`, and `sort`.
@@ -501,6 +518,13 @@ Issue #34 is P0.
 
 ## Poll Response
 
+- Poll notice is optional plain text. Normalize surrounding whitespace, treat blank as null, and reject content longer than 5,000 characters.
+- Poll create requests accept ordered `imageAssetIds`. The dedicated poll content PATCH updates `title`, `notice`, and the complete ordered `imageAssetIds` set together; an OPEN poll may be edited without resending its publication notification.
+- Generic polls use `PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/notice`; MEAL polls use `PATCH /api/v1/campuses/{campusId}/meal/polls/{pollId}/notice` and retain their duty-only permission.
+- Detail/create responses expose `notice` and ordered `imageAssetIds`. List responses omit notice text and expose `hasNotice`, `hasImages`, and the first `thumbnailAssetId` only.
+- READY media assets are shared infrastructure but poll ownership is stored only in `poll_images`. Attachment validation locks assets in stable 100-row batches, requires same-campus READY state, rejects duplicate and announcement/poll reuse, preserves client order, and marks removed assets ORPHANED for the shared 24-hour cleanup. An authorized joint manager/duty editor may retain or reorder another uploader's asset only when that asset is already attached to the same poll; every newly introduced asset must still be owned by the requester.
+- Poll publication and one durable outbox row are committed together. Immediate polls record on OPEN creation; scheduled polls record only when they transition to OPEN under a poll row lock. Scheduler/restart/concurrent reads cannot create a second row for the same poll.
+- Poll-open push targets ACTIVE campus members except the poll creator. Copy is `새 투표가 등록되었어요` / `{poll.title} 투표에 참여해 주세요.` and data contains only `eventType=POLL_OPEN`, `campusId`, and `pollId`. Notice, options, and image URLs are prohibited from push payloads.
 - Poll response requests must use `optionIds`.
 - Selected options must be stored in `poll_response_options`.
 - Do not implement request field `optionId` or `poll_responses.option_id` from older API drafts.
@@ -571,3 +595,28 @@ Keep these out of MVP scope:
 - Payment API integration
 - KakaoTalk automatic integration
 - QR check-in
+
+## Campus Announcements And Media
+
+- Campus announcement categories are campus-owned data, not a server enum. Names are trim-normalized, 1~30 characters, and case-insensitively unique per campus. Every campus has an active default `일반` category with color `#3B82F6` and display order 0.
+- Announcements use `SCHEDULED`, `PUBLISHED`, and `ARCHIVED`; physical deletion and restore are not exposed. Public reads require an ACTIVE campus member, while management reuses the existing campus-manager policy.
+- A non-null `publishAt` must be in the future at both request validation and use-case execution. Invalid or expired scheduling input is a typed validation failure, never an unhandled server error.
+- Category deactivation blocks new selection only. Existing announcements may keep an inactive category for content edits and manual or scheduled publication, while changing to a different inactive category remains forbidden.
+- Manual and scheduled publication create exactly one durable announcement outbox row in the publication transaction. Delivery targets ACTIVE members, excludes the author, and sends only category/title plus ID-only data payload.
+- Media binary is stored only in a private Cloudflare R2 Standard bucket. DB rows contain immutable random object keys and metadata, never public URLs or image binary.
+- Upload reservation requires both user and campus Redis limits of 30 requests per fixed 10-minute window. Redis failure blocks only new reservations.
+- Finalize rejects an expired PENDING reservation before storage access or state transition. R2 reads and image processing stay outside DB transactions. JPEG/PNG input is limited to 5MiB and 4096x4096; HEIC is rejected. The longest thumbnail dimension is at most 480 and the longest detail dimension is at most 1600 without enlargement. Re-encoding removes EXIF/GPS.
+- READY assets attach to exactly one announcement. Removal transitions the asset to ORPHANED inside the announcement transaction; R2 deletion happens only in cleanup after 24 hours. Archived announcement attachments remain READY and retained.
+- An authorized campus manager may retain or reorder READY assets already attached to that announcement regardless of the original uploader. Any newly added asset must still be READY, belong to the same campus, and be owned by the requester; unattached assets owned by another manager remain invalid.
+- Attachment validation must acquire media row locks in stable ID order and bounded batches, bulk-check cross-announcement conflicts, and flush removed links before reinserting ordered links so DB uniqueness remains deterministic.
+- Processing must persist planned variant keys before external writes. Cleanup retries every tracked FAILED/ORPHANED object, while READY cleanup may remove only an expired temporary original and must preserve the READY row and variants. V18 persists generic retry metadata, applies bounded exponential backoff up to 24 hours, and uses an expiring per-asset claim lease so failed head rows cannot starve later candidates and crashed claims are recoverable without storing provider errors or credentials. A PROCESSING row whose `updated_at` is at least 24 hours stale is recovered under the same pessimistic row lock to generic FAILED plus a cleanup lease; active PROCESSING is never selected. Finalize and cleanup therefore have one state-transition winner, and cleanup owns every tracked temporary/variant key only after its claim commits.
+- Once READY is committed, temporary-original deletion is best-effort and must not turn finalize or an idempotent READY retry into an API failure. Keep the temporary key as durable cleanup evidence until deletion and key clearing both succeed.
+- Member media access is limited to READY assets attached to PUBLISHED announcements. Managers may preview own-campus READY assets. Presigned GET generation occurs outside the DB authorization transaction, expires after 10 minutes, and maps provider failures to `MEDIA_STORAGE_UNAVAILABLE` without exposing provider details or object keys.
+- Public announcement/member media reads do not inherit the service-ADMIN management bypass; an ACTIVE campus membership is required. Outbox notification creation uses required deduplication and remains pending on Redis or transactional failure.
+- Announcement responses expose ordered asset IDs only. Clients request signed URLs in ordered chunks of at most 100; each ordered result includes immutable `sha256` for the `attachmentId + sha256 + variant` device-cache key. The chunk size is not a product attachment limit.
+- `announcement_images` stores `campus_id` and uses composite foreign keys to both announcement and media asset, so cross-campus attachment is rejected by PostgreSQL as well as by the service layer.
+- `poll_images` reuses the same `media_assets` rows and composite tenant foreign keys. A media-row lock plus cross-domain attachment checks prevents one asset from being attached to both an announcement and a poll.
+- Poll, announcement, and media services must not import another domain's infrastructure repository. Each consumer owns a narrow service port for cross-domain attachment conflicts or access decisions, and the providing domain implements that port in its infrastructure adapter. Media row locking and conflict query order remain unchanged across the port boundary.
+- Daily poll retention locks every attached media asset in stable ID batches and validates same-campus READY state before mutation. It then marks the assets ORPHANED, explicitly deletes `poll_images` and `poll_notification_outbox`, and only then deletes the remaining poll graph. Any missing, cross-campus, or non-READY asset rolls the whole cleanup transaction back. Child link/outbox counts remain internal to the poll deletion result; ORPHANED is a state transition, not a deleted-row metric.
+- Category create/update must flush inside the command service's duplicate-error boundary so concurrent case-insensitive unique violations return the typed category conflict instead of surfacing at transaction completion.
+- Issue #237 must not implement poll image tables or poll API behavior. Issue #238 reuses the shared media ports and asset lifecycle.

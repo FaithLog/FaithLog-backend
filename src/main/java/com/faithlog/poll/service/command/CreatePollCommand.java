@@ -12,6 +12,7 @@ public record CreatePollCommand(
 	Long requesterId,
 	Long templateId,
 	String title,
+	String notice,
 	PollType pollType,
 	SelectionType selectionType,
 	boolean isAnonymous,
@@ -21,8 +22,32 @@ public record CreatePollCommand(
 	Long paymentAccountId,
 	Instant startsAt,
 	Instant endsAt,
-	List<CreatePollOptionCommand> options
+	List<CreatePollOptionCommand> options,
+	List<Long> imageAssetIds
 ) {
+	public CreatePollCommand {
+		options = options == null ? List.of() : List.copyOf(options);
+		imageAssetIds = imageAssetIds == null ? List.of() : List.copyOf(imageAssetIds);
+	}
+	public CreatePollCommand(
+		Long campusId,
+		Long requesterId,
+		Long templateId,
+		String title,
+		PollType pollType,
+		SelectionType selectionType,
+		boolean isAnonymous,
+		Boolean allowUserOptionAdd,
+		ChargeGenerationType chargeGenerationType,
+		PaymentCategory paymentCategory,
+		Long paymentAccountId,
+		Instant startsAt,
+		Instant endsAt,
+		List<CreatePollOptionCommand> options
+	) {
+		this(campusId, requesterId, templateId, title, null, pollType, selectionType, isAnonymous,
+			allowUserOptionAdd, chargeGenerationType, paymentCategory, paymentAccountId, startsAt, endsAt, options, List.of());
+	}
 
 	public CreatePollCommand(
 		Long campusId,
@@ -44,6 +69,7 @@ public record CreatePollCommand(
 			requesterId,
 			templateId,
 			title,
+			null,
 			pollType,
 			selectionType,
 			isAnonymous,
@@ -53,7 +79,8 @@ public record CreatePollCommand(
 			paymentAccountId,
 			startsAt,
 			endsAt,
-			options
+			options,
+			List.of()
 		);
 	}
 }

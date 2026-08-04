@@ -32,6 +32,24 @@ class FlywayMigrationContractTest {
 	private static final Path CASE_INSENSITIVE_EMAIL_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V13__enforce_case_insensitive_user_email.sql"
 	);
+	private static final Path ANNOUNCEMENT_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V14__add_campus_announcements_and_media.sql"
+	);
+	private static final Path YEARLY_RECAP_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V15__add_yearly_recap_snapshots.sql"
+	);
+	private static final Path POLL_NOTICE_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V16__add_poll_notice_images_and_notification_outbox.sql"
+	);
+	private static final Path YEARLY_RECAP_ARCHIVE_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V17__add_yearly_recap_compact_archive.sql"
+	);
+	private static final Path MEDIA_CLEANUP_RETRY_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V18__add_media_cleanup_retry_lease.sql"
+	);
+	private static final Path POSTGRES_MIGRATION_TEST = Path.of(
+		"src/test/java/com/faithlog/deploy/PostgresFlywayMigrationTest.java"
+	);
 	private static final Path CLOUD_RUN_DOC = Path.of("docs/deploy/cloud-run-supabase.md");
 	private static final Path DOCKER_COMPOSE = Path.of("docker-compose.yml");
 	private static final Path APPLICATION_DOCKER = Path.of("src/main/resources/application-docker.yml");
@@ -243,6 +261,175 @@ class FlywayMigrationContractTest {
 			"delete from users",
 			"alter column email"
 		);
+	}
+
+	@Test
+	void v14AddsAnnouncementsDurableOutboxMediaAndDefaultCategories() throws IOException {
+		assertThat(ANNOUNCEMENT_MIGRATION).exists();
+		String sql = Files.readString(ANNOUNCEMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE TABLE announcement_categories",
+			"CREATE UNIQUE INDEX uk_announcement_categories_campus_lower_name",
+			"ON announcement_categories (campus_id, lower(name))",
+			"CREATE TABLE announcements",
+			"CREATE TABLE announcement_notification_outbox",
+			"UNIQUE (announcement_id)",
+			"CREATE TABLE media_assets",
+			"CREATE TABLE announcement_images",
+			"UNIQUE (media_asset_id)",
+			"ADD COLUMN data_payload TEXT NOT NULL DEFAULT '{}'",
+			"SELECT id, '일반', '#3B82F6', 0, TRUE",
+			"FROM campuses",
+			"ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql.toLowerCase()).doesNotContain("delete from campuses", "update campuses");
+	}
+
+	@Test
+	void v14ExtendsNotificationLogTypeConstraintForAnnouncementPublishing() throws IOException {
+		String sql = Files.readString(ANNOUNCEMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"DROP CONSTRAINT ck_notification_logs_type",
+			"ADD CONSTRAINT ck_notification_logs_type CHECK",
+			"'ANNOUNCEMENT_PUBLISHED'"
+		);
+	}
+
+	@Test
+	void v14EnforcesAnnouncementImageCampusOwnershipWithCompositeForeignKeys() throws IOException {
+		String sql = Files.readString(ANNOUNCEMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"CONSTRAINT uk_media_assets_campus_id_id UNIQUE (campus_id, id)",
+			"CREATE TABLE announcement_images",
+			"campus_id BIGINT NOT NULL",
+			"FOREIGN KEY (campus_id, announcement_id) REFERENCES announcements (campus_id, id)",
+			"FOREIGN KEY (campus_id, media_asset_id) REFERENCES media_assets (campus_id, id)"
+		);
+	}
+
+	@Test
+	void postgresV14FixturesSatisfyRequiredColumnsAndUsePreparedStatements() throws IOException {
+		String source = Files.readString(POSTGRES_MIGRATION_TEST);
+		String fixtures = source.substring(
+			source.indexOf("private static void assertAnnouncementNotificationTypeBoundary"),
+			source.indexOf("private static String envOrDefault")
+		);
+
+		assertThat(fixtures).contains(
+			"insert into notification_logs (request_id, user_id, campus_id, notification_type",
+			"connection.prepareStatement"
+		);
+		assertThat(fixtures).doesNotContain(
+			"connection.createStatement()",
+			"insertAndReturnId(Connection connection, String sql)"
+		);
+	}
+
+	@Test
+	void v16AddsPollNoticeImagesTenantKeysAndDurablePublicationOutbox() throws IOException {
+		assertThat(POLL_NOTICE_MIGRATION).exists();
+		String sql = Files.readString(POLL_NOTICE_MIGRATION);
+
+		assertThat(sql).contains(
+			"ADD COLUMN notice TEXT",
+			"char_length(notice) BETWEEN 1 AND 5000",
+			"CREATE TABLE poll_notification_outbox",
+			"UNIQUE (poll_id)",
+			"CREATE TABLE poll_images",
+			"FOREIGN KEY (campus_id, poll_id) REFERENCES polls (campus_id, id)",
+			"FOREIGN KEY (campus_id, media_asset_id) REFERENCES media_assets (campus_id, id)",
+			"UNIQUE (media_asset_id)",
+			"'MEAL_POLL_OPEN'",
+			"'CUSTOM_POLL_OPEN'",
+			"ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql.toLowerCase()).doesNotContain("delete from polls", "update polls");
+	}
+
+	@Test
+	void postgresFixturesRequireThePhysicalV14ToV15ToV16ToV17ToV18Order() throws IOException {
+		String source = Files.readString(POSTGRES_MIGRATION_TEST);
+		String cleanFixture = source.substring(
+			source.indexOf("void flywayMigratesCleanPostgresDatabase"),
+			source.indexOf("void v14UpgradeAcceptsAnnouncementNotification")
+		);
+		String v16UpgradeFixture = source.substring(
+			source.indexOf("void v16UpgradeAddsPollNoticeImagesAndOpenNotificationTypes"),
+			source.indexOf("void v15UpgradesIssue237V14WithoutChangingItsChecksum")
+		);
+		String v17UpgradeFixture = source.substring(
+			source.indexOf("void v17UpgradesV16WithCompactArchiveWithoutChangingV16Checksum"),
+			source.indexOf("void v18UpgradesV17WithDurableMediaCleanupRetryAndLease")
+		);
+		String v18UpgradeFixture = source.substring(
+			source.indexOf("void v18UpgradesV17WithDurableMediaCleanupRetryAndLease"),
+			source.indexOf("void v13FailsClosedWithoutChangingLegacyDuplicateEmails")
+		);
+
+		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"18\")");
+		assertThat(v16UpgradeFixture).contains(".target(\"15\")");
+		assertThat(v16UpgradeFixture).doesNotContain(".target(\"14\")");
+		assertThat(v17UpgradeFixture).contains(".target(\"16\")", ".target(\"17\")");
+		assertThat(v18UpgradeFixture).contains(".target(\"17\")", "MigrationVersion.fromVersion(\"18\")");
+	}
+
+	@Test
+	void v17AddsOnlyCompactRecapFactsAndFailClosedCoverage() throws IOException {
+		assertThat(YEARLY_RECAP_ARCHIVE_MIGRATION).exists();
+		String sql = Files.readString(YEARLY_RECAP_ARCHIVE_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE TABLE yearly_recap_archive_facts",
+			"CREATE TABLE yearly_recap_archive_coverage",
+			"complete_from_year",
+			"CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'",
+			"ON DELETE CASCADE",
+			"'COMMENT'", "'PRAYER'", "'DEVOTION_DAILY'", "'DEVOTION_WEEKLY'", "'PENALTY'",
+			"ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql).doesNotContain(
+			"CURRENT_DATE",
+			"comment_content", "prayer_content", "poll_response", "option_id", "memo",
+			"account_number", "bank_name", "account_holder"
+		);
+	}
+
+	@Test
+	void v18AddsDurableCleanupRetryAndLeaseWithoutChangingMediaOwnership() throws IOException {
+		assertThat(MEDIA_CLEANUP_RETRY_MIGRATION).exists();
+		String sql = Files.readString(MEDIA_CLEANUP_RETRY_MIGRATION);
+
+		assertThat(sql).contains(
+			"cleanup_attempt_count", "cleanup_next_attempt_at", "cleanup_last_failed_at",
+			"cleanup_failure_code", "cleanup_lease_token", "cleanup_lease_expires_at",
+			"ck_media_assets_cleanup_retry_pair", "ck_media_assets_cleanup_lease_pair",
+			"idx_media_assets_cleanup_due", "idx_media_assets_cleanup_processing_stale",
+			"WHERE status = 'PROCESSING'"
+		);
+		assertThat(sql).doesNotContain("DROP TABLE", "DROP COLUMN", "object_key", "credential");
+	}
+
+	@Test
+	void v15AddsImmutableYearlyRecapSnapshotSchema() throws IOException {
+		assertThat(YEARLY_RECAP_MIGRATION).exists();
+		String sql = Files.readString(YEARLY_RECAP_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE TABLE yearly_recap_snapshots",
+			"CREATE TABLE yearly_recap_campuses",
+			"CONSTRAINT fk_yearly_recap_snapshots_user FOREIGN KEY (user_id) REFERENCES users (id)",
+			"CONSTRAINT fk_yearly_recap_campuses_snapshot FOREIGN KEY (yearly_recap_snapshot_id) "
+				+ "REFERENCES yearly_recap_snapshots (id)",
+			"CONSTRAINT uk_yearly_recap_snapshots_user_year UNIQUE (user_id, recap_year)",
+			"CONSTRAINT ck_yearly_recap_snapshots_counts CHECK",
+			"CONSTRAINT uk_yearly_recap_campuses_snapshot_campus UNIQUE",
+			"ALTER TABLE yearly_recap_snapshots ENABLE ROW LEVEL SECURITY",
+			"ALTER TABLE yearly_recap_campuses ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql).doesNotContain("CREATE INDEX idx_yearly_recap_campuses_snapshot");
 	}
 
 	@Test

@@ -1,13 +1,15 @@
 package com.faithlog.notification.service;
 
 import com.faithlog.notification.domain.entity.NotificationLog;
+import java.util.Map;
 
 record PendingNotificationLog(
 	Long id,
 	Long userId,
 	Long campusId,
 	String title,
-	String body
+	String body,
+	Map<String, String> data
 ) {
 
 	static PendingNotificationLog from(NotificationLog log) {
@@ -16,7 +18,8 @@ record PendingNotificationLog(
 			log.userId(),
 			log.campusId(),
 			log.title(),
-			log.body()
+			log.body(),
+			log.data()
 		);
 	}
 }

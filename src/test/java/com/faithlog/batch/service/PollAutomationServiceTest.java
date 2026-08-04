@@ -48,7 +48,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -360,6 +362,43 @@ class PollAutomationServiceTest {
 			.findByCampusIdAndUserId(campus.campusId(), staleDuty.id()).orElseThrow();
 		staleMembership.deactivate();
 		campusMemberRepository.flush();
+
+		int closed = pollAutomationService.closeDueCoffeePolls(Instant.now());
+
+		assertThat(closed).isEqualTo(1);
+		assertThat(pollRepository.findById(stale.id())).get()
+			.extracting(Poll::status).isEqualTo(PollStatus.OPEN);
+		assertThat(pollRepository.findById(valid.id())).get()
+			.extracting(Poll::status).isEqualTo(PollStatus.CLOSED);
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	@DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+	void closeDueCoffeePolls_isolates_stale_account_failure_and_closes_later_valid_poll() {
+		User manager = saveUser("batch-close-stale-account-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("batch-close-stale-account-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "239비활성계좌격리캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Instant startsAt = Instant.now().minusSeconds(3600);
+		Instant endsAt = Instant.now().minusSeconds(60);
+
+		Long staleAccountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Poll stale = Poll.create(
+			campus.campusId(), null, "비활성 계좌 커피 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, staleAccountId,
+			startsAt, endsAt, duty.id());
+		stale.open();
+		pollRepository.saveAndFlush(stale);
+
+		Long validAccountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		Poll valid = Poll.create(
+			campus.campusId(), null, "정상 계좌 커피 투표", PollType.COFFEE, SelectionType.SINGLE,
+			false, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE, validAccountId,
+			startsAt, endsAt, duty.id());
+		valid.open();
+		pollRepository.saveAndFlush(valid);
 
 		int closed = pollAutomationService.closeDueCoffeePolls(Instant.now());
 
