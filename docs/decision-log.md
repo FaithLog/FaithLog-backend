@@ -1233,3 +1233,9 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Decision: Expired PENDING upload reservations fail closed before R2 access. Batched access URL responses preserve request order and include immutable `sha256`; provider presign failures return typed `MEDIA_STORAGE_UNAVAILABLE` without exposing provider details or object keys.
 - Decision: V14 updates `ck_notification_logs_type` for `ANNOUNCEMENT_PUBLISHED` and binds `announcement_images` to announcement and media asset through same-campus composite foreign keys.
 - Impact: Flyway V14 adds announcement category, announcement, outbox, media asset, and announcement image tables and backfills existing campuses. No poll image/domain behavior from Issue #238 is included. External R2, Docker, Cloud Run, and real FCM operations were not performed in development verification.
+
+## 2026-08-04 - Issue #239 커피 투표 자동 마감 개별 실패 격리
+
+- 만료된 커피 투표 한 건의 계좌·권한·상태 선행조건 오류가 전체 자동 마감 배치를 중단하지 않도록 `BusinessException`을 투표 단위로 격리한다.
+- 실패한 투표의 기존 transaction은 rollback하여 `OPEN` 상태를 유지하고, 이후 ID의 정상 투표는 계속 마감·정산한다. DB·Redis·락 같은 예상 밖 runtime 예외는 계속 전체 작업 실패로 전파한다.
+- 실패 로그에는 `pollId`와 `ErrorCode`만 남기며 계좌번호, 사용자 정보, 예외 stack trace는 반복 출력하지 않는다.

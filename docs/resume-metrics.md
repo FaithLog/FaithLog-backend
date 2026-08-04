@@ -1799,3 +1799,9 @@ Metric candidates:
 - Final whole-diff review found that the annual archive writer could pass a full 1,000-member year's source IDs through one `IN` predicate. A test-first correction bounds lookup and write batches to 500 while preserving idempotency and the archive/delete transaction. The final exact-HEAD clean gate is 843 tests / failures 0 / errors 0 / skipped 15 with build and Asciidoctor success; a disposable PostgreSQL 17 gate passed all 9 clean/upgrade migration cases without touching the shared QA database.
 - A second whole-diff check found that comment recap attribution followed the poll start year instead of the approved comment-written year. A cross-year integration RED now fixes both live aggregation and V17 archive facts to the comment's own `created_at` in `Asia/Seoul`.
 - V17's initial coverage watermark now derives its year from `CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'` instead of session-timezone `CURRENT_DATE`. The disposable PostgreSQL 17 gate passed 9/9 clean and protected upgrade cases, including identical Seoul year boundaries under UTC and America/Los_Angeles sessions and the V18 stale-PROCESSING partial index.
+
+## 2026-08-04 Issue #239 커피 투표 자동 마감 장애 격리
+
+- 로컬 QA DB에서 만료됐지만 `OPEN`인 커피 투표 189건을 확인했다. 가장 이른 poll 73은 비활성 COFFEE 계좌를 참조해 매 60초 `BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING`으로 실패했고, 예외가 반복문 밖으로 전파되어 이후 정상 투표도 처리되지 않았다.
+- 실행형 RED는 앞선 비활성 계좌 투표가 실패할 때 뒤의 정상 투표까지 마감되지 않는 문제를 재현했다. GREEN은 실패 투표를 rollback해 `OPEN`으로 보존하면서 뒤의 정상 투표를 `CLOSED`로 처리한다.
+- 이 변경은 장애 격리 정확성 개선이며 성능 수치나 처리량 개선 주장으로 사용하지 않는다.
