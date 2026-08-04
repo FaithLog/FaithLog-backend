@@ -9,6 +9,7 @@ import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollTemplateOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollTemplateRepository;
 import com.faithlog.poll.service.CoffeeOperationClassifier;
+import com.faithlog.poll.service.port.PollPublishedEventPort;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
@@ -19,17 +20,20 @@ class ScheduledPollFactory {
 	private final PollTemplateOptionRepository pollTemplateOptionRepository;
 	private final PollRepository pollRepository;
 	private final PollOptionRepository pollOptionRepository;
+	private final PollPublishedEventPort publishedEvents;
 
 	ScheduledPollFactory(
 		PollTemplateRepository pollTemplateRepository,
 		PollTemplateOptionRepository pollTemplateOptionRepository,
 		PollRepository pollRepository,
-		PollOptionRepository pollOptionRepository
+		PollOptionRepository pollOptionRepository,
+		PollPublishedEventPort publishedEvents
 	) {
 		this.pollTemplateRepository = pollTemplateRepository;
 		this.pollTemplateOptionRepository = pollTemplateOptionRepository;
 		this.pollRepository = pollRepository;
 		this.pollOptionRepository = pollOptionRepository;
+		this.publishedEvents = publishedEvents;
 	}
 
 	boolean createIfAbsent(Long templateId, ScheduledPollWindow window) {
@@ -69,6 +73,7 @@ class ScheduledPollFactory {
 		);
 		poll.open();
 		Poll savedPoll = pollRepository.save(poll);
+		publishedEvents.recordOpened(savedPoll, window.startsAt());
 		pollOptionRepository.saveAll(templateOptions.stream()
 			.map(option -> PollOption.create(
 				savedPoll.id(),

@@ -8,10 +8,17 @@ public record CreateMealPollCommand(
 	Long campusId,
 	Long requesterId,
 	String title,
+	String notice,
 	boolean isAnonymous,
 	boolean allowUserOptionAdd,
 	Instant endsAt,
 	List<CreateMealPollOptionCommand> options,
-	Set<String> unknownFields
+	Set<String> unknownFields,
+	List<Long> imageAssetIds
 ) {
+	public CreateMealPollCommand {
+		options = options == null ? List.of() : List.copyOf(options);
+		unknownFields = unknownFields == null ? Set.of() : Set.copyOf(unknownFields);
+		imageAssetIds = imageAssetIds == null ? List.of() : List.copyOf(imageAssetIds);
+	}
 }

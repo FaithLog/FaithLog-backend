@@ -1,5 +1,6 @@
 package com.faithlog.notification.infrastructure.fcm;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.faithlog.notification.service.FcmSendException;
@@ -7,7 +8,10 @@ import com.faithlog.notification.service.port.FcmSendCommand;
 import com.faithlog.notification.service.port.FcmSendFailureType;
 import com.google.firebase.ErrorCode;
 import com.google.firebase.messaging.MessagingErrorCode;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class FirebaseFcmSendAdapterTest {
 
@@ -51,6 +55,25 @@ class FirebaseFcmSendAdapterTest {
 			.isInstanceOf(FcmSendException.class)
 			.extracting("failureType")
 			.isEqualTo(FcmSendFailureType.PERMANENT);
+	}
+
+	@Test
+	void sends_the_exact_data_payload_with_the_notification() {
+		AtomicReference<com.google.firebase.messaging.Message> captured = new AtomicReference<>();
+		FirebaseFcmSendAdapter adapter = new FirebaseFcmSendAdapter(message -> {
+			captured.set(message);
+			return "message-id";
+		});
+		Map<String, String> data = Map.of(
+			"eventType", "ANNOUNCEMENT_PUBLISHED",
+			"campusId", "7",
+			"announcementId", "99",
+			"categoryId", "3"
+		);
+
+		adapter.send(new FcmSendCommand("fcm-token", "새 공지", "[일반] 예배 안내", data));
+
+		assertThat(ReflectionTestUtils.getField(captured.get(), "data")).isEqualTo(data);
 	}
 
 	private FirebaseFcmSendAdapter adapterThrowing(FirebaseFcmFailure failure) {

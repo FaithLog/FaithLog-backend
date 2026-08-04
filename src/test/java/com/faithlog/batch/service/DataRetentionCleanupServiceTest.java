@@ -11,7 +11,9 @@ import com.faithlog.billing.domain.type.PaymentCategory;
 import com.faithlog.billing.infrastructure.repository.ChargeItemRepository;
 import com.faithlog.billing.infrastructure.repository.PaymentAccountRepository;
 import com.faithlog.campus.domain.entity.Campus;
+import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
+import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.devotion.domain.entity.DevotionDailyCheck;
 import com.faithlog.devotion.domain.entity.WeeklyDevotionRecord;
 import com.faithlog.devotion.infrastructure.repository.DevotionDailyCheckRepository;
@@ -19,6 +21,9 @@ import com.faithlog.devotion.infrastructure.repository.WeeklyDevotionRecordRepos
 import com.faithlog.notification.domain.entity.NotificationLog;
 import com.faithlog.notification.domain.type.NotificationType;
 import com.faithlog.notification.infrastructure.repository.NotificationLogRepository;
+import com.faithlog.media.domain.entity.MediaAsset;
+import com.faithlog.media.domain.type.MediaAssetStatus;
+import com.faithlog.media.infrastructure.repository.MediaAssetRepository;
 import com.faithlog.poll.domain.type.ChargeGenerationType;
 import com.faithlog.poll.domain.entity.MealPollChargeGroup;
 import com.faithlog.poll.domain.entity.MealPollSettlement;
@@ -27,6 +32,8 @@ import com.faithlog.poll.domain.entity.PollComment;
 import com.faithlog.poll.domain.entity.PollOption;
 import com.faithlog.poll.domain.entity.PollResponse;
 import com.faithlog.poll.domain.entity.PollResponseOption;
+import com.faithlog.poll.domain.entity.PollImage;
+import com.faithlog.poll.domain.entity.PollNotificationOutbox;
 import com.faithlog.poll.domain.type.MealChargeCalculationType;
 import com.faithlog.poll.domain.type.PollType;
 import com.faithlog.poll.domain.type.SelectionType;
@@ -37,6 +44,8 @@ import com.faithlog.poll.infrastructure.repository.PollOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
+import com.faithlog.poll.infrastructure.repository.PollImageRepository;
+import com.faithlog.poll.infrastructure.repository.PollNotificationOutboxRepository;
 import com.faithlog.prayer.domain.entity.PrayerGroup;
 import com.faithlog.prayer.domain.entity.PrayerSeason;
 import com.faithlog.prayer.domain.entity.PrayerSubmission;
@@ -48,6 +57,9 @@ import com.faithlog.prayer.infrastructure.repository.PrayerWeekRepository;
 import com.faithlog.support.NotificationConcurrencyTestConfig.InMemoryNotificationConcurrencyPort;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import com.faithlog.user.service.YearlyRecapSnapshotService;
+import com.faithlog.user.service.policy.YearlyRecapPeriod;
+import jakarta.persistence.EntityManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,14 +67,20 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -98,6 +116,15 @@ class DataRetentionCleanupServiceTest {
 	private PollCommentRepository pollCommentRepository;
 
 	@Autowired
+	private PollImageRepository pollImageRepository;
+
+	@Autowired
+	private PollNotificationOutboxRepository pollNotificationOutboxRepository;
+
+	@Autowired
+	private MediaAssetRepository mediaAssetRepository;
+
+	@Autowired
 	private MealPollSettlementRepository mealPollSettlementRepository;
 
 	@Autowired
@@ -131,10 +158,22 @@ class DataRetentionCleanupServiceTest {
 	private UserRepository userRepository;
 
 	@Autowired
+	private YearlyRecapSnapshotService yearlyRecapSnapshotService;
+
+	@Autowired
 	private CampusRepository campusRepository;
 
 	@Autowired
+	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
 	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	private EntityManager entityManager;
+
+	@Autowired
+	private PlatformTransactionManager transactionManager;
 
 	@Autowired
 	private InMemoryNotificationConcurrencyPort notificationConcurrencyPort;
@@ -180,6 +219,88 @@ class DataRetentionCleanupServiceTest {
 		assertThat(pollResponseRepository.findById(fresh.responseId())).isPresent();
 		assertThat(pollResponseOptionRepository.findById(fresh.responseOptionId())).isPresent();
 		assertThat(pollCommentRepository.findById(fresh.commentId())).isPresent();
+	}
+
+	@Test
+	void cleanupDaily_orphans_expired_poll_media_and_deletes_links_and_outbox_while_preserving_fresh_graph() {
+		User user = saveUser("retention-poll-media-user@example.com");
+		Campus campus = saveCampus("retention-poll-media");
+		Poll expired = savePoll(campus.id(), DAILY_NOW.minusSeconds(31L * 24 * 60 * 60));
+		Poll fresh = savePoll(campus.id(), DAILY_NOW.minusSeconds(29L * 24 * 60 * 60));
+		MediaAsset expiredAsset = saveReadyMediaAsset(campus.id(), user.id(), "expired");
+		MediaAsset freshAsset = saveReadyMediaAsset(campus.id(), user.id(), "fresh");
+		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), expiredAsset.id(), 0));
+		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), fresh.id(), freshAsset.id(), 0));
+		pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
+			expired.id(), campus.id(), user.id(), PollType.CUSTOM, expired.title(), expired.endsAt()));
+		pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
+			fresh.id(), campus.id(), user.id(), PollType.CUSTOM, fresh.title(), fresh.endsAt()));
+
+		DataRetentionCleanupResult result = dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+
+		assertThat(result.pollsDeleted()).isEqualTo(1);
+		assertThat(pollRepository.findById(expired.id())).isEmpty();
+		assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(expired.id())).isEmpty();
+		assertThat(pollNotificationOutboxRepository.existsByPollId(expired.id())).isFalse();
+		assertThat(mediaAssetRepository.findById(expiredAsset.id()).orElseThrow().status())
+			.isEqualTo(MediaAssetStatus.ORPHANED);
+		assertThat(pollRepository.findById(fresh.id())).isPresent();
+		assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(fresh.id())).hasSize(1);
+		assertThat(pollNotificationOutboxRepository.existsByPollId(fresh.id())).isTrue();
+		assertThat(mediaAssetRepository.findById(freshAsset.id()).orElseThrow().status())
+			.isEqualTo(MediaAssetStatus.READY);
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void cleanupDaily_fails_before_partial_orphan_or_delete_when_attached_media_is_not_ready() {
+		RetentionFailureGraph graph = inNewTransaction(() -> {
+			User user = saveUser("retention-poll-invalid-media-user@example.com");
+			Campus campus = saveCampus("retention-poll-invalid-media");
+			Poll expired = savePoll(campus.id(), DAILY_NOW.minusSeconds(31L * 24 * 60 * 60));
+			MediaAsset ready = saveReadyMediaAsset(campus.id(), user.id(), "ready-before-failure");
+			MediaAsset orphaned = saveReadyMediaAsset(campus.id(), user.id(), "invalid-orphaned");
+			orphaned.markOrphaned(DAILY_NOW.minusSeconds(60));
+			mediaAssetRepository.saveAndFlush(orphaned);
+			pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), ready.id(), 0));
+			pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), orphaned.id(), 1));
+			pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
+				expired.id(), campus.id(), user.id(), PollType.CUSTOM, expired.title(), expired.endsAt()));
+			return new RetentionFailureGraph(
+				user.id(), campus.id(), expired.id(), ready.id(), orphaned.id());
+		});
+
+		try {
+			org.assertj.core.api.Assertions.assertThatThrownBy(
+				() -> dataRetentionCleanupService.cleanupDaily(DAILY_NOW))
+				.isInstanceOf(IllegalStateException.class);
+
+			inNewTransaction(() -> {
+				entityManager.clear();
+				assertThat(mediaAssetRepository.findById(graph.readyAssetId()).orElseThrow().status())
+					.isEqualTo(MediaAssetStatus.READY);
+				assertThat(mediaAssetRepository.findById(graph.orphanedAssetId()).orElseThrow().status())
+					.isEqualTo(MediaAssetStatus.ORPHANED);
+				assertThat(pollRepository.findById(graph.pollId())).isPresent();
+				assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(graph.pollId()))
+					.hasSize(2);
+				assertThat(pollNotificationOutboxRepository.existsByPollId(graph.pollId())).isTrue();
+				return null;
+			});
+		} finally {
+			inNewTransaction(() -> {
+				jdbcTemplate.update("delete from poll_images where poll_id = ?", graph.pollId());
+				jdbcTemplate.update("delete from poll_notification_outbox where poll_id = ?", graph.pollId());
+				jdbcTemplate.update("delete from polls where id = ?", graph.pollId());
+				jdbcTemplate.update(
+					"delete from media_assets where id in (?, ?)",
+					graph.readyAssetId(),
+					graph.orphanedAssetId());
+				jdbcTemplate.update("delete from campuses where id = ?", graph.campusId());
+				jdbcTemplate.update("delete from users where id = ?", graph.userId());
+				return null;
+			});
+		}
 	}
 
 	@Test
@@ -264,6 +385,77 @@ class DataRetentionCleanupServiceTest {
 	}
 
 	@Test
+	void cleanupDaily_before_first_yearly_recap_snapshot_must_not_erase_prior_year_comment_activity() {
+		User user = saveUser("retention-recap-poll-user@example.com");
+		Campus campus = saveCampus("retention-recap-poll");
+		saveMembership(campus.id(), user.id());
+		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
+		markArchiveCoverageComplete(2026);
+
+		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(recap.data().commentActivity().writtenCount()).isEqualTo(1);
+	}
+
+	@Test
+	void retention_before_first_yearly_recap_snapshot_must_not_erase_prayer_and_devotion_activity() {
+		User user = saveUser("retention-recap-faith-user@example.com");
+		Campus campus = saveCampus("retention-recap-faith");
+		saveMembership(campus.id(), user.id());
+		PrayerSubmission prayer = savePrayerSubmission(campus.id(), user.id(), LocalDate.of(2026, 1, 5));
+		updateCreatedAt("prayer_submissions", prayer.id(), "2026-01-05T00:00:00Z");
+		WeeklyDevotionRecord weekly = saveWeeklyRecord(campus.id(), user.id(), LocalDate.of(2026, 6, 15));
+		weekly.submit(Instant.parse("2026-06-21T00:00:00Z"));
+		weeklyRecordRepository.saveAndFlush(weekly);
+		saveDailyCheck(weekly.id(), LocalDate.of(2026, 6, 15));
+		markArchiveCoverageComplete(2026);
+
+		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+		dataRetentionCleanupService.cleanupAnnualIfDue(ANNUAL_DUE);
+		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(recap.data().prayerActivity().submittedWeekCount()).isEqualTo(1);
+		assertThat(recap.data().prayerActivity().participatedSeasonCount()).isEqualTo(1);
+		assertThat(recap.data().devotion().submittedWeekCount()).isEqualTo(1);
+		assertThat(recap.data().devotion().quietTimeCount()).isEqualTo(1);
+	}
+
+	@Test
+	void existing_yearly_recap_snapshot_remains_immutable_after_source_retention_cleanup() {
+		User user = saveUser("retention-recap-snapshot-user@example.com");
+		Campus campus = saveCampus("retention-recap-snapshot");
+		saveMembership(campus.id(), user.id());
+		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
+		markArchiveCoverageComplete(2026);
+		var beforeCleanup = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		dataRetentionCleanupService.cleanupDaily(DAILY_NOW);
+		var afterCleanup = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(beforeCleanup.data().commentActivity().writtenCount()).isEqualTo(1);
+		assertThat(afterCleanup.data()).isEqualTo(beforeCleanup.data());
+	}
+
+	@Test
+	void incomplete_archive_coverage_hides_recap_without_freezing_an_inaccurate_snapshot() {
+		User user = saveUser("retention-recap-incomplete@example.com");
+		Campus campus = saveCampus("retention-recap-incomplete");
+		saveMembership(campus.id(), user.id());
+		savePollGraph(campus.id(), user.id(), Instant.parse("2026-06-15T01:00:00Z"));
+
+		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(recap.data().hasRecapData()).isFalse();
+		assertThat(recap.data().commentActivity().writtenCount()).isZero();
+		assertThat(jdbcTemplate.queryForObject(
+			"select count(*) from yearly_recap_snapshots where user_id = ? and recap_year = 2026",
+			Long.class,
+			user.id()
+		)).isZero();
+	}
+
+	@Test
 	void cleanupAnnualIfDue_deletes_previous_year_terminal_charges_and_preserves_unpaid() {
 		User user = saveUser("retention-charge-user@example.com");
 		Campus campus = saveCampus("retention-charge");
@@ -290,6 +482,37 @@ class DataRetentionCleanupServiceTest {
 		assertThat(chargeItemRepository.findById(canceled.id())).isEmpty();
 		assertThat(chargeItemRepository.findById(unpaid.id())).isPresent();
 		assertThat(chargeItemRepository.findById(currentYearPaid.id())).isPresent();
+	}
+
+	@Test
+	void annual_cleanup_archives_devotion_penalties_and_first_recap_merges_remaining_live_charge_once() {
+		User user = saveUser("retention-recap-penalty@example.com");
+		Campus campus = saveCampus("retention-recap-penalty");
+		saveMembership(campus.id(), user.id());
+		PaymentAccount account = paymentAccountRepository.saveAndFlush(PaymentAccount.create(
+			campus.id(), PaymentCategory.PENALTY, "벌금 계좌", "테스트은행", "111-222", "회계", user.id()));
+		WeeklyDevotionRecord paidWeekly = saveWeeklyRecord(campus.id(), user.id(), LocalDate.of(2026, 5, 4));
+		WeeklyDevotionRecord unpaidWeekly = saveWeeklyRecord(campus.id(), user.id(), LocalDate.of(2026, 5, 11));
+		saveCharge(
+			campus.id(), user.id(), account.id(), paidWeekly.id(), ChargeStatus.PAID, "2026-06-01T00:00:00Z");
+		saveCharge(
+			campus.id(), user.id(), account.id(), unpaidWeekly.id(), ChargeStatus.UNPAID, "2026-06-01T00:00:00Z");
+		markArchiveCoverageComplete(2026);
+
+		dataRetentionCleanupService.cleanupAnnualIfDue(ANNUAL_DUE);
+		var recap = yearlyRecapSnapshotService.getOrCreate(user.id(), recapPeriod2026());
+
+		assertThat(recap.data().penaltySummary().paidCount()).isEqualTo(1);
+		assertThat(recap.data().penaltySummary().paidAmount()).isEqualTo(1000);
+		assertThat(recap.data().penaltySummary().unpaidCount()).isEqualTo(1);
+		assertThat(recap.data().penaltySummary().unpaidAmount()).isEqualTo(1000);
+		assertThat(recap.data().penaltySummary().totalCount()).isEqualTo(2);
+		assertThat(recap.data().penaltySummary().totalAmount()).isEqualTo(2000);
+		assertThat(jdbcTemplate.queryForObject(
+			"select count(*) from yearly_recap_archive_facts where fact_type = 'PENALTY' and user_id = ?",
+			Long.class,
+			user.id()
+		)).isEqualTo(2);
 	}
 
 	@Test
@@ -423,6 +646,28 @@ class DataRetentionCleanupServiceTest {
 		return pollRepository.save(poll);
 	}
 
+	private MediaAsset saveReadyMediaAsset(Long campusId, Long ownerId, String suffix) {
+		MediaAsset asset = MediaAsset.reserve(
+			campusId,
+			ownerId,
+			"image/jpeg",
+			10,
+			"a".repeat(64),
+			"temporary/retention/" + suffix + "/original",
+			DAILY_NOW.plusSeconds(3600)
+		);
+		asset.startProcessing();
+		asset.complete(
+			"media/retention/" + suffix + "/thumbnail.jpg",
+			"media/retention/" + suffix + "/detail.jpg",
+			100,
+			100,
+			20,
+			"b".repeat(64)
+		);
+		return mediaAssetRepository.saveAndFlush(asset);
+	}
+
 	private PollComment saveComment(Long pollId, Long userId, boolean deleted, String deletedAt) {
 		PollComment comment = pollCommentRepository.saveAndFlush(PollComment.create(pollId, userId, "댓글"));
 		if (deleted) {
@@ -502,11 +747,51 @@ class DataRetentionCleanupServiceTest {
 		return campusRepository.saveAndFlush(Campus.create("정리캠퍼스", "서울", "테스트", "RET-" + suffix));
 	}
 
+	private void saveMembership(Long campusId, Long userId) {
+		campusMemberRepository.saveAndFlush(CampusMember.createMember(campusId, userId));
+	}
+
+	private void markArchiveCoverageComplete(int recapYear) {
+		for (String factType : List.of(
+			"COMMENT", "PRAYER", "DEVOTION_DAILY", "DEVOTION_WEEKLY", "PENALTY")) {
+			jdbcTemplate.update(
+				"insert into yearly_recap_archive_coverage (fact_type, complete_from_year) values (?, ?)",
+				factType,
+				recapYear
+			);
+		}
+	}
+
 	private void updateCreatedAt(String tableName, Long id, String createdAt) {
 		jdbcTemplate.update("update " + tableName + " set created_at = ? where id = ?", Instant.parse(createdAt), id);
 	}
 
+	private YearlyRecapPeriod recapPeriod2026() {
+		return new YearlyRecapPeriod(
+			2026,
+			LocalDate.of(2026, 1, 1),
+			LocalDate.of(2027, 1, 1),
+			true,
+			null
+		);
+	}
+
+	private <T> T inNewTransaction(Supplier<T> supplier) {
+		TransactionTemplate template = new TransactionTemplate(transactionManager);
+		template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		return template.execute(status -> supplier.get());
+	}
+
 	private record PollGraph(Long pollId, Long optionId, Long responseId, Long responseOptionId, Long commentId) {
+	}
+
+	private record RetentionFailureGraph(
+		Long userId,
+		Long campusId,
+		Long pollId,
+		Long readyAssetId,
+		Long orphanedAssetId
+	) {
 	}
 
 	private record SettledMealPollGraph(

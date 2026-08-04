@@ -5,6 +5,9 @@ import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.poll.service.PollCreationCommandService;
 import com.faithlog.poll.service.PollResultQueryService;
 import com.faithlog.poll.service.PollStatusCommandService;
+import com.faithlog.poll.service.PollNoticeCommandService;
+import com.faithlog.poll.service.command.UpdatePollNoticeCommand;
+import com.faithlog.poll.controller.dto.request.UpdatePollNoticeRequest;
 import com.faithlog.poll.controller.dto.request.CreatePollRequest;
 import com.faithlog.poll.controller.dto.response.PollMissingMemberResponse;
 import com.faithlog.poll.controller.dto.response.PollResponse;
@@ -28,15 +31,31 @@ public class AdminPollController {
 	private final PollCreationCommandService pollCreationCommandService;
 	private final PollResultQueryService pollResultQueryService;
 	private final PollStatusCommandService pollStatusCommandService;
+	private final PollNoticeCommandService pollNoticeCommandService;
 
 	public AdminPollController(
 		PollCreationCommandService pollCreationCommandService,
 		PollResultQueryService pollResultQueryService,
-		PollStatusCommandService pollStatusCommandService
+		PollStatusCommandService pollStatusCommandService,
+		PollNoticeCommandService pollNoticeCommandService
 	) {
 		this.pollCreationCommandService = pollCreationCommandService;
 		this.pollResultQueryService = pollResultQueryService;
 		this.pollStatusCommandService = pollStatusCommandService;
+		this.pollNoticeCommandService = pollNoticeCommandService;
+	}
+
+	@PatchMapping("/{pollId}/notice")
+	public ApiResponse<PollResponse> updatePollNotice(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@PathVariable Long pollId,
+		@Valid @RequestBody UpdatePollNoticeRequest request
+	) {
+		return ApiResponse.success(PollResponse.from(pollNoticeCommandService.updateGeneralPoll(
+			new UpdatePollNoticeCommand(campusId, pollId, authenticatedUser.userId(), request.title(), request.notice(),
+				request.imageAssetIds())
+		)));
 	}
 
 	@PostMapping

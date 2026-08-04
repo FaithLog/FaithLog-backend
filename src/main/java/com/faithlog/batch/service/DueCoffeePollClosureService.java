@@ -12,14 +12,19 @@ import com.faithlog.campus.domain.type.DutyType;
 import com.faithlog.campus.service.port.CampusDutyAssignmentRepositoryPort;
 import com.faithlog.campus.domain.entity.CampusMember;
 import com.faithlog.campus.service.port.CampusMemberRepositoryPort;
+import com.faithlog.global.exception.BusinessException;
 import java.time.Instant;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class DueCoffeePollClosureService {
+
+	private static final Logger log = LoggerFactory.getLogger(DueCoffeePollClosureService.class);
 
 	private final PollRepository pollRepository;
 	private final CoffeePollSettlementCommandService coffeePollSettlementCommandService;
@@ -52,8 +57,16 @@ public class DueCoffeePollClosureService {
 			now
 		).stream().map(Poll::id).toList();
 		for (Long pollId : duePollIds) {
-			if (closeCoffeePoll(pollId)) {
-				closedCount++;
+			try {
+				if (closeCoffeePoll(pollId)) {
+					closedCount++;
+				}
+			} catch (BusinessException exception) {
+				log.warn(
+					"Due coffee poll closure skipped: pollId={}, errorCode={}",
+					pollId,
+					exception.errorCode()
+				);
 			}
 		}
 		return closedCount;

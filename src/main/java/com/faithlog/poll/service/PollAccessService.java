@@ -22,7 +22,7 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
-class PollAccessService {
+public class PollAccessService {
 
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
@@ -79,7 +79,7 @@ class PollAccessService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.POLL_ACCESS_FORBIDDEN));
 	}
 
-	void requirePollReader(Long campusId, Long requesterId) {
+	public void requirePollReader(Long campusId, Long requesterId) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		if (requester.isAdmin()) {
 			return;
@@ -122,7 +122,7 @@ class PollAccessService {
 		}
 	}
 
-	boolean hasAdminVisibility(Long campusId, Long requesterId) {
+	public boolean hasAdminVisibility(Long campusId, Long requesterId) {
 		CampusUserLookupResult requester = getActiveUser(requesterId);
 		if (requester.isAdmin()) {
 			return true;
@@ -204,7 +204,7 @@ class PollAccessService {
 		}
 	}
 
-	boolean isActiveCoffeeDuty(Long campusId, Long userId) {
+	public boolean isActiveCoffeeDuty(Long campusId, Long userId) {
 		return campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
 			.filter(CampusMember::isActive)
 			.isPresent()
@@ -213,7 +213,7 @@ class PollAccessService {
 				.isPresent();
 	}
 
-	boolean isActiveMealDuty(Long campusId, Long userId) {
+	public boolean isActiveMealDuty(Long campusId, Long userId) {
 		return campusMemberRepository.findByCampusIdAndUserId(campusId, userId)
 			.filter(CampusMember::isActive)
 			.isPresent()

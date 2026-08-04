@@ -72,6 +72,8 @@ dependencies {
 	implementation("com.google.firebase:firebase-admin:9.9.0")
 	implementation("com.google.cloud:google-cloud-tasks:2.93.0")
 	implementation("org.apache.commons:commons-lang3:3.20.0")
+	implementation("software.amazon.awssdk:s3:2.46.8")
+	implementation("net.coobird:thumbnailator:0.4.21")
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
