@@ -23,12 +23,15 @@ class FirebaseFcmSendAdapter implements FcmSendPort {
 	}
 
 	private Message message(FcmSendCommand command) {
-		return Message.builder()
+		Message.Builder builder = Message.builder()
 			.setToken(command.token())
 			.setNotification(Notification.builder()
 				.setTitle(command.title())
 				.setBody(command.body())
-				.build())
-			.build();
+				.build());
+		if (!command.data().isEmpty()) {
+			builder.putAllData(command.data());
+		}
+		return builder.build();
 	}
 }

@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -26,6 +27,28 @@ public class PollQueryService {
 	private final PollStatusSynchronizer pollStatusSynchronizer;
 	private final PollLookupSupport pollLookupSupport;
 	private final PollResultAssembler pollResultAssembler;
+	private final PollImageAttachmentService imageAttachmentService;
+
+	@Autowired
+	public PollQueryService(
+		PollRepository pollRepository,
+		PollResponseRepository pollResponseRepository,
+		PollResponseOptionRepository pollResponseOptionRepository,
+		PollAccessService pollAccessService,
+		PollStatusSynchronizer pollStatusSynchronizer,
+		PollLookupSupport pollLookupSupport,
+		PollResultAssembler pollResultAssembler,
+		PollImageAttachmentService imageAttachmentService
+	) {
+		this.pollRepository = pollRepository;
+		this.pollResponseRepository = pollResponseRepository;
+		this.pollResponseOptionRepository = pollResponseOptionRepository;
+		this.pollAccessService = pollAccessService;
+		this.pollStatusSynchronizer = pollStatusSynchronizer;
+		this.pollLookupSupport = pollLookupSupport;
+		this.pollResultAssembler = pollResultAssembler;
+		this.imageAttachmentService = imageAttachmentService;
+	}
 
 	public PollQueryService(
 		PollRepository pollRepository,
@@ -36,13 +59,8 @@ public class PollQueryService {
 		PollLookupSupport pollLookupSupport,
 		PollResultAssembler pollResultAssembler
 	) {
-		this.pollRepository = pollRepository;
-		this.pollResponseRepository = pollResponseRepository;
-		this.pollResponseOptionRepository = pollResponseOptionRepository;
-		this.pollAccessService = pollAccessService;
-		this.pollStatusSynchronizer = pollStatusSynchronizer;
-		this.pollLookupSupport = pollLookupSupport;
-		this.pollResultAssembler = pollResultAssembler;
+		this(pollRepository, pollResponseRepository, pollResponseOptionRepository, pollAccessService,
+			pollStatusSynchronizer, pollLookupSupport, pollResultAssembler, null);
 	}
 
 	@Transactional
@@ -69,11 +87,14 @@ public class PollQueryService {
 			.stream()
 			.map(PollResponse::pollId)
 			.collect(HashSet::new, HashSet::add, HashSet::addAll);
+		var imagesByPoll = imageAttachmentService == null ? java.util.Map.<Long, List<Long>>of()
+			: imageAttachmentService.getOrderedAssetIdsByPollIds(visiblePolls.stream().map(Poll::id).toList());
 		return visiblePolls.stream()
 			.map(poll -> PollListItemResult.of(
 				poll,
 				respondedPollIds.contains(poll.id()),
-				isManageableByRequester(poll, requesterId, adminWindow, activeCoffeeDuty, activeMealDuty)
+				isManageableByRequester(poll, requesterId, adminWindow, activeCoffeeDuty, activeMealDuty),
+				imagesByPoll.getOrDefault(poll.id(), List.of())
 			))
 			.toList();
 	}

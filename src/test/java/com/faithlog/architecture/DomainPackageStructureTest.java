@@ -63,6 +63,43 @@ class DomainPackageStructureTest {
         assertTrue(violations.isEmpty(), () -> String.join(System.lineSeparator(), violations));
     }
 
+    @Test
+    void crossDomainServicesDependOnPortsInsteadOfOtherDomainsInfrastructure() throws IOException {
+        List<String> violations = new ArrayList<>();
+
+        rejectImports(
+                mainSourceRoot.resolve("poll/service"),
+                List.of("com.faithlog.announcement.infrastructure"),
+                violations);
+        rejectImports(
+                mainSourceRoot.resolve("announcement/service"),
+                List.of("com.faithlog.poll.infrastructure"),
+                violations);
+        rejectImports(
+                mainSourceRoot.resolve("media/service"),
+                List.of(
+                        "com.faithlog.announcement.infrastructure",
+                        "com.faithlog.poll.infrastructure",
+                        "com.faithlog.poll.service.policy.PollMediaAccessPolicy"),
+                violations);
+
+        assertTrue(violations.isEmpty(), () -> String.join(System.lineSeparator(), violations));
+    }
+
+    private void rejectImports(Path root, List<String> forbiddenImports, List<String> violations)
+            throws IOException {
+        for (Path source : javaSources(root)) {
+            String content = Files.readString(source);
+            for (String forbiddenImport : forbiddenImports) {
+                if (content.contains("import " + forbiddenImport)) {
+                    violations.add(normalized(mainSourceRoot.relativize(source))
+                            + " -> 다른 도메인의 구현체 대신 service port에 의존한다: "
+                            + forbiddenImport);
+                }
+            }
+        }
+    }
+
     private void rejectLegacyPackages(String relativePath, List<String> violations) {
         if (relativePath.contains("/application/")) {
             violations.add(relativePath + " -> application 대신 service 책임 패키지를 사용한다");
