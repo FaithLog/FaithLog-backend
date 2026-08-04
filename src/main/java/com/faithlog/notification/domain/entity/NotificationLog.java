@@ -2,6 +2,8 @@ package com.faithlog.notification.domain.entity;
 
 import com.faithlog.notification.domain.type.NotificationType;
 import com.faithlog.notification.domain.type.SendStatus;
+import com.faithlog.notification.infrastructure.persistence.StringMapJsonConverter;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -15,6 +17,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
+import java.util.Map;
 
 @Entity
 @Table(
@@ -58,6 +61,10 @@ public class NotificationLog {
 	@Column(nullable = false, columnDefinition = "text")
 	private String body;
 
+	@Convert(converter = StringMapJsonConverter.class)
+	@Column(name = "data_payload", nullable = false, columnDefinition = "text")
+	private Map<String, String> data;
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "send_status", nullable = false, length = 30)
 	private SendStatus sendStatus;
@@ -83,6 +90,7 @@ public class NotificationLog {
 		Long targetId,
 		String title,
 		String body,
+		Map<String, String> data,
 		SendStatus sendStatus,
 		String failureReason
 	) {
@@ -94,6 +102,7 @@ public class NotificationLog {
 		this.targetId = targetId;
 		this.title = title;
 		this.body = body;
+		this.data = immutableData(data);
 		this.sendStatus = sendStatus;
 		this.failureReason = failureReason;
 	}
@@ -108,6 +117,20 @@ public class NotificationLog {
 		String title,
 		String body
 	) {
+		return pending(requestId, userId, campusId, notificationType, targetWeekStartDate, targetId, title, body, Map.of());
+	}
+
+	public static NotificationLog pending(
+		UUID requestId,
+		Long userId,
+		Long campusId,
+		NotificationType notificationType,
+		LocalDate targetWeekStartDate,
+		Long targetId,
+		String title,
+		String body,
+		Map<String, String> data
+	) {
 		return new NotificationLog(
 			requestId,
 			userId,
@@ -117,6 +140,7 @@ public class NotificationLog {
 			targetId,
 			title,
 			body,
+			data,
 			SendStatus.PENDING,
 			null
 		);
@@ -133,6 +157,21 @@ public class NotificationLog {
 		String body,
 		String reason
 	) {
+		return skipped(requestId, userId, campusId, notificationType, targetWeekStartDate, targetId, title, body, Map.of(), reason);
+	}
+
+	public static NotificationLog skipped(
+		UUID requestId,
+		Long userId,
+		Long campusId,
+		NotificationType notificationType,
+		LocalDate targetWeekStartDate,
+		Long targetId,
+		String title,
+		String body,
+		Map<String, String> data,
+		String reason
+	) {
 		return new NotificationLog(
 			requestId,
 			userId,
@@ -142,9 +181,20 @@ public class NotificationLog {
 			targetId,
 			title,
 			body,
+			data,
 			SendStatus.SKIPPED,
 			reason
 		);
+	}
+
+	private static Map<String, String> immutableData(Map<String, String> data) {
+		if (data == null || data.isEmpty()) {
+			return Map.of();
+		}
+		if (data.entrySet().stream().anyMatch(entry -> entry.getKey() == null || entry.getValue() == null)) {
+			throw new IllegalArgumentException("Notification data payload cannot contain null keys or values");
+		}
+		return Map.copyOf(data);
 	}
 
 	@PrePersist
@@ -202,6 +252,10 @@ public class NotificationLog {
 
 	public String body() {
 		return body;
+	}
+
+	public Map<String, String> data() {
+		return Map.copyOf(data);
 	}
 
 	public SendStatus sendStatus() {

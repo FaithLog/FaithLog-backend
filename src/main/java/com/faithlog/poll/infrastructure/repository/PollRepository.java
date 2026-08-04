@@ -78,6 +78,21 @@ public interface PollRepository extends JpaRepository<Poll, Long> {
 	@Query("select poll from Poll poll where poll.id = :id and poll.campusId = :campusId")
 	Optional<Poll> findByIdAndCampusIdForUpdate(@Param("id") Long id, @Param("campusId") Long campusId);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select poll from Poll poll where poll.id = :id")
+	Optional<Poll> findByIdForUpdate(@Param("id") Long id);
+
+	@Query("""
+		select poll.id from Poll poll
+		where poll.status = :status and poll.startsAt <= :now and poll.endsAt > :now
+		order by poll.id
+		""")
+	List<Long> findDueIds(
+		@Param("status") PollStatus status,
+		@Param("now") Instant now,
+		Pageable pageable
+	);
+
 	boolean existsByCampusIdAndTemplateIdAndStartsAtGreaterThanEqualAndStartsAtLessThan(
 		Long campusId,
 		Long templateId,

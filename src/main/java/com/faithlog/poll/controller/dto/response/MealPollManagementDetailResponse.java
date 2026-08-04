@@ -11,6 +11,7 @@ public record MealPollManagementDetailResponse(
 	Long id,
 	Long campusId,
 	String title,
+	String notice,
 	PollType pollType,
 	SelectionType selectionType,
 	boolean isAnonymous,
@@ -18,14 +19,16 @@ public record MealPollManagementDetailResponse(
 	Instant startsAt,
 	Instant endsAt,
 	PollStatus status,
-	List<MealPollManagementOptionResponse> options
+	List<MealPollManagementOptionResponse> options,
+	List<Long> imageAssetIds
 ) {
 
 	public static MealPollManagementDetailResponse from(MealPollManagementDetailResult result) {
 		return new MealPollManagementDetailResponse(
-			result.id(), result.campusId(), result.title(), result.pollType(), result.selectionType(),
+			result.id(), result.campusId(), result.title(), result.notice(), result.pollType(), result.selectionType(),
 			result.isAnonymous(), result.allowUserOptionAdd(), result.startsAt(), result.endsAt(), result.status(),
-			result.options().stream().map(MealPollManagementOptionResponse::from).toList()
+			result.options().stream().map(MealPollManagementOptionResponse::from).toList(),
+			result.imageAssetIds()
 		);
 	}
 }

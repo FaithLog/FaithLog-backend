@@ -406,6 +406,46 @@ include::{snippets}/users-me-password-change-same-password/http-response.adoc[]
 
 include::{snippets}/users-me-password-change-same-password/response-fields.adoc[]
 
+=== Get Previous Year Recap
+
+`GET /api/v1/users/me/yearly-recaps/previous`
+
+서버의 `Clock`과 `Asia/Seoul`을 기준으로 직전 연도를 계산한다. 사용자별·연도별 첫 조회에서 compact archive와 남아 있는 원본을 중복 없이 합쳐 snapshot으로 고정하므로 이후 원본 데이터가 정리되어도 같은 회고를 반환한다. archive coverage가 불완전한 연도는 부정확한 snapshot을 만들지 않는다. 자동 표시 여부와 1월 1일부터 14일까지의 홈 카드 노출 여부는 서로 독립이며, 실제 화면 렌더가 끝나기 전에는 presented API를 호출하지 않는다. 응답은 본인의 캠퍼스 여정, 경건·기도 통계, 삭제되지 않은 댓글 작성 수, PAID/UNPAID 경건 벌금 합계만 포함한다. 투표 참여/type 통계, 기도문, 투표 선택·메모·댓글 본문, 이메일, 계좌 정보, 개별 청구, JWT/session/device/FCM token은 포함하지 않는다.
+
+==== Request
+
+include::{snippets}/users-me-yearly-recap-previous/http-request.adoc[]
+
+==== Success Response
+
+include::{snippets}/users-me-yearly-recap-previous/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/users-me-yearly-recap-previous/response-fields.adoc[]
+
+=== Mark Previous Year Recap Presented
+
+`POST /api/v1/users/me/yearly-recaps/{recapYear}/presented`
+
+회고 화면이 실제 렌더된 뒤 호출한다. 현재 직전 연도만 허용하며 최초 표시 시각을 한 번만 저장한다. 같은 요청은 멱등 성공하고, 회고 데이터가 없는 사용자는 표시 row나 시각을 만들지 않는 멱등 no-op으로 처리한다.
+
+==== Request
+
+include::{snippets}/users-me-yearly-recap-presented/http-request.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/users-me-yearly-recap-presented/path-parameters.adoc[]
+
+==== Success Response
+
+include::{snippets}/users-me-yearly-recap-presented/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/users-me-yearly-recap-presented/response-fields.adoc[]
+
 === Delete My Account
 
 `DELETE /api/v1/users/me`
@@ -2388,6 +2428,52 @@ include::{snippets}/poll-create-template-success/http-request.adoc[]
 
 include::{snippets}/poll-create-template-success/http-response.adoc[]
 
+=== Update Poll Title, Notice, And Images
+
+`PATCH /api/v1/admin/campuses/{campusId}/polls/{pollId}/notice`
+
+기존 권한으로 투표 제목, 선택적 일반 텍스트 공지(최대 5,000자), ordered `imageAssetIds` 전체를 함께 교체한다. OPEN 투표도 수정할 수 있지만 공개 알림은 다시 생성하지 않는다. 목록은 `hasNotice`, `hasImages`, `thumbnailAssetId`만 반환하고 상세은 공지와 ordered asset ID를 반환한다. 이미지 URL은 공통 media batch API에서 최대 100개씩 10분 URL로 교환한다.
+
+==== Request
+
+include::{snippets}/poll-notice-update-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/poll-notice-update-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/poll-notice-update-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/poll-notice-update-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/poll-notice-update-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/poll-notice-update-success/response-fields.adoc[]
+
+==== Validation Error
+
+include::{snippets}/poll-notice-update-validation/http-response.adoc[]
+
+==== Permission Error
+
+include::{snippets}/poll-notice-update-forbidden/http-response.adoc[]
+
+==== Not Found Error
+
+include::{snippets}/poll-notice-update-not-found/http-response.adoc[]
+
+==== Image Ownership Conflict
+
+include::{snippets}/poll-notice-update-image-conflict/http-response.adoc[]
+
 === Reject Coffee Poll Option Without Menu ID
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
@@ -3218,6 +3304,12 @@ include::{snippets}/meal-poll-user-option-duplicate-conflict/http-response.adoc[
 
 === Manage and Close Meal Poll
 
+MEAL 담당자는 `PATCH /api/v1/campuses/{campusId}/meal/polls/{pollId}/notice`로 동일한 제목·공지·ordered image 계약을 사용한다.
+
+include::{snippets}/meal-poll-notice-update-success/http-request.adoc[]
+
+include::{snippets}/meal-poll-notice-update-success/http-response.adoc[]
+
 관리 목록은 MEAL poll만 기본 10개씩 pagination한다. `includeArchived=false`에서는 `OPEN`/`SCHEDULED`를 기간 제한 없이 포함하고 `CLOSED`는 최근 90일만 반환한다. `includeArchived=true`이면 이전 마감 기록도 조회하며 데이터는 삭제하지 않는다. `settlementStatus`는 `NOT_CHARGED` 또는 `CHARGED`다. 수동 종료는 OPEN MEAL poll의 상태만 CLOSED로 바꾸며 기존 `endsAt`을 유지하고 settlement나 charge를 만들지 않는다. 전용 종료 API에서 다른 캠퍼스와 non-MEAL poll은 모두 `404 POLL_NOT_FOUND`로 숨기며, 일반 관리자 종료 API로도 MEAL poll을 우회할 수 없다.
 
 include::{snippets}/meal-polls-management-list-success/http-request.adoc[]
@@ -3252,3 +3344,43 @@ include::{snippets}/meal-poll-management-detail-other-duty-redacted-success/http
 
 include::{snippets}/meal-charges-my-accounts-success/http-request.adoc[]
 include::{snippets}/meal-charges-my-accounts-success/http-response.adoc[]
+
+== Campus Announcements And Private Media
+
+캠퍼스 공지는 해당 캠퍼스 ACTIVE 멤버만 조회한다. 생성·수정·게시·보관과 카테고리 관리는 기존 캠퍼스 관리자 권한을 재사용한다. 이미지 binary와 URL은 공지 응답이나 FCM payload에 저장하지 않고, ordered `imageAssetIds`를 권한 검증된 배치 URL API로 교환한다.
+
+=== Create Announcement
+
+include::{snippets}/announcement-create-success/http-request.adoc[]
+include::{snippets}/announcement-create-success/request-fields.adoc[]
+include::{snippets}/announcement-create-success/http-response.adoc[]
+include::{snippets}/announcement-create-success/response-fields.adoc[]
+
+즉시 게시는 `publishAt=null`, 예약 게시는 미래 `publishAt`을 사용한다. 공지와 게시 알림 outbox는 같은 DB transaction에서 결속되며 이미지 순서는 `imageAssetIds` 그대로 보존된다.
+
+=== Announcement Errors
+
+include::{snippets}/announcement-create-validation/http-response.adoc[]
+include::{snippets}/announcement-manage-forbidden/http-response.adoc[]
+include::{snippets}/announcement-not-found/http-response.adoc[]
+include::{snippets}/announcement-status-conflict/http-response.adoc[]
+
+=== Reserve And Complete Private Image Upload
+
+앱은 예약 응답의 private R2 Presigned PUT URL과 필수 header를 사용해 직접 업로드한다. 만료된 PENDING 예약은 storage 접근 전에 거부한다. 서버 complete는 원본의 content type, byte size, SHA-256, magic bytes, 최대 4096x4096 크기를 검증하고 EXIF/GPS가 제거된 thumbnail/detail JPEG variant를 생성한다.
+
+include::{snippets}/media-upload-reservation/http-request.adoc[]
+include::{snippets}/media-upload-reservation/request-fields.adoc[]
+include::{snippets}/media-upload-reservation/http-response.adoc[]
+include::{snippets}/media-upload-reservation/response-fields.adoc[]
+include::{snippets}/media-upload-complete/http-request.adoc[]
+include::{snippets}/media-upload-complete/http-response.adoc[]
+
+=== Get Batched Media Access URLs
+
+요청당 최대 100개는 기술적 chunk 크기이며 공지당 이미지 개수 제한이 아니다. 응답은 요청 순서를 보존하고 각 asset의 immutable `sha256`을 포함하며 URL은 10분 동안만 유효하다. 앱은 `assetId + sha256 + variant`를 기기 캐시 키로 사용한다. Presign provider 장애는 object key나 원인 정보를 노출하지 않는 `MEDIA_STORAGE_UNAVAILABLE` 응답으로 변환된다.
+
+include::{snippets}/media-access-urls/http-request.adoc[]
+include::{snippets}/media-access-urls/request-fields.adoc[]
+include::{snippets}/media-access-urls/http-response.adoc[]
+include::{snippets}/media-access-urls/response-fields.adoc[]
