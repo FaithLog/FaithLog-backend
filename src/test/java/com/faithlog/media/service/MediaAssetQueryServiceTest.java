@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
+import com.faithlog.media.domain.type.MediaAssetKind;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
@@ -77,5 +78,23 @@ class MediaAssetQueryServiceTest {
 				assertThat(exception.getMessage()).doesNotContain("provider-secret", "private/secret-detail");
 				assertThat(exception.getCause()).isNull();
 			});
+	}
+
+	@Test
+	void pdf_access_returns_only_an_attachment_download_url_with_original_file_name() {
+		when(snapshots.authorize(7L, 11L, List.of(41L))).thenReturn(List.of(
+			new MediaAssetAccessSnapshotService.AccessSnapshot(41L, MediaAssetKind.PDF, "application/pdf",
+				"주보.pdf", 1234L, "d".repeat(64), null, null, "private/41/document.pdf")));
+		when(storage.presignDownload("private/41/document.pdf", "주보.pdf", "application/pdf"))
+			.thenReturn(URI.create("https://example/document"));
+		var service = new MediaAssetQueryService(snapshots, storage, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		var result = service.getAccessUrls(7L, 11L, List.of(41L)).getFirst();
+
+		assertThat(result.assetKind()).isEqualTo(MediaAssetKind.PDF);
+		assertThat(result.fileName()).isEqualTo("주보.pdf");
+		assertThat(result.downloadUrl()).isEqualTo(URI.create("https://example/document"));
+		assertThat(result.thumbnailUrl()).isNull();
+		assertThat(result.detailUrl()).isNull();
 	}
 }

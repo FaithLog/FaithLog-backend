@@ -13,6 +13,7 @@ import com.faithlog.media.domain.entity.MediaAsset;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.poll.domain.entity.PollImage;
 import com.faithlog.poll.infrastructure.repository.PollImageRepository;
+import com.faithlog.poll.infrastructure.repository.PollDocumentRepository;
 import com.faithlog.poll.service.port.AnnouncementMediaAttachmentPort;
 import java.time.Instant;
 import java.util.List;
@@ -27,13 +28,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 class PollImageAttachmentServiceTest {
 
 	@Mock private PollImageRepository images;
+	@Mock private PollDocumentRepository documents;
 	@Mock private MediaAssetRepositoryPort assets;
 	@Mock private AnnouncementMediaAttachmentPort announcementImages;
 	private PollImageAttachmentService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new PollImageAttachmentService(images, assets, announcementImages);
+		service = new PollImageAttachmentService(images, documents, assets, announcementImages);
 	}
 
 	@Test

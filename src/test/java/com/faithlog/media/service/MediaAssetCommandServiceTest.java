@@ -20,6 +20,7 @@ import com.faithlog.media.service.port.ImageVariantProcessorPort;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
 import com.faithlog.media.service.port.MediaUploadRateLimitPort;
+import com.faithlog.media.service.port.PdfDocumentValidatorPort;
 import com.faithlog.media.service.policy.MediaAssetAccessPolicy;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -46,6 +47,7 @@ class MediaAssetCommandServiceTest {
 	@Mock private MediaAssetRepositoryPort repository;
 	@Mock private MediaObjectStoragePort storage;
 	@Mock private ImageVariantProcessorPort imageProcessor;
+	@Mock private PdfDocumentValidatorPort pdfValidator;
 	@Mock private MediaUploadRateLimitPort rateLimit;
 	@Mock private MediaAssetAccessPolicy accessPolicy;
 	@Mock private PlatformTransactionManager transactionManager;
@@ -56,7 +58,7 @@ class MediaAssetCommandServiceTest {
 	@BeforeEach
 	void setUp() {
 		when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
-		service = new MediaAssetCommandService(repository, storage, imageProcessor, rateLimit, accessPolicy,
+		service = new MediaAssetCommandService(repository, storage, imageProcessor, pdfValidator, rateLimit, accessPolicy,
 			transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
 		asset = MediaAsset.reserve(7L, 11L, "image/jpeg", SOURCE.length, sha256(SOURCE),
 			"temporary/asset/original", NOW.plusSeconds(3600));
@@ -151,6 +153,28 @@ class MediaAssetCommandServiceTest {
 
 		assertThat(asset.status()).isEqualTo(MediaAssetStatus.PENDING);
 		verifyNoInteractions(storage, imageProcessor);
+	}
+
+	@Test
+	void pdf_is_validated_and_stored_as_a_single_private_document_without_image_processing() {
+		byte[] pdf = "%PDF-1.7\nplain".getBytes(StandardCharsets.US_ASCII);
+		asset = MediaAsset.reserve(7L, 11L, "application/pdf", pdf.length, sha256(pdf),
+			"temporary/pdf/original", NOW.plusSeconds(3600), "안내문.pdf");
+		ReflectionTestUtils.setField(asset, "id", 31L);
+		when(repository.findByCampusIdAndIdForUpdate(7L, 31L)).thenReturn(Optional.of(asset));
+		when(storage.getObject("temporary/pdf/original", MediaAsset.MAX_PDF_INPUT_BYTES))
+			.thenReturn(new MediaObjectStoragePort.StoredObject("application/pdf", pdf));
+		when(pdfValidator.validate(pdf, "application/pdf"))
+			.thenReturn(new PdfDocumentValidatorPort.ValidatedPdf(1));
+
+		var result = service.complete(7L, 31L, 11L);
+
+		assertThat(result.assetKind()).isEqualTo(com.faithlog.media.domain.type.MediaAssetKind.PDF);
+		assertThat(result.fileName()).isEqualTo("안내문.pdf");
+		assertThat(asset.documentObjectKey()).startsWith("media/").endsWith("/document.pdf");
+		verify(storage).putObject(org.mockito.ArgumentMatchers.eq(asset.documentObjectKey()),
+			org.mockito.ArgumentMatchers.eq("application/pdf"), org.mockito.ArgumentMatchers.eq(pdf));
+		verifyNoInteractions(imageProcessor);
 	}
 
 	private String sha256(byte[] bytes) {

@@ -36,8 +36,9 @@ class PdfBoxDocumentValidatorTest {
 			document.save(output);
 			pdf = output.toByteArray();
 		}
+		byte[] dangerousPdf = pdf;
 
-		assertThatThrownBy(() -> validator.validate(pdf, "application/pdf"))
+		assertThatThrownBy(() -> validator.validate(dangerousPdf, "application/pdf"))
 			.isInstanceOf(IllegalArgumentException.class);
 	}
 
@@ -53,8 +54,9 @@ class PdfBoxDocumentValidatorTest {
 			document.save(output);
 			pdf = output.toByteArray();
 		}
+		byte[] dangerousPdf = pdf;
 
-		assertThatThrownBy(() -> validator.validate(pdf, "application/pdf"))
+		assertThatThrownBy(() -> validator.validate(dangerousPdf, "application/pdf"))
 			.isInstanceOf(IllegalArgumentException.class);
 	}
 
@@ -68,8 +70,9 @@ class PdfBoxDocumentValidatorTest {
 			document.save(output);
 			pdf = output.toByteArray();
 		}
+		byte[] dangerousPdf = pdf;
 
-		assertThatThrownBy(() -> validator.validate(pdf, "application/pdf"))
+		assertThatThrownBy(() -> validator.validate(dangerousPdf, "application/pdf"))
 			.isInstanceOf(IllegalArgumentException.class);
 	}
 

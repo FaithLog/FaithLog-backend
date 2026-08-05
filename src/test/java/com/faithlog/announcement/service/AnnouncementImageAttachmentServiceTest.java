@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.faithlog.announcement.domain.entity.AnnouncementImage;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
+import com.faithlog.announcement.infrastructure.repository.AnnouncementDocumentRepository;
 import com.faithlog.announcement.service.port.PollMediaAttachmentPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -29,13 +30,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 class AnnouncementImageAttachmentServiceTest {
 
 	@Mock private AnnouncementImageRepository images;
+	@Mock private AnnouncementDocumentRepository documents;
 	@Mock private MediaAssetRepositoryPort assets;
 	@Mock private PollMediaAttachmentPort pollImages;
 	private AnnouncementImageAttachmentService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new AnnouncementImageAttachmentService(images, assets, pollImages);
+		service = new AnnouncementImageAttachmentService(images, documents, assets, pollImages);
 	}
 
 	@Test
