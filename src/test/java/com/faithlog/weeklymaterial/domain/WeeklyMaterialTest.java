@@ -30,6 +30,7 @@ class WeeklyMaterialTest {
 
 		assertThat(material.delete()).isEqualTo(11L);
 		assertThat(material.status()).isEqualTo(WeeklyMaterialStatus.DELETED);
+		assertThat(material.mediaAssetId()).isNull();
 
 		material.reregister(12L, 102L);
 		assertThat(material.status()).isEqualTo(WeeklyMaterialStatus.ACTIVE);

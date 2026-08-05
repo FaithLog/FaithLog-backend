@@ -17,11 +17,14 @@ class WeeklyMaterialMigrationContractTest {
 
 		assertThat(sql).contains(
 			"CREATE TABLE weekly_materials",
+			"media_asset_id BIGINT,",
 			"UNIQUE (campus_id, week_start_date, material_type)",
 			"FOREIGN KEY (campus_id, media_asset_id) REFERENCES media_assets (campus_id, id)",
 			"FOREIGN KEY (uploaded_by) REFERENCES users (id)",
 			"material_type IN ('SHEPHERD_GUIDE', 'SHARING_SHEET')",
 			"status IN ('ACTIVE', 'DELETED')",
+			"(status = 'ACTIVE' AND media_asset_id IS NOT NULL)",
+			"(status = 'DELETED' AND media_asset_id IS NULL)",
 			"CREATE TABLE weekly_material_notification_outbox",
 			"UNIQUE (campus_id, week_start_date, material_type)",
 			"FOREIGN KEY (campus_id, weekly_material_id)",
