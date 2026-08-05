@@ -17,8 +17,20 @@ import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 
 class WeeklyMaterialScheduledJobsTest {
+	@Test
+	void retentionRunsAtAsiaSeoulMidnight() throws Exception {
+		Scheduled scheduled = AnnotatedElementUtils.findMergedAnnotation(
+			WeeklyMaterialScheduledJobs.class.getMethod("physicallyDeleteExpiredMaterials"), Scheduled.class);
+		org.assertj.core.api.Assertions.assertThat(scheduled).isNotNull();
+		org.assertj.core.api.Assertions.assertThat(scheduled.cron())
+			.isEqualTo("${faithlog.scheduler.weekly-material-retention-cron:0 0 0 * * *}");
+		org.assertj.core.api.Assertions.assertThat(scheduled.zone()).isEqualTo("Asia/Seoul");
+	}
+
 	@Test
 	void selectsAndDeletesDueRowsUsingAsiaSeoulDate() {
 		WeeklyMaterialNotificationOutboxRepositoryPort outboxes =
