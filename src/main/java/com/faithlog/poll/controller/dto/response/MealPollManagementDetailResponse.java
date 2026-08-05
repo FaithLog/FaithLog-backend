@@ -20,7 +20,8 @@ public record MealPollManagementDetailResponse(
 	Instant endsAt,
 	PollStatus status,
 	List<MealPollManagementOptionResponse> options,
-	List<Long> imageAssetIds
+	List<Long> imageAssetIds,
+	List<Long> documentAssetIds
 ) {
 
 	public static MealPollManagementDetailResponse from(MealPollManagementDetailResult result) {
@@ -28,7 +29,7 @@ public record MealPollManagementDetailResponse(
 			result.id(), result.campusId(), result.title(), result.notice(), result.pollType(), result.selectionType(),
 			result.isAnonymous(), result.allowUserOptionAdd(), result.startsAt(), result.endsAt(), result.status(),
 			result.options().stream().map(MealPollManagementOptionResponse::from).toList(),
-			result.imageAssetIds()
+			result.imageAssetIds(), result.documentAssetIds()
 		);
 	}
 }

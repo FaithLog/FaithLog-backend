@@ -28,6 +28,7 @@ public class PollQueryService {
 	private final PollLookupSupport pollLookupSupport;
 	private final PollResultAssembler pollResultAssembler;
 	private final PollImageAttachmentService imageAttachmentService;
+	private final PollDocumentAttachmentService documentAttachmentService;
 
 	@Autowired
 	public PollQueryService(
@@ -38,7 +39,8 @@ public class PollQueryService {
 		PollStatusSynchronizer pollStatusSynchronizer,
 		PollLookupSupport pollLookupSupport,
 		PollResultAssembler pollResultAssembler,
-		PollImageAttachmentService imageAttachmentService
+		PollImageAttachmentService imageAttachmentService,
+		PollDocumentAttachmentService documentAttachmentService
 	) {
 		this.pollRepository = pollRepository;
 		this.pollResponseRepository = pollResponseRepository;
@@ -48,6 +50,7 @@ public class PollQueryService {
 		this.pollLookupSupport = pollLookupSupport;
 		this.pollResultAssembler = pollResultAssembler;
 		this.imageAttachmentService = imageAttachmentService;
+		this.documentAttachmentService = documentAttachmentService;
 	}
 
 	public PollQueryService(
@@ -60,7 +63,7 @@ public class PollQueryService {
 		PollResultAssembler pollResultAssembler
 	) {
 		this(pollRepository, pollResponseRepository, pollResponseOptionRepository, pollAccessService,
-			pollStatusSynchronizer, pollLookupSupport, pollResultAssembler, null);
+			pollStatusSynchronizer, pollLookupSupport, pollResultAssembler, null, null);
 	}
 
 	@Transactional
@@ -89,12 +92,15 @@ public class PollQueryService {
 			.collect(HashSet::new, HashSet::add, HashSet::addAll);
 		var imagesByPoll = imageAttachmentService == null ? java.util.Map.<Long, List<Long>>of()
 			: imageAttachmentService.getOrderedAssetIdsByPollIds(visiblePolls.stream().map(Poll::id).toList());
+		var documentsByPoll = documentAttachmentService == null ? java.util.Map.<Long, List<Long>>of()
+			: documentAttachmentService.getOrderedAssetIdsByPollIds(visiblePolls.stream().map(Poll::id).toList());
 		return visiblePolls.stream()
 			.map(poll -> PollListItemResult.of(
 				poll,
 				respondedPollIds.contains(poll.id()),
 				isManageableByRequester(poll, requesterId, adminWindow, activeCoffeeDuty, activeMealDuty),
-				imagesByPoll.getOrDefault(poll.id(), List.of())
+				imagesByPoll.getOrDefault(poll.id(), List.of()),
+				documentsByPoll.getOrDefault(poll.id(), List.of())
 			))
 			.toList();
 	}

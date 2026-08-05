@@ -41,10 +41,26 @@ public class MediaAssetAccessSnapshotService {
 		}
 		return orderedIds.stream().map(id -> {
 			var asset = byId.get(id);
-			return new AccessSnapshot(asset.id(), asset.outputSha256(), asset.thumbnailObjectKey(), asset.detailObjectKey());
+			return new AccessSnapshot(asset.id(), asset.kind(), asset.inputContentType(), asset.originalFileName(),
+				asset.outputByteSize(), asset.outputSha256(), asset.thumbnailObjectKey(), asset.detailObjectKey(),
+				asset.documentObjectKey());
 		}).toList();
 	}
 
-	public record AccessSnapshot(Long assetId, String sha256, String thumbnailObjectKey, String detailObjectKey) {
+	public record AccessSnapshot(
+		Long assetId,
+		com.faithlog.media.domain.type.MediaAssetKind kind,
+		String contentType,
+		String fileName,
+		Long byteSize,
+		String sha256,
+		String thumbnailObjectKey,
+		String detailObjectKey,
+		String documentObjectKey
+	) {
+		public AccessSnapshot(Long assetId, String sha256, String thumbnailObjectKey, String detailObjectKey) {
+			this(assetId, com.faithlog.media.domain.type.MediaAssetKind.IMAGE, "image/jpeg", null, null,
+				sha256, thumbnailObjectKey, detailObjectKey, null);
+		}
 	}
 }

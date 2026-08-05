@@ -1,6 +1,7 @@
 package com.faithlog.announcement.infrastructure.adapter;
 
 import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
+import com.faithlog.announcement.infrastructure.repository.AnnouncementDocumentRepository;
 import com.faithlog.announcement.service.policy.AnnouncementAccessPolicy;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -14,13 +15,16 @@ public class AnnouncementMediaAccessAdapter implements AnnouncementMediaAccessPo
 
 	private final AnnouncementAccessPolicy accessPolicy;
 	private final AnnouncementImageRepository images;
+	private final AnnouncementDocumentRepository documents;
 
 	public AnnouncementMediaAccessAdapter(
 		AnnouncementAccessPolicy accessPolicy,
-		AnnouncementImageRepository images
+		AnnouncementImageRepository images,
+		AnnouncementDocumentRepository documents
 	) {
 		this.accessPolicy = accessPolicy;
 		this.images = images;
+		this.documents = documents;
 	}
 
 	@Override
@@ -43,6 +47,9 @@ public class AnnouncementMediaAccessAdapter implements AnnouncementMediaAccessPo
 
 	@Override
 	public Set<Long> findPublishedAttachedAssetIds(Long campusId, List<Long> assetIds) {
-		return Set.copyOf(images.findPublishedAttachedAssetIds(campusId, assetIds));
+		java.util.HashSet<Long> readable = new java.util.HashSet<>(
+			images.findPublishedAttachedAssetIds(campusId, assetIds));
+		readable.addAll(documents.findPublishedAttachedAssetIds(campusId, assetIds));
+		return Set.copyOf(readable);
 	}
 }

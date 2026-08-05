@@ -3,7 +3,9 @@ package com.faithlog.media.infrastructure.r2;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
 import java.net.URI;
 import java.time.Clock;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import org.springframework.http.ContentDisposition;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -86,6 +88,25 @@ public class R2MediaObjectStorageAdapter implements MediaObjectStoragePort {
 		var presigned = presigner.presignGetObject(GetObjectPresignRequest.builder()
 			.signatureDuration(properties.downloadUrlTtl())
 			.getObjectRequest(GetObjectRequest.builder().bucket(properties.bucket()).key(objectKey).build())
+			.build());
+		return URI.create(presigned.url().toString());
+	}
+
+	@Override
+	public URI presignDownload(String objectKey, String fileName, String contentType) {
+		String disposition = ContentDisposition.attachment()
+			.filename(fileName, StandardCharsets.UTF_8)
+			.build()
+			.toString();
+		var request = GetObjectRequest.builder()
+			.bucket(properties.bucket())
+			.key(objectKey)
+			.responseContentType(contentType)
+			.responseContentDisposition(disposition)
+			.build();
+		var presigned = presigner.presignGetObject(GetObjectPresignRequest.builder()
+			.signatureDuration(properties.downloadUrlTtl())
+			.getObjectRequest(request)
 			.build());
 		return URI.create(presigned.url().toString());
 	}

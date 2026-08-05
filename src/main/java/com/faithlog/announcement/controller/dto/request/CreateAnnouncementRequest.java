@@ -15,10 +15,11 @@ public record CreateAnnouncementRequest(
 	@NotBlank @Size(max = 5000) String content,
 	boolean isPinned,
 	@Future Instant publishAt,
-	List<@Positive Long> imageAssetIds
+	List<@Positive Long> imageAssetIds,
+	List<@Positive Long> documentAssetIds
 ) {
 	public CreateAnnouncementRequest(Long categoryId, String title, String content, boolean isPinned, Instant publishAt) {
-		this(categoryId, title, content, isPinned, publishAt, List.of());
+		this(categoryId, title, content, isPinned, publishAt, List.of(), List.of());
 	}
 	public CreateAnnouncementRequest {
 		title = title == null ? null : title.trim();
@@ -27,6 +28,7 @@ public record CreateAnnouncementRequest(
 
 	public CreateAnnouncementCommand toCommand(Long campusId, Long requesterId) {
 		return new CreateAnnouncementCommand(campusId, requesterId, categoryId, title, content, isPinned, publishAt,
-			imageAssetIds == null ? List.of() : imageAssetIds);
+			imageAssetIds == null ? List.of() : imageAssetIds,
+			documentAssetIds == null ? List.of() : documentAssetIds);
 	}
 }

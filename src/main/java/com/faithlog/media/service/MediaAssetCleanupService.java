@@ -160,7 +160,7 @@ public class MediaAssetCleanupService {
 			return asset.temporaryObjectKey() == null ? List.of() : List.of(asset.temporaryObjectKey());
 		}
 		return java.util.stream.Stream.of(
-				asset.temporaryObjectKey(), asset.thumbnailObjectKey(), asset.detailObjectKey())
+				asset.temporaryObjectKey(), asset.thumbnailObjectKey(), asset.detailObjectKey(), asset.documentObjectKey())
 			.filter(Objects::nonNull)
 			.toList();
 	}

@@ -25,6 +25,7 @@ public class AnnouncementCommandService {
 	private final AnnouncementAccessPolicy accessPolicy;
 	private final AnnouncementPublishedEventPort publishedEventPort;
 	private final AnnouncementImageAttachmentService imageAttachmentService;
+	private final AnnouncementDocumentAttachmentService documentAttachmentService;
 	private final Clock clock;
 
 	@Autowired
@@ -34,6 +35,7 @@ public class AnnouncementCommandService {
 		AnnouncementAccessPolicy accessPolicy,
 		AnnouncementPublishedEventPort publishedEventPort,
 		AnnouncementImageAttachmentService imageAttachmentService,
+		AnnouncementDocumentAttachmentService documentAttachmentService,
 		Clock clock
 	) {
 		this.announcementRepository = announcementRepository;
@@ -41,6 +43,7 @@ public class AnnouncementCommandService {
 		this.accessPolicy = accessPolicy;
 		this.publishedEventPort = publishedEventPort;
 		this.imageAttachmentService = imageAttachmentService;
+		this.documentAttachmentService = documentAttachmentService;
 		this.clock = clock;
 	}
 
@@ -51,7 +54,7 @@ public class AnnouncementCommandService {
 		AnnouncementPublishedEventPort publishedEventPort,
 		Clock clock
 	) {
-		this(announcementRepository, categoryRepository, accessPolicy, publishedEventPort, null, clock);
+		this(announcementRepository, categoryRepository, accessPolicy, publishedEventPort, null, null, clock);
 	}
 
 	@Transactional
@@ -75,10 +78,13 @@ public class AnnouncementCommandService {
 		if (imageAttachmentService != null) {
 			imageAttachmentService.replace(announcement.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
 		}
+		if (documentAttachmentService != null) {
+			documentAttachmentService.replace(announcement.id(), command.campusId(), command.requesterId(), command.documentAssetIds());
+		}
 		if (announcement.publishedAt() != null) {
 			publishedEventPort.recordPublished(announcement, category);
 		}
-		return AnnouncementResult.from(announcement, category, imageAssetIds(announcement.id()));
+		return result(announcement, category);
 	}
 
 	@Transactional
@@ -99,7 +105,10 @@ public class AnnouncementCommandService {
 		if (imageAttachmentService != null) {
 			imageAttachmentService.replace(announcement.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
 		}
-		return AnnouncementResult.from(announcement, category, imageAssetIds(announcement.id()));
+		if (documentAttachmentService != null) {
+			documentAttachmentService.replace(announcement.id(), command.campusId(), command.requesterId(), command.documentAssetIds());
+		}
+		return result(announcement, category);
 	}
 
 	@Transactional
@@ -113,7 +122,7 @@ public class AnnouncementCommandService {
 			throw new BusinessException(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT);
 		}
 		publishedEventPort.recordPublished(announcement, category);
-		return AnnouncementResult.from(announcement, category, imageAssetIds(announcement.id()));
+		return result(announcement, category);
 	}
 
 	@Transactional
@@ -143,5 +152,11 @@ public class AnnouncementCommandService {
 	private java.util.List<Long> imageAssetIds(Long announcementId) {
 		return imageAttachmentService == null ? java.util.List.of()
 			: imageAttachmentService.getOrderedAssetIds(announcementId);
+	}
+
+	private AnnouncementResult result(Announcement announcement, AnnouncementCategory category) {
+		return AnnouncementResult.from(announcement, category, imageAssetIds(announcement.id()),
+			documentAttachmentService == null ? java.util.List.of()
+				: documentAttachmentService.getOrderedAssetIds(announcement.id()));
 	}
 }

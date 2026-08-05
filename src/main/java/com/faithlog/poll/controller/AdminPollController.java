@@ -54,7 +54,7 @@ public class AdminPollController {
 	) {
 		return ApiResponse.success(PollResponse.from(pollNoticeCommandService.updateGeneralPoll(
 			new UpdatePollNoticeCommand(campusId, pollId, authenticatedUser.userId(), request.title(), request.notice(),
-				request.imageAssetIds())
+				request.imageAssetIds(), request.documentAssetIds())
 		)));
 	}
 

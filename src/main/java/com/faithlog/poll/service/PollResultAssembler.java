@@ -12,16 +12,23 @@ class PollResultAssembler {
 
 	private final PollOptionRepository pollOptionRepository;
 	private final PollImageAttachmentService imageAttachmentService;
+	private final PollDocumentAttachmentService documentAttachmentService;
 
 	@Autowired
-	PollResultAssembler(PollOptionRepository pollOptionRepository, PollImageAttachmentService imageAttachmentService) {
+	PollResultAssembler(
+		PollOptionRepository pollOptionRepository,
+		PollImageAttachmentService imageAttachmentService,
+		PollDocumentAttachmentService documentAttachmentService
+	) {
 		this.pollOptionRepository = pollOptionRepository;
 		this.imageAttachmentService = imageAttachmentService;
+		this.documentAttachmentService = documentAttachmentService;
 	}
 
 	PollResultAssembler(PollOptionRepository pollOptionRepository) {
 		this.pollOptionRepository = pollOptionRepository;
 		this.imageAttachmentService = null;
+		this.documentAttachmentService = null;
 	}
 
 	PollResult toResult(Poll poll) {
@@ -32,7 +39,9 @@ class PollResultAssembler {
 				.map(PollOptionResult::from)
 				.toList(),
 			imageAttachmentService == null ? java.util.List.of()
-				: imageAttachmentService.getOrderedAssetIds(poll.id())
+				: imageAttachmentService.getOrderedAssetIds(poll.id()),
+			documentAttachmentService == null ? java.util.List.of()
+				: documentAttachmentService.getOrderedAssetIds(poll.id())
 		);
 	}
 }
