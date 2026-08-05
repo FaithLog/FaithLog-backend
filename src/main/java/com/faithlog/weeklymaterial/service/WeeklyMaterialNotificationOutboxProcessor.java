@@ -5,6 +5,8 @@ import com.faithlog.notification.service.NotificationRequestCommandService;
 import com.faithlog.notification.service.command.AutomaticNotificationRequestCommand;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialNotificationOutboxRepositoryPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipientPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRepositoryPort;
+import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus;
 import java.time.Clock;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -14,13 +16,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class WeeklyMaterialNotificationOutboxProcessor {
 	private static final String TITLE = "새 주일설교 나눔지가 등록되었어요";
 	private final WeeklyMaterialNotificationOutboxRepositoryPort outboxes;
+	private final WeeklyMaterialRepositoryPort materials;
 	private final WeeklyMaterialRecipientPort recipients;
 	private final NotificationRequestCommandService notifications;
 	private final Clock clock;
 
 	public WeeklyMaterialNotificationOutboxProcessor(WeeklyMaterialNotificationOutboxRepositoryPort outboxes,
-		WeeklyMaterialRecipientPort recipients, NotificationRequestCommandService notifications, Clock clock) {
+		WeeklyMaterialRepositoryPort materials, WeeklyMaterialRecipientPort recipients,
+		NotificationRequestCommandService notifications, Clock clock) {
 		this.outboxes = outboxes;
+		this.materials = materials;
 		this.recipients = recipients;
 		this.notifications = notifications;
 		this.clock = clock;
@@ -28,8 +33,17 @@ public class WeeklyMaterialNotificationOutboxProcessor {
 
 	@Transactional
 	public boolean process(Long outboxId) {
+		var snapshot = outboxes.findById(outboxId).orElse(null);
+		if (snapshot == null || snapshot.isProcessed()) return false;
+		var material = materials.findSlotForUpdate(
+			snapshot.campusId(), snapshot.weekStartDate(), snapshot.materialType()).orElse(null);
 		var outbox = outboxes.findByIdForUpdate(outboxId).orElse(null);
 		if (outbox == null || outbox.isProcessed()) return false;
+		if (material == null || material.status() != WeeklyMaterialStatus.ACTIVE
+			|| !material.id().equals(outbox.weeklyMaterialId())) {
+			outbox.markProcessed(clock.instant());
+			return false;
+		}
 		var targets = recipients.findActiveMemberUserIds(outbox.campusId()).stream()
 			.filter(id -> !id.equals(outbox.uploaderId())).distinct().toList();
 		notifications.requestRequiredAutomaticNotification(new AutomaticNotificationRequestCommand(

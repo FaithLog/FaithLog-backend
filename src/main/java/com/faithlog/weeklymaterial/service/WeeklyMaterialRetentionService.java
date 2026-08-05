@@ -17,16 +17,20 @@ import org.springframework.transaction.annotation.Transactional;
 public class WeeklyMaterialRetentionService {
 	private final WeeklyMaterialRepositoryPort materials;
 	private final MediaAssetRepositoryPort assets;
+	private final WeeklyMaterialFirstPublication firstPublication;
 
-	public WeeklyMaterialRetentionService(WeeklyMaterialRepositoryPort materials, MediaAssetRepositoryPort assets) {
+	public WeeklyMaterialRetentionService(WeeklyMaterialRepositoryPort materials, MediaAssetRepositoryPort assets,
+		WeeklyMaterialFirstPublication firstPublication) {
 		this.materials = materials;
 		this.assets = assets;
+		this.firstPublication = firstPublication;
 	}
 
 	@Transactional
 	public boolean deleteIfDue(Long weeklyMaterialId, LocalDate today) {
 		WeeklyMaterial material = materials.findByIdForUpdate(weeklyMaterialId).orElse(null);
 		if (material == null || material.weekStartDate().plusMonths(3).isAfter(today)) return false;
+		firstPublication.suppressPending(material);
 
 		if (material.mediaAssetId() != null) {
 			List<MediaAsset> locked = assets.findByCampusIdAndIdInForUpdate(

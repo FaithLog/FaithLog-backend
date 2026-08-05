@@ -98,6 +98,7 @@ public class WeeklyMaterialCommandService {
 		WeeklyMaterial current = materials.findSlotForUpdate(campusId, requireMonday(weekStartDate), materialType)
 			.filter(material -> material.status() == WeeklyMaterialStatus.ACTIVE)
 			.orElseThrow(() -> new BusinessException(ErrorCode.WEEKLY_MATERIAL_NOT_FOUND));
+		if (firstPublication != null) firstPublication.suppressPending(current);
 		MediaAsset old = assets.findByCampusIdAndIdInForUpdate(campusId, List.of(current.mediaAssetId())).stream()
 			.findFirst().orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_ASSET_INVALID));
 		if (old.kind() != MediaAssetKind.PDF || old.status() != MediaAssetStatus.READY) {
