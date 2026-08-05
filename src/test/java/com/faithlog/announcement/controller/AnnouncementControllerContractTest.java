@@ -42,6 +42,8 @@ class AnnouncementControllerContractTest {
 			"/announcements/{announcementId}/publish");
 		assertRoute(AdminAnnouncementController.class, "archiveAnnouncement", PostMapping.class,
 			"/announcements/{announcementId}/archive");
+		assertRoute(AdminAnnouncementController.class, "restoreAnnouncement", PostMapping.class,
+			"/announcements/{announcementId}/restore");
 		assertRoute(AdminAnnouncementController.class, "deleteAnnouncement", DeleteMapping.class,
 			"/announcements/{announcementId}");
 	}
@@ -69,7 +71,7 @@ class AnnouncementControllerContractTest {
 	void announcement_response_exposes_ordered_image_asset_ids_for_batched_access_urls() {
 		assertThat(Arrays.stream(AnnouncementResponse.class.getRecordComponents())
 			.map(component -> component.getName()))
-			.contains("imageAssetIds");
+			.contains("imageAssetIds", "documentAssetIds");
 	}
 
 	private void assertRoute(

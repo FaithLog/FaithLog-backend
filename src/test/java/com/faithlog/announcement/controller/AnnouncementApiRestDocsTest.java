@@ -2,6 +2,7 @@ package com.faithlog.announcement.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.restdocs.headers.HeaderDocumentation.headerWithName;
@@ -43,6 +44,7 @@ import com.faithlog.media.service.MediaAssetQueryService;
 import com.faithlog.media.service.result.MediaAccessUrlResult;
 import com.faithlog.media.service.result.MediaAssetResult;
 import com.faithlog.media.service.result.MediaUploadReservationResult;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -207,6 +209,54 @@ class AnnouncementApiRestDocsTest {
 	}
 
 	@Test
+	void documents_announcement_restore_success_not_found_conflict_and_forbidden() throws Exception {
+		stubRestore(announcementResult(), 7L, 99L, 11L);
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore", 7L, 99L)
+				.header("Authorization", "Bearer access-token"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("PUBLISHED"))
+			.andExpect(jsonPath("$.data.publishedAt").value("2026-08-03T04:00:00Z"))
+			.andExpect(jsonPath("$.data.imageAssetIds[0]").value(31))
+			.andExpect(jsonPath("$.data.documentAssetIds[0]").value(41))
+			.andDo(document("announcement-restore-success",
+				preprocessResponse(prettyPrint()), authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("복구할 ARCHIVED 공지의 캠퍼스 ID"),
+					parameterWithName("announcementId").description("ARCHIVED 상태 공지 ID")),
+				relaxedResponseFields(
+					fieldWithPath("data.id").description("복구된 공지 ID"),
+					fieldWithPath("data.status").description("복구 후 PUBLISHED"),
+					fieldWithPath("data.publishedAt").description("원래 게시 시각 또는 복구 시점 서버 Clock"),
+					fieldWithPath("data.imageAssetIds").description("복구 후 보존된 이미지 순서"),
+					fieldWithPath("data.documentAssetIds").description("복구 후 보존된 PDF 순서"))));
+
+		stubRestoreFailure(ErrorCode.ANNOUNCEMENT_NOT_FOUND, 7L, 404L, 11L);
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore", 7L, 404L))
+			.andExpect(status().isNotFound())
+			.andDo(document("announcement-restore-not-found", preprocessResponse(prettyPrint()),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("announcementId").description("없거나 삭제됐거나 다른 캠퍼스의 공지 ID"))));
+
+		stubRestoreFailure(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT, 7L, 409L, 11L);
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore", 7L, 409L))
+			.andExpect(status().isConflict())
+			.andDo(document("announcement-restore-status-conflict", preprocessResponse(prettyPrint()),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("announcementId").description("SCHEDULED 또는 PUBLISHED 상태 공지 ID"))));
+
+		stubRestoreFailure(ErrorCode.ANNOUNCEMENT_MANAGE_FORBIDDEN, 7L, 403L, 11L);
+		mockMvc.perform(post("/api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore", 7L, 403L)
+				.header("Authorization", "Bearer access-token"))
+			.andExpect(status().isForbidden())
+			.andDo(document("announcement-restore-forbidden", preprocessResponse(prettyPrint()),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("announcementId").description("관리 권한이 필요한 공지 ID"))));
+	}
+
+	@Test
 	void documents_media_upload_reservation_complete_and_batched_access_urls() throws Exception {
 		when(mediaCommands.reserve(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(),
 			nullable(String.class)))
@@ -274,6 +324,22 @@ class AnnouncementApiRestDocsTest {
 		var category = new AnnouncementCategoryResult(3L, 7L, "일반", "#3B82F6", 0, true, NOW, NOW);
 		return new AnnouncementResult(99L, 7L, category, 11L, "수련회 안내", "준비물을 확인해 주세요.", true,
 			AnnouncementStatus.PUBLISHED, NOW, NOW, NOW, NOW, List.of(31L, 32L), List.of(41L));
+	}
+
+	private void stubRestore(AnnouncementResult result, Long campusId, Long announcementId, Long requesterId)
+		throws Exception {
+		restoreMethod().invoke(doReturn(result).when(announcementCommands), campusId, announcementId, requesterId);
+	}
+
+	private void stubRestoreFailure(ErrorCode errorCode, Long campusId, Long announcementId, Long requesterId)
+		throws Exception {
+		restoreMethod().invoke(doThrow(new BusinessException(errorCode)).when(announcementCommands),
+			campusId, announcementId, requesterId);
+	}
+
+	private Method restoreMethod() throws NoSuchMethodException {
+		return AnnouncementCommandService.class
+			.getMethod("restoreAnnouncement", Long.class, Long.class, Long.class);
 	}
 
 	private static org.springframework.restdocs.snippet.Snippet authHeader() {
