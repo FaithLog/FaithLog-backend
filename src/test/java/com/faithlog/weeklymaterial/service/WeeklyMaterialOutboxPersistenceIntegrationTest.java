@@ -18,6 +18,7 @@ import com.faithlog.weeklymaterial.domain.entity.WeeklyMaterialNotificationOutbo
 import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.infrastructure.repository.WeeklyMaterialNotificationOutboxRepository;
 import com.faithlog.weeklymaterial.infrastructure.repository.WeeklyMaterialRepository;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialNotificationOutboxRepositoryPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipientPort;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -33,17 +34,23 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Import;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@Import(WeeklyMaterialOutboxPersistenceIntegrationTest.BarrierConfiguration.class)
 class WeeklyMaterialOutboxPersistenceIntegrationTest {
 	private static final LocalDate WEEK = LocalDate.of(2026, 5, 4);
 
 	@Autowired private WeeklyMaterialRepository materials;
 	@Autowired private WeeklyMaterialNotificationOutboxRepository outboxes;
+	@Autowired private BarrierOutboxPort barrierOutboxes;
 	@Autowired private MediaAssetRepository assets;
 	@Autowired private WeeklyMaterialRetentionService retention;
 	@Autowired private WeeklyMaterialFirstPublication firstPublication;
@@ -59,6 +66,7 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 			materials.deleteAll();
 			assets.deleteAll();
 		});
+		barrierOutboxes.disarm();
 		reset(recipients, notifications);
 	}
 
@@ -150,6 +158,31 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 			.extracting(WeeklyMaterialNotificationOutbox::isProcessed).isEqualTo(true);
 	}
 
+	@Test
+	@Timeout(10)
+	void concurrentProcessorsThatBothReadPendingSnapshotSendExactlyOnce() throws Exception {
+		Fixture fixture = persistFixture("processor-race");
+		when(recipients.findActiveMemberUserIds(1L)).thenReturn(List.of(101L));
+		CountDownLatch bothSnapshotsRead = new CountDownLatch(2);
+		barrierOutboxes.arm(fixture.outboxId(), bothSnapshotsRead);
+
+		var executor = Executors.newFixedThreadPool(2);
+		try {
+			var first = executor.submit(() -> processor.process(fixture.outboxId()));
+			var second = executor.submit(() -> processor.process(fixture.outboxId()));
+
+			assertThat(List.of(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS)))
+				.containsExactlyInAnyOrder(true, false);
+		} finally {
+			executor.shutdownNow();
+		}
+
+		verify(notifications).requestRequiredAutomaticNotification(any());
+		assertThat(((org.springframework.data.repository.CrudRepository<WeeklyMaterialNotificationOutbox, Long>) outboxes)
+			.findById(fixture.outboxId())).get()
+			.extracting(WeeklyMaterialNotificationOutbox::isProcessed).isEqualTo(true);
+	}
+
 	private Fixture persistFixture(String suffix) {
 		Long assetId = persistReadyPdf(suffix);
 		return transaction().execute(status -> {
@@ -177,4 +210,72 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 	}
 
 	private record Fixture(Long materialId, Long outboxId, Long assetId) {}
+
+	@TestConfiguration
+	static class BarrierConfiguration {
+		@Bean
+		@Primary
+		BarrierOutboxPort barrierOutboxPort(WeeklyMaterialNotificationOutboxRepository repository) {
+			return new BarrierOutboxPort(repository);
+		}
+	}
+
+	static final class BarrierOutboxPort implements WeeklyMaterialNotificationOutboxRepositoryPort {
+		private final WeeklyMaterialNotificationOutboxRepository delegate;
+		private volatile Long barrierId;
+		private volatile CountDownLatch barrier;
+
+		BarrierOutboxPort(WeeklyMaterialNotificationOutboxRepository delegate) {
+			this.delegate = delegate;
+		}
+
+		void arm(Long outboxId, CountDownLatch barrier) {
+			this.barrierId = outboxId;
+			this.barrier = barrier;
+		}
+
+		void disarm() {
+			barrierId = null;
+			barrier = null;
+		}
+
+		@Override
+		public WeeklyMaterialNotificationOutbox save(WeeklyMaterialNotificationOutbox outbox) {
+			return ((WeeklyMaterialNotificationOutboxRepositoryPort) delegate).save(outbox);
+		}
+
+		@Override
+		public java.util.Optional<WeeklyMaterialNotificationOutbox> findById(Long id) {
+			@SuppressWarnings("unchecked")
+			var crud = (org.springframework.data.repository.CrudRepository<WeeklyMaterialNotificationOutbox, Long>) delegate;
+			var result = crud.findById(id);
+			CountDownLatch current = barrier;
+			if (id.equals(barrierId) && current != null) {
+				current.countDown();
+				try {
+					if (!current.await(5, TimeUnit.SECONDS)) throw new AssertionError("snapshot barrier timeout");
+				} catch (InterruptedException exception) {
+					Thread.currentThread().interrupt();
+					throw new AssertionError(exception);
+				}
+			}
+			return result;
+		}
+
+		@Override
+		public java.util.Optional<WeeklyMaterialNotificationOutbox> findByIdForUpdate(Long id) {
+			return delegate.findByIdForUpdate(id);
+		}
+
+		@Override
+		public java.util.Optional<WeeklyMaterialNotificationOutbox> findSlotForUpdate(Long campusId,
+			LocalDate weekStartDate, WeeklyMaterialType materialType) {
+			return delegate.findSlotForUpdate(campusId, weekStartDate, materialType);
+		}
+
+		@Override
+		public List<Long> findPendingIds(org.springframework.data.domain.Pageable pageable) {
+			return delegate.findPendingIds(pageable);
+		}
+	}
 }
