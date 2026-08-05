@@ -17,11 +17,13 @@
 4. 최초 PUT race는 campus row lock으로 직렬화하고 같은 transaction에서 unique outbox를 기록한다.
 5. outbox processor는 ACTIVE 멤버를 조회해 업로더를 제외하고, 실패 시 pending을 유지한다.
 6. `weekStartDate.plusMonths(3)`의 Asia/Seoul 00:00부터 scheduler가 row lock 아래 ACTIVE PDF를 ORPHANED로 전환하고 weekly-material 행을 물리 삭제한다. tombstone도 같은 경계에서 삭제하며 outbox/log는 보존한다.
+7. 추가 승인에 따라 공지도 `publishedAt`의 서울 달력 날짜에서 `plusMonths(3)`인 00:00에 PUBLISHED/ARCHIVED 행을 물리 삭제한다. SCHEDULED는 제외하고 첨부 media만 ORPHANED로 넘기며 outbox/log는 보존한다.
 
 ## 검증
 
 - #245 및 #242 PDF/media, #237 announcement outbox, #238 poll outbox, V18 cleanup focused regression: 82 tests, failures/errors/skipped 0.
 - 격리 PostgreSQL 17의 전용 DB/port에서 `PostgresFlywayMigrationTest`: 11 tests, failures/errors/skipped 0. V1→V20 clean과 V19→V20 upgrade를 검증했다.
+- 해당 11-test 실행 뒤 retention SQL을 추가했다. 최종 V20 재검증용 격리 컨테이너는 Docker overlay/containerd `input/output error` 때문에 생성되지 않아, 최종 migration의 실제 PostgreSQL 검증은 미완료로 남긴다.
 - `build asciidoctor -x test -x jacocoTestReport`: 성공, bootJar와 REST Docs HTML 생성.
 - 전체 `test build asciidoctor`는 두 번 모두 `:test` 장시간 무출력/JVM instrumentation 정지로 완료되지 않아 전체 성공으로 주장하지 않는다.
 - 실제 R2/FCM, 기존 shared PostgreSQL/Redis/app container mutation, push/PR/merge/deploy는 0이다. 검증 전용 PostgreSQL container만 생성 후 제거했다.
