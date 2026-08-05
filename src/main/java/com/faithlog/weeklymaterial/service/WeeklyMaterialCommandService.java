@@ -12,6 +12,7 @@ import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialAccessPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialAttachmentConflictPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRepositoryPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialSlotLockPort;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public class WeeklyMaterialCommandService {
@@ -26,13 +28,24 @@ public class WeeklyMaterialCommandService {
 	private final MediaAssetRepositoryPort assets;
 	private final WeeklyMaterialAccessPort access;
 	private final WeeklyMaterialAttachmentConflictPort foreignAttachments;
+	private final WeeklyMaterialSlotLockPort slotLocks;
+	private final WeeklyMaterialFirstPublication firstPublication;
 
+	@Autowired
 	public WeeklyMaterialCommandService(WeeklyMaterialRepositoryPort materials, MediaAssetRepositoryPort assets,
-		WeeklyMaterialAccessPort access, WeeklyMaterialAttachmentConflictPort foreignAttachments) {
+		WeeklyMaterialAccessPort access, WeeklyMaterialAttachmentConflictPort foreignAttachments,
+		WeeklyMaterialSlotLockPort slotLocks, WeeklyMaterialFirstPublication firstPublication) {
 		this.materials = materials;
 		this.assets = assets;
 		this.access = access;
 		this.foreignAttachments = foreignAttachments;
+		this.slotLocks = slotLocks;
+		this.firstPublication = firstPublication;
+	}
+
+	public WeeklyMaterialCommandService(WeeklyMaterialRepositoryPort materials, MediaAssetRepositoryPort assets,
+		WeeklyMaterialAccessPort access, WeeklyMaterialAttachmentConflictPort foreignAttachments) {
+		this(materials, assets, access, foreignAttachments, campusId -> {}, null);
 	}
 
 	@Transactional
@@ -40,6 +53,7 @@ public class WeeklyMaterialCommandService {
 		Long mediaAssetId, Long requesterId) {
 		access.requireManager(campusId, requesterId);
 		LocalDate week = requireMonday(weekStartDate);
+		slotLocks.lockCampus(campusId);
 		WeeklyMaterial current = materials.findSlotForUpdate(campusId, week, materialType).orElse(null);
 		List<Long> lockIds = current == null
 			? List.of(mediaAssetId)
@@ -57,7 +71,10 @@ public class WeeklyMaterialCommandService {
 			: materials.findAttachedAssetIdsExcludingMaterialId(List.of(mediaAssetId), current.id());
 		if (!weeklyConflicts.isEmpty()) throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
 		if (current == null) {
-			return materials.save(WeeklyMaterial.create(campusId, week, materialType, mediaAssetId, requesterId));
+			WeeklyMaterial saved = materials.save(
+				WeeklyMaterial.create(campusId, week, materialType, mediaAssetId, requesterId));
+			if (firstPublication != null) firstPublication.recordFirstRegistration(saved, true);
+			return saved;
 		}
 		if (current.status() == WeeklyMaterialStatus.DELETED) {
 			current.reregister(mediaAssetId, requesterId);
@@ -77,6 +94,7 @@ public class WeeklyMaterialCommandService {
 	@Transactional
 	public void delete(Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType, Long requesterId) {
 		access.requireManager(campusId, requesterId);
+		slotLocks.lockCampus(campusId);
 		WeeklyMaterial current = materials.findSlotForUpdate(campusId, requireMonday(weekStartDate), materialType)
 			.filter(material -> material.status() == WeeklyMaterialStatus.ACTIVE)
 			.orElseThrow(() -> new BusinessException(ErrorCode.WEEKLY_MATERIAL_NOT_FOUND));
