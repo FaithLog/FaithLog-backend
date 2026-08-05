@@ -4,6 +4,7 @@ import com.faithlog.announcement.domain.entity.AnnouncementImage;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementDocumentRepository;
 import com.faithlog.announcement.service.port.PollMediaAttachmentPort;
+import com.faithlog.announcement.service.port.WeeklyMaterialMediaAttachmentPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.domain.entity.MediaAsset;
@@ -23,17 +24,20 @@ public class AnnouncementImageAttachmentService {
 	private final AnnouncementDocumentRepository documents;
 	private final MediaAssetRepositoryPort assets;
 	private final PollMediaAttachmentPort pollImages;
+	private final WeeklyMaterialMediaAttachmentPort weeklyAttachments;
 
 	public AnnouncementImageAttachmentService(
 		AnnouncementImageRepository images,
 		AnnouncementDocumentRepository documents,
 		MediaAssetRepositoryPort assets,
-		PollMediaAttachmentPort pollImages
+		PollMediaAttachmentPort pollImages,
+		WeeklyMaterialMediaAttachmentPort weeklyAttachments
 	) {
 		this.images = images;
 		this.documents = documents;
 		this.assets = assets;
 		this.pollImages = pollImages;
+		this.weeklyAttachments = weeklyAttachments;
 	}
 
 	public void replace(Long announcementId, Long campusId, Long ownerId, List<Long> orderedAssetIds) {
@@ -50,6 +54,7 @@ public class AnnouncementImageAttachmentService {
 		for (int start = 0; start < sortedIds.size(); start += VALIDATION_BATCH_SIZE) {
 			List<Long> batch = sortedIds.subList(start, Math.min(start + VALIDATION_BATCH_SIZE, sortedIds.size()));
 			loaded.addAll(assets.findByCampusIdAndIdInForUpdate(campusId, batch));
+			conflictingIds.addAll(weeklyAttachments.findAttachedAssetIds(batch));
 			conflictingIds.addAll(images.findAttachedAssetIdsForOtherAnnouncements(announcementId, batch));
 			conflictingIds.addAll(documents.findAttachedAssetIds(batch));
 			conflictingIds.addAll(pollImages.findAttachedAssetIds(batch));

@@ -10,6 +10,7 @@ import com.faithlog.poll.domain.entity.PollDocument;
 import com.faithlog.poll.infrastructure.repository.PollDocumentRepository;
 import com.faithlog.poll.infrastructure.repository.PollImageRepository;
 import com.faithlog.poll.service.port.AnnouncementMediaAttachmentPort;
+import com.faithlog.poll.service.port.WeeklyMaterialMediaAttachmentPort;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -25,17 +26,20 @@ public class PollDocumentAttachmentService {
 	private final PollImageRepository images;
 	private final MediaAssetRepositoryPort assets;
 	private final AnnouncementMediaAttachmentPort announcementAttachments;
+	private final WeeklyMaterialMediaAttachmentPort weeklyAttachments;
 
 	public PollDocumentAttachmentService(
 		PollDocumentRepository documents,
 		PollImageRepository images,
 		MediaAssetRepositoryPort assets,
-		AnnouncementMediaAttachmentPort announcementAttachments
+		AnnouncementMediaAttachmentPort announcementAttachments,
+		WeeklyMaterialMediaAttachmentPort weeklyAttachments
 	) {
 		this.documents = documents;
 		this.images = images;
 		this.assets = assets;
 		this.announcementAttachments = announcementAttachments;
+		this.weeklyAttachments = weeklyAttachments;
 	}
 
 	public void replace(Long pollId, Long campusId, Long ownerId, List<Long> orderedAssetIds) {
@@ -53,6 +57,7 @@ public class PollDocumentAttachmentService {
 		for (int start = 0; start < sorted.size(); start += VALIDATION_BATCH_SIZE) {
 			List<Long> batch = sorted.subList(start, Math.min(start + VALIDATION_BATCH_SIZE, sorted.size()));
 			loaded.addAll(assets.findByCampusIdAndIdInForUpdate(campusId, batch));
+			conflicts.addAll(weeklyAttachments.findAttachedAssetIds(batch));
 			conflicts.addAll(documents.findAttachedAssetIdsForOtherPolls(pollId, batch));
 			conflicts.addAll(images.findAttachedAssetIds(batch));
 			conflicts.addAll(announcementAttachments.findAttachedAssetIds(batch));
