@@ -353,7 +353,7 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
-	void postgresFixturesRequireThePhysicalV14ToV15ToV16ToV17ToV18ToV19Order() throws IOException {
+	void postgresFixturesRequireThePhysicalV14ToV15ToV16ToV17ToV18ToV19ToV20Order() throws IOException {
 		String source = Files.readString(POSTGRES_MIGRATION_TEST);
 		String cleanFixture = source.substring(
 			source.indexOf("void flywayMigratesCleanPostgresDatabase"),
@@ -373,15 +373,22 @@ class FlywayMigrationContractTest {
 		);
 		String v19UpgradeFixture = source.substring(
 			source.indexOf("void v19UpgradesV18WithPdfColumnsAndDocumentRelations"),
+			source.indexOf("void v20UpgradesV19WithWeeklyMaterialTombstonesAndDurableOutbox")
+		);
+		String v20UpgradeFixture = source.substring(
+			source.indexOf("void v20UpgradesV19WithWeeklyMaterialTombstonesAndDurableOutbox"),
 			source.indexOf("void v13FailsClosedWithoutChangingLegacyDuplicateEmails")
 		);
 
-		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"19\")");
+		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"20\")");
 		assertThat(v16UpgradeFixture).contains(".target(\"15\")");
 		assertThat(v16UpgradeFixture).doesNotContain(".target(\"14\")");
 		assertThat(v17UpgradeFixture).contains(".target(\"16\")", ".target(\"17\")");
-		assertThat(v18UpgradeFixture).contains(".target(\"17\")", "MigrationVersion.fromVersion(\"18\")");
-		assertThat(v19UpgradeFixture).contains(".target(\"18\")", "MigrationVersion.fromVersion(\"19\")");
+		assertThat(v18UpgradeFixture).contains(".target(\"17\")", ".target(\"18\")",
+			"MigrationVersion.fromVersion(\"18\")");
+		assertThat(v19UpgradeFixture).contains(".target(\"18\")", ".target(\"19\")",
+			"MigrationVersion.fromVersion(\"19\")");
+		assertThat(v20UpgradeFixture).contains(".target(\"19\")", "MigrationVersion.fromVersion(\"20\")");
 	}
 
 	@Test

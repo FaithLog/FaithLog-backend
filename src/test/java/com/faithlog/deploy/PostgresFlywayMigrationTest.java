@@ -80,13 +80,17 @@ class PostgresFlywayMigrationTest {
 		);
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
-		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("19"));
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("20"));
 		assertColumnExists(jdbcUrl, username, password, "media_assets", "asset_kind");
 		assertColumnExists(jdbcUrl, username, password, "media_assets", "document_object_key");
 		assertTableExists(jdbcUrl, username, password, "announcement_documents");
 		assertTableExists(jdbcUrl, username, password, "poll_documents");
 		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "announcement_documents");
 		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "poll_documents");
+		assertTableExists(jdbcUrl, username, password, "weekly_materials");
+		assertTableExists(jdbcUrl, username, password, "weekly_material_notification_outbox");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_materials");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_material_notification_outbox");
 		assertPdfMediaAndDocumentRelationBoundaries(jdbcUrl, username, password);
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
@@ -273,6 +277,7 @@ class PostgresFlywayMigrationTest {
 		Flyway v18 = Flyway.configure()
 			.dataSource(jdbcUrl, username, password)
 			.locations("classpath:db/migration")
+			.target("18")
 			.load();
 
 		assertThat(v18.migrate().success).isTrue();
@@ -304,7 +309,7 @@ class PostgresFlywayMigrationTest {
 		v18.clean();
 		assertThat(v18.migrate().success).isTrue();
 		Flyway v19 = Flyway.configure().dataSource(jdbcUrl, username, password)
-			.locations("classpath:db/migration").load();
+			.locations("classpath:db/migration").target("19").load();
 		assertThat(v19.migrate().success).isTrue();
 		assertThat(v19.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("19"));
 		assertColumnExists(jdbcUrl, username, password, "media_assets", "asset_kind");
@@ -317,6 +322,33 @@ class PostgresFlywayMigrationTest {
 		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "announcement_documents");
 		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "poll_documents");
 		assertPdfMediaAndDocumentRelationBoundaries(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v20UpgradesV19WithWeeklyMaterialTombstonesAndDurableOutbox() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway v19 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false).locations("classpath:db/migration").target("19").load();
+		v19.clean();
+		assertThat(v19.migrate().success).isTrue();
+		Integer v19Checksum = migrationChecksum(jdbcUrl, username, password, "19");
+
+		Flyway v20 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration").load();
+		assertThat(v20.migrate().success).isTrue();
+		assertThat(v20.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("20"));
+		assertThat(migrationChecksum(jdbcUrl, username, password, "19")).isEqualTo(v19Checksum);
+		assertTableExists(jdbcUrl, username, password, "weekly_materials");
+		assertTableExists(jdbcUrl, username, password, "weekly_material_notification_outbox");
+		assertConstraintExists(jdbcUrl, username, password, "weekly_materials", "uk_weekly_materials_slot");
+		assertConstraintExists(jdbcUrl, username, password, "weekly_materials", "fk_weekly_materials_media_asset");
+		assertConstraintExists(jdbcUrl, username, password, "weekly_material_notification_outbox",
+			"uk_weekly_material_outbox_slot");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_materials");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_material_notification_outbox");
 	}
 
 	@Test
@@ -736,6 +768,22 @@ class PostgresFlywayMigrationTest {
 	private static long insertReadyMediaAsset(
 		Connection connection, long campusId, long userId, String suffix
 	) throws Exception {
+		if (!columnExists(connection, "media_assets", "asset_kind")) {
+			try (PreparedStatement statement = connection.prepareStatement(
+				"insert into media_assets (campus_id, owner_user_id, input_content_type, input_byte_size, "
+					+ "expected_sha256, thumbnail_object_key, detail_object_key, output_sha256, width, height, "
+					+ "output_byte_size, status, expires_at) values (?, ?, 'image/jpeg', 10, ?, ?, ?, ?, "
+					+ "100, 100, 20, 'READY', now() + interval '1 day') returning id"
+			)) {
+				statement.setLong(1, campusId);
+				statement.setLong(2, userId);
+				statement.setString(3, "a".repeat(64));
+				statement.setString(4, "tenant/" + suffix + "/thumb");
+				statement.setString(5, "tenant/" + suffix + "/detail");
+				statement.setString(6, "b".repeat(64));
+				return returnedId(statement);
+			}
+		}
 		try (PreparedStatement statement = connection.prepareStatement(
 			"insert into media_assets (campus_id, owner_user_id, asset_kind, input_content_type, input_byte_size, "
 				+ "expected_sha256, thumbnail_object_key, detail_object_key, output_sha256, width, height, "
@@ -749,6 +797,12 @@ class PostgresFlywayMigrationTest {
 			statement.setString(5, "tenant/" + suffix + "/detail");
 			statement.setString(6, "b".repeat(64));
 			return returnedId(statement);
+		}
+	}
+
+	private static boolean columnExists(Connection connection, String tableName, String columnName) throws Exception {
+		try (ResultSet result = connection.getMetaData().getColumns(null, "public", tableName, columnName)) {
+			return result.next();
 		}
 	}
 
