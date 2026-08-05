@@ -1282,3 +1282,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 삭제 시 아직 pending인 최초 나눔지 outbox는 material→outbox 잠금 순서로 processed 처리해 늦은 발송을 억제하되 unique dedupe 이력은 보존한다. 물리 삭제 뒤 동일 과거 슬롯 재등록은 성공하지만 알림은 0이다.
 - processor 초기 조회는 managed Entity가 아닌 immutable scalar snapshot을 사용한다. 이후 material row와 outbox row를 차례로 잠가 동시 processor exact-one과 delete 경쟁의 단일 결과를 보장한다.
 - global ADMIN의 PUT command와 manager 응답 조립은 하나의 transaction이며, public GET의 ACTIVE membership 조건은 완화하지 않는다.
+
+## 2026-08-05 - Issue #245 전역 3종 주간자료 후속 승인
+
+- 이 결정은 위 #245의 campus별 `SHARING_SHEET` 계약을 대체한다. exact enum은 `SHEPHERD_GUIDE`, `SUNDAY_SHARING_SHEET`, `SATURDAY_LEADER_SHARING_SHEET`이고 기존 값은 V21에서 주일 나눔지로 이관한다.
+- 세 슬롯은 모든 캠퍼스가 공유하는 global `weekStartDate + materialType`이다. 관리자는 자신이 관리할 수 있는 campus path로 다른 캠퍼스 관리자가 올린 자료도 교체·삭제할 수 있고, ACTIVE 멤버는 자신의 campus path에서 같은 전역 자료를 읽는다.
+- content scope와 media tenant를 분리한다. 신규 asset은 요청 campus/requester-owned READY PDF여야 하며, 교체·삭제 시 저장된 기존 media tenant를 검증하고 ORPHANED로 전환한다.
+- V20은 QA 적용 이력 때문에 변경하지 않고 V21을 추가한다. V21은 legacy 동일 week/type 다중 campus material/outbox가 있으면 SQLSTATE 23505로 fail closed하고, global unique와 singleton DB lock을 적용한다.
+- 응답 nullable field는 `shepherdGuide`, `sundaySharingSheet`, `saturdayLeaderSharingSheet`다. 기존 API path, private R2/PDF 30MiB, 7-day cache, 3-month retention, cleanup-owned object deletion은 유지한다.
+- 최초 global `SUNDAY_SHARING_SHEET`만 전체 캠퍼스 distinct ACTIVE 사용자에게 업로더 제외 알림을 보낸다. 다중 membership 사용자는 하나의 유효 ACTIVE campus context로 한 번만 받고, 나머지 두 자료와 교체·삭제·물리삭제 후 재등록은 알림 0이다. 승인된 copy/eventType은 변경하지 않는다.
