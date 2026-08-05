@@ -33,6 +33,7 @@ import com.faithlog.poll.domain.entity.PollOption;
 import com.faithlog.poll.domain.entity.PollResponse;
 import com.faithlog.poll.domain.entity.PollResponseOption;
 import com.faithlog.poll.domain.entity.PollImage;
+import com.faithlog.poll.domain.entity.PollDocument;
 import com.faithlog.poll.domain.entity.PollNotificationOutbox;
 import com.faithlog.poll.domain.type.MealChargeCalculationType;
 import com.faithlog.poll.domain.type.PollType;
@@ -45,6 +46,7 @@ import com.faithlog.poll.infrastructure.repository.PollRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseOptionRepository;
 import com.faithlog.poll.infrastructure.repository.PollResponseRepository;
 import com.faithlog.poll.infrastructure.repository.PollImageRepository;
+import com.faithlog.poll.infrastructure.repository.PollDocumentRepository;
 import com.faithlog.poll.infrastructure.repository.PollNotificationOutboxRepository;
 import com.faithlog.prayer.domain.entity.PrayerGroup;
 import com.faithlog.prayer.domain.entity.PrayerSeason;
@@ -117,6 +119,9 @@ class DataRetentionCleanupServiceTest {
 
 	@Autowired
 	private PollImageRepository pollImageRepository;
+
+	@Autowired
+	private PollDocumentRepository pollDocumentRepository;
 
 	@Autowired
 	private PollNotificationOutboxRepository pollNotificationOutboxRepository;
@@ -229,8 +234,12 @@ class DataRetentionCleanupServiceTest {
 		Poll fresh = savePoll(campus.id(), DAILY_NOW.minusSeconds(29L * 24 * 60 * 60));
 		MediaAsset expiredAsset = saveReadyMediaAsset(campus.id(), user.id(), "expired");
 		MediaAsset freshAsset = saveReadyMediaAsset(campus.id(), user.id(), "fresh");
+		MediaAsset expiredDocument = saveReadyPdfAsset(campus.id(), user.id(), "expired-document");
+		MediaAsset freshDocument = saveReadyPdfAsset(campus.id(), user.id(), "fresh-document");
 		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), expired.id(), expiredAsset.id(), 0));
 		pollImageRepository.saveAndFlush(PollImage.create(campus.id(), fresh.id(), freshAsset.id(), 0));
+		pollDocumentRepository.saveAndFlush(PollDocument.create(campus.id(), expired.id(), expiredDocument.id(), 0));
+		pollDocumentRepository.saveAndFlush(PollDocument.create(campus.id(), fresh.id(), freshDocument.id(), 0));
 		pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
 			expired.id(), campus.id(), user.id(), PollType.CUSTOM, expired.title(), expired.endsAt()));
 		pollNotificationOutboxRepository.saveAndFlush(PollNotificationOutbox.create(
@@ -241,13 +250,19 @@ class DataRetentionCleanupServiceTest {
 		assertThat(result.pollsDeleted()).isEqualTo(1);
 		assertThat(pollRepository.findById(expired.id())).isEmpty();
 		assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(expired.id())).isEmpty();
+		assertThat(pollDocumentRepository.findByPollIdOrderByDisplayOrderAscIdAsc(expired.id())).isEmpty();
 		assertThat(pollNotificationOutboxRepository.existsByPollId(expired.id())).isFalse();
 		assertThat(mediaAssetRepository.findById(expiredAsset.id()).orElseThrow().status())
 			.isEqualTo(MediaAssetStatus.ORPHANED);
+		assertThat(mediaAssetRepository.findById(expiredDocument.id()).orElseThrow().status())
+			.isEqualTo(MediaAssetStatus.ORPHANED);
 		assertThat(pollRepository.findById(fresh.id())).isPresent();
 		assertThat(pollImageRepository.findByPollIdOrderByDisplayOrderAscIdAsc(fresh.id())).hasSize(1);
+		assertThat(pollDocumentRepository.findByPollIdOrderByDisplayOrderAscIdAsc(fresh.id())).hasSize(1);
 		assertThat(pollNotificationOutboxRepository.existsByPollId(fresh.id())).isTrue();
 		assertThat(mediaAssetRepository.findById(freshAsset.id()).orElseThrow().status())
+			.isEqualTo(MediaAssetStatus.READY);
+		assertThat(mediaAssetRepository.findById(freshDocument.id()).orElseThrow().status())
 			.isEqualTo(MediaAssetStatus.READY);
 	}
 
@@ -665,6 +680,22 @@ class DataRetentionCleanupServiceTest {
 			20,
 			"b".repeat(64)
 		);
+		return mediaAssetRepository.saveAndFlush(asset);
+	}
+
+	private MediaAsset saveReadyPdfAsset(Long campusId, Long ownerId, String suffix) {
+		MediaAsset asset = MediaAsset.reserve(
+			campusId,
+			ownerId,
+			"application/pdf",
+			10,
+			"c".repeat(64),
+			"temporary/retention/" + suffix + "/original.pdf",
+			DAILY_NOW.plusSeconds(3600),
+			"notice.pdf"
+		);
+		asset.startProcessing();
+		asset.completePdf("media/retention/" + suffix + "/document.pdf", 10, "d".repeat(64));
 		return mediaAssetRepository.saveAndFlush(asset);
 	}
 

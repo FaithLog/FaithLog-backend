@@ -10,6 +10,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-08-05 - Issue #244 Archived Announcement Restore
+
+- Context: ARCHIVED 상태 공지를 영구 삭제하기 전에 관리자 API로 다시 일반 게시 상태에 노출해야 한다. #242 PDF 첨부와 #243 보관 공지 삭제 계약을 완화하지 않고, 복구 자체가 알림 재발송이나 첨부 lifecycle 변경을 만들면 안 된다.
+- Decision: `POST /api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore`는 Access Token과 해당 캠퍼스 관리자 권한을 요구하고 request body를 받지 않는다. 성공은 `200 OK`와 현재 공지 상세와 같은 전체 `AnnouncementResponse`다. `ARCHIVED`만 `PUBLISHED`로 복구하며 `SCHEDULED`로 되돌리지 않는다.
+- Time/status: 이미 게시됐다 보관된 공지는 원래 `publishedAt`을 그대로 보존한다. 게시 전에 예약 상태로 보관되어 `publishedAt`이 null인 공지는 injected server `Clock`의 restore instant를 `publishedAt`으로 기록한다. 같은 요청 반복은 첫 200 뒤 두 번째 요청이 non-ARCHIVED이므로 `409 ANNOUNCEMENT_STATUS_CONFLICT`다.
+- Boundary: missing, deleted, other-campus ID는 `404 ANNOUNCEMENT_NOT_FOUND`; non-ARCHIVED는 `409 ANNOUNCEMENT_STATUS_CONFLICT`; 권한 부족은 `403 ANNOUNCEMENT_MANAGE_FORBIDDEN`이다. Restore는 FCM 알림, announcement outbox 생성/재발송, attachment ORPHANED 전환, R2/network 호출을 하지 않는다. 기존 본문, category, author, ordered image/PDF links, media READY 상태, uploader, campus는 보존한다.
+- Concurrency: 캠퍼스/권한 검증 뒤 announcement row를 pessimistic write lock으로 잡아 restore/delete/archive/publish 경쟁을 직렬화한다. 단일 DB transaction 안에서 상태와 게시 시각을 변경하며, 이후 실패는 전체 rollback한다. Restore/delete race는 lock 순서에 따라 restore 성공 후 delete 409 또는 delete 성공 후 restore 404만 허용한다.
+- Verification: Production 변경 전에 domain/service/controller/REST Docs/integration/rollback/concurrency RED를 커밋했고, 최소 GREEN에서 focused 38-test announcement suite를 통과했다. 최종 repository gate는 `./gradlew --no-daemon test build asciidoctor`로 확인한다.
+
 ### 2026-08-03 - Issue #236 Previous-Year Recap Snapshot
 
 - Context: 로그인 복원 뒤 새해 첫 실행에서 직전 연도 활동을 한 번 자동 표시하고, 1월 1일부터 14일까지 홈에서 다시 열 수 있는 매년 재사용 가능한 회고가 필요하다. 기기 변경, 재설치, 다중 기기에서도 표시 완료 상태가 중복되면 안 되며 원본 retention이나 후속 수정이 과거 회고를 바꾸면 안 된다.
@@ -1239,3 +1248,52 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 만료된 커피 투표 한 건의 계좌·권한·상태 선행조건 오류가 전체 자동 마감 배치를 중단하지 않도록 `BusinessException`을 투표 단위로 격리한다.
 - 실패한 투표의 기존 transaction은 rollback하여 `OPEN` 상태를 유지하고, 이후 ID의 정상 투표는 계속 마감·정산한다. DB·Redis·락 같은 예상 밖 runtime 예외는 계속 전체 작업 실패로 전파한다.
 - 실패 로그에는 `pollId`와 `ErrorCode`만 남기며 계좌번호, 사용자 정보, 예외 stack trace는 반복 출력하지 않는다.
+
+## 2026-08-04 - Issue #242 공지·투표 PDF 첨부
+
+- 사용자는 기존 private Cloudflare R2 공통 미디어 API를 공지와 투표가 함께 재사용하고, 이미지와 PDF 관계만 `imageAssetIds`와 `documentAssetIds`로 분리하는 호환 확장을 승인했다.
+- PDF 입력 상한은 사용자가 최종 승인한 30MiB다. 기존 JPEG/PNG 상한 5MiB와 이미지 variant 계약은 변경하지 않는다.
+- PDF는 `application/pdf`, 예약 크기와 SHA-256, `%PDF-` signature, PDFBox decode를 모두 검증한다. 암호화, embedded file, JavaScript, open/additional action, launch, rich media는 fail closed한다. 외부 악성코드 scanner는 MVP에 포함하지 않는다.
+- PDF는 thumbnail/detail로 변환하지 않고 검증된 단일 private final object로 저장한다. 다운로드는 10분 Presigned GET과 `Content-Disposition: attachment`를 사용하며 안전한 원본 파일명, MIME, 크기, SHA-256만 응답한다.
+- 공지·투표 생성과 수정은 ordered `documentAssetIds`를 additive로 지원한다. 공동 관리자는 현재 글에 이미 첨부된 타인 소유 PDF만 유지·재정렬할 수 있고, 새 unattached 타인 소유 PDF 추가는 계속 거부한다. 제거는 ORPHANED와 기존 retry/lease cleanup을 재사용한다.
+- 첨부 개수의 제품 상한은 두지 않는다. 기존 100-ID 경계는 SQL lock 및 access URL 요청의 기술적 batch 크기일 뿐이다. poll 공개 알림 payload와 수정 시 재알림 정책은 변경하지 않는다.
+
+## 2026-08-05 - Issue #243 보관된 공지 영구 삭제 API
+
+- 사용자는 `DELETE /api/v1/admin/campuses/{campusId}/announcements/{announcementId}`를 승인했다. request body는 없고, 캠퍼스 관리자 권한이 필요하며, 성공은 `204 No Content`다.
+- 이전 #237 문서의 “physical deletion 미노출” 의미는 #243 승인으로 대체한다. 삭제는 `ARCHIVED` 상태에서만 가능하고, `SCHEDULED`/`PUBLISHED`는 기존 `ANNOUNCEMENT_STATUS_CONFLICT` 409를 재사용한다. 없는 공지와 이미 삭제된 공지는 기존 `ANNOUNCEMENT_NOT_FOUND` 404를 재사용한다.
+- 삭제 transaction은 캠퍼스 범위로 announcement row를 lock하고, 연결된 image/PDF attachment media row를 stable batch로 lock한 뒤 same-campus READY 상태를 검증한다. 연결 media는 `ORPHANED`로 전환하고 `announcement_images`/`announcement_documents` link row를 삭제한다.
+- 삭제 대상 공지의 `announcement_notification_outbox` row는 announcement row 삭제 전에 제거한다. 이미 생성된 `notification_logs` 이력은 유지한다.
+- API transaction에서는 R2 또는 외부 network/storage 호출을 하지 않는다. 실제 object 삭제는 기존 24h media cleanup/retry/lease 경로가 담당한다.
+- 어떤 단계에서든 실패하면 전체 DB transaction을 rollback하며, 다른 공지, 다른 캠퍼스, poll media는 변경하지 않는다. 새 ErrorCode, Flyway, dependency, push/PR/deploy 변경은 없다.
+
+## 2026-08-05 - Issue #245 캠퍼스 주간자료와 주일설교 나눔지 알림
+
+- 주간자료는 `SHEPHERD_GUIDE`, `SHARING_SHEET` exact enum이며 campus/Asia-Seoul 월요일/type별 독립 슬롯이다. write/delete는 캠퍼스 관리자, read는 ACTIVE 멤버에게만 허용한다.
+- 기존 private PDF media lifecycle과 30MiB 상한을 재사용한다. 교체·삭제된 PDF는 같은 transaction에서 ORPHANED로 전환하고 API transaction의 R2/network 호출은 0이다.
+- 동일 campus/week/type의 최초 나눔지 등록만 durable outbox를 생성한다. 교체·삭제·tombstone 재등록과 목자지침은 outbox를 만들지 않는다.
+- 사용자가 승인한 exact notification copy는 title `새 주일설교 나눔지가 등록되었어요`, body `{weekStartDate} 주차 주일설교 나눔지를 확인해 주세요`, eventType `WEEKLY_SHARING_SHEET_PUBLISHED`다.
+- 응답은 nullable 두 슬롯과 asset metadata만 노출하며 object key/public URL은 노출하지 않는다.
+- 사용자가 추가 승인한 retention은 `weekStartDate.plusMonths(3)`의 Asia/Seoul 00:00이다. due row를 lock하고 ACTIVE PDF를 같은 transaction에서 ORPHANED로 전환한 뒤 `weekly_materials` 행을 물리 삭제하며, DELETED tombstone도 같은 경계에서 물리 삭제한다. 최초 등록 outbox와 notification log는 보존하고 실제 R2 object 삭제는 기존 cleanup retry/lease가 담당한다.
+- 공지 retention은 사용자가 승인한 `publishedAt`의 Asia/Seoul 달력 날짜 `plusMonths(3)` 00:00이다. PUBLISHED/ARCHIVED 공지는 due 시점에 row lock 아래 첨부 image/PDF를 ORPHANED로 전환하고 link, announcement outbox, announcement 행을 물리 삭제한다. 아직 게시되지 않은 SCHEDULED는 제외한다. notification log는 기존 14일 retention이 먼저 삭제하고, ORPHANED media DB 행과 R2 객체는 기존 cleanup retry/lease가 24시간 안전 유예 뒤 물리 삭제한다.
+- 2026-08-05 최신 `origin/develop` fetch 결과 V18까지였고 현재 branch ancestry V19 다음 V20의 버전 충돌은 없었다.
+- PM 독립 리뷰에 따라 유효한 월요일의 빈 주차는 nullable 두 슬롯을 가진 200 empty state로 확정했다. 목록은 ACTIVE 자료가 있는 주차만 반환한다.
+- ACTIVE 주간자료 PDF는 기존 private media access 정책에 consumer-owned port로 결속하고, attachment exclusivity도 weekly/announcement/poll 양방향 consumer-owned port로 검증한다.
+- 삭제 시 아직 pending인 최초 나눔지 outbox는 material→outbox 잠금 순서로 processed 처리해 늦은 발송을 억제하되 unique dedupe 이력은 보존한다. 물리 삭제 뒤 동일 과거 슬롯 재등록은 성공하지만 알림은 0이다.
+- processor 초기 조회는 managed Entity가 아닌 immutable scalar snapshot을 사용한다. 이후 material row와 outbox row를 차례로 잠가 동시 processor exact-one과 delete 경쟁의 단일 결과를 보장한다.
+- global ADMIN의 PUT command와 manager 응답 조립은 하나의 transaction이며, public GET의 ACTIVE membership 조건은 완화하지 않는다.
+
+## 2026-08-05 - Issue #245 전역 3종 주간자료 후속 승인
+
+- 이 결정은 위 #245의 campus별 `SHARING_SHEET` 계약을 대체한다. exact enum은 `SHEPHERD_GUIDE`, `SUNDAY_SHARING_SHEET`, `SATURDAY_LEADER_SHARING_SHEET`이고 기존 값은 V21에서 주일 나눔지로 이관한다.
+- 세 슬롯은 모든 캠퍼스가 공유하는 global `weekStartDate + materialType`이다. 관리자는 자신이 관리할 수 있는 campus path로 다른 캠퍼스 관리자가 올린 자료도 교체·삭제할 수 있고, ACTIVE 멤버는 자신의 campus path에서 같은 전역 자료를 읽는다.
+- content scope와 media tenant를 분리한다. 신규 asset은 요청 campus/requester-owned READY PDF여야 하며, 교체·삭제 시 저장된 기존 media tenant를 검증하고 ORPHANED로 전환한다.
+- V20은 QA 적용 이력 때문에 변경하지 않고 V21을 추가한다. V21은 legacy 동일 week/type 다중 campus material/outbox가 있으면 SQLSTATE 23505로 fail closed하고, global unique와 singleton DB lock을 적용한다.
+- 응답 nullable field는 `shepherdGuide`, `sundaySharingSheet`, `saturdayLeaderSharingSheet`다. 기존 API path, private R2/PDF 30MiB, 7-day cache, 3-month retention, cleanup-owned object deletion은 유지한다.
+- 최초 global `SUNDAY_SHARING_SHEET`만 전체 캠퍼스 distinct ACTIVE 사용자에게 업로더 제외 알림을 보낸다. 다중 membership 사용자는 하나의 유효 ACTIVE campus context로 한 번만 받고, 나머지 두 자료와 교체·삭제·물리삭제 후 재등록은 알림 0이다. 승인된 copy/eventType은 변경하지 않는다.
+
+# 2026-08-05 #245 CI 메모리 경계
+
+- 953-test 전체 suite는 CI에서 `maxParallelForks=1`, `maxHeapSize=512m`, `forkEvery=25`로 실행한다.
+- V19에서 V20만 검증하는 migration test는 최신 migration을 암묵적으로 따라가지 않고 Flyway target 20을 명시한다.
+- 이 결정은 테스트 실행 안정화만을 위한 것이며 production runtime과 Flyway V21 동작을 변경하지 않는다.

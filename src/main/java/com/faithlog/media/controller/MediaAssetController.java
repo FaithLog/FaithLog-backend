@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.AssertTrue;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -37,7 +38,8 @@ public class MediaAssetController {
 	public ResponseEntity<ApiResponse<UploadReservationResponse>> reserve(
 		@AuthenticationPrincipal AuthenticatedUser user, @PathVariable Long campusId,
 		@Valid @RequestBody UploadReservationRequest request) {
-		var result = commands.reserve(campusId, user.userId(), request.contentType(), request.byteSize(), request.sha256());
+		var result = commands.reserve(campusId, user.userId(), request.contentType(), request.byteSize(),
+			request.sha256(), request.fileName());
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(new UploadReservationResponse(
 			result.assetId(), result.uploadUrl(), result.requiredHeaders(), result.expiresAt())));
 	}
@@ -56,9 +58,27 @@ public class MediaAssetController {
 	}
 
 	public record UploadReservationRequest(
-		@NotBlank @Pattern(regexp = "^image/(jpeg|png)$") String contentType,
-		@Positive @Max(MediaAsset.MAX_INPUT_BYTES) long byteSize,
-		@NotBlank @Pattern(regexp = "^[a-f0-9]{64}$") String sha256) {}
+		@NotBlank @Pattern(regexp = "^(image/(jpeg|png)|application/pdf)$") String contentType,
+		@Positive @Max(MediaAsset.MAX_PDF_INPUT_BYTES) long byteSize,
+		@NotBlank @Pattern(regexp = "^[a-f0-9]{64}$") String sha256,
+		@Size(max = 255) String fileName) {
+		public UploadReservationRequest(String contentType, long byteSize, String sha256) {
+			this(contentType, byteSize, sha256, null);
+		}
+
+		@AssertTrue(message = "media byte size is invalid")
+		public boolean isByteSize() {
+			if ("application/pdf".equals(contentType)) {
+				return byteSize <= MediaAsset.MAX_PDF_INPUT_BYTES;
+			}
+			return byteSize <= MediaAsset.MAX_INPUT_BYTES;
+		}
+
+		@AssertTrue(message = "PDF file name is required")
+		public boolean isFileName() {
+			return !"application/pdf".equals(contentType) || (fileName != null && !fileName.isBlank());
+		}
+	}
 	public record UploadReservationResponse(Long assetId, URI uploadUrl, Map<String, String> requiredHeaders, Instant expiresAt) {}
 	public record AccessUrlRequest(@NotEmpty @Size(max = 100) List<@Positive Long> assetIds) {}
 }

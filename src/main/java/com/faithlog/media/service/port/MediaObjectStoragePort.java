@@ -16,6 +16,10 @@ public interface MediaObjectStoragePort {
 
 	URI presignDownload(String objectKey);
 
+	default URI presignDownload(String objectKey, String fileName, String contentType) {
+		return presignDownload(objectKey);
+	}
+
 	record PresignedUpload(URI url, Map<String, String> requiredHeaders, Instant expiresAt) {
 		public PresignedUpload {
 			requiredHeaders = Map.copyOf(requiredHeaders);

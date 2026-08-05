@@ -178,6 +178,18 @@ public class Announcement {
 		this.status = AnnouncementStatus.ARCHIVED;
 	}
 
+	public void restore(Instant now) {
+		if (status != AnnouncementStatus.ARCHIVED) {
+			throw new IllegalStateException("only archived announcement can be restored");
+		}
+		Instant restoreTime = requireInstant(now, "now");
+		this.status = AnnouncementStatus.PUBLISHED;
+		if (publishedAt == null) {
+			this.publishAt = restoreTime;
+			this.publishedAt = restoreTime;
+		}
+	}
+
 	@PrePersist
 	void prePersist() {
 		Instant now = Instant.now();

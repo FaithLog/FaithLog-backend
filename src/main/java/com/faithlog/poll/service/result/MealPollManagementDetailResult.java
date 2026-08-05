@@ -19,6 +19,7 @@ public record MealPollManagementDetailResult(
 	Instant endsAt,
 	PollStatus status,
 	List<MealPollManagementOptionResult> options,
-	List<Long> imageAssetIds
+	List<Long> imageAssetIds,
+	List<Long> documentAssetIds
 ) {
 }

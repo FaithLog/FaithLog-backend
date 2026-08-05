@@ -47,6 +47,7 @@ public class MealPollManagementQueryService {
 	private final MealPollChargeGroupRepository chargeGroupRepository;
 	private final Clock clock;
 	private final PollImageAttachmentService imageAttachmentService;
+	private final PollDocumentAttachmentService documentAttachmentService;
 
 	@Autowired
 	public MealPollManagementQueryService(
@@ -58,7 +59,8 @@ public class MealPollManagementQueryService {
 		MealPollSettlementRepository settlementRepository,
 		MealPollChargeGroupRepository chargeGroupRepository,
 		Clock clock,
-		PollImageAttachmentService imageAttachmentService
+		PollImageAttachmentService imageAttachmentService,
+		PollDocumentAttachmentService documentAttachmentService
 	) {
 		this.mealDutyAccessService = mealDutyAccessService;
 		this.pollRepository = pollRepository;
@@ -69,6 +71,7 @@ public class MealPollManagementQueryService {
 		this.chargeGroupRepository = chargeGroupRepository;
 		this.clock = clock;
 		this.imageAttachmentService = imageAttachmentService;
+		this.documentAttachmentService = documentAttachmentService;
 	}
 
 	public MealPollManagementQueryService(
@@ -82,7 +85,7 @@ public class MealPollManagementQueryService {
 		Clock clock
 	) {
 		this(mealDutyAccessService, pollRepository, pollOptionRepository, pollResponseRepository,
-			pollResponseOptionRepository, settlementRepository, chargeGroupRepository, clock, null);
+			pollResponseOptionRepository, settlementRepository, chargeGroupRepository, clock, null, null);
 	}
 
 	@Transactional(readOnly = true)
@@ -108,8 +111,11 @@ public class MealPollManagementQueryService {
 			.stream().map(MealPollSettlement::pollId).collect(Collectors.toSet());
 		var imagesByPoll = imageAttachmentService == null ? Map.<Long, List<Long>>of()
 			: imageAttachmentService.getOrderedAssetIdsByPollIds(polls.getContent().stream().map(Poll::id).toList());
+		var documentsByPoll = documentAttachmentService == null ? Map.<Long, List<Long>>of()
+			: documentAttachmentService.getOrderedAssetIdsByPollIds(polls.getContent().stream().map(Poll::id).toList());
 		return polls.map(poll -> MealPollManagementListItemResult.of(
-			poll, chargedPollIds.contains(poll.id()), imagesByPoll.getOrDefault(poll.id(), List.of())));
+			poll, chargedPollIds.contains(poll.id()), imagesByPoll.getOrDefault(poll.id(), List.of()),
+			documentsByPoll.getOrDefault(poll.id(), List.of())));
 	}
 
 	@Transactional(readOnly = true)
@@ -133,7 +139,8 @@ public class MealPollManagementQueryService {
 				option.id(), option.content(), responseCounts.getOrDefault(option.id(), 0), option.userAdded(),
 				chargeResult(groups.get(option.id()), settlement, chargedByMe)
 			)).toList(),
-			imageAttachmentService == null ? List.of() : imageAttachmentService.getOrderedAssetIds(poll.id())
+			imageAttachmentService == null ? List.of() : imageAttachmentService.getOrderedAssetIds(poll.id()),
+			documentAttachmentService == null ? List.of() : documentAttachmentService.getOrderedAssetIds(poll.id())
 		);
 	}
 
