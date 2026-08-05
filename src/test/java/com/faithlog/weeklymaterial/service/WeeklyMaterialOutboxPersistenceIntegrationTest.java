@@ -13,6 +13,10 @@ import com.faithlog.media.domain.entity.MediaAsset;
 import com.faithlog.media.domain.type.MediaAssetStatus;
 import com.faithlog.media.infrastructure.repository.MediaAssetRepository;
 import com.faithlog.media.service.port.WeeklyMaterialMediaAccessPort;
+import com.faithlog.announcement.infrastructure.repository.AnnouncementDocumentRepository;
+import com.faithlog.announcement.service.AnnouncementDocumentAttachmentService;
+import com.faithlog.poll.infrastructure.repository.PollDocumentRepository;
+import com.faithlog.poll.service.PollDocumentAttachmentService;
 import com.faithlog.notification.service.NotificationRequestCommandService;
 import com.faithlog.weeklymaterial.domain.entity.WeeklyMaterial;
 import com.faithlog.weeklymaterial.domain.entity.WeeklyMaterialNotificationOutbox;
@@ -22,6 +26,8 @@ import com.faithlog.weeklymaterial.infrastructure.repository.WeeklyMaterialRepos
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialNotificationOutboxRepositoryPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialOutboxSnapshot;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipientPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialAccessPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialSlotLockPort;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -55,17 +61,26 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 	@Autowired private BarrierOutboxPort barrierOutboxes;
 	@Autowired private MediaAssetRepository assets;
 	@Autowired private WeeklyMaterialMediaAccessPort weeklyMediaAccess;
+	@Autowired private AnnouncementDocumentRepository announcementDocuments;
+	@Autowired private PollDocumentRepository pollDocuments;
+	@Autowired private AnnouncementDocumentAttachmentService announcementAttachments;
+	@Autowired private PollDocumentAttachmentService pollAttachments;
+	@Autowired private WeeklyMaterialCommandService commands;
 	@Autowired private WeeklyMaterialRetentionService retention;
 	@Autowired private WeeklyMaterialFirstPublication firstPublication;
 	@Autowired private WeeklyMaterialNotificationOutboxProcessor processor;
 	@Autowired private PlatformTransactionManager transactionManager;
 	@MockitoBean private WeeklyMaterialRecipientPort recipients;
 	@MockitoBean private NotificationRequestCommandService notifications;
+	@MockitoBean private WeeklyMaterialAccessPort weeklyAccess;
+	@MockitoBean private WeeklyMaterialSlotLockPort weeklySlotLocks;
 
 	@AfterEach
 	void clean() {
 		transaction().executeWithoutResult(status -> {
 			outboxes.deleteAll();
+			announcementDocuments.deleteAll();
+			pollDocuments.deleteAll();
 			materials.deleteAll();
 			assets.deleteAll();
 		});
@@ -140,6 +155,32 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 
 		assertThat(weeklyMediaAccess.findActiveAttachedAssetIds(1L, List.of(fixture.assetId())))
 			.isEmpty();
+	}
+
+	@Test
+	@Timeout(10)
+	void concurrentWeeklyAndAnnouncementPdfAttachmentHasExactlyOneWinner() throws Exception {
+		Long assetId = persistReadyPdf("announcement-race");
+		assertSingleAttachmentWinner(
+			() -> commands.put(1L, WEEK, WeeklyMaterialType.SHEPHERD_GUIDE, assetId, 100L),
+			() -> transaction().executeWithoutResult(
+				status -> announcementAttachments.replace(501L, 1L, 100L, List.of(assetId))));
+
+		assertThat(materials.findAttachedAssetIds(List.of(assetId)).size()
+			+ announcementDocuments.findAttachedAssetIds(List.of(assetId)).size()).isEqualTo(1);
+	}
+
+	@Test
+	@Timeout(10)
+	void concurrentWeeklyAndPollPdfAttachmentHasExactlyOneWinner() throws Exception {
+		Long assetId = persistReadyPdf("poll-race");
+		assertSingleAttachmentWinner(
+			() -> commands.put(1L, WEEK, WeeklyMaterialType.SHEPHERD_GUIDE, assetId, 100L),
+			() -> transaction().executeWithoutResult(
+				status -> pollAttachments.replace(601L, 1L, 100L, List.of(assetId))));
+
+		assertThat(materials.findAttachedAssetIds(List.of(assetId)).size()
+			+ pollDocuments.findAttachedAssetIds(List.of(assetId)).size()).isEqualTo(1);
 	}
 
 	@Test
@@ -226,6 +267,38 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 
 	private TransactionTemplate transaction() {
 		return new TransactionTemplate(transactionManager);
+	}
+
+	private void assertSingleAttachmentWinner(ThrowingAction left, ThrowingAction right) throws Exception {
+		CountDownLatch start = new CountDownLatch(1);
+		var executor = Executors.newFixedThreadPool(2);
+		try {
+			var first = executor.submit(() -> runAttachment(start, left));
+			var second = executor.submit(() -> runAttachment(start, right));
+			start.countDown();
+			assertThat(List.of(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS)))
+				.containsExactlyInAnyOrder(true, false);
+		} finally {
+			start.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	private boolean runAttachment(CountDownLatch start, ThrowingAction action) throws Exception {
+		assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+		try {
+			action.run();
+			return true;
+		} catch (com.faithlog.global.exception.BusinessException exception) {
+			assertThat(exception.errorCode()).isEqualTo(
+				com.faithlog.global.exception.ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
+			return false;
+		}
+	}
+
+	@FunctionalInterface
+	private interface ThrowingAction {
+		void run() throws Exception;
 	}
 
 	private record Fixture(Long materialId, Long outboxId, Long assetId) {}
