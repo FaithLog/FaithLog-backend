@@ -51,6 +51,7 @@ class AnnouncementDeleteIntegrationTest {
 	private static final Instant NOW = Instant.parse("2026-08-03T05:00:00Z");
 
 	@Autowired private AnnouncementCommandService service;
+	@Autowired private AnnouncementRetentionService retentionService;
 	@Autowired private CampusService campusService;
 	@Autowired private UserRepository users;
 	@Autowired private AnnouncementRepository announcements;
@@ -61,6 +62,28 @@ class AnnouncementDeleteIntegrationTest {
 	@Autowired private MediaAssetRepository mediaAssets;
 	@Autowired private NotificationLogRepository notificationLogs;
 	@Autowired private PlatformTransactionManager transactionManager;
+
+	@Test
+	void retention_physically_deletes_due_announcement_but_preserves_outbox_and_logs() {
+		Fixture fixture = transaction().execute(status -> createArchivedFixture("retention"));
+
+		assertThat(retentionService.deleteIfDue(
+			fixture.announcementId(), Instant.parse("2026-11-02T15:00:00Z"))).isTrue();
+
+		transaction().executeWithoutResult(status -> {
+			assertThat(announcements.findById(fixture.announcementId())).isEmpty();
+			assertThat(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(fixture.announcementId())).isEmpty();
+			assertThat(documents.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(fixture.announcementId())).isEmpty();
+			assertThat(outboxes.findAll())
+				.anyMatch(outbox -> outbox.announcementId().equals(fixture.announcementId()));
+			assertThat(notificationLogs.findByRequestIdOrderByIdAsc(fixture.notificationRequestId()))
+				.hasSize(1);
+			assertThat(mediaAssets.findById(fixture.imageAssetId())).get()
+				.extracting(MediaAsset::status).isEqualTo(MediaAssetStatus.ORPHANED);
+			assertThat(mediaAssets.findById(fixture.documentAssetId())).get()
+				.extracting(MediaAsset::status).isEqualTo(MediaAssetStatus.ORPHANED);
+		});
+	}
 
 	@Test
 	void delete_archived_announcement_removes_links_outbox_and_parent_but_keeps_logs_and_other_media() {
