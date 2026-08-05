@@ -38,6 +38,33 @@ class WeeklyMaterialQueryServiceTest {
 	}
 
 	@Test
+	void validEmptyCurrentAndAdjacentWeeksReturnNullableSlots() {
+		LocalDate current = LocalDate.of(2026, 8, 3);
+		LocalDate adjacent = current.minusWeeks(1);
+		when(queries.findActiveRows(1L, List.of(current))).thenReturn(List.of());
+		when(queries.findActiveRows(1L, List.of(adjacent))).thenReturn(List.of());
+
+		var currentResult = service.getCurrent(1L, 100L);
+		var adjacentResult = service.getWeek(1L, 100L, adjacent);
+
+		assertThat(currentResult.weekStartDate()).isEqualTo(current);
+		assertThat(currentResult.shepherdGuide()).isNull();
+		assertThat(currentResult.sharingSheet()).isNull();
+		assertThat(adjacentResult.weekStartDate()).isEqualTo(adjacent);
+		assertThat(adjacentResult.shepherdGuide()).isNull();
+		assertThat(adjacentResult.sharingSheet()).isNull();
+	}
+
+	@Test
+	void yearlyListStillIncludesOnlyActiveWeeks() {
+		PageRequest pageable = PageRequest.of(0, 20);
+		when(queries.findActiveWeekDates(1L, LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1), pageable))
+			.thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+		assertThat(service.list(1L, 100L, 2026, 0, 20).getContent()).isEmpty();
+	}
+
+	@Test
 	void yearlyListPagesDistinctWeeksDescendingAndLoadsBothSlots() {
 		LocalDate newer = LocalDate.of(2026, 8, 3);
 		LocalDate older = LocalDate.of(2026, 7, 27);

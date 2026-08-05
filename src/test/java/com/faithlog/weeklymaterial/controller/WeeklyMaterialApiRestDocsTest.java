@@ -119,9 +119,12 @@ class WeeklyMaterialApiRestDocsTest {
 		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
 				7L, week, "SHARING_SHEET")).andExpect(status().isForbidden())
 			.andDo(document("weekly-material-manage-forbidden"));
-		when(queries.getWeek(7L, 11L, week)).thenThrow(new BusinessException(ErrorCode.WEEKLY_MATERIAL_NOT_FOUND));
+		when(queries.getWeek(7L, 11L, week)).thenReturn(new WeeklyMaterialWeekResult(week, null, null));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/weekly-materials/{weekStartDate}", 7L, week))
-			.andExpect(status().isNotFound()).andDo(document("weekly-material-not-found"));
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.shepherdGuide").doesNotExist())
+			.andExpect(jsonPath("$.data.sharingSheet").doesNotExist())
+			.andDo(document("weekly-material-week-empty-success", weekResponseFields()));
 		doThrow(new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT)).when(commands)
 			.put(7L, week, WeeklyMaterialType.SHARING_SHEET, 41L, 11L);
 		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
