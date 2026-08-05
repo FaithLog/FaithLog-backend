@@ -18,16 +18,21 @@
 5. outbox processor는 ACTIVE 멤버를 조회해 업로더를 제외하고, 실패 시 pending을 유지한다.
 6. `weekStartDate.plusMonths(3)`의 Asia/Seoul 00:00부터 scheduler가 row lock 아래 ACTIVE PDF를 ORPHANED로 전환하고 weekly-material 행을 물리 삭제한다. tombstone도 같은 경계에서 삭제하며 outbox/log는 보존한다.
 7. 추가 승인에 따라 공지도 `publishedAt`의 서울 달력 날짜에서 `plusMonths(3)`인 00:00에 PUBLISHED/ARCHIVED 행, attachment link, announcement outbox를 물리 삭제한다. SCHEDULED는 제외하고 첨부 media는 ORPHANED로 넘긴다. notification log는 기존 14일 retention, R2 객체와 media 행은 기존 24시간 cleanup retry/lease가 물리 삭제한다.
+8. PM 리뷰에서 빈 주차 200, ACTIVE weekly PDF media access, weekly/announcement/poll 양방향 exclusivity, pending outbox 삭제 억제, 물리 삭제 후 재등록 dedupe, global ADMIN PUT transaction을 각각 RED→GREEN으로 보강했다.
+9. processor-vs-processor 테스트는 managed Entity snapshot에서 실제 중복 성공 `[true,true]`를 재현했다. 초기 조회를 immutable scalar projection으로 바꾸고 material→outbox row lock에서 최신 processed 상태를 읽어 exact-one으로 수정했다.
 
 ## 검증
 
 - #245 및 #242 PDF/media, #237 announcement outbox, #238 poll outbox, V18 cleanup focused regression: 82 tests, failures/errors/skipped 0.
-- 격리 PostgreSQL 17의 전용 DB/port에서 `PostgresFlywayMigrationTest`: 11 tests, failures/errors/skipped 0. V1→V20 clean과 V19→V20 upgrade를 검증했다.
-- 해당 11-test 실행 뒤 retention SQL을 추가했다. 최종 V20 재검증용 격리 컨테이너는 Docker overlay/containerd `input/output error` 때문에 생성되지 않아, 최종 migration의 실제 PostgreSQL 검증은 미완료로 남긴다.
+- 초기 격리 PostgreSQL 17 회귀에서 `PostgresFlywayMigrationTest` 11 tests, failures/errors/skipped 0을 확인했고, PM 보강 뒤 최종 exact V20 두 migration 경로를 다시 실행했다.
+- 최종 exact V20은 전용 `faithlog-245-pg-v20:55445` PostgreSQL 17에서 Flyway V1→V20 clean과 V19→V20 upgrade 2 tests, failures/errors/skipped 0으로 재검증했다. CHECK/composite FK/outbox unique/RLS/notification type/retention expression index/native due SQL도 실제 catalog에서 확인했다.
 - `build asciidoctor -x test -x jacocoTestReport`: 성공, bootJar와 REST Docs HTML 생성.
-- 전체 `test build asciidoctor`는 두 번 모두 `:test` 장시간 무출력/JVM instrumentation 정지로 완료되지 않아 전체 성공으로 주장하지 않는다.
+- 초기 전체 gate는 호스트 메모리 조건에서 완료되지 않았으며, PM 보강 뒤 저장소 설정을 바꾸지 않는 one-off Gradle init script로 다시 실행한다.
 - 실제 R2/FCM, 기존 shared PostgreSQL/Redis/app container mutation, push/PR/merge/deploy는 0이다. 검증 전용 PostgreSQL container만 생성 후 제거했다.
-- 최종 retention 및 Asia/Seoul 자정 cron 변경 뒤 weeklymaterial/announcement/media/Flyway contract 회귀: 175 tests, failures/errors/skipped 0. `build asciidoctor -x test -x jacocoTestReport`는 성공했다. 전체 `test build asciidoctor` 재시도는 관련 없는 `PasswordResetTransactionIntegrationTest`의 Spring context 생성 중 `OutOfMemoryError`로 완료되지 않았다.
+- retention 및 Asia/Seoul 자정 cron 변경 직후 weeklymaterial/announcement/media/Flyway contract 회귀 175 tests, failures/errors/skipped 0과 `build asciidoctor -x test -x jacocoTestReport` 성공을 확인했다. PM 보강 뒤 전체 gate 결과는 아래 최종 기록으로 대체한다.
+- PM finding 보강 integration은 pending suppression/rollback/history 재등록, processor-delete 및 processor-processor 경쟁, weekly-announcement/poll 동시 결속, weekly media access persistence, global ADMIN PUT/rollback을 실제 transaction으로 통과했다. 전체 gate는 저장소 Gradle 정책을 바꾸지 않고 `/private/tmp` one-off init script 조건으로 별도 기록한다.
+- 최종 focused gate는 75 tests / failures 0 / errors 0 / skipped 0이다. 전용 PostgreSQL 17 `integration245` DB에서 위 persistence/concurrency 10 tests / failures 0 / errors 0 / skipped 0을 다시 통과했다.
+- 최종 전체 gate는 저장소 Gradle 설정을 변경하지 않고 `/private/tmp/faithlog-245-test-memory.init.gradle`과 one-off daemon 옵션을 사용했다: daemon 256MiB, test worker 512MiB, maxParallelForks 1, forkEvery 25. `test build asciidoctor` 결과는 193 suites / 942 tests / failures 0 / errors 0 / skipped 17이고, 별도 `build asciidoctor -x test -x jacocoTestReport`는 `BUILD SUCCESSFUL in 23s`다.
 
 ## 프론트엔드 handoff
 

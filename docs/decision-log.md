@@ -1277,3 +1277,8 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 사용자가 추가 승인한 retention은 `weekStartDate.plusMonths(3)`의 Asia/Seoul 00:00이다. due row를 lock하고 ACTIVE PDF를 같은 transaction에서 ORPHANED로 전환한 뒤 `weekly_materials` 행을 물리 삭제하며, DELETED tombstone도 같은 경계에서 물리 삭제한다. 최초 등록 outbox와 notification log는 보존하고 실제 R2 object 삭제는 기존 cleanup retry/lease가 담당한다.
 - 공지 retention은 사용자가 승인한 `publishedAt`의 Asia/Seoul 달력 날짜 `plusMonths(3)` 00:00이다. PUBLISHED/ARCHIVED 공지는 due 시점에 row lock 아래 첨부 image/PDF를 ORPHANED로 전환하고 link, announcement outbox, announcement 행을 물리 삭제한다. 아직 게시되지 않은 SCHEDULED는 제외한다. notification log는 기존 14일 retention이 먼저 삭제하고, ORPHANED media DB 행과 R2 객체는 기존 cleanup retry/lease가 24시간 안전 유예 뒤 물리 삭제한다.
 - 2026-08-05 최신 `origin/develop` fetch 결과 V18까지였고 현재 branch ancestry V19 다음 V20의 버전 충돌은 없었다.
+- PM 독립 리뷰에 따라 유효한 월요일의 빈 주차는 nullable 두 슬롯을 가진 200 empty state로 확정했다. 목록은 ACTIVE 자료가 있는 주차만 반환한다.
+- ACTIVE 주간자료 PDF는 기존 private media access 정책에 consumer-owned port로 결속하고, attachment exclusivity도 weekly/announcement/poll 양방향 consumer-owned port로 검증한다.
+- 삭제 시 아직 pending인 최초 나눔지 outbox는 material→outbox 잠금 순서로 processed 처리해 늦은 발송을 억제하되 unique dedupe 이력은 보존한다. 물리 삭제 뒤 동일 과거 슬롯 재등록은 성공하지만 알림은 0이다.
+- processor 초기 조회는 managed Entity가 아닌 immutable scalar snapshot을 사용한다. 이후 material row와 outbox row를 차례로 잠가 동시 processor exact-one과 delete 경쟁의 단일 결과를 보장한다.
+- global ADMIN의 PUT command와 manager 응답 조립은 하나의 transaction이며, public GET의 ACTIVE membership 조건은 완화하지 않는다.
