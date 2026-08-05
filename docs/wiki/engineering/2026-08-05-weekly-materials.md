@@ -16,6 +16,7 @@
 3. replacement/delete의 이전 asset은 ORPHANED로 전환하고 cleanup이 삭제할 수 있도록 DELETED tombstone의 media FK를 비운다.
 4. 최초 PUT race는 campus row lock으로 직렬화하고 같은 transaction에서 unique outbox를 기록한다.
 5. outbox processor는 ACTIVE 멤버를 조회해 업로더를 제외하고, 실패 시 pending을 유지한다.
+6. `weekStartDate.plusMonths(3)`의 Asia/Seoul 00:00부터 scheduler가 row lock 아래 ACTIVE PDF를 ORPHANED로 전환하고 weekly-material 행을 물리 삭제한다. tombstone도 같은 경계에서 삭제하며 outbox/log는 보존한다.
 
 ## 검증
 

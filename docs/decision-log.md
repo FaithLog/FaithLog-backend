@@ -1274,4 +1274,5 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 동일 campus/week/type의 최초 나눔지 등록만 durable outbox를 생성한다. 교체·삭제·tombstone 재등록과 목자지침은 outbox를 만들지 않는다.
 - 사용자가 승인한 exact notification copy는 title `새 주일설교 나눔지가 등록되었어요`, body `{weekStartDate} 주차 주일설교 나눔지를 확인해 주세요`, eventType `WEEKLY_SHARING_SHEET_PUBLISHED`다.
 - 응답은 nullable 두 슬롯과 asset metadata만 노출하며 object key/public URL은 노출하지 않는다.
+- 사용자가 추가 승인한 retention은 `weekStartDate.plusMonths(3)`의 Asia/Seoul 00:00이다. due row를 lock하고 ACTIVE PDF를 같은 transaction에서 ORPHANED로 전환한 뒤 `weekly_materials` 행을 물리 삭제하며, DELETED tombstone도 같은 경계에서 물리 삭제한다. 최초 등록 outbox와 notification log는 보존하고 실제 R2 object 삭제는 기존 cleanup retry/lease가 담당한다.
 - 2026-08-05 최신 `origin/develop` fetch 결과 V18까지였고 현재 branch ancestry V19 다음 V20의 버전 충돌은 없었다.

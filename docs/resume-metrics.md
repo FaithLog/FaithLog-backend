@@ -1832,7 +1832,7 @@ Metric candidates:
 
 ## 2026-08-05 Issue #245 캠퍼스 주간자료
 
-- campus/week/type 독립 PDF 슬롯, soft-delete tombstone, stable media row locking, ORPHANED cleanup handoff, 최초 주일설교 나눔지 durable outbox를 TDD로 구현했다.
+- campus/week/type 독립 PDF 슬롯, API soft-delete tombstone, 3개월 뒤 DB 행 물리 삭제, stable media row locking, ORPHANED cleanup handoff, 최초 주일설교 나눔지 durable outbox를 TDD로 구현했다.
 - API transaction은 storage/network port를 호출하지 않으며 기존 private R2 PDF lifecycle과 30MiB 상한을 재사용한다.
 - #245 및 #242 PDF/media, #237 announcement outbox, #238 poll outbox, V18 cleanup focused regression은 82 tests / failures 0 / errors 0 / skipped 0이다.
 - 격리 PostgreSQL 17에서 V1→V20 clean과 V19→V20 upgrade를 포함한 11 tests / failures 0 / errors 0 / skipped 0을 확인했다. 전체 `test build asciidoctor`는 두 번 모두 `:test` 장시간 무출력/JVM instrumentation 정지로 완료되지 않아 전체 suite 성공으로 주장하지 않는다.
