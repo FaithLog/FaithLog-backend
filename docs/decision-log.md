@@ -1291,3 +1291,9 @@ This file records user-approved project decisions so Codex does not rely on gues
 - V20은 QA 적용 이력 때문에 변경하지 않고 V21을 추가한다. V21은 legacy 동일 week/type 다중 campus material/outbox가 있으면 SQLSTATE 23505로 fail closed하고, global unique와 singleton DB lock을 적용한다.
 - 응답 nullable field는 `shepherdGuide`, `sundaySharingSheet`, `saturdayLeaderSharingSheet`다. 기존 API path, private R2/PDF 30MiB, 7-day cache, 3-month retention, cleanup-owned object deletion은 유지한다.
 - 최초 global `SUNDAY_SHARING_SHEET`만 전체 캠퍼스 distinct ACTIVE 사용자에게 업로더 제외 알림을 보낸다. 다중 membership 사용자는 하나의 유효 ACTIVE campus context로 한 번만 받고, 나머지 두 자료와 교체·삭제·물리삭제 후 재등록은 알림 0이다. 승인된 copy/eventType은 변경하지 않는다.
+
+# 2026-08-05 #245 CI 메모리 경계
+
+- 953-test 전체 suite는 CI에서 `maxParallelForks=1`, `maxHeapSize=512m`, `forkEvery=25`로 실행한다.
+- V19에서 V20만 검증하는 migration test는 최신 migration을 암묵적으로 따라가지 않고 Flyway target 20을 명시한다.
+- 이 결정은 테스트 실행 안정화만을 위한 것이며 production runtime과 Flyway V21 동작을 변경하지 않는다.

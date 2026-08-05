@@ -414,7 +414,7 @@ class PostgresFlywayMigrationTest {
 		Integer v19Checksum = migrationChecksum(jdbcUrl, username, password, "19");
 
 		Flyway v20 = Flyway.configure().dataSource(jdbcUrl, username, password)
-			.locations("classpath:db/migration").load();
+			.locations("classpath:db/migration").target("20").load();
 		assertThat(v20.migrate().success).isTrue();
 		assertThat(v20.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("20"));
 		assertThat(migrationChecksum(jdbcUrl, username, password, "19")).isEqualTo(v19Checksum);

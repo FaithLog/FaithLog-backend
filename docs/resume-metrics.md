@@ -1849,3 +1849,9 @@ Metric candidates:
 - 후속 test-only RED는 전역 enum/응답/V21/repository/outbox/recipient 계약 3 tests가 모두 실패하는 것을 확인한 뒤 GREEN했다. 최종 follow-up focused gate는 weekly/media/Flyway 78 tests와 투표 미디어 회귀 3 tests가 failures/errors/skipped 0으로 통과했다.
 - 전용 `faithlog-245-v21-pg` PostgreSQL 17 컨테이너/55446 포트에서 V1→V21 clean, V20→V21 legacy `SHARING_SHEET` migration, material duplicate와 outbox-only duplicate SQLSTATE 23505 fail-closed, global CHECK/FK/RLS/index/outbox unique를 3 tests / failures 0 / errors 0 / skipped 0으로 실제 검증했다.
 - 후속 full `test build asciidoctor`는 저장소 설정을 바꾸지 않는 동일 one-off 조건(daemon 256MiB, test worker 512MiB, maxParallelForks 1, forkEvery 25)에서 953 tests / failures 0 / errors 0 / skipped 19, `BUILD SUCCESSFUL in 8m 8s`로 통과했다. shared QA PostgreSQL/Redis/R2/FCM/Docker lifecycle과 push/PR/merge/deploy 변경은 0이다.
+
+# 2026-08-05 #245 CI integration gate
+
+- GitHub Actions의 기본 병렬 test worker가 953-test 전체 suite에서 runner 메모리를 소진하는 RED를 재현했다.
+- Test task를 512 MiB, 단일 worker, 25-class 주기 fork로 고정하고 V19->V20 전용 migration test의 Flyway target을 20으로 명시했다.
+- production/API/schema 동작 변경 없이 저장소 설정만 사용한 `test build asciidoctor`가 953 tests / failures 0 / errors 0 / skipped 19, BUILD SUCCESSFUL in 9m 36s로 통과했다. 별도 PostgreSQL 17에서 PostgresFlywayMigrationTest 전체도 GREEN했다.

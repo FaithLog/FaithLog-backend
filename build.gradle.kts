@@ -89,6 +89,9 @@ dependencies {
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+	maxHeapSize = "512m"
+	maxParallelForks = 1
+	forkEvery = 25
 	outputs.dir(snippetsDir)
 	inputs.property("springSecurityRuntimeClasspathManifest", runtimeSpringSecurityManifest)
 	inputs.property("springSecurityTestRuntimeClasspathManifest", testRuntimeSpringSecurityManifest)
