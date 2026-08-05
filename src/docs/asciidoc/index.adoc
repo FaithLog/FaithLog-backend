@@ -3360,7 +3360,7 @@ include::{snippets}/announcement-create-success/response-fields.adoc[]
 
 === Delete Archived Announcement
 
-`DELETE /api/v1/admin/campuses/{campusId}/announcements/{announcementId}`는 request body가 없다. 삭제는 `ARCHIVED` 상태에서만 가능하며, 공지 row, image/PDF attachment link row, 삭제 대상 공지의 미처리 announcement outbox row를 같은 DB transaction에서 제거한다. 연결된 READY media asset은 `ORPHANED`로 전환하고 R2 object 삭제는 기존 media cleanup이 담당한다. 이미 생성된 `notification_logs` 발송 이력은 유지한다.
+`DELETE /api/v1/admin/campuses/{campusId}/announcements/{announcementId}`는 request body가 없다. 삭제는 `ARCHIVED` 상태에서만 가능하며, 공지 row, image/PDF attachment link row, 삭제 대상 공지의 announcement outbox row를 같은 DB transaction에서 제거한다. 연결된 READY media asset은 `ORPHANED`로 전환하고 R2 object 삭제는 기존 media cleanup이 담당한다. 이미 생성된 `notification_logs` 발송 이력은 유지한다.
 
 include::{snippets}/announcement-delete-success/http-request.adoc[]
 include::{snippets}/announcement-delete-success/path-parameters.adoc[]
