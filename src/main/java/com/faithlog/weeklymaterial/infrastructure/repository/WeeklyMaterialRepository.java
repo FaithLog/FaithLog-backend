@@ -18,6 +18,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface WeeklyMaterialRepository
 	extends JpaRepository<WeeklyMaterial, Long>, WeeklyMaterialRepositoryPort, WeeklyMaterialQueryPort {
+	@Override
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select material from WeeklyMaterial material where material.id = :id")
+	Optional<WeeklyMaterial> findByIdForUpdate(@Param("id") Long id);
 
 	@Override
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -29,6 +33,14 @@ public interface WeeklyMaterialRepository
 		""")
 	Optional<WeeklyMaterial> findSlotForUpdate(@Param("campusId") Long campusId,
 		@Param("weekStartDate") LocalDate weekStartDate, @Param("materialType") WeeklyMaterialType materialType);
+
+	@Override
+	@Query(value = """
+		select material.id from weekly_materials material
+		where material.week_start_date + INTERVAL '3 months' <= :today
+		order by material.week_start_date, material.id
+		""", nativeQuery = true)
+	List<Long> findDuePhysicalDeletionIds(@Param("today") LocalDate today, Pageable pageable);
 
 	@Override
 	@Query("select material.mediaAssetId from WeeklyMaterial material where material.mediaAssetId in :assetIds")

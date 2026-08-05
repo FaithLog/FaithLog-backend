@@ -37,6 +37,9 @@ CREATE INDEX idx_weekly_materials_active_slot
     ON weekly_materials (campus_id, week_start_date, material_type, id)
     WHERE status = 'ACTIVE';
 
+CREATE INDEX idx_weekly_materials_retention_due
+    ON weekly_materials ((week_start_date + INTERVAL '3 months'), id);
+
 CREATE TABLE weekly_material_notification_outbox (
     id BIGSERIAL PRIMARY KEY,
     campus_id BIGINT NOT NULL,
@@ -48,9 +51,6 @@ CREATE TABLE weekly_material_notification_outbox (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_weekly_material_outbox_slot
         UNIQUE (campus_id, week_start_date, material_type),
-    CONSTRAINT fk_weekly_material_outbox_material
-        FOREIGN KEY (campus_id, weekly_material_id)
-        REFERENCES weekly_materials (campus_id, id),
     CONSTRAINT fk_weekly_material_outbox_uploader
         FOREIGN KEY (uploader_id) REFERENCES users (id),
     CONSTRAINT ck_weekly_material_outbox_monday
