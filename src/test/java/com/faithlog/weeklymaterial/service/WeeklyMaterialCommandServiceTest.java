@@ -14,6 +14,7 @@ import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialAccessPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialAttachmentConflictPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRepositoryPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialSlotLockPort;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -28,6 +29,31 @@ class WeeklyMaterialCommandServiceTest {
 	private final WeeklyMaterialAttachmentConflictPort conflicts = mock(WeeklyMaterialAttachmentConflictPort.class);
 	private final WeeklyMaterialCommandService service =
 		new WeeklyMaterialCommandService(materials, assets, access, conflicts);
+
+	@Test
+	void firstRegistrationSerializesTheSlotAndRecordsPublicationInTheSameFlow() {
+		var slotLocks = mock(WeeklyMaterialSlotLockPort.class);
+		var publications = mock(WeeklyMaterialFirstPublication.class);
+		var command = new WeeklyMaterialCommandService(materials, assets, access, conflicts, slotLocks, publications);
+		LocalDate week = LocalDate.of(2026, 8, 3);
+		MediaAsset pdf = readyPdf(20L, 1L, 100L);
+		when(materials.findSlotForUpdate(1L, week, WeeklyMaterialType.SHARING_SHEET)).thenReturn(Optional.empty());
+		when(assets.findByCampusIdAndIdInForUpdate(1L, List.of(20L))).thenReturn(List.of(pdf));
+		when(conflicts.findAttachedAssetIds(List.of(20L))).thenReturn(List.of());
+		when(materials.findAttachedAssetIds(List.of(20L))).thenReturn(List.of());
+		when(materials.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+			WeeklyMaterial saved = invocation.getArgument(0);
+			ReflectionTestUtils.setField(saved, "id", 10L);
+			return saved;
+		});
+
+		WeeklyMaterial saved = command.put(1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L);
+
+		var order = inOrder(slotLocks, materials, publications);
+		order.verify(slotLocks).lockCampus(1L);
+		order.verify(materials).findSlotForUpdate(1L, week, WeeklyMaterialType.SHARING_SHEET);
+		order.verify(publications).recordFirstRegistration(saved, true);
+	}
 
 	@Test
 	void firstGuideRegistrationLocksReadyOwnedPdfAndSavesOneSlotWithoutNetwork() {
