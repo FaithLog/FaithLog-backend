@@ -15,6 +15,7 @@ import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialNotificationOutboxRepositoryPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipientPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRepositoryPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialOutboxSnapshot;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -37,7 +38,7 @@ class WeeklyMaterialNotificationOutboxProcessorTest {
 	void sendsApprovedSundaySermonSharingSheetCopyToActiveMembersExceptUploader() {
 		var outbox = WeeklyMaterialNotificationOutbox.create(
 			1L, 10L, LocalDate.of(2026, 8, 3), 100L);
-		when(outboxes.findById(1L)).thenReturn(Optional.of(outbox));
+		when(outboxes.findSnapshotById(1L)).thenReturn(Optional.of(snapshot(outbox)));
 		when(materials.findSlotForUpdate(1L, LocalDate.of(2026, 8, 3), WeeklyMaterialType.SHARING_SHEET))
 			.thenReturn(Optional.of(material(10L)));
 		when(outboxes.findByIdForUpdate(1L)).thenReturn(Optional.of(outbox));
@@ -59,7 +60,7 @@ class WeeklyMaterialNotificationOutboxProcessorTest {
 	void leavesOutboxPendingWhenNotificationRequestFailsForRetry() {
 		var outbox = WeeklyMaterialNotificationOutbox.create(
 			1L, 10L, LocalDate.of(2026, 8, 3), 100L);
-		when(outboxes.findById(1L)).thenReturn(Optional.of(outbox));
+		when(outboxes.findSnapshotById(1L)).thenReturn(Optional.of(snapshot(outbox)));
 		when(materials.findSlotForUpdate(1L, LocalDate.of(2026, 8, 3), WeeklyMaterialType.SHARING_SHEET))
 			.thenReturn(Optional.of(material(10L)));
 		when(outboxes.findByIdForUpdate(1L)).thenReturn(Optional.of(outbox));
@@ -76,7 +77,7 @@ class WeeklyMaterialNotificationOutboxProcessorTest {
 		var outbox = WeeklyMaterialNotificationOutbox.create(
 			1L, 10L, LocalDate.of(2026, 8, 3), 100L);
 		outbox.markProcessed(clock.instant());
-		when(outboxes.findById(1L)).thenReturn(Optional.of(outbox));
+		when(outboxes.findSnapshotById(1L)).thenReturn(Optional.of(snapshot(outbox)));
 		when(materials.findSlotForUpdate(1L, LocalDate.of(2026, 8, 3), WeeklyMaterialType.SHARING_SHEET))
 			.thenReturn(Optional.of(material(10L)));
 		when(outboxes.findByIdForUpdate(1L)).thenReturn(Optional.of(outbox));
@@ -89,7 +90,7 @@ class WeeklyMaterialNotificationOutboxProcessorTest {
 	void suppressesPendingOutboxWhenMaterialWasDeletedBeforeProcessing() {
 		var outbox = WeeklyMaterialNotificationOutbox.create(
 			1L, 10L, LocalDate.of(2026, 8, 3), 100L);
-		when(outboxes.findById(1L)).thenReturn(Optional.of(outbox));
+		when(outboxes.findSnapshotById(1L)).thenReturn(Optional.of(snapshot(outbox)));
 		when(materials.findSlotForUpdate(1L, LocalDate.of(2026, 8, 3), WeeklyMaterialType.SHARING_SHEET))
 			.thenReturn(Optional.empty());
 		when(outboxes.findByIdForUpdate(1L)).thenReturn(Optional.of(outbox));
@@ -105,5 +106,10 @@ class WeeklyMaterialNotificationOutboxProcessorTest {
 			WeeklyMaterialType.SHARING_SHEET, 20L, 100L);
 		org.springframework.test.util.ReflectionTestUtils.setField(material, "id", id);
 		return material;
+	}
+
+	private static WeeklyMaterialOutboxSnapshot snapshot(WeeklyMaterialNotificationOutbox outbox) {
+		return new WeeklyMaterialOutboxSnapshot(1L, outbox.campusId(), outbox.weekStartDate(),
+			outbox.materialType(), outbox.processedAt());
 	}
 }

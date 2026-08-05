@@ -16,6 +16,15 @@ import org.springframework.data.repository.query.Param;
 public interface WeeklyMaterialNotificationOutboxRepository
 	extends JpaRepository<WeeklyMaterialNotificationOutbox, Long>, WeeklyMaterialNotificationOutboxRepositoryPort {
 	@Override
+	@Query("""
+		select new com.faithlog.weeklymaterial.service.port.WeeklyMaterialOutboxSnapshot(
+			outbox.id, outbox.campusId, outbox.weekStartDate, outbox.materialType, outbox.processedAt)
+		from WeeklyMaterialNotificationOutbox outbox where outbox.id = :id
+		""")
+	java.util.Optional<com.faithlog.weeklymaterial.service.port.WeeklyMaterialOutboxSnapshot> findSnapshotById(
+		@Param("id") Long id);
+
+	@Override
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select outbox from WeeklyMaterialNotificationOutbox outbox where outbox.id = :id")
 	Optional<WeeklyMaterialNotificationOutbox> findByIdForUpdate(@Param("id") Long id);

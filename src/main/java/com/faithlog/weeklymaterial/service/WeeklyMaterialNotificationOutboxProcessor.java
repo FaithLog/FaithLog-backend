@@ -33,7 +33,7 @@ public class WeeklyMaterialNotificationOutboxProcessor {
 
 	@Transactional
 	public boolean process(Long outboxId) {
-		var snapshot = outboxes.findById(outboxId).orElse(null);
+		var snapshot = outboxes.findSnapshotById(outboxId).orElse(null);
 		if (snapshot == null || snapshot.isProcessed()) return false;
 		var material = materials.findSlotForUpdate(
 			snapshot.campusId(), snapshot.weekStartDate(), snapshot.materialType()).orElse(null);

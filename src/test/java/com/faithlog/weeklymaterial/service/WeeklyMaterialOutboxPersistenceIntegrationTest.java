@@ -19,6 +19,7 @@ import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.infrastructure.repository.WeeklyMaterialNotificationOutboxRepository;
 import com.faithlog.weeklymaterial.infrastructure.repository.WeeklyMaterialRepository;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialNotificationOutboxRepositoryPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialOutboxSnapshot;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipientPort;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -245,10 +246,8 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 		}
 
 		@Override
-		public java.util.Optional<WeeklyMaterialNotificationOutbox> findById(Long id) {
-			@SuppressWarnings("unchecked")
-			var crud = (org.springframework.data.repository.CrudRepository<WeeklyMaterialNotificationOutbox, Long>) delegate;
-			var result = crud.findById(id);
+		public java.util.Optional<WeeklyMaterialOutboxSnapshot> findSnapshotById(Long id) {
+			var result = delegate.findSnapshotById(id);
 			CountDownLatch current = barrier;
 			if (id.equals(barrierId) && current != null) {
 				current.countDown();

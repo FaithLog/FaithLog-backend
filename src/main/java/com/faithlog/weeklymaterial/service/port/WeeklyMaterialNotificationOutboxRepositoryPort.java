@@ -9,7 +9,7 @@ import org.springframework.data.domain.Pageable;
 
 public interface WeeklyMaterialNotificationOutboxRepositoryPort {
 	WeeklyMaterialNotificationOutbox save(WeeklyMaterialNotificationOutbox outbox);
-	Optional<WeeklyMaterialNotificationOutbox> findById(Long id);
+	Optional<WeeklyMaterialOutboxSnapshot> findSnapshotById(Long id);
 	Optional<WeeklyMaterialNotificationOutbox> findByIdForUpdate(Long id);
 	Optional<WeeklyMaterialNotificationOutbox> findSlotForUpdate(
 		Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType);
