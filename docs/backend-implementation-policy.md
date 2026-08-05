@@ -628,3 +628,10 @@ Keep these out of MVP scope:
 - PDF finalize requires exact reserved size/content type/SHA-256, `%PDF-` signature, and PDFBox structural decode. Encrypted documents, embedded files, JavaScript, automatic actions, launch actions, and rich media fail closed. MVP does not claim malware scanning.
 - READY PDF assets store one private final object without image variants. Access returns a short-lived attachment download URL, safe file name, content type, byte size, and immutable SHA-256; object keys and provider details remain private.
 - `announcement_documents` and `poll_documents` use ordered same-campus composite foreign keys and one-attachment ownership. Existing attached assets may be retained or reordered by an authorized joint editor; newly introduced assets still require requester ownership. Removed documents become ORPHANED and use the existing cleanup retry/lease path.
+
+## Weekly Materials
+
+- Weekly materials use independent `SHEPHERD_GUIDE` and `SHARING_SHEET` slots per campus and Asia/Seoul Monday. Managers write/delete; ACTIVE members read.
+- Each slot attaches one requester-owned same-campus READY PDF. Replacement and deletion mark only the previous PDF ORPHANED in the DB transaction; storage deletion remains cleanup-owned.
+- Reads return nullable guide/sheet metadata without object keys or public URLs. Clients use the existing private media access API and `assetId + sha256` seven-day cache.
+- Only the first `SHARING_SHEET` registration creates an outbox. The approved copy is `새 주일설교 나눔지가 등록되었어요` / `{weekStartDate} 주차 주일설교 나눔지를 확인해 주세요`, event type `WEEKLY_SHARING_SHEET_PUBLISHED`. Replacements, deletes, re-registration, and guide mutations send zero notifications.

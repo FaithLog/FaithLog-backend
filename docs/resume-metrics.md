@@ -1829,3 +1829,9 @@ Metric candidates:
 - 검증 보강: focused unit tests는 삭제 순서, row lock 조회, status conflict no-mutation, missing 404, stable attachment lock batch, READY 검증을 다룬다. 실제 Spring/JPA integration test는 tenant mismatch, FK/outbox 순서, 다른 공지/캠퍼스 media 보존, already-deleted 404, outbox 실패 시 media/link/announcement rollback을 확인한다.
 - REST Docs: DELETE success 204, not found 404, status conflict 409, forbidden 403 snippets와 `src/docs/asciidoc/index.adoc` 섹션을 추가했다.
 - 최종 `./gradlew --no-daemon test build asciidoctor`는 174 suites / 873 tests / failures 0 / errors 0 / skipped 16으로 통과했고 bootJar, JaCoCo, REST Docs HTML을 생성했다. 첫 `test build asciidoctor` 기본 실행은 장시간 무출력으로 중단했고, 이후 `--info` 재실행은 Gradle test output store가 임시 볼륨을 채워 환경 오류로 중단했으므로 성능·안정성 수치로 사용하지 않는다. 실제 R2 network, Docker QA, 운영 cleanup 24h 실행, push/PR/deploy는 수행하지 않았다.
+
+## 2026-08-05 Issue #245 캠퍼스 주간자료
+
+- campus/week/type 독립 PDF 슬롯, soft-delete tombstone, stable media row locking, ORPHANED cleanup handoff, 최초 주일설교 나눔지 durable outbox를 TDD로 구현했다.
+- API transaction은 storage/network port를 호출하지 않으며 기존 private R2 PDF lifecycle과 30MiB 상한을 재사용한다.
+- 테스트 수와 PostgreSQL clean/upgrade 결과는 최종 검증 후 확정한다. 실제 R2/FCM, shared Docker/PG/Redis, push/PR/merge/deploy 수치는 0으로 유지한다.

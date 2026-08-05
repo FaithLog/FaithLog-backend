@@ -1266,3 +1266,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 삭제 대상 공지의 `announcement_notification_outbox` row는 announcement row 삭제 전에 제거한다. 이미 생성된 `notification_logs` 이력은 유지한다.
 - API transaction에서는 R2 또는 외부 network/storage 호출을 하지 않는다. 실제 object 삭제는 기존 24h media cleanup/retry/lease 경로가 담당한다.
 - 어떤 단계에서든 실패하면 전체 DB transaction을 rollback하며, 다른 공지, 다른 캠퍼스, poll media는 변경하지 않는다. 새 ErrorCode, Flyway, dependency, push/PR/deploy 변경은 없다.
+
+## 2026-08-05 - Issue #245 캠퍼스 주간자료와 주일설교 나눔지 알림
+
+- 주간자료는 `SHEPHERD_GUIDE`, `SHARING_SHEET` exact enum이며 campus/Asia-Seoul 월요일/type별 독립 슬롯이다. write/delete는 캠퍼스 관리자, read는 ACTIVE 멤버에게만 허용한다.
+- 기존 private PDF media lifecycle과 30MiB 상한을 재사용한다. 교체·삭제된 PDF는 같은 transaction에서 ORPHANED로 전환하고 API transaction의 R2/network 호출은 0이다.
+- 동일 campus/week/type의 최초 나눔지 등록만 durable outbox를 생성한다. 교체·삭제·tombstone 재등록과 목자지침은 outbox를 만들지 않는다.
+- 사용자가 승인한 exact notification copy는 title `새 주일설교 나눔지가 등록되었어요`, body `{weekStartDate} 주차 주일설교 나눔지를 확인해 주세요`, eventType `WEEKLY_SHARING_SHEET_PUBLISHED`다.
+- 응답은 nullable 두 슬롯과 asset metadata만 노출하며 object key/public URL은 노출하지 않는다.
+- 2026-08-05 최신 `origin/develop` fetch 결과 V18까지였고 현재 branch ancestry V19 다음 V20의 버전 충돌은 없었다.
