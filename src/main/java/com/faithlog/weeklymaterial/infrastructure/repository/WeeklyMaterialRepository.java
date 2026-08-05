@@ -9,6 +9,7 @@ import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -53,6 +54,16 @@ public interface WeeklyMaterialRepository
 		""")
 	List<Long> findAttachedAssetIdsExcludingMaterialId(
 		@Param("assetIds") List<Long> assetIds, @Param("materialId") Long materialId);
+
+	@Override
+	@Query("""
+		select material.mediaAssetId from WeeklyMaterial material
+		where material.campusId = :campusId
+		  and material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
+		  and material.mediaAssetId in :assetIds
+		""")
+	Set<Long> findActiveAttachedAssetIds(@Param("campusId") Long campusId,
+		@Param("assetIds") List<Long> assetIds);
 
 	@Override
 	@Query("""

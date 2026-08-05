@@ -4,6 +4,7 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.service.port.AnnouncementMediaAccessPort;
 import com.faithlog.media.service.port.PollMediaAccessPort;
+import com.faithlog.media.service.port.WeeklyMaterialMediaAccessPort;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -14,13 +15,16 @@ public class MediaAssetAccessPolicy {
 
 	private final AnnouncementMediaAccessPort announcements;
 	private final PollMediaAccessPort polls;
+	private final WeeklyMaterialMediaAccessPort weeklyMaterials;
 
 	public MediaAssetAccessPolicy(
 		AnnouncementMediaAccessPort announcements,
-		PollMediaAccessPort polls
+		PollMediaAccessPort polls,
+		WeeklyMaterialMediaAccessPort weeklyMaterials
 	) {
 		this.announcements = announcements;
 		this.polls = polls;
+		this.weeklyMaterials = weeklyMaterials;
 	}
 
 	public void requireUploadPermission(Long campusId, Long requesterId) {
@@ -36,6 +40,7 @@ public class MediaAssetAccessPolicy {
 		announcements.requireActiveMember(campusId, requesterId);
 		HashSet<Long> readable = new HashSet<>(announcements.findPublishedAttachedAssetIds(campusId, assetIds));
 		readable.addAll(polls.readableAttachedAssetIds(campusId, requesterId, assetIds));
+		readable.addAll(weeklyMaterials.findActiveAttachedAssetIds(campusId, assetIds));
 		return Set.copyOf(readable);
 	}
 

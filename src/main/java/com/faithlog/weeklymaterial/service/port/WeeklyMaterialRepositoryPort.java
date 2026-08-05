@@ -5,6 +5,7 @@ import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.domain.Pageable;
 
 public interface WeeklyMaterialRepositoryPort {
@@ -14,5 +15,6 @@ public interface WeeklyMaterialRepositoryPort {
 	List<Long> findDuePhysicalDeletionIds(LocalDate today, Pageable pageable);
 	List<Long> findAttachedAssetIds(List<Long> assetIds);
 	List<Long> findAttachedAssetIdsExcludingMaterialId(List<Long> assetIds, Long materialId);
+	Set<Long> findActiveAttachedAssetIds(Long campusId, List<Long> assetIds);
 	void delete(WeeklyMaterial material);
 }
