@@ -45,6 +45,9 @@ public class CreateMealPollRequest {
 	@JsonProperty
 	private List<@Positive Long> imageAssetIds;
 
+	@JsonProperty
+	private List<@Positive Long> documentAssetIds;
+
 	private final Set<String> unknownFields = new LinkedHashSet<>();
 
 	public CreateMealPollRequest() {
@@ -68,7 +71,8 @@ public class CreateMealPollRequest {
 				option.content(), option.sortOrder(), option.unknownFields()
 			)).toList(),
 			Set.copyOf(unknownFields),
-			imageAssetIds == null ? List.of() : imageAssetIds
+			imageAssetIds == null ? List.of() : imageAssetIds,
+			documentAssetIds == null ? List.of() : documentAssetIds
 		);
 	}
 }

@@ -9,6 +9,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-08-05 - Issue #244 보관 공지 복구 API
+
+- `POST /api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore`를 추가해 영구 삭제 전 ARCHIVED 공지를 `PUBLISHED`로 복구할 수 있게 했다. 성공 응답은 기존 공지 상세와 같은 전체 `AnnouncementResponse`이며 Controller가 Entity를 직접 반환하지 않는 기존 계층 계약을 유지했다.
+- 시간 계약은 injectable `Clock`으로 고정했다. 이미 게시된 뒤 보관된 공지는 원래 `publishedAt`을 exact 보존하고, 게시 전 예약 상태에서 보관되어 `publishedAt=null`인 공지는 restore 시각을 게시 시각으로 기록한다.
+- 복구는 알림 재발송 기능이 아니다. focused 테스트에서 announcement outbox 생성/삭제, FCM notification log 생성, image/PDF attachment ORPHANED 전환, media campus/uploader/READY 상태 변경이 0건임을 검증했다. R2/network 호출 경로는 restore use case에 연결하지 않았다.
+- 동시성은 권한 검증 뒤 announcement row `PESSIMISTIC_WRITE` lock으로 직렬화한다. 실행형 통합 테스트에서 restore가 row lock을 보유한 동안 delete가 완료되지 못하고, restore commit 뒤 delete가 최신 `PUBLISHED` 상태를 읽어 `409 ANNOUNCEMENT_STATUS_CONFLICT`로 끝나며 attachment가 고아화되지 않는 경계를 확인했다.
+- TDD RED는 production 변경 전 focused announcement suite `38 tests / 15 failures`로 확인했고, 최소 GREEN 뒤 같은 focused suite `38 tests / failures 0 / errors 0`을 통과했다. 최종 repository-wide `./gradlew --no-daemon test build asciidoctor`는 `887 tests / failures 0 / errors 0 / skipped 16`과 REST Docs HTML 생성을 확인했다.
+
 ## 2026-08-03 - Issue #236 작년도 기록 돌아보기
 
 - 사용자·연도별 immutable 회고 snapshot과 다중 기기 멱등 표시 완료 상태를 구현했다. 시간 경계는 injectable `Clock`과 `Asia/Seoul`로 통일하고 Jan 1, Jan 14/15, 늦은 첫 실행, 윤년을 테스트했다.
@@ -1806,3 +1814,44 @@ Metric candidates:
 - 실행형 RED는 앞선 비활성 계좌 투표가 실패할 때 뒤의 정상 투표까지 마감되지 않는 문제를 재현했다. GREEN은 실패 투표를 rollback해 `OPEN`으로 보존하면서 뒤의 정상 투표를 `CLOSED`로 처리한다.
 - 이 변경은 장애 격리 정확성 개선이며 성능 수치나 처리량 개선 주장으로 사용하지 않는다.
 - 최종 전체 테스트는 844 tests / failures 0 / errors 0 / skipped 15로 통과했다. 수정 HEAD Docker 이미지는 기존 PostgreSQL·Redis를 유지한 채 app만 교체했고 API/Actuator health는 모두 `UP`이었다. QA DB의 정상 투표 응답 177,001건이 즉시 정산되지 않도록 로컬 runtime에서 scheduler는 비활성화했다.
+
+## 2026-08-04 Issue #242 공지·투표 PDF 첨부
+
+- 기존 private R2 업로드 예약/완료/access URL/cleanup 계층을 재사용해 공지와 투표의 ordered PDF 첨부를 호환 확장한다. PDF 상한은 사용자 승인 30MiB이며 이미지 5MiB 계약은 유지한다.
+- PDFBox parser로 암호화, embedded file, JavaScript 및 자동 action을 거부하고, 원본 파일명은 object key나 로그가 아닌 attachment 다운로드 표시값으로만 사용한다. 외부 malware scanner 성능이나 탐지율은 주장하지 않는다.
+- 최종 `./gradlew test build asciidoctor --no-daemon`은 862 tests / failures 0 / errors 0 / skipped 16으로 통과했고 bootJar, JaCoCo, REST Docs HTML을 생성했다.
+- 실제 R2 네트워크, 모바일 7일 cache, 비용 절감, 다운로드 성능 수치는 검증 전까지 성과로 기록하지 않는다. Docker daemon을 사용할 수 없어 V19 실제 PostgreSQL clean/upgrade 및 app 배포도 아직 완료로 주장하지 않는다.
+
+## 2026-08-05 Issue #243 보관된 공지 영구 삭제
+
+- TDD RED: PM test-only 초안을 먼저 커밋했고, 최초 focused 실행은 `deleteAnnouncement`, attachment `orphanAll`, outbox/announcement delete port 부재로 `compileTestJava` 12 errors를 재현했다.
+- 구현 범위: `DELETE /api/v1/admin/campuses/{campusId}/announcements/{announcementId}`를 추가하고, `ARCHIVED` 전용 삭제, campus manager 권한, 204/no body, 404/409 기존 ErrorCode 재사용, image/PDF link 삭제, READY media ORPHANED 전환, target announcement outbox 선삭제, notification_logs 보존을 고정했다.
+- 검증 보강: focused unit tests는 삭제 순서, row lock 조회, status conflict no-mutation, missing 404, stable attachment lock batch, READY 검증을 다룬다. 실제 Spring/JPA integration test는 tenant mismatch, FK/outbox 순서, 다른 공지/캠퍼스 media 보존, already-deleted 404, outbox 실패 시 media/link/announcement rollback을 확인한다.
+- REST Docs: DELETE success 204, not found 404, status conflict 409, forbidden 403 snippets와 `src/docs/asciidoc/index.adoc` 섹션을 추가했다.
+- 최종 `./gradlew --no-daemon test build asciidoctor`는 174 suites / 873 tests / failures 0 / errors 0 / skipped 16으로 통과했고 bootJar, JaCoCo, REST Docs HTML을 생성했다. 첫 `test build asciidoctor` 기본 실행은 장시간 무출력으로 중단했고, 이후 `--info` 재실행은 Gradle test output store가 임시 볼륨을 채워 환경 오류로 중단했으므로 성능·안정성 수치로 사용하지 않는다. 실제 R2 network, Docker QA, 운영 cleanup 24h 실행, push/PR/deploy는 수행하지 않았다.
+
+## 2026-08-05 Issue #245 캠퍼스 주간자료
+
+- campus/week/type 독립 PDF 슬롯, API soft-delete tombstone, 3개월 뒤 DB 행 물리 삭제, stable media row locking, ORPHANED cleanup handoff, 최초 주일설교 나눔지 durable outbox를 TDD로 구현했다.
+- 공지는 `publishedAt + 3개월` 서울 자정에 PUBLISHED/ARCHIVED 행, attachment link, announcement outbox를 물리 삭제하고 media는 ORPHANED로 넘기는 retry-safe scheduler를 추가했다. notification log는 기존 14일 retention, R2 객체와 media 행은 기존 24시간 cleanup retry/lease가 삭제한다.
+- API transaction은 storage/network port를 호출하지 않으며 기존 private R2 PDF lifecycle과 30MiB 상한을 재사용한다.
+- #245 및 #242 PDF/media, #237 announcement outbox, #238 poll outbox, V18 cleanup focused regression은 82 tests / failures 0 / errors 0 / skipped 0이다.
+- 초기 격리 PostgreSQL 17 회귀는 11 tests / failures 0 / errors 0 / skipped 0이었고, PM 보강 뒤 최종 exact V20 Flyway clean/upgrade와 catalog 경계를 다시 확인했다.
+- 실제 R2/FCM, 기존 shared PostgreSQL/Redis/app container mutation, push/PR/merge/deploy 수치는 0이다. 검증 전용 PostgreSQL container만 생성 후 제거했다.
+- retention 및 Asia/Seoul 자정 cron 변경 직후 weeklymaterial/announcement/media/Flyway contract 회귀 175 tests / failures 0 / errors 0 / skipped 0과 `build asciidoctor -x test -x jacocoTestReport` 성공을 확인했다. PM 보강 뒤 전체 gate는 저장소 설정을 바꾸지 않는 one-off 메모리 조건으로 다시 실행한다.
+- PM 리뷰 7건은 각각 test-only RED로 재현했다. 특히 managed outbox Entity snapshot 경쟁은 실제 두 processor가 `[true, true]`로 중복 성공하는 RED를 만들었고 immutable scalar snapshot GREEN에서 `[true, false]` exact-one으로 고정했다.
+- H2 실제 transaction tests는 pending suppression, 실패 rollback, physical delete 후 history-preserving 재등록, processor/retention 직렬화, processor/processor one-winner, weekly-vs-announcement/poll media attach one-winner, ACTIVE/same-campus media access, global ADMIN no-membership PUT 및 response failure rollback을 검증했다.
+- 최종 V20 SQL은 전용 `faithlog-245-pg-v20` PostgreSQL 17 컨테이너/55445 포트에서 Flyway V1→V20 clean과 V19→V20 upgrade 2 tests, failures/errors/skipped 0으로 재검증했다. catalog에서 Monday/type/status/status-media CHECK, tenant composite FK, outbox slot unique/type CHECK, RLS, notification type, weekly/announcement retention expression index와 native due SQL을 확인했다. shared PostgreSQL 접근·변경은 0이다.
+- 동일 전용 컨테이너의 별도 `integration245` DB에서 #245 persistence/concurrency 10 tests / failures 0 / errors 0 / skipped 0을 PostgreSQL 17.10 JDBC 연결로 통과했다.
+- 최종 full `test build asciidoctor`는 저장소 설정을 바꾸지 않는 one-off 조건(daemon 256MiB, test 512MiB, parallel 1, forkEvery 25)에서 193 suites / 942 tests / failures 0 / errors 0 / skipped 17로 통과했다. 별도 artifact gate `build asciidoctor -x test -x jacocoTestReport`는 `BUILD SUCCESSFUL in 23s`였다.
+- 후속 승인에서는 campus별 2종 슬롯을 전역 3종 슬롯으로 확장하고 content scope와 media tenant를 분리했다. V21은 기존 `SHARING_SHEET`/outbox를 `SUNDAY_SHARING_SHEET`로 이관하며 legacy global duplicate를 SQLSTATE 23505로 fail closed한다.
+- 서로 다른 campus 관리자 write race는 DB singleton lock으로 직렬화하고, cross-media-tenant private access는 ACTIVE weekly attachment로만 제한했다. 전체 ACTIVE membership recipient는 distinct user와 deterministic campus context로 축약해 중복 알림과 publisher-campus 강제를 막았다.
+- 후속 test-only RED는 전역 enum/응답/V21/repository/outbox/recipient 계약 3 tests가 모두 실패하는 것을 확인한 뒤 GREEN했다. 최종 follow-up focused gate는 weekly/media/Flyway 78 tests와 투표 미디어 회귀 3 tests가 failures/errors/skipped 0으로 통과했다.
+- 전용 `faithlog-245-v21-pg` PostgreSQL 17 컨테이너/55446 포트에서 V1→V21 clean, V20→V21 legacy `SHARING_SHEET` migration, material duplicate와 outbox-only duplicate SQLSTATE 23505 fail-closed, global CHECK/FK/RLS/index/outbox unique를 3 tests / failures 0 / errors 0 / skipped 0으로 실제 검증했다.
+- 후속 full `test build asciidoctor`는 저장소 설정을 바꾸지 않는 동일 one-off 조건(daemon 256MiB, test worker 512MiB, maxParallelForks 1, forkEvery 25)에서 953 tests / failures 0 / errors 0 / skipped 19, `BUILD SUCCESSFUL in 8m 8s`로 통과했다. shared QA PostgreSQL/Redis/R2/FCM/Docker lifecycle과 push/PR/merge/deploy 변경은 0이다.
+
+# 2026-08-05 #245 CI integration gate
+
+- GitHub Actions의 기본 병렬 test worker가 953-test 전체 suite에서 runner 메모리를 소진하는 RED를 재현했다.
+- Test task를 512 MiB, 단일 worker, 25-class 주기 fork로 고정하고 V19->V20 전용 migration test의 Flyway target을 20으로 명시했다.
+- production/API/schema 동작 변경 없이 저장소 설정만 사용한 `test build asciidoctor`가 953 tests / failures 0 / errors 0 / skipped 19, BUILD SUCCESSFUL in 9m 36s로 통과했다. 별도 PostgreSQL 17에서 PostgresFlywayMigrationTest 전체도 GREEN했다.

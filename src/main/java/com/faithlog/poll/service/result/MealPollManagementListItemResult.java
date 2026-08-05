@@ -11,6 +11,8 @@ public record MealPollManagementListItemResult(
 	boolean hasNotice,
 	boolean hasImages,
 	Long thumbnailAssetId,
+	boolean hasAttachments,
+	int attachmentCount,
 	PollStatus status,
 	Instant startsAt,
 	Instant endsAt,
@@ -22,9 +24,16 @@ public record MealPollManagementListItemResult(
 	}
 
 	public static MealPollManagementListItemResult of(Poll poll, boolean charged, java.util.List<Long> imageAssetIds) {
+		return of(poll, charged, imageAssetIds, java.util.List.of());
+	}
+
+	public static MealPollManagementListItemResult of(Poll poll, boolean charged,
+		java.util.List<Long> imageAssetIds, java.util.List<Long> documentAssetIds) {
 		return new MealPollManagementListItemResult(
 			poll.id(), poll.title(), poll.hasNotice(), !imageAssetIds.isEmpty(),
-			imageAssetIds.isEmpty() ? null : imageAssetIds.getFirst(), poll.status(), poll.startsAt(), poll.endsAt(),
+			imageAssetIds.isEmpty() ? null : imageAssetIds.getFirst(),
+			!imageAssetIds.isEmpty() || !documentAssetIds.isEmpty(), imageAssetIds.size() + documentAssetIds.size(),
+			poll.status(), poll.startsAt(), poll.endsAt(),
 			charged ? MealPollSettlementStatus.CHARGED : MealPollSettlementStatus.NOT_CHARGED
 		);
 	}

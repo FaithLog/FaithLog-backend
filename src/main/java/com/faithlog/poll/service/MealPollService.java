@@ -34,6 +34,7 @@ public class MealPollService {
 	private final Clock clock;
 	private final PollPublishedEventPort publishedEvents;
 	private final PollImageAttachmentService imageAttachmentService;
+	private final PollDocumentAttachmentService documentAttachmentService;
 
 	@Autowired
 	public MealPollService(
@@ -44,7 +45,8 @@ public class MealPollService {
 		PollResultAssembler pollResultAssembler,
 		Clock clock,
 		PollPublishedEventPort publishedEvents,
-		PollImageAttachmentService imageAttachmentService
+		PollImageAttachmentService imageAttachmentService,
+		PollDocumentAttachmentService documentAttachmentService
 	) {
 		this.mealDutyAccessService = mealDutyAccessService;
 		this.pollRepository = pollRepository;
@@ -54,6 +56,7 @@ public class MealPollService {
 		this.clock = clock;
 		this.publishedEvents = publishedEvents;
 		this.imageAttachmentService = imageAttachmentService;
+		this.documentAttachmentService = documentAttachmentService;
 	}
 
 	public MealPollService(
@@ -66,7 +69,7 @@ public class MealPollService {
 		PollPublishedEventPort publishedEvents
 	) {
 		this(mealDutyAccessService, pollRepository, pollLookupSupport, pollOptionRepository,
-			pollResultAssembler, clock, publishedEvents, null);
+			pollResultAssembler, clock, publishedEvents, null, null);
 	}
 
 	@Transactional
@@ -94,6 +97,10 @@ public class MealPollService {
 			.toList());
 		if (imageAttachmentService != null) {
 			imageAttachmentService.replace(poll.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
+		}
+		if (documentAttachmentService != null) {
+			documentAttachmentService.replace(
+				poll.id(), command.campusId(), command.requesterId(), command.documentAssetIds());
 		}
 		return pollResultAssembler.toResult(poll);
 	}

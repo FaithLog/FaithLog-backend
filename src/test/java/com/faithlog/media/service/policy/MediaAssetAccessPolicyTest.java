@@ -9,6 +9,7 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.service.port.AnnouncementMediaAccessPort;
 import com.faithlog.media.service.port.PollMediaAccessPort;
+import com.faithlog.media.service.port.WeeklyMaterialMediaAccessPort;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,11 +23,12 @@ class MediaAssetAccessPolicyTest {
 
 	@Mock private AnnouncementMediaAccessPort announcements;
 	@Mock private PollMediaAccessPort polls;
+	@Mock private WeeklyMaterialMediaAccessPort weeklyMaterials;
 	private MediaAssetAccessPolicy policy;
 
 	@BeforeEach
 	void setUp() {
-		policy = new MediaAssetAccessPolicy(announcements, polls);
+		policy = new MediaAssetAccessPolicy(announcements, polls, weeklyMaterials);
 	}
 
 	@Test
@@ -38,16 +40,18 @@ class MediaAssetAccessPolicyTest {
 	}
 
 	@Test
-	void active_member_reads_union_of_published_announcement_and_visible_poll_assets() {
+	void active_member_reads_union_of_published_announcement_visible_poll_and_active_weekly_assets() {
 		when(announcements.canManage(7L, 12L)).thenReturn(false);
-		when(announcements.findPublishedAttachedAssetIds(7L, List.of(31L, 32L)))
+		when(announcements.findPublishedAttachedAssetIds(7L, List.of(31L, 32L, 33L)))
 			.thenReturn(Set.of(31L));
-		when(polls.readableAttachedAssetIds(7L, 12L, List.of(31L, 32L)))
+		when(polls.readableAttachedAssetIds(7L, 12L, List.of(31L, 32L, 33L)))
 			.thenReturn(Set.of(32L));
+		when(weeklyMaterials.findActiveAttachedAssetIds(7L, List.of(31L, 32L, 33L)))
+			.thenReturn(Set.of(33L));
 
-		assertThat(policy.readableAssetIds(7L, 12L, List.of(31L, 32L)))
-			.containsExactlyInAnyOrder(31L, 32L);
-		verify(announcements).requireActiveMember(7L, 12L);
+		assertThat(policy.readableAssetIds(7L, 12L, List.of(31L, 32L, 33L)))
+			.containsExactlyInAnyOrder(31L, 32L, 33L);
+		verify(announcements, org.mockito.Mockito.atLeastOnce()).requireActiveMember(7L, 12L);
 	}
 
 	@Test

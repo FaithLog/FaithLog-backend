@@ -28,7 +28,8 @@ public record CreatePollRequest(
 	@NotNull Instant startsAt,
 	@NotNull Instant endsAt,
 	@Valid List<PollOptionRequest> options,
-	List<@Positive Long> imageAssetIds
+	List<@Positive Long> imageAssetIds,
+	List<@Positive Long> documentAssetIds
 ) {
 
 	public CreatePollCommand toCommand(Long campusId, AuthenticatedUser authenticatedUser) {
@@ -48,7 +49,8 @@ public record CreatePollRequest(
 			startsAt,
 			endsAt,
 			options == null ? List.of() : options.stream().map(PollOptionRequest::toCommand).toList(),
-			imageAssetIds == null ? List.of() : imageAssetIds
+			imageAssetIds == null ? List.of() : imageAssetIds,
+			documentAssetIds == null ? List.of() : documentAssetIds
 		);
 	}
 

@@ -11,6 +11,8 @@ public record MealPollManagementListItemResponse(
 	boolean hasNotice,
 	boolean hasImages,
 	Long thumbnailAssetId,
+	boolean hasAttachments,
+	int attachmentCount,
 	PollStatus status,
 	Instant startsAt,
 	Instant endsAt,
@@ -20,6 +22,7 @@ public record MealPollManagementListItemResponse(
 	public static MealPollManagementListItemResponse from(MealPollManagementListItemResult result) {
 		return new MealPollManagementListItemResponse(
 			result.id(), result.title(), result.hasNotice(), result.hasImages(), result.thumbnailAssetId(),
+			result.hasAttachments(), result.attachmentCount(),
 			result.status(), result.startsAt(), result.endsAt(), result.settlementStatus()
 		);
 	}

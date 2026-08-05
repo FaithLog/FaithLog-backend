@@ -1,6 +1,7 @@
 package com.faithlog.media.domain.entity;
 
 import com.faithlog.media.domain.type.MediaAssetStatus;
+import com.faithlog.media.domain.type.MediaAssetKind;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -20,7 +21,8 @@ import java.util.regex.Pattern;
 public class MediaAsset {
 
 	public static final long MAX_INPUT_BYTES = 5L * 1024 * 1024;
-	private static final Set<String> SUPPORTED_CONTENT_TYPES = Set.of("image/jpeg", "image/png");
+	public static final long MAX_PDF_INPUT_BYTES = 30L * 1024 * 1024;
+	private static final Set<String> IMAGE_CONTENT_TYPES = Set.of("image/jpeg", "image/png");
 	private static final Pattern SHA_256 = Pattern.compile("^[a-f0-9]{64}$");
 
 	@Id
@@ -36,6 +38,13 @@ public class MediaAsset {
 	@Column(name = "input_content_type", nullable = false, length = 20)
 	private String inputContentType;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "asset_kind", nullable = false, length = 10)
+	private MediaAssetKind kind;
+
+	@Column(name = "original_file_name", length = 255)
+	private String originalFileName;
+
 	@Column(name = "input_byte_size", nullable = false)
 	private long inputByteSize;
 
@@ -50,6 +59,9 @@ public class MediaAsset {
 
 	@Column(name = "detail_object_key", unique = true, length = 200)
 	private String detailObjectKey;
+
+	@Column(name = "document_object_key", unique = true, length = 200)
+	private String documentObjectKey;
 
 	@Column(name = "output_sha256", length = 64)
 	private String outputSha256;
@@ -105,16 +117,17 @@ public class MediaAsset {
 		long inputByteSize,
 		String expectedSha256,
 		String temporaryObjectKey,
-		Instant expiresAt
+		Instant expiresAt,
+		String originalFileName
 	) {
 		this.campusId = requirePositive(campusId, "campusId");
 		this.ownerUserId = requirePositive(ownerUserId, "ownerUserId");
-		if (!SUPPORTED_CONTENT_TYPES.contains(inputContentType)) {
-			throw new IllegalArgumentException("unsupported image content type");
+		this.kind = kindOf(inputContentType);
+		long maximumBytes = kind == MediaAssetKind.PDF ? MAX_PDF_INPUT_BYTES : MAX_INPUT_BYTES;
+		if (inputByteSize < 1 || inputByteSize > maximumBytes) {
+			throw new IllegalArgumentException("media byte size is invalid");
 		}
-		if (inputByteSize < 1 || inputByteSize > MAX_INPUT_BYTES) {
-			throw new IllegalArgumentException("image byte size is invalid");
-		}
+		this.originalFileName = normalizeFileName(kind, originalFileName);
 		if (expectedSha256 == null || !SHA_256.matcher(expectedSha256).matches()) {
 			throw new IllegalArgumentException("expectedSha256 is invalid");
 		}
@@ -140,7 +153,49 @@ public class MediaAsset {
 		Instant expiresAt
 	) {
 		return new MediaAsset(
-			campusId, ownerUserId, inputContentType, inputByteSize, expectedSha256, temporaryObjectKey, expiresAt);
+			campusId, ownerUserId, inputContentType, inputByteSize, expectedSha256, temporaryObjectKey, expiresAt, null);
+	}
+
+	public static MediaAsset reserve(
+		Long campusId,
+		Long ownerUserId,
+		String inputContentType,
+		long inputByteSize,
+		String expectedSha256,
+		String temporaryObjectKey,
+		Instant expiresAt,
+		String originalFileName
+	) {
+		return new MediaAsset(
+			campusId, ownerUserId, inputContentType, inputByteSize, expectedSha256,
+			temporaryObjectKey, expiresAt, originalFileName);
+	}
+
+	private static MediaAssetKind kindOf(String contentType) {
+		if (IMAGE_CONTENT_TYPES.contains(contentType)) {
+			return MediaAssetKind.IMAGE;
+		}
+		if ("application/pdf".equals(contentType)) {
+			return MediaAssetKind.PDF;
+		}
+		throw new IllegalArgumentException("unsupported media content type");
+	}
+
+	private static String normalizeFileName(MediaAssetKind kind, String value) {
+		if (kind == MediaAssetKind.IMAGE && (value == null || value.isBlank())) {
+			return null;
+		}
+		if (value == null) {
+			throw new IllegalArgumentException("PDF file name is required");
+		}
+		String normalized = value.trim();
+		if (normalized.isEmpty() || normalized.length() > 255
+			|| normalized.contains("/") || normalized.contains("\\") || normalized.contains("..")
+			|| normalized.chars().anyMatch(character -> Character.isISOControl(character))
+			|| (kind == MediaAssetKind.PDF && !normalized.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf"))) {
+			throw new IllegalArgumentException("media file name is invalid");
+		}
+		return normalized;
 	}
 
 	public void startProcessing() {
@@ -165,6 +220,20 @@ public class MediaAsset {
 		}
 		this.thumbnailObjectKey = thumbnailObjectKey;
 		this.detailObjectKey = detailObjectKey;
+		this.updatedAt = Instant.now();
+	}
+
+	public void recordProcessingDocumentObjectKey(String documentObjectKey) {
+		if (status != MediaAssetStatus.PROCESSING || kind != MediaAssetKind.PDF) {
+			throw new IllegalStateException("only processing PDF media can record a document object key");
+		}
+		if (documentObjectKey == null || documentObjectKey.isBlank()) {
+			throw new IllegalArgumentException("document object key is required");
+		}
+		if (this.documentObjectKey != null && !this.documentObjectKey.equals(documentObjectKey)) {
+			throw new IllegalStateException("document object key cannot change during processing");
+		}
+		this.documentObjectKey = documentObjectKey;
 		this.updatedAt = Instant.now();
 	}
 
@@ -194,6 +263,24 @@ public class MediaAsset {
 		this.height = height;
 		this.outputByteSize = outputByteSize;
 		this.outputSha256 = outputSha256;
+		this.status = MediaAssetStatus.READY;
+		this.failureReason = null;
+		this.updatedAt = Instant.now();
+	}
+
+	public void completePdf(String documentObjectKey, long outputByteSize, String outputSha256) {
+		if (status != MediaAssetStatus.PROCESSING || kind != MediaAssetKind.PDF) {
+			throw new IllegalStateException("only processing PDF media can complete");
+		}
+		if (outputByteSize < 1 || outputByteSize > MAX_PDF_INPUT_BYTES
+			|| outputSha256 == null || !SHA_256.matcher(outputSha256).matches()) {
+			throw new IllegalArgumentException("PDF output metadata is invalid");
+		}
+		recordProcessingDocumentObjectKey(documentObjectKey);
+		this.outputByteSize = outputByteSize;
+		this.outputSha256 = outputSha256;
+		this.width = null;
+		this.height = null;
 		this.status = MediaAssetStatus.READY;
 		this.failureReason = null;
 		this.updatedAt = Instant.now();
@@ -334,6 +421,9 @@ public class MediaAsset {
 	public String temporaryObjectKey() { return temporaryObjectKey; }
 	public String thumbnailObjectKey() { return thumbnailObjectKey; }
 	public String detailObjectKey() { return detailObjectKey; }
+	public String documentObjectKey() { return documentObjectKey; }
+	public MediaAssetKind kind() { return kind; }
+	public String originalFileName() { return originalFileName; }
 	public MediaAssetStatus status() { return status; }
 	public Instant expiresAt() { return expiresAt; }
 	public Instant orphanedAt() { return orphanedAt; }

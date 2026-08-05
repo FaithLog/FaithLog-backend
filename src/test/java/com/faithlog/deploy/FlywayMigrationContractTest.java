@@ -47,6 +47,9 @@ class FlywayMigrationContractTest {
 	private static final Path MEDIA_CLEANUP_RETRY_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V18__add_media_cleanup_retry_lease.sql"
 	);
+	private static final Path PDF_DOCUMENT_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V19__add_pdf_document_attachments.sql"
+	);
 	private static final Path POSTGRES_MIGRATION_TEST = Path.of(
 		"src/test/java/com/faithlog/deploy/PostgresFlywayMigrationTest.java"
 	);
@@ -350,7 +353,7 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
-	void postgresFixturesRequireThePhysicalV14ToV15ToV16ToV17ToV18Order() throws IOException {
+	void postgresFixturesRequireThePhysicalV14ToV15ToV16ToV17ToV18ToV19ToV20ToV21Order() throws IOException {
 		String source = Files.readString(POSTGRES_MIGRATION_TEST);
 		String cleanFixture = source.substring(
 			source.indexOf("void flywayMigratesCleanPostgresDatabase"),
@@ -366,14 +369,31 @@ class FlywayMigrationContractTest {
 		);
 		String v18UpgradeFixture = source.substring(
 			source.indexOf("void v18UpgradesV17WithDurableMediaCleanupRetryAndLease"),
+			source.indexOf("void v19UpgradesV18WithPdfColumnsAndDocumentRelations")
+		);
+		String v19UpgradeFixture = source.substring(
+			source.indexOf("void v19UpgradesV18WithPdfColumnsAndDocumentRelations"),
+			source.indexOf("void v20UpgradesV19WithWeeklyMaterialTombstonesAndDurableOutbox")
+		);
+		String v20UpgradeFixture = source.substring(
+			source.indexOf("void v20UpgradesV19WithWeeklyMaterialTombstonesAndDurableOutbox"),
 			source.indexOf("void v13FailsClosedWithoutChangingLegacyDuplicateEmails")
 		);
+		String v21UpgradeFixture = source.substring(
+			source.indexOf("void v21UpgradesV20ToGlobalSlotsAndMigratesLegacySharingSheetHistory"),
+			source.indexOf("void v21FailsClosedWithSqlState23505AndPreservesDuplicateLegacyGlobalSlots")
+		);
 
-		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"18\")");
+		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"21\")");
 		assertThat(v16UpgradeFixture).contains(".target(\"15\")");
 		assertThat(v16UpgradeFixture).doesNotContain(".target(\"14\")");
 		assertThat(v17UpgradeFixture).contains(".target(\"16\")", ".target(\"17\")");
-		assertThat(v18UpgradeFixture).contains(".target(\"17\")", "MigrationVersion.fromVersion(\"18\")");
+		assertThat(v18UpgradeFixture).contains(".target(\"17\")", ".target(\"18\")",
+			"MigrationVersion.fromVersion(\"18\")");
+		assertThat(v19UpgradeFixture).contains(".target(\"18\")", ".target(\"19\")",
+			"MigrationVersion.fromVersion(\"19\")");
+		assertThat(v20UpgradeFixture).contains(".target(\"19\")", "MigrationVersion.fromVersion(\"20\")");
+		assertThat(v21UpgradeFixture).contains(".target(\"20\")", "MigrationVersion.fromVersion(\"21\")");
 	}
 
 	@Test
@@ -410,6 +430,34 @@ class FlywayMigrationContractTest {
 			"WHERE status = 'PROCESSING'"
 		);
 		assertThat(sql).doesNotContain("DROP TABLE", "DROP COLUMN", "object_key", "credential");
+	}
+
+	@Test
+	void v19AddsTypedPdfMediaAndTenantSafeOrderedDocumentRelations() throws IOException {
+		assertThat(PDF_DOCUMENT_MIGRATION).exists();
+		String sql = Files.readString(PDF_DOCUMENT_MIGRATION);
+
+		assertThat(sql).contains(
+			"ADD COLUMN asset_kind VARCHAR(10) NOT NULL DEFAULT 'IMAGE'",
+			"ALTER COLUMN asset_kind DROP DEFAULT",
+			"ADD COLUMN original_file_name VARCHAR(255)",
+			"ADD COLUMN document_object_key VARCHAR(200)",
+			"'application/pdf'",
+			"input_byte_size BETWEEN 1 AND 5242880",
+			"input_byte_size BETWEEN 1 AND 31457280",
+			"lower(right(original_file_name, 4)) = '.pdf'",
+			"position(chr(92) in original_file_name) = 0",
+			"original_file_name !~ '[[:cntrl:]]'",
+			"ADD CONSTRAINT ck_media_assets_ready_metadata CHECK",
+			"status NOT IN ('READY', 'ORPHANED')",
+			"CREATE TABLE announcement_documents",
+			"CREATE TABLE poll_documents",
+			"FOREIGN KEY (campus_id, media_asset_id) REFERENCES media_assets (campus_id, id)",
+			"DEFERRABLE INITIALLY IMMEDIATE",
+			"ALTER TABLE announcement_documents ENABLE ROW LEVEL SECURITY",
+			"ALTER TABLE poll_documents ENABLE ROW LEVEL SECURITY"
+		);
+		assertThat(sql).doesNotContain("DROP TABLE media_assets", "ON DELETE CASCADE");
 	}
 
 	@Test

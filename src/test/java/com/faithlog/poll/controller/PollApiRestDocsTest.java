@@ -128,12 +128,13 @@ class PollApiRestDocsTest {
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{"title":"  수정된 제목  ","notice":"  참여 전에 공지를 확인해 주세요.  ","imageAssetIds":[]}
+					{"title":"  수정된 제목  ","notice":"  참여 전에 공지를 확인해 주세요.  ","imageAssetIds":[],"documentAssetIds":[]}
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.title").value("수정된 제목"))
 			.andExpect(jsonPath("$.data.notice").value("참여 전에 공지를 확인해 주세요."))
 			.andExpect(jsonPath("$.data.imageAssetIds").isArray())
+			.andExpect(jsonPath("$.data.documentAssetIds").isArray())
 			.andDo(document("poll-notice-update-success",
 				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
 				requestHeaders(headerWithName("Authorization").description("Access Token Bearer")),
@@ -145,12 +146,16 @@ class PollApiRestDocsTest {
 					fieldWithPath("title").description("trim 후 1~200자인 수정 제목"),
 					fieldWithPath("notice").optional().description("trim 후 최대 5,000자 일반 텍스트. blank는 null"),
 					fieldWithPath("imageAssetIds").description("READY 이미지 ID의 표시 순서. 제품 개수 상한 없음"),
-					fieldWithPath("imageAssetIds[]").optional().description("동일 캠퍼스·요청자 소유 READY asset ID")
+					fieldWithPath("imageAssetIds[]").optional().description("동일 캠퍼스·요청자 소유 READY 이미지 asset ID"),
+					fieldWithPath("documentAssetIds").description("READY PDF ID의 표시 순서. 제품 개수 상한 없음"),
+					fieldWithPath("documentAssetIds[]").optional()
+						.description("동일 캠퍼스·요청자 소유 READY PDF asset ID")
 				),
 				relaxedResponseFields(
 					fieldWithPath("data.title").description("정규화된 제목"),
 					fieldWithPath("data.notice").optional().description("정규화된 공지 본문"),
-					fieldWithPath("data.imageAssetIds").description("정렬된 이미지 asset ID")
+					fieldWithPath("data.imageAssetIds").description("정렬된 이미지 asset ID"),
+					fieldWithPath("data.documentAssetIds").description("정렬된 PDF asset ID")
 				)));
 
 		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/polls/{pollId}/notice", campusId, pollId)
@@ -238,7 +243,7 @@ class PollApiRestDocsTest {
 				.header("Authorization", "Bearer " + dutyToken)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{"title":"  점심 메뉴 안내  ","notice":"  주문 전 확인해 주세요.  ","imageAssetIds":[]}
+					{"title":"  점심 메뉴 안내  ","notice":"  주문 전 확인해 주세요.  ","imageAssetIds":[],"documentAssetIds":[]}
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.title").value("점심 메뉴 안내"))

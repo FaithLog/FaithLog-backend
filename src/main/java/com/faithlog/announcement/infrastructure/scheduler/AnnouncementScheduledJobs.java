@@ -2,6 +2,7 @@ package com.faithlog.announcement.infrastructure.scheduler;
 
 import com.faithlog.announcement.service.AnnouncementNotificationOutboxProcessor;
 import com.faithlog.announcement.service.ScheduledAnnouncementPublisher;
+import com.faithlog.announcement.service.AnnouncementRetentionService;
 import com.faithlog.announcement.service.port.AnnouncementNotificationOutboxRepositoryPort;
 import com.faithlog.announcement.service.port.AnnouncementRepositoryPort;
 import java.time.Clock;
@@ -21,6 +22,7 @@ public class AnnouncementScheduledJobs {
 	private final ScheduledAnnouncementPublisher publisher;
 	private final AnnouncementNotificationOutboxRepositoryPort outboxes;
 	private final AnnouncementNotificationOutboxProcessor processor;
+	private final AnnouncementRetentionService retention;
 	private final Clock clock;
 
 	public AnnouncementScheduledJobs(
@@ -28,12 +30,14 @@ public class AnnouncementScheduledJobs {
 		ScheduledAnnouncementPublisher publisher,
 		AnnouncementNotificationOutboxRepositoryPort outboxes,
 		AnnouncementNotificationOutboxProcessor processor,
+		AnnouncementRetentionService retention,
 		Clock clock
 	) {
 		this.announcements = announcements;
 		this.publisher = publisher;
 		this.outboxes = outboxes;
 		this.processor = processor;
+		this.retention = retention;
 		this.clock = clock;
 	}
 
@@ -51,6 +55,18 @@ public class AnnouncementScheduledJobs {
 				processor.process(id);
 			} catch (RuntimeException exception) {
 				log.warn("Announcement notification outbox processing will retry. outboxId={}", id);
+			}
+		});
+	}
+
+	@Scheduled(cron = "${faithlog.scheduler.announcement-retention-cron:0 0 0 * * *}", zone = "Asia/Seoul")
+	public void physicallyDeleteExpiredAnnouncements() {
+		var now = clock.instant();
+		announcements.findDuePhysicalDeletionIds(now, PageRequest.of(0, BATCH_SIZE)).forEach(id -> {
+			try {
+				retention.deleteIfDue(id, now);
+			} catch (RuntimeException exception) {
+				log.warn("Announcement physical deletion will retry. announcementId={}", id);
 			}
 		});
 	}

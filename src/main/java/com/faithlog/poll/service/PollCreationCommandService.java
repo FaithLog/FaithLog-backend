@@ -36,6 +36,7 @@ public class PollCreationCommandService {
 	private final PollStatusSynchronizer pollStatusSynchronizer;
 	private final PollResultAssembler pollResultAssembler;
 	private final PollImageAttachmentService imageAttachmentService;
+	private final PollDocumentAttachmentService documentAttachmentService;
 
 	@Autowired
 	public PollCreationCommandService(
@@ -48,7 +49,8 @@ public class PollCreationCommandService {
 		PollAccessService pollAccessService,
 		PollStatusSynchronizer pollStatusSynchronizer,
 		PollResultAssembler pollResultAssembler,
-		PollImageAttachmentService imageAttachmentService
+		PollImageAttachmentService imageAttachmentService,
+		PollDocumentAttachmentService documentAttachmentService
 	) {
 		this.pollRepository = pollRepository;
 		this.pollOptionRepository = pollOptionRepository;
@@ -60,6 +62,7 @@ public class PollCreationCommandService {
 		this.pollStatusSynchronizer = pollStatusSynchronizer;
 		this.pollResultAssembler = pollResultAssembler;
 		this.imageAttachmentService = imageAttachmentService;
+		this.documentAttachmentService = documentAttachmentService;
 	}
 
 	public PollCreationCommandService(
@@ -75,7 +78,7 @@ public class PollCreationCommandService {
 	) {
 		this(pollRepository, pollOptionRepository, pollTemplateRepository, pollTemplateOptionRepository,
 			paymentAccountRepository, optionSnapshotResolver, pollAccessService, pollStatusSynchronizer,
-			pollResultAssembler, null);
+			pollResultAssembler, null, null);
 	}
 
 	@Transactional
@@ -177,6 +180,10 @@ public class PollCreationCommandService {
 	private void attachImages(Poll poll, CreatePollCommand command) {
 		if (imageAttachmentService != null) {
 			imageAttachmentService.replace(poll.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
+		}
+		if (documentAttachmentService != null) {
+			documentAttachmentService.replace(
+				poll.id(), command.campusId(), command.requesterId(), command.documentAssetIds());
 		}
 	}
 

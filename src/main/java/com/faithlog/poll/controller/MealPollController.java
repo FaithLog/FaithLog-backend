@@ -63,7 +63,7 @@ public class MealPollController {
 	) {
 		return ApiResponse.success(PollResponse.from(pollNoticeCommandService.updateMealPoll(
 			new UpdatePollNoticeCommand(campusId, pollId, authenticatedUser.userId(), request.title(), request.notice(),
-				request.imageAssetIds())
+				request.imageAssetIds(), request.documentAssetIds())
 		)));
 	}
 

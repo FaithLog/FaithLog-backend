@@ -80,7 +80,20 @@ class PostgresFlywayMigrationTest {
 		);
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
-		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("18"));
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("21"));
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "asset_kind");
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "document_object_key");
+		assertTableExists(jdbcUrl, username, password, "announcement_documents");
+		assertTableExists(jdbcUrl, username, password, "poll_documents");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "announcement_documents");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "poll_documents");
+		assertTableExists(jdbcUrl, username, password, "weekly_materials");
+		assertTableExists(jdbcUrl, username, password, "weekly_material_notification_outbox");
+		assertTableExists(jdbcUrl, username, password, "weekly_material_global_lock");
+		assertColumnExists(jdbcUrl, username, password, "weekly_materials", "media_campus_id");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_materials");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_material_notification_outbox");
+		assertPdfMediaAndDocumentRelationBoundaries(jdbcUrl, username, password);
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
@@ -90,6 +103,81 @@ class PostgresFlywayMigrationTest {
 		assertCrossCampusAnnouncementImageRejected(jdbcUrl, username, password);
 		assertPollNotificationTypeBoundary(jdbcUrl, username, password);
 		assertCrossCampusPollImageRejected(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v21UpgradesV20ToGlobalSlotsAndMigratesLegacySharingSheetHistory() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway v20 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false).locations("classpath:db/migration").target("20").load();
+		v20.clean();
+		assertThat(v20.migrate().success).isTrue();
+		Integer v20Checksum = migrationChecksum(jdbcUrl, username, password, "20");
+		insertLegacyWeeklyMaterialAndOutbox(jdbcUrl, username, password, false);
+
+		Flyway v21 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration").load();
+		assertThat(v21.migrate().success).isTrue();
+		assertThat(v21.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("21"));
+		assertThat(migrationChecksum(jdbcUrl, username, password, "20")).isEqualTo(v20Checksum);
+		assertColumnExists(jdbcUrl, username, password, "weekly_materials", "media_campus_id");
+		assertConstraintExists(jdbcUrl, username, password, "weekly_materials", "uk_weekly_materials_slot");
+		assertConstraintExists(jdbcUrl, username, password, "weekly_materials", "fk_weekly_materials_media_asset");
+		assertConstraintExists(jdbcUrl, username, password,
+			"weekly_material_notification_outbox", "uk_weekly_material_outbox_slot");
+		assertTableExists(jdbcUrl, username, password, "weekly_material_global_lock");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_material_global_lock");
+		assertThat(queryText(jdbcUrl, username, password,
+			"select material_type from weekly_materials where week_start_date = date '2026-08-03'"))
+			.isEqualTo("SUNDAY_SHARING_SHEET");
+		assertThat(queryText(jdbcUrl, username, password,
+			"select material_type from weekly_material_notification_outbox where week_start_date = date '2026-08-03'"))
+			.isEqualTo("SUNDAY_SHARING_SHEET");
+		assertThat(queryText(jdbcUrl, username, password,
+			"select id::text from weekly_material_global_lock"))
+			.isEqualTo("1");
+		assertGlobalWeeklySlotUniqueAndTypes(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v21FailsClosedWithSqlState23505AndPreservesDuplicateLegacyGlobalSlots() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway v20 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false).locations("classpath:db/migration").target("20").load();
+		v20.clean();
+		assertThat(v20.migrate().success).isTrue();
+		insertLegacyWeeklyMaterialAndOutbox(jdbcUrl, username, password, true);
+
+		Flyway v21 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration").load();
+		assertThatThrownBy(v21::migrate)
+			.isInstanceOf(FlywayException.class)
+			.hasMessageContaining("SQL State  : 23505")
+			.hasMessageContaining("duplicate weekly material global slot");
+		assertFlywayVersionMissing(jdbcUrl, username, password, "21");
+		assertThat(queryText(jdbcUrl, username, password,
+			"select count(*)::text from weekly_materials where material_type = 'SHARING_SHEET'"))
+			.isEqualTo("2");
+
+		v20.clean();
+		assertThat(v20.migrate().success).isTrue();
+		insertLegacyWeeklyMaterialAndOutbox(jdbcUrl, username, password, false);
+		insertDuplicateLegacyOutbox(jdbcUrl, username, password);
+
+		assertThatThrownBy(v21::migrate)
+			.isInstanceOf(FlywayException.class)
+			.hasMessageContaining("SQL State  : 23505")
+			.hasMessageContaining("duplicate weekly material outbox global slot");
+		assertFlywayVersionMissing(jdbcUrl, username, password, "21");
+		assertThat(queryText(jdbcUrl, username, password,
+			"select count(*)::text from weekly_material_notification_outbox where material_type = 'SHARING_SHEET'"))
+			.isEqualTo("2");
 	}
 
 	@Test
@@ -266,6 +354,7 @@ class PostgresFlywayMigrationTest {
 		Flyway v18 = Flyway.configure()
 			.dataSource(jdbcUrl, username, password)
 			.locations("classpath:db/migration")
+			.target("18")
 			.load();
 
 		assertThat(v18.migrate().success).isTrue();
@@ -279,6 +368,64 @@ class PostgresFlywayMigrationTest {
 			jdbcUrl, username, password, "media_assets", "ck_media_assets_cleanup_retry_pair");
 		assertConstraintExists(
 			jdbcUrl, username, password, "media_assets", "ck_media_assets_cleanup_lease_pair");
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v19UpgradesV18WithPdfColumnsAndDocumentRelations() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway v18 = Flyway.configure()
+			.dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false)
+			.locations("classpath:db/migration")
+			.target("18")
+			.load();
+
+		v18.clean();
+		assertThat(v18.migrate().success).isTrue();
+		Flyway v19 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration").target("19").load();
+		assertThat(v19.migrate().success).isTrue();
+		assertThat(v19.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("19"));
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "asset_kind");
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "original_file_name");
+		assertColumnExists(jdbcUrl, username, password, "media_assets", "document_object_key");
+		assertConstraintExists(jdbcUrl, username, password, "media_assets", "ck_media_assets_input_byte_size");
+		assertConstraintExists(jdbcUrl, username, password, "media_assets", "ck_media_assets_ready_metadata");
+		assertTableExists(jdbcUrl, username, password, "announcement_documents");
+		assertTableExists(jdbcUrl, username, password, "poll_documents");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "announcement_documents");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "poll_documents");
+		assertPdfMediaAndDocumentRelationBoundaries(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v20UpgradesV19WithWeeklyMaterialTombstonesAndDurableOutbox() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway v19 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false).locations("classpath:db/migration").target("19").load();
+		v19.clean();
+		assertThat(v19.migrate().success).isTrue();
+		Integer v19Checksum = migrationChecksum(jdbcUrl, username, password, "19");
+
+		Flyway v20 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration").target("20").load();
+		assertThat(v20.migrate().success).isTrue();
+		assertThat(v20.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("20"));
+		assertThat(migrationChecksum(jdbcUrl, username, password, "19")).isEqualTo(v19Checksum);
+		assertTableExists(jdbcUrl, username, password, "weekly_materials");
+		assertTableExists(jdbcUrl, username, password, "weekly_material_notification_outbox");
+		assertConstraintExists(jdbcUrl, username, password, "weekly_materials", "uk_weekly_materials_slot");
+		assertConstraintExists(jdbcUrl, username, password, "weekly_materials", "fk_weekly_materials_media_asset");
+		assertConstraintExists(jdbcUrl, username, password, "weekly_material_notification_outbox",
+			"uk_weekly_material_outbox_slot");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_materials");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_material_notification_outbox");
 	}
 
 	@Test
@@ -454,6 +601,109 @@ class PostgresFlywayMigrationTest {
 		}
 	}
 
+	private static void insertLegacyWeeklyMaterialAndOutbox(
+		String jdbcUrl, String username, String password, boolean duplicate
+	) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement statement = connection.createStatement()) {
+			statement.executeUpdate("""
+				insert into users
+				(id, name, email, password_hash, role, is_active, token_version, created_at, updated_at)
+				values
+				(501, 'legacy uploader 1', 'legacy-weekly-1@example.com', 'hash', 'ADMIN', true, 0, now(), now()),
+				(502, 'legacy uploader 2', 'legacy-weekly-2@example.com', 'hash', 'ADMIN', true, 0, now(), now())
+				""");
+			statement.executeUpdate("""
+				insert into campuses
+				(id, name, region, description, invite_code, is_active, created_at, updated_at)
+				values
+				(101, 'legacy campus 1', 'Seoul', '', 'legacy-weekly-1', true, now(), now()),
+				(102, 'legacy campus 2', 'Seoul', '', 'legacy-weekly-2', true, now(), now())
+				""");
+				statement.executeUpdate("""
+					insert into weekly_materials
+					(campus_id, week_start_date, material_type, media_asset_id, uploaded_by, status, created_at, updated_at)
+					values (101, date '2026-08-03', 'SHARING_SHEET', null, 501, 'DELETED', now(), now())
+					""");
+				statement.executeUpdate("""
+					insert into weekly_material_notification_outbox
+					(campus_id, weekly_material_id, week_start_date, material_type, uploader_id, processed_at, created_at)
+					values (101, 9001, date '2026-08-03', 'SHARING_SHEET', 501, now(), now())
+					""");
+				if (duplicate) {
+					statement.executeUpdate("""
+						insert into weekly_materials
+						(campus_id, week_start_date, material_type, media_asset_id, uploaded_by, status, created_at, updated_at)
+						values (102, date '2026-08-03', 'SHARING_SHEET', null, 502, 'DELETED', now(), now())
+						""");
+				}
+		}
+	}
+
+	private static void insertDuplicateLegacyOutbox(String jdbcUrl, String username, String password)
+		throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement statement = connection.createStatement()) {
+			statement.executeUpdate("""
+				insert into weekly_material_notification_outbox
+				(campus_id, weekly_material_id, week_start_date, material_type, uploader_id, processed_at, created_at)
+				values (102, 9002, date '2026-08-03', 'SHARING_SHEET', 502, now(), now())
+				""");
+		}
+	}
+
+	private static String queryText(String jdbcUrl, String username, String password, String sql) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement statement = connection.createStatement();
+			ResultSet result = statement.executeQuery(sql)) {
+			assertThat(result.next()).isTrue();
+			return result.getString(1);
+		}
+	}
+
+	private static void assertGlobalWeeklySlotUniqueAndTypes(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement statement = connection.createStatement()) {
+			statement.execute("set session_replication_role = replica");
+			try {
+				assertThatThrownBy(() -> statement.executeUpdate("""
+					insert into weekly_materials
+					(media_campus_id, week_start_date, material_type, media_asset_id, uploaded_by, status, created_at, updated_at)
+					values (101, date '2026-08-03', 'SUNDAY_SHARING_SHEET', null, 501, 'DELETED', now(), now())
+					"""))
+					.isInstanceOf(java.sql.SQLException.class)
+					.satisfies(exception -> assertThat(((java.sql.SQLException) exception).getSQLState())
+						.isEqualTo("23505"));
+				assertThatThrownBy(() -> statement.executeUpdate("""
+					insert into weekly_materials
+					(media_campus_id, week_start_date, material_type, media_asset_id, uploaded_by, status, created_at, updated_at)
+					values (101, date '2026-08-10', 'SHARING_SHEET', null, 501, 'DELETED', now(), now())
+					"""))
+					.isInstanceOf(java.sql.SQLException.class)
+					.hasMessageContaining("ck_weekly_materials_type");
+				assertThatThrownBy(() -> statement.executeUpdate("""
+					insert into weekly_material_notification_outbox
+					(campus_id, weekly_material_id, week_start_date, material_type, uploader_id, processed_at, created_at)
+					values (102, 9002, date '2026-08-03', 'SUNDAY_SHARING_SHEET', 502, now(), now())
+					"""))
+					.isInstanceOf(java.sql.SQLException.class)
+					.satisfies(exception -> assertThat(((java.sql.SQLException) exception).getSQLState())
+						.isEqualTo("23505"));
+				assertThatThrownBy(() -> statement.executeUpdate("""
+					insert into weekly_material_notification_outbox
+					(campus_id, weekly_material_id, week_start_date, material_type, uploader_id, processed_at, created_at)
+					values (102, 9003, date '2026-08-10', 'SATURDAY_LEADER_SHARING_SHEET', 502, now(), now())
+					"""))
+					.isInstanceOf(java.sql.SQLException.class)
+					.hasMessageContaining("ck_weekly_material_outbox_type");
+			} finally {
+				statement.execute("set session_replication_role = origin");
+			}
+		}
+	}
+
 	private static void assertLegacyInvalidChargePreserved(String jdbcUrl, String username, String password)
 		throws Exception {
 		assertThat(exists(
@@ -565,6 +815,47 @@ class PostgresFlywayMigrationTest {
 		}
 	}
 
+	private static void assertPdfMediaAndDocumentRelationBoundaries(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+			String suffix = java.util.UUID.randomUUID().toString();
+			long userId = insertUser(connection, "pdf-user", "pdf-" + suffix + "@example.com");
+			long campusId = insertCampus(connection, "pdf-campus", "pdf-" + suffix);
+			long otherCampusId = insertCampus(connection, "pdf-other-campus", "pdf-other-" + suffix);
+			long categoryId = insertCategory(connection, campusId, "pdf-category");
+			long announcementId = insertAnnouncement(connection, campusId, categoryId, userId);
+			long pollId = insertPoll(connection, campusId, userId);
+			long pdfId = insertReadyPdfAsset(connection, campusId, userId, suffix + "-valid");
+			insertAnnouncementDocument(connection, campusId, announcementId, pdfId);
+			long otherPdfId = insertReadyPdfAsset(connection, otherCampusId, userId, suffix + "-other");
+
+			assertThatThrownBy(() -> insertPollDocument(connection, campusId, pollId, otherPdfId))
+				.isInstanceOfSatisfying(java.sql.SQLException.class, exception -> {
+					assertThat(exception.getSQLState()).isEqualTo("23503");
+					assertThat(exception.getMessage()).contains("fk_poll_documents_media_asset");
+				});
+			assertThatThrownBy(() -> insertPendingPdfAsset(
+				connection, campusId, userId, "oversized.pdf", 31_457_281L, suffix + "-large"))
+				.isInstanceOfSatisfying(java.sql.SQLException.class, exception -> {
+					assertThat(exception.getSQLState()).isEqualTo("23514");
+					assertThat(exception.getMessage()).contains("ck_media_assets_input_byte_size");
+				});
+			assertThatThrownBy(() -> insertPendingPdfAsset(
+				connection, campusId, userId, "../unsafe.pdf", 10L, suffix + "-unsafe"))
+				.isInstanceOfSatisfying(java.sql.SQLException.class, exception -> {
+					assertThat(exception.getSQLState()).isEqualTo("23514");
+					assertThat(exception.getMessage()).contains("ck_media_assets_kind_metadata");
+				});
+			assertThatThrownBy(() -> insertReadyPdfWithoutDocumentKey(
+				connection, campusId, userId, suffix + "-missing-key"))
+				.isInstanceOfSatisfying(java.sql.SQLException.class, exception -> {
+					assertThat(exception.getSQLState()).isEqualTo("23514");
+					assertThat(exception.getMessage()).contains("ck_media_assets_ready_metadata");
+				});
+		}
+	}
+
 	private static long insertUser(Connection connection, String name, String email) throws Exception {
 		try (PreparedStatement statement = connection.prepareStatement(
 			"insert into users (name, email, password_hash, role, is_active, token_version, created_at, updated_at) "
@@ -657,10 +948,26 @@ class PostgresFlywayMigrationTest {
 	private static long insertReadyMediaAsset(
 		Connection connection, long campusId, long userId, String suffix
 	) throws Exception {
+		if (!columnExists(connection, "media_assets", "asset_kind")) {
+			try (PreparedStatement statement = connection.prepareStatement(
+				"insert into media_assets (campus_id, owner_user_id, input_content_type, input_byte_size, "
+					+ "expected_sha256, thumbnail_object_key, detail_object_key, output_sha256, width, height, "
+					+ "output_byte_size, status, expires_at) values (?, ?, 'image/jpeg', 10, ?, ?, ?, ?, "
+					+ "100, 100, 20, 'READY', now() + interval '1 day') returning id"
+			)) {
+				statement.setLong(1, campusId);
+				statement.setLong(2, userId);
+				statement.setString(3, "a".repeat(64));
+				statement.setString(4, "tenant/" + suffix + "/thumb");
+				statement.setString(5, "tenant/" + suffix + "/detail");
+				statement.setString(6, "b".repeat(64));
+				return returnedId(statement);
+			}
+		}
 		try (PreparedStatement statement = connection.prepareStatement(
-			"insert into media_assets (campus_id, owner_user_id, input_content_type, input_byte_size, "
+			"insert into media_assets (campus_id, owner_user_id, asset_kind, input_content_type, input_byte_size, "
 				+ "expected_sha256, thumbnail_object_key, detail_object_key, output_sha256, width, height, "
-				+ "output_byte_size, status, expires_at) values (?, ?, 'image/jpeg', 10, ?, ?, ?, ?, "
+				+ "output_byte_size, status, expires_at) values (?, ?, 'IMAGE', 'image/jpeg', 10, ?, ?, ?, ?, "
 				+ "100, 100, 20, 'READY', now() + interval '1 day') returning id"
 		)) {
 			statement.setLong(1, campusId);
@@ -670,6 +977,92 @@ class PostgresFlywayMigrationTest {
 			statement.setString(5, "tenant/" + suffix + "/detail");
 			statement.setString(6, "b".repeat(64));
 			return returnedId(statement);
+		}
+	}
+
+	private static boolean columnExists(Connection connection, String tableName, String columnName) throws Exception {
+		try (ResultSet result = connection.getMetaData().getColumns(null, "public", tableName, columnName)) {
+			return result.next();
+		}
+	}
+
+	private static long insertReadyPdfAsset(
+		Connection connection, long campusId, long userId, String suffix
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into media_assets (campus_id, owner_user_id, asset_kind, input_content_type, input_byte_size, "
+				+ "expected_sha256, original_file_name, document_object_key, output_sha256, output_byte_size, status, "
+				+ "expires_at) values (?, ?, 'PDF', 'application/pdf', 10, ?, 'notice.pdf', ?, ?, 10, 'READY', "
+				+ "now() + interval '1 day') returning id"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, userId);
+			statement.setString(3, "c".repeat(64));
+			statement.setString(4, "tenant/" + suffix + "/document.pdf");
+			statement.setString(5, "d".repeat(64));
+			return returnedId(statement);
+		}
+	}
+
+	private static void insertPendingPdfAsset(
+		Connection connection, long campusId, long userId, String fileName, long byteSize, String suffix
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into media_assets (campus_id, owner_user_id, asset_kind, input_content_type, input_byte_size, "
+				+ "expected_sha256, original_file_name, temporary_object_key, status, expires_at) "
+				+ "values (?, ?, 'PDF', 'application/pdf', ?, ?, ?, ?, 'PENDING', now() + interval '1 day')"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, userId);
+			statement.setLong(3, byteSize);
+			statement.setString(4, "e".repeat(64));
+			statement.setString(5, fileName);
+			statement.setString(6, "temporary/" + suffix + "/original.pdf");
+			statement.executeUpdate();
+		}
+	}
+
+	private static void insertReadyPdfWithoutDocumentKey(
+		Connection connection, long campusId, long userId, String suffix
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into media_assets (campus_id, owner_user_id, asset_kind, input_content_type, input_byte_size, "
+				+ "expected_sha256, original_file_name, output_sha256, output_byte_size, status, expires_at) "
+				+ "values (?, ?, 'PDF', 'application/pdf', 10, ?, 'notice.pdf', ?, 10, 'READY', "
+				+ "now() + interval '1 day')"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, userId);
+			statement.setString(3, "f".repeat(64));
+			statement.setString(4, "0".repeat(64));
+			statement.executeUpdate();
+		}
+	}
+
+	private static void insertAnnouncementDocument(
+		Connection connection, long campusId, long announcementId, long mediaAssetId
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into announcement_documents (campus_id, announcement_id, media_asset_id, display_order) "
+				+ "values (?, ?, ?, 0)"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, announcementId);
+			statement.setLong(3, mediaAssetId);
+			statement.executeUpdate();
+		}
+	}
+
+	private static void insertPollDocument(
+		Connection connection, long campusId, long pollId, long mediaAssetId
+	) throws Exception {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"insert into poll_documents (campus_id, poll_id, media_asset_id, display_order) values (?, ?, ?, 0)"
+		)) {
+			statement.setLong(1, campusId);
+			statement.setLong(2, pollId);
+			statement.setLong(3, mediaAssetId);
+			statement.executeUpdate();
 		}
 	}
 

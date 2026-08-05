@@ -23,11 +23,13 @@ public record CreatePollCommand(
 	Instant startsAt,
 	Instant endsAt,
 	List<CreatePollOptionCommand> options,
-	List<Long> imageAssetIds
+	List<Long> imageAssetIds,
+	List<Long> documentAssetIds
 ) {
 	public CreatePollCommand {
 		options = options == null ? List.of() : List.copyOf(options);
 		imageAssetIds = imageAssetIds == null ? List.of() : List.copyOf(imageAssetIds);
+		documentAssetIds = documentAssetIds == null ? List.of() : List.copyOf(documentAssetIds);
 	}
 	public CreatePollCommand(
 		Long campusId,
@@ -46,7 +48,8 @@ public record CreatePollCommand(
 		List<CreatePollOptionCommand> options
 	) {
 		this(campusId, requesterId, templateId, title, null, pollType, selectionType, isAnonymous,
-			allowUserOptionAdd, chargeGenerationType, paymentCategory, paymentAccountId, startsAt, endsAt, options, List.of());
+			allowUserOptionAdd, chargeGenerationType, paymentCategory, paymentAccountId, startsAt, endsAt, options,
+			List.of(), List.of());
 	}
 
 	public CreatePollCommand(
@@ -80,6 +83,7 @@ public record CreatePollCommand(
 			startsAt,
 			endsAt,
 			options,
+			List.of(),
 			List.of()
 		);
 	}

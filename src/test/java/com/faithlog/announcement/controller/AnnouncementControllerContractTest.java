@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -41,6 +42,10 @@ class AnnouncementControllerContractTest {
 			"/announcements/{announcementId}/publish");
 		assertRoute(AdminAnnouncementController.class, "archiveAnnouncement", PostMapping.class,
 			"/announcements/{announcementId}/archive");
+		assertRoute(AdminAnnouncementController.class, "restoreAnnouncement", PostMapping.class,
+			"/announcements/{announcementId}/restore");
+		assertRoute(AdminAnnouncementController.class, "deleteAnnouncement", DeleteMapping.class,
+			"/announcements/{announcementId}");
 	}
 
 	@Test
@@ -66,7 +71,7 @@ class AnnouncementControllerContractTest {
 	void announcement_response_exposes_ordered_image_asset_ids_for_batched_access_urls() {
 		assertThat(Arrays.stream(AnnouncementResponse.class.getRecordComponents())
 			.map(component -> component.getName()))
-			.contains("imageAssetIds");
+			.contains("imageAssetIds", "documentAssetIds");
 	}
 
 	private void assertRoute(
@@ -84,6 +89,8 @@ class AnnouncementControllerContractTest {
 			values = method.getAnnotation(GetMapping.class).value();
 		} else if (annotationType == PostMapping.class) {
 			values = method.getAnnotation(PostMapping.class).value();
+		} else if (annotationType == DeleteMapping.class) {
+			values = method.getAnnotation(DeleteMapping.class).value();
 		} else {
 			values = method.getAnnotation(PatchMapping.class).value();
 		}

@@ -4,6 +4,7 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.service.port.MediaObjectStoragePort;
 import com.faithlog.media.service.result.MediaAccessUrlResult;
+import com.faithlog.media.domain.type.MediaAssetKind;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,10 +37,23 @@ public class MediaAssetQueryService {
 		var snapshots = snapshotService.authorize(campusId, requesterId, orderedIds);
 		Instant expiresAt = clock.instant().plus(Duration.ofMinutes(10));
 		return snapshots.stream().map(snapshot -> {
-			return new MediaAccessUrlResult(snapshot.assetId(), snapshot.sha256(),
-				presignDownload(snapshot.thumbnailObjectKey()),
-				presignDownload(snapshot.detailObjectKey()), expiresAt);
+			if (snapshot.kind() == MediaAssetKind.PDF) {
+				return new MediaAccessUrlResult(snapshot.assetId(), snapshot.kind(), snapshot.contentType(),
+					snapshot.fileName(), snapshot.byteSize(), snapshot.sha256(), null, null,
+					presignDocument(snapshot.documentObjectKey(), snapshot.fileName(), snapshot.contentType()), expiresAt);
+			}
+			return new MediaAccessUrlResult(snapshot.assetId(), snapshot.kind(), snapshot.contentType(),
+				snapshot.fileName(), snapshot.byteSize(), snapshot.sha256(),
+				presignDownload(snapshot.thumbnailObjectKey()), presignDownload(snapshot.detailObjectKey()), null, expiresAt);
 		}).toList();
+	}
+
+	private java.net.URI presignDocument(String objectKey, String fileName, String contentType) {
+		try {
+			return storage.presignDownload(objectKey, fileName, contentType);
+		} catch (RuntimeException exception) {
+			throw new BusinessException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+		}
 	}
 
 	private java.net.URI presignDownload(String objectKey) {

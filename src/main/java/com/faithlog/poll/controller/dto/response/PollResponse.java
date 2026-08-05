@@ -26,7 +26,8 @@ public record PollResponse(
 	Instant endsAt,
 	PollStatus status,
 	List<PollOptionResponse> options,
-	List<Long> imageAssetIds
+	List<Long> imageAssetIds,
+	List<Long> documentAssetIds
 ) {
 
 	public static PollResponse from(PollResult result) {
@@ -47,7 +48,8 @@ public record PollResponse(
 			result.endsAt(),
 			result.status(),
 			result.options().stream().map(PollOptionResponse::from).toList(),
-			result.imageAssetIds()
+			result.imageAssetIds(),
+			result.documentAssetIds()
 		);
 	}
 }
