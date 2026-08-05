@@ -27,11 +27,12 @@ class WeeklyMaterialMigrationContractTest {
 			"(status = 'DELETED' AND media_asset_id IS NULL)",
 			"CREATE TABLE weekly_material_notification_outbox",
 			"UNIQUE (campus_id, week_start_date, material_type)",
-			"FOREIGN KEY (campus_id, weekly_material_id)",
+			"week_start_date + INTERVAL '3 months'",
 			"CREATE INDEX idx_weekly_materials_campus_week",
 			"CREATE INDEX idx_weekly_material_outbox_pending",
 			"ENABLE ROW LEVEL SECURITY"
 		);
 		assertThat(sql).doesNotContain("object_key", "file_content", "public_url");
+		assertThat(sql).doesNotContain("fk_weekly_material_outbox_material");
 	}
 }
