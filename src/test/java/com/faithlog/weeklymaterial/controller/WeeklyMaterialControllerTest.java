@@ -10,6 +10,7 @@ import com.faithlog.weeklymaterial.controller.dto.request.PutWeeklyMaterialReque
 import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.service.WeeklyMaterialCommandService;
 import com.faithlog.weeklymaterial.service.WeeklyMaterialQueryService;
+import com.faithlog.weeklymaterial.service.WeeklyMaterialAdminService;
 import com.faithlog.weeklymaterial.service.result.WeeklyMaterialFileResult;
 import com.faithlog.weeklymaterial.service.result.WeeklyMaterialWeekResult;
 import java.time.Instant;
@@ -19,21 +20,22 @@ import org.junit.jupiter.api.Test;
 class WeeklyMaterialControllerTest {
 	private final WeeklyMaterialCommandService commands = mock(WeeklyMaterialCommandService.class);
 	private final WeeklyMaterialQueryService queries = mock(WeeklyMaterialQueryService.class);
+	private final WeeklyMaterialAdminService admin = mock(WeeklyMaterialAdminService.class);
 	private final AuthenticatedUser user = new AuthenticatedUser(100L, "USER", "session", "jti", Instant.MAX);
 
 	@Test
 	void adminPutMapsBodyOnlyMediaAssetIdAndReturnsDtoWithoutObjectKey() {
-		var controller = new AdminWeeklyMaterialController(commands, queries);
+		var controller = new AdminWeeklyMaterialController(admin, commands);
 		LocalDate week = LocalDate.of(2026, 8, 3);
 		var result = new WeeklyMaterialWeekResult(week, null,
 			new WeeklyMaterialFileResult(20L, WeeklyMaterialType.SHARING_SHEET, "sheet.pdf",
 				200L, "a".repeat(64), Instant.parse("2026-08-03T00:00:00Z")));
-		when(queries.getWeek(1L, 100L, week)).thenReturn(result);
+		when(admin.putAndGet(1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L)).thenReturn(result);
 
 		var response = controller.put(user, 1L, week, WeeklyMaterialType.SHARING_SHEET,
 			new PutWeeklyMaterialRequest(20L));
 
-		verify(commands).put(1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L);
+		verify(admin).putAndGet(1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L);
 		assertThat(response.getBody().data().sharingSheet().assetId()).isEqualTo(20L);
 		assertThat(response.getBody().data().sharingSheet().getClass().getRecordComponents())
 			.extracting(component -> component.getName())
@@ -42,7 +44,7 @@ class WeeklyMaterialControllerTest {
 
 	@Test
 	void adminDeleteReturns204AndDelegatesOnlyOneSlot() {
-		var controller = new AdminWeeklyMaterialController(commands, queries);
+		var controller = new AdminWeeklyMaterialController(admin, commands);
 		LocalDate week = LocalDate.of(2026, 8, 3);
 
 		var response = controller.delete(user, 1L, week, WeeklyMaterialType.SHEPHERD_GUIDE);

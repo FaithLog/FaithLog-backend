@@ -30,6 +30,7 @@ import com.faithlog.global.security.SessionRevocationChecker;
 import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.service.WeeklyMaterialCommandService;
 import com.faithlog.weeklymaterial.service.WeeklyMaterialQueryService;
+import com.faithlog.weeklymaterial.service.WeeklyMaterialAdminService;
 import com.faithlog.weeklymaterial.service.result.WeeklyMaterialFileResult;
 import com.faithlog.weeklymaterial.service.result.WeeklyMaterialWeekResult;
 import java.time.Instant;
@@ -57,6 +58,7 @@ class WeeklyMaterialApiRestDocsTest {
 	@Autowired MockMvc mockMvc;
 	@MockitoBean WeeklyMaterialCommandService commands;
 	@MockitoBean WeeklyMaterialQueryService queries;
+	@MockitoBean WeeklyMaterialAdminService admin;
 	@MockitoBean JwtProvider jwtProvider;
 	@MockitoBean AccessTokenBlacklistChecker accessTokenBlacklistChecker;
 	@MockitoBean AccessTokenVersionChecker accessTokenVersionChecker;
@@ -72,6 +74,7 @@ class WeeklyMaterialApiRestDocsTest {
 
 	@Test void documentsPutDeleteCurrentWeekAndList() throws Exception {
 		when(queries.getWeek(7L, 11L, week)).thenReturn(weekResult());
+		when(admin.putAndGet(7L, week, WeeklyMaterialType.SHARING_SHEET, 41L, 11L)).thenReturn(weekResult());
 		when(queries.getCurrent(7L, 11L)).thenReturn(weekResult());
 		when(queries.list(7L, 11L, 2026, 0, 20)).thenReturn(
 			new PageImpl<>(List.of(weekResult()), PageRequest.of(0, 20), 1));
@@ -137,8 +140,8 @@ class WeeklyMaterialApiRestDocsTest {
 			.andExpect(jsonPath("$.data.shepherdGuide").value(nullValue()))
 			.andExpect(jsonPath("$.data.sharingSheet").value(nullValue()))
 			.andDo(document("weekly-material-current-empty-success"));
-		doThrow(new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT)).when(commands)
-			.put(7L, week, WeeklyMaterialType.SHARING_SHEET, 41L, 11L);
+		doThrow(new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT)).when(admin)
+			.putAndGet(7L, week, WeeklyMaterialType.SHARING_SHEET, 41L, 11L);
 		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
 				7L, week, "SHARING_SHEET").contentType(MediaType.APPLICATION_JSON)
 			.content("{\"mediaAssetId\":41}"))
