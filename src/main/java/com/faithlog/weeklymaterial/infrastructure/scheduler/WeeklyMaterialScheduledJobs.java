@@ -42,7 +42,7 @@ public class WeeklyMaterialScheduledJobs {
 		});
 	}
 
-	@Scheduled(fixedDelayString = "${faithlog.scheduler.weekly-material-retention-delay-ms:3600000}")
+	@Scheduled(cron = "${faithlog.scheduler.weekly-material-retention-cron:0 0 0 * * *}", zone = "Asia/Seoul")
 	public void physicallyDeleteExpiredMaterials() {
 		LocalDate today = LocalDate.now(clock.withZone(ZoneId.of("Asia/Seoul")));
 		materials.findDuePhysicalDeletionIds(today, PageRequest.of(0, 100)).forEach(id -> {

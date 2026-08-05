@@ -59,7 +59,7 @@ public class AnnouncementScheduledJobs {
 		});
 	}
 
-	@Scheduled(fixedDelayString = "${faithlog.scheduler.announcement-retention-delay-ms:3600000}")
+	@Scheduled(cron = "${faithlog.scheduler.announcement-retention-cron:0 0 0 * * *}", zone = "Asia/Seoul")
 	public void physicallyDeleteExpiredAnnouncements() {
 		var now = clock.instant();
 		announcements.findDuePhysicalDeletionIds(now, PageRequest.of(0, BATCH_SIZE)).forEach(id -> {
