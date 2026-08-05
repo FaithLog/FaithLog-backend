@@ -28,7 +28,7 @@ class PollMediaAssetAccessSnapshotServiceTest {
 	void active_member_can_resolve_ready_asset_attached_to_visible_poll() {
 		MediaAsset asset = readyAsset(31L, 7L, 11L);
 		when(accessPolicy.readableAssetIds(7L, 12L, List.of(31L))).thenReturn(Set.of(31L));
-		when(assets.findByCampusIdAndIdIn(7L, List.of(31L))).thenReturn(List.of(asset));
+		when(assets.findByIdIn(List.of(31L))).thenReturn(List.of(asset));
 
 		var result = new MediaAssetAccessSnapshotService(assets, accessPolicy)
 			.authorize(7L, 12L, List.of(31L));
@@ -42,14 +42,14 @@ class PollMediaAssetAccessSnapshotServiceTest {
 		MediaAsset own = readyAsset(31L, 7L, 11L);
 		when(accessPolicy.readableAssetIds(7L, 11L, List.of(31L))).thenReturn(Set.of());
 		when(accessPolicy.canPreviewOwnedPollAsset(7L, 11L)).thenReturn(true);
-		when(assets.findByCampusIdAndIdIn(7L, List.of(31L))).thenReturn(List.of(own));
+		when(assets.findByIdIn(List.of(31L))).thenReturn(List.of(own));
 
 		assertThat(new MediaAssetAccessSnapshotService(assets, accessPolicy)
 			.authorize(7L, 11L, List.of(31L))).hasSize(1);
 
 		MediaAsset anotherOwners = readyAsset(32L, 7L, 13L);
 		when(accessPolicy.readableAssetIds(7L, 11L, List.of(32L))).thenReturn(Set.of());
-		when(assets.findByCampusIdAndIdIn(7L, List.of(32L))).thenReturn(List.of(anotherOwners));
+		when(assets.findByIdIn(List.of(32L))).thenReturn(List.of(anotherOwners));
 
 		assertThatThrownBy(() -> new MediaAssetAccessSnapshotService(assets, accessPolicy)
 			.authorize(7L, 11L, List.of(32L)))
