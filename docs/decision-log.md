@@ -1239,3 +1239,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 만료된 커피 투표 한 건의 계좌·권한·상태 선행조건 오류가 전체 자동 마감 배치를 중단하지 않도록 `BusinessException`을 투표 단위로 격리한다.
 - 실패한 투표의 기존 transaction은 rollback하여 `OPEN` 상태를 유지하고, 이후 ID의 정상 투표는 계속 마감·정산한다. DB·Redis·락 같은 예상 밖 runtime 예외는 계속 전체 작업 실패로 전파한다.
 - 실패 로그에는 `pollId`와 `ErrorCode`만 남기며 계좌번호, 사용자 정보, 예외 stack trace는 반복 출력하지 않는다.
+
+## 2026-08-04 - Issue #242 공지·투표 PDF 첨부
+
+- 사용자는 기존 private Cloudflare R2 공통 미디어 API를 공지와 투표가 함께 재사용하고, 이미지와 PDF 관계만 `imageAssetIds`와 `documentAssetIds`로 분리하는 호환 확장을 승인했다.
+- PDF 입력 상한은 사용자가 최종 승인한 30MiB다. 기존 JPEG/PNG 상한 5MiB와 이미지 variant 계약은 변경하지 않는다.
+- PDF는 `application/pdf`, 예약 크기와 SHA-256, `%PDF-` signature, PDFBox decode를 모두 검증한다. 암호화, embedded file, JavaScript, open/additional action, launch, rich media는 fail closed한다. 외부 악성코드 scanner는 MVP에 포함하지 않는다.
+- PDF는 thumbnail/detail로 변환하지 않고 검증된 단일 private final object로 저장한다. 다운로드는 10분 Presigned GET과 `Content-Disposition: attachment`를 사용하며 안전한 원본 파일명, MIME, 크기, SHA-256만 응답한다.
+- 공지·투표 생성과 수정은 ordered `documentAssetIds`를 additive로 지원한다. 공동 관리자는 현재 글에 이미 첨부된 타인 소유 PDF만 유지·재정렬할 수 있고, 새 unattached 타인 소유 PDF 추가는 계속 거부한다. 제거는 ORPHANED와 기존 retry/lease cleanup을 재사용한다.
+- 첨부 개수의 제품 상한은 두지 않는다. 기존 100-ID 경계는 SQL lock 및 access URL 요청의 기술적 batch 크기일 뿐이다. poll 공개 알림 payload와 수정 시 재알림 정책은 변경하지 않는다.

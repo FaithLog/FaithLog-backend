@@ -1806,3 +1806,10 @@ Metric candidates:
 - 실행형 RED는 앞선 비활성 계좌 투표가 실패할 때 뒤의 정상 투표까지 마감되지 않는 문제를 재현했다. GREEN은 실패 투표를 rollback해 `OPEN`으로 보존하면서 뒤의 정상 투표를 `CLOSED`로 처리한다.
 - 이 변경은 장애 격리 정확성 개선이며 성능 수치나 처리량 개선 주장으로 사용하지 않는다.
 - 최종 전체 테스트는 844 tests / failures 0 / errors 0 / skipped 15로 통과했다. 수정 HEAD Docker 이미지는 기존 PostgreSQL·Redis를 유지한 채 app만 교체했고 API/Actuator health는 모두 `UP`이었다. QA DB의 정상 투표 응답 177,001건이 즉시 정산되지 않도록 로컬 runtime에서 scheduler는 비활성화했다.
+
+## 2026-08-04 Issue #242 공지·투표 PDF 첨부
+
+- 기존 private R2 업로드 예약/완료/access URL/cleanup 계층을 재사용해 공지와 투표의 ordered PDF 첨부를 호환 확장한다. PDF 상한은 사용자 승인 30MiB이며 이미지 5MiB 계약은 유지한다.
+- PDFBox parser로 암호화, embedded file, JavaScript 및 자동 action을 거부하고, 원본 파일명은 object key나 로그가 아닌 attachment 다운로드 표시값으로만 사용한다. 외부 malware scanner 성능이나 탐지율은 주장하지 않는다.
+- 최종 `./gradlew test build asciidoctor --no-daemon`은 862 tests / failures 0 / errors 0 / skipped 16으로 통과했고 bootJar, JaCoCo, REST Docs HTML을 생성했다.
+- 실제 R2 네트워크, 모바일 7일 cache, 비용 절감, 다운로드 성능 수치는 검증 전까지 성과로 기록하지 않는다. Docker daemon을 사용할 수 없어 V19 실제 PostgreSQL clean/upgrade 및 app 배포도 아직 완료로 주장하지 않는다.
