@@ -164,6 +164,20 @@ class PostgresFlywayMigrationTest {
 		assertThat(queryText(jdbcUrl, username, password,
 			"select count(*)::text from weekly_materials where material_type = 'SHARING_SHEET'"))
 			.isEqualTo("2");
+
+		v20.clean();
+		assertThat(v20.migrate().success).isTrue();
+		insertLegacyWeeklyMaterialAndOutbox(jdbcUrl, username, password, false);
+		insertDuplicateLegacyOutbox(jdbcUrl, username, password);
+
+		assertThatThrownBy(v21::migrate)
+			.isInstanceOf(FlywayException.class)
+			.hasMessageContaining("SQL State  : 23505")
+			.hasMessageContaining("duplicate weekly material outbox global slot");
+		assertFlywayVersionMissing(jdbcUrl, username, password, "21");
+		assertThat(queryText(jdbcUrl, username, password,
+			"select count(*)::text from weekly_material_notification_outbox where material_type = 'SHARING_SHEET'"))
+			.isEqualTo("2");
 	}
 
 	@Test
@@ -626,6 +640,18 @@ class PostgresFlywayMigrationTest {
 		}
 	}
 
+	private static void insertDuplicateLegacyOutbox(String jdbcUrl, String username, String password)
+		throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement statement = connection.createStatement()) {
+			statement.executeUpdate("""
+				insert into weekly_material_notification_outbox
+				(campus_id, weekly_material_id, week_start_date, material_type, uploader_id, processed_at, created_at)
+				values (102, 9002, date '2026-08-03', 'SHARING_SHEET', 502, now(), now())
+				""");
+		}
+	}
+
 	private static String queryText(String jdbcUrl, String username, String password, String sql) throws Exception {
 		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
 			Statement statement = connection.createStatement();
@@ -657,6 +683,21 @@ class PostgresFlywayMigrationTest {
 					"""))
 					.isInstanceOf(java.sql.SQLException.class)
 					.hasMessageContaining("ck_weekly_materials_type");
+				assertThatThrownBy(() -> statement.executeUpdate("""
+					insert into weekly_material_notification_outbox
+					(campus_id, weekly_material_id, week_start_date, material_type, uploader_id, processed_at, created_at)
+					values (102, 9002, date '2026-08-03', 'SUNDAY_SHARING_SHEET', 502, now(), now())
+					"""))
+					.isInstanceOf(java.sql.SQLException.class)
+					.satisfies(exception -> assertThat(((java.sql.SQLException) exception).getSQLState())
+						.isEqualTo("23505"));
+				assertThatThrownBy(() -> statement.executeUpdate("""
+					insert into weekly_material_notification_outbox
+					(campus_id, weekly_material_id, week_start_date, material_type, uploader_id, processed_at, created_at)
+					values (102, 9003, date '2026-08-10', 'SATURDAY_LEADER_SHARING_SHEET', 502, now(), now())
+					"""))
+					.isInstanceOf(java.sql.SQLException.class)
+					.hasMessageContaining("ck_weekly_material_outbox_type");
 			} finally {
 				statement.execute("set session_replication_role = origin");
 			}
