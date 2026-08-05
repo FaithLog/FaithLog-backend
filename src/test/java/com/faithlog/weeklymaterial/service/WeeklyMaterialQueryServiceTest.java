@@ -24,41 +24,46 @@ class WeeklyMaterialQueryServiceTest {
 	private final WeeklyMaterialQueryService service = new WeeklyMaterialQueryService(queries, access, clock);
 
 	@Test
-	void weekResponseKeepsGuideAndSheetAsIndependentNullableSlots() {
+	void weekResponseKeepsAllThreeGlobalMaterialsAsIndependentNullableSlots() {
 		LocalDate week = LocalDate.of(2026, 8, 3);
-		when(queries.findActiveRows(1L, List.of(week))).thenReturn(List.of(
-			new WeeklyMaterialRow(2L, week, WeeklyMaterialType.SHARING_SHEET, 20L,
-				"sheet.pdf", 200L, "b".repeat(64), Instant.parse("2026-08-03T02:00:00Z"))));
+		when(queries.findActiveRows(List.of(week))).thenReturn(List.of(
+			new WeeklyMaterialRow(2L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 20L,
+				"sheet.pdf", 200L, "b".repeat(64), Instant.parse("2026-08-03T02:00:00Z")),
+			new WeeklyMaterialRow(3L, week, WeeklyMaterialType.SATURDAY_LEADER_SHARING_SHEET, 30L,
+				"saturday.pdf", 300L, "c".repeat(64), Instant.parse("2026-08-03T03:00:00Z"))));
 
 		var result = service.getCurrent(1L, 100L);
 
 		assertThat(result.weekStartDate()).isEqualTo(week);
 		assertThat(result.shepherdGuide()).isNull();
-		assertThat(result.sharingSheet().assetId()).isEqualTo(20L);
+		assertThat(result.sundaySharingSheet().assetId()).isEqualTo(20L);
+		assertThat(result.saturdayLeaderSharingSheet().assetId()).isEqualTo(30L);
 	}
 
 	@Test
 	void validEmptyCurrentAndAdjacentWeeksReturnNullableSlots() {
 		LocalDate current = LocalDate.of(2026, 8, 3);
 		LocalDate adjacent = current.minusWeeks(1);
-		when(queries.findActiveRows(1L, List.of(current))).thenReturn(List.of());
-		when(queries.findActiveRows(1L, List.of(adjacent))).thenReturn(List.of());
+		when(queries.findActiveRows(List.of(current))).thenReturn(List.of());
+		when(queries.findActiveRows(List.of(adjacent))).thenReturn(List.of());
 
 		var currentResult = service.getCurrent(1L, 100L);
 		var adjacentResult = service.getWeek(1L, 100L, adjacent);
 
 		assertThat(currentResult.weekStartDate()).isEqualTo(current);
 		assertThat(currentResult.shepherdGuide()).isNull();
-		assertThat(currentResult.sharingSheet()).isNull();
+		assertThat(currentResult.sundaySharingSheet()).isNull();
+		assertThat(currentResult.saturdayLeaderSharingSheet()).isNull();
 		assertThat(adjacentResult.weekStartDate()).isEqualTo(adjacent);
 		assertThat(adjacentResult.shepherdGuide()).isNull();
-		assertThat(adjacentResult.sharingSheet()).isNull();
+		assertThat(adjacentResult.sundaySharingSheet()).isNull();
+		assertThat(adjacentResult.saturdayLeaderSharingSheet()).isNull();
 	}
 
 	@Test
 	void yearlyListStillIncludesOnlyActiveWeeks() {
 		PageRequest pageable = PageRequest.of(0, 20);
-		when(queries.findActiveWeekDates(1L, LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1), pageable))
+		when(queries.findActiveWeekDates(LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1), pageable))
 			.thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
 		assertThat(service.list(1L, 100L, 2026, 0, 20).getContent()).isEmpty();
@@ -69,12 +74,12 @@ class WeeklyMaterialQueryServiceTest {
 		LocalDate newer = LocalDate.of(2026, 8, 3);
 		LocalDate older = LocalDate.of(2026, 7, 27);
 		PageRequest pageable = PageRequest.of(0, 2);
-		when(queries.findActiveWeekDates(1L, LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1), pageable))
+		when(queries.findActiveWeekDates(LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1), pageable))
 			.thenReturn(new PageImpl<>(List.of(newer, older), pageable, 2));
-		when(queries.findActiveRows(1L, List.of(newer, older))).thenReturn(List.of(
+		when(queries.findActiveRows(List.of(newer, older))).thenReturn(List.of(
 			new WeeklyMaterialRow(3L, newer, WeeklyMaterialType.SHEPHERD_GUIDE, 30L,
 				"guide.pdf", 300L, "c".repeat(64), Instant.parse("2026-08-03T03:00:00Z")),
-			new WeeklyMaterialRow(2L, newer, WeeklyMaterialType.SHARING_SHEET, 20L,
+			new WeeklyMaterialRow(2L, newer, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 20L,
 				"sheet.pdf", 200L, "b".repeat(64), Instant.parse("2026-08-03T02:00:00Z")),
 			new WeeklyMaterialRow(1L, older, WeeklyMaterialType.SHEPHERD_GUIDE, 10L,
 				"old.pdf", 100L, "a".repeat(64), Instant.parse("2026-07-27T01:00:00Z"))));
@@ -84,6 +89,6 @@ class WeeklyMaterialQueryServiceTest {
 		assertThat(result.getContent()).extracting(item -> item.weekStartDate())
 			.containsExactly(newer, older);
 		assertThat(result.getContent().getFirst().shepherdGuide().assetId()).isEqualTo(30L);
-		assertThat(result.getContent().getFirst().sharingSheet().assetId()).isEqualTo(20L);
+		assertThat(result.getContent().getFirst().sundaySharingSheet().assetId()).isEqualTo(20L);
 	}
 }

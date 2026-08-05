@@ -28,12 +28,11 @@ public interface WeeklyMaterialRepository
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select material from WeeklyMaterial material
-		where material.campusId = :campusId
-		  and material.weekStartDate = :weekStartDate
+		where material.weekStartDate = :weekStartDate
 		  and material.materialType = :materialType
 		""")
-	Optional<WeeklyMaterial> findSlotForUpdate(@Param("campusId") Long campusId,
-		@Param("weekStartDate") LocalDate weekStartDate, @Param("materialType") WeeklyMaterialType materialType);
+	Optional<WeeklyMaterial> findSlotForUpdate(@Param("weekStartDate") LocalDate weekStartDate,
+		@Param("materialType") WeeklyMaterialType materialType);
 
 	@Override
 	@Query(value = """
@@ -58,12 +57,10 @@ public interface WeeklyMaterialRepository
 	@Override
 	@Query("""
 		select material.mediaAssetId from WeeklyMaterial material
-		where material.campusId = :campusId
-		  and material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
+		where material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
 		  and material.mediaAssetId in :assetIds
 		""")
-	Set<Long> findActiveAttachedAssetIds(@Param("campusId") Long campusId,
-		@Param("assetIds") List<Long> assetIds);
+	Set<Long> findActiveAttachedAssetIds(@Param("assetIds") List<Long> assetIds);
 
 	@Override
 	@Query("""
@@ -71,29 +68,25 @@ public interface WeeklyMaterialRepository
 			material.id, material.weekStartDate, material.materialType, asset.id,
 			asset.originalFileName, asset.outputByteSize, asset.outputSha256, material.updatedAt)
 		from WeeklyMaterial material
-		join MediaAsset asset on asset.id = material.mediaAssetId and asset.campusId = material.campusId
-		where material.campusId = :campusId
-		  and material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
+		join MediaAsset asset on asset.id = material.mediaAssetId and asset.campusId = material.mediaCampusId
+		where material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
 		  and material.weekStartDate in :weekStartDates
 		order by material.weekStartDate desc, material.id desc
 		""")
-	List<WeeklyMaterialRow> findActiveRows(@Param("campusId") Long campusId,
-		@Param("weekStartDates") List<LocalDate> weekStartDates);
+	List<WeeklyMaterialRow> findActiveRows(@Param("weekStartDates") List<LocalDate> weekStartDates);
 
 	@Override
 	@Query(value = """
 		select distinct material.weekStartDate from WeeklyMaterial material
-		where material.campusId = :campusId
-		  and material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
+		where material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
 		  and material.weekStartDate >= :fromInclusive and material.weekStartDate < :toExclusive
 		order by material.weekStartDate desc
 		""", countQuery = """
 		select count(distinct material.weekStartDate) from WeeklyMaterial material
-		where material.campusId = :campusId
-		  and material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
+		where material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
 		  and material.weekStartDate >= :fromInclusive and material.weekStartDate < :toExclusive
 		""")
-	Page<LocalDate> findActiveWeekDates(@Param("campusId") Long campusId,
-		@Param("fromInclusive") LocalDate fromInclusive, @Param("toExclusive") LocalDate toExclusive,
+	Page<LocalDate> findActiveWeekDates(@Param("fromInclusive") LocalDate fromInclusive,
+		@Param("toExclusive") LocalDate toExclusive,
 		Pageable pageable);
 }

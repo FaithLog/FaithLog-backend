@@ -20,16 +20,16 @@ public class WeeklyMaterialFirstPublication {
 	public WeeklyMaterialFirstPublication(WeeklyMaterialNotificationOutboxRepositoryPort outboxes) {
 		this(outboxes, Clock.systemUTC());
 	}
-	public void recordFirstRegistration(WeeklyMaterial material, boolean firstRegistration) {
-		if (!firstRegistration || material.materialType() != WeeklyMaterialType.SHARING_SHEET) return;
-		if (outboxes.findSlotForUpdate(material.campusId(), material.weekStartDate(), material.materialType())
+	public void recordFirstRegistration(WeeklyMaterial material, Long publisherCampusId, boolean firstRegistration) {
+		if (!firstRegistration || material.materialType() != WeeklyMaterialType.SUNDAY_SHARING_SHEET) return;
+		if (outboxes.findSlotForUpdate(material.weekStartDate(), material.materialType())
 			.isPresent()) return;
-		outboxes.save(WeeklyMaterialNotificationOutbox.create(material.campusId(), material.id(),
+		outboxes.save(WeeklyMaterialNotificationOutbox.create(publisherCampusId, material.id(),
 			material.weekStartDate(), material.uploadedBy()));
 	}
 
 	public void suppressPending(WeeklyMaterial material) {
-		outboxes.findSlotForUpdate(material.campusId(), material.weekStartDate(), material.materialType())
+		outboxes.findSlotForUpdate(material.weekStartDate(), material.materialType())
 			.filter(outbox -> !outbox.isProcessed())
 			.ifPresent(outbox -> outbox.markProcessed(clock.instant()));
 	}

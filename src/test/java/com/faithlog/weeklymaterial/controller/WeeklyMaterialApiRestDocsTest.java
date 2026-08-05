@@ -74,22 +74,22 @@ class WeeklyMaterialApiRestDocsTest {
 
 	@Test void documentsPutDeleteCurrentWeekAndList() throws Exception {
 		when(queries.getWeek(7L, 11L, week)).thenReturn(weekResult());
-		when(admin.putAndGet(7L, week, WeeklyMaterialType.SHARING_SHEET, 41L, 11L)).thenReturn(weekResult());
+		when(admin.putAndGet(7L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 41L, 11L)).thenReturn(weekResult());
 		when(queries.getCurrent(7L, 11L)).thenReturn(weekResult());
 		when(queries.list(7L, 11L, 2026, 0, 20)).thenReturn(
 			new PageImpl<>(List.of(weekResult()), PageRequest.of(0, 20), 1));
 
 		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
-				7L, week, "SHARING_SHEET").contentType(MediaType.APPLICATION_JSON)
+				7L, week, "SUNDAY_SHARING_SHEET").contentType(MediaType.APPLICATION_JSON)
 			.content("{\"mediaAssetId\":41}"))
-			.andExpect(status().isOk()).andExpect(jsonPath("$.data.sharingSheet.assetId").value(41))
+			.andExpect(status().isOk()).andExpect(jsonPath("$.data.sundaySharingSheet.assetId").value(41))
 			.andDo(document("weekly-material-put-success", preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()), slotPath(), requestFields(
 					fieldWithPath("mediaAssetId").description("같은 캠퍼스·요청자 소유 READY PDF asset ID")),
 				weekResponseFields()));
 
 		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
-				7L, week, "SHARING_SHEET"))
+				7L, week, "SUNDAY_SHARING_SHEET"))
 			.andExpect(status().isNoContent()).andDo(document("weekly-material-delete-success", slotPath()));
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/weekly-materials/current", 7L))
@@ -116,55 +116,64 @@ class WeeklyMaterialApiRestDocsTest {
 
 	@Test void documentsValidationForbiddenNotFoundAndConflict() throws Exception {
 		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
-				7L, week, "SHARING_SHEET").contentType(MediaType.APPLICATION_JSON).content("{\"mediaAssetId\":0}"))
+				7L, week, "SUNDAY_SHARING_SHEET").contentType(MediaType.APPLICATION_JSON).content("{\"mediaAssetId\":0}"))
 			.andExpect(status().isBadRequest()).andDo(document("weekly-material-validation"));
 		doThrow(new BusinessException(ErrorCode.WEEKLY_MATERIAL_MANAGE_FORBIDDEN))
-			.when(commands).delete(7L, week, WeeklyMaterialType.SHARING_SHEET, 11L);
+			.when(commands).delete(7L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 11L);
 		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
-				7L, week, "SHARING_SHEET")).andExpect(status().isForbidden())
+				7L, week, "SUNDAY_SHARING_SHEET")).andExpect(status().isForbidden())
 			.andDo(document("weekly-material-manage-forbidden"));
-		when(queries.getWeek(7L, 11L, week)).thenReturn(new WeeklyMaterialWeekResult(week, null, null));
-		when(queries.getCurrent(7L, 11L)).thenReturn(new WeeklyMaterialWeekResult(week, null, null));
+		when(queries.getWeek(7L, 11L, week)).thenReturn(new WeeklyMaterialWeekResult(week, null, null, null));
+		when(queries.getCurrent(7L, 11L)).thenReturn(new WeeklyMaterialWeekResult(week, null, null, null));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/weekly-materials/{weekStartDate}", 7L, week))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.shepherdGuide").value(nullValue()))
-			.andExpect(jsonPath("$.data.sharingSheet").value(nullValue()))
+			.andExpect(jsonPath("$.data.sundaySharingSheet").value(nullValue()))
+			.andExpect(jsonPath("$.data.saturdayLeaderSharingSheet").value(nullValue()))
 			.andDo(document("weekly-material-week-empty-success", relaxedResponseFields(
 				fieldWithPath("data.weekStartDate").description("조회한 주차 월요일"),
 				fieldWithPath("data.shepherdGuide").type(org.springframework.restdocs.payload.JsonFieldType.NULL)
 					.description("자료가 없으면 null"),
-				fieldWithPath("data.sharingSheet").type(org.springframework.restdocs.payload.JsonFieldType.NULL)
+				fieldWithPath("data.sundaySharingSheet").type(org.springframework.restdocs.payload.JsonFieldType.NULL)
+					.description("자료가 없으면 null"),
+				fieldWithPath("data.saturdayLeaderSharingSheet")
+					.type(org.springframework.restdocs.payload.JsonFieldType.NULL)
 					.description("자료가 없으면 null"))));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/weekly-materials/current", 7L))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.shepherdGuide").value(nullValue()))
-			.andExpect(jsonPath("$.data.sharingSheet").value(nullValue()))
+			.andExpect(jsonPath("$.data.sundaySharingSheet").value(nullValue()))
+			.andExpect(jsonPath("$.data.saturdayLeaderSharingSheet").value(nullValue()))
 			.andDo(document("weekly-material-current-empty-success"));
 		doThrow(new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT)).when(admin)
-			.putAndGet(7L, week, WeeklyMaterialType.SHARING_SHEET, 41L, 11L);
+			.putAndGet(7L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 41L, 11L);
 		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
-				7L, week, "SHARING_SHEET").contentType(MediaType.APPLICATION_JSON)
+				7L, week, "SUNDAY_SHARING_SHEET").contentType(MediaType.APPLICATION_JSON)
 			.content("{\"mediaAssetId\":41}"))
 			.andExpect(status().isConflict()).andDo(document("weekly-material-media-conflict"));
 	}
 
 	private WeeklyMaterialWeekResult weekResult() {
 		return new WeeklyMaterialWeekResult(week, null, new WeeklyMaterialFileResult(41L,
-			WeeklyMaterialType.SHARING_SHEET, "주일설교-나눔지.pdf", 2048L, "a".repeat(64),
-			Instant.parse("2026-08-03T04:00:00Z")));
+			WeeklyMaterialType.SUNDAY_SHARING_SHEET, "주일설교-나눔지.pdf", 2048L, "a".repeat(64),
+			Instant.parse("2026-08-03T04:00:00Z")), null);
 	}
 	private static org.springframework.restdocs.snippet.Snippet slotPath() {
 		return pathParameters(parameterWithName("campusId").description("캠퍼스 ID"),
 			parameterWithName("weekStartDate").description("Asia/Seoul 기준 월요일 yyyy-MM-dd"),
-			parameterWithName("materialType").description("SHEPHERD_GUIDE 또는 SHARING_SHEET"));
+			parameterWithName("materialType").description(
+				"SHEPHERD_GUIDE, SUNDAY_SHARING_SHEET 또는 SATURDAY_LEADER_SHARING_SHEET"));
 	}
 	private static org.springframework.restdocs.snippet.Snippet weekResponseFields() {
 		return relaxedResponseFields(fieldWithPath("data.weekStartDate").description("주차 월요일"),
 			fieldWithPath("data.shepherdGuide").type(org.springframework.restdocs.payload.JsonFieldType.OBJECT)
 				.optional().description("nullable 목자지침 PDF"),
-			fieldWithPath("data.sharingSheet").type(org.springframework.restdocs.payload.JsonFieldType.OBJECT)
+			fieldWithPath("data.sundaySharingSheet").type(org.springframework.restdocs.payload.JsonFieldType.OBJECT)
 				.optional().description("nullable 주일설교 나눔지 PDF"),
-			fieldWithPath("data.sharingSheet.assetId").optional().description("private media access API용 asset ID"),
-			fieldWithPath("data.sharingSheet.sha256").optional().description("assetId와 함께 사용하는 cache key"));
+			fieldWithPath("data.sundaySharingSheet.assetId").optional().description("private media access API용 asset ID"),
+			fieldWithPath("data.sundaySharingSheet.sha256").optional().description("assetId와 함께 사용하는 cache key"),
+			fieldWithPath("data.saturdayLeaderSharingSheet")
+				.type(org.springframework.restdocs.payload.JsonFieldType.OBJECT)
+				.optional().description("nullable 토목모 나눔지 PDF"));
 	}
 }

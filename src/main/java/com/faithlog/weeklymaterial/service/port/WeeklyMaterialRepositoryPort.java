@@ -11,10 +11,10 @@ import org.springframework.data.domain.Pageable;
 public interface WeeklyMaterialRepositoryPort {
 	WeeklyMaterial save(WeeklyMaterial material);
 	Optional<WeeklyMaterial> findByIdForUpdate(Long id);
-	Optional<WeeklyMaterial> findSlotForUpdate(Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType);
+	Optional<WeeklyMaterial> findSlotForUpdate(LocalDate weekStartDate, WeeklyMaterialType materialType);
 	List<Long> findDuePhysicalDeletionIds(LocalDate today, Pageable pageable);
 	List<Long> findAttachedAssetIds(List<Long> assetIds);
 	List<Long> findAttachedAssetIdsExcludingMaterialId(List<Long> assetIds, Long materialId);
-	Set<Long> findActiveAttachedAssetIds(Long campusId, List<Long> assetIds);
+	Set<Long> findActiveAttachedAssetIds(List<Long> assetIds);
 	void delete(WeeklyMaterial material);
 }

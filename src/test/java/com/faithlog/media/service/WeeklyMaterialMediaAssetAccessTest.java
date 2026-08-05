@@ -37,7 +37,7 @@ class WeeklyMaterialMediaAssetAccessTest {
 		MediaAsset first = readyPdf(41L, "first.pdf");
 		MediaAsset second = readyPdf(42L, "second.pdf");
 		when(weekly.findActiveAttachedAssetIds(7L, List.of(42L, 41L))).thenReturn(Set.of(41L, 42L));
-		when(assets.findByCampusIdAndIdIn(7L, List.of(42L, 41L))).thenReturn(List.of(first, second));
+		when(assets.findByIdIn(List.of(42L, 41L))).thenReturn(List.of(first, second));
 		when(storage.presignDownload("private/42", "second.pdf", "application/pdf"))
 			.thenReturn(URI.create("https://example/42"));
 		when(storage.presignDownload("private/41", "first.pdf", "application/pdf"))
@@ -65,6 +65,30 @@ class WeeklyMaterialMediaAssetAccessTest {
 		verifyNoInteractions(storage);
 	}
 
+	@Test
+	void activeRequestCampusMemberCanPresignGlobalWeeklyPdfFromAnotherMediaTenantOnlyWhenAttached() {
+		MediaAsset crossTenant = readyPdf(51L, 8L, "global.pdf");
+		when(weekly.findActiveAttachedAssetIds(7L, List.of(51L))).thenReturn(Set.of(51L));
+		when(assets.findByIdIn(List.of(51L))).thenReturn(List.of(crossTenant));
+		when(storage.presignDownload("private/51", "global.pdf", "application/pdf"))
+			.thenReturn(URI.create("https://example/51"));
+
+		assertThat(query().getAccessUrls(7L, 12L, List.of(51L)))
+			.singleElement().extracting(item -> item.assetId()).isEqualTo(51L);
+	}
+
+	@Test
+	void requestCampusManagerCannotPresignArbitraryCrossTenantAsset() {
+		MediaAsset crossTenant = readyPdf(52L, 8L, "private.pdf");
+		when(announcements.canManage(7L, 12L)).thenReturn(true);
+		when(assets.findByIdIn(List.of(52L))).thenReturn(List.of(crossTenant));
+
+		assertThatThrownBy(() -> query().getAccessUrls(7L, 12L, List.of(52L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_ACCESS_FORBIDDEN));
+		verifyNoInteractions(storage);
+	}
+
 	private MediaAssetQueryService query() {
 		var policy = new MediaAssetAccessPolicy(announcements, polls, weekly);
 		return new MediaAssetQueryService(new MediaAssetAccessSnapshotService(assets, policy), storage,
@@ -72,7 +96,11 @@ class WeeklyMaterialMediaAssetAccessTest {
 	}
 
 	private static MediaAsset readyPdf(Long id, String fileName) {
-		MediaAsset asset = MediaAsset.reserve(7L, 11L, "application/pdf", 100, "a".repeat(64),
+		return readyPdf(id, 7L, fileName);
+	}
+
+	private static MediaAsset readyPdf(Long id, Long campusId, String fileName) {
+		MediaAsset asset = MediaAsset.reserve(campusId, 11L, "application/pdf", 100, "a".repeat(64),
 			"tmp/" + id, Instant.parse("2026-08-06T00:00:00Z"), fileName);
 		ReflectionTestUtils.setField(asset, "id", id);
 		asset.startProcessing();

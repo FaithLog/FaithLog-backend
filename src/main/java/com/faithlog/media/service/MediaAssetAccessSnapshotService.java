@@ -28,14 +28,17 @@ public class MediaAssetAccessSnapshotService {
 	@Transactional(readOnly = true)
 	public List<AccessSnapshot> authorize(Long campusId, Long requesterId, List<Long> orderedIds) {
 		var readableIds = accessPolicy.readableAssetIds(campusId, requesterId, orderedIds);
+		var readableWeeklyIds = accessPolicy.readableWeeklyMaterialAssetIds(campusId, requesterId, orderedIds);
 		var byId = new LinkedHashMap<Long, com.faithlog.media.domain.entity.MediaAsset>();
-		assets.findByCampusIdAndIdIn(campusId, orderedIds).forEach(asset -> byId.put(asset.id(), asset));
+		assets.findByIdIn(orderedIds).forEach(asset -> byId.put(asset.id(), asset));
 		if (byId.size() != orderedIds.size() || orderedIds.stream().anyMatch(id -> {
 			var asset = byId.get(id);
+			boolean sameMediaTenant = asset != null && campusId.equals(asset.campusId());
 			return asset == null || asset.status() != MediaAssetStatus.READY
-				|| (!readableIds.contains(id)
+				|| (sameMediaTenant && !readableIds.contains(id)
 					&& !(asset.ownerUserId().equals(requesterId)
-						&& accessPolicy.canPreviewOwnedPollAsset(campusId, requesterId)));
+						&& accessPolicy.canPreviewOwnedPollAsset(campusId, requesterId)))
+				|| (!sameMediaTenant && !readableWeeklyIds.contains(id));
 		})) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_ACCESS_FORBIDDEN);
 		}

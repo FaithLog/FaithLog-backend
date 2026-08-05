@@ -45,7 +45,7 @@ public class WeeklyMaterialCommandService {
 
 	public WeeklyMaterialCommandService(WeeklyMaterialRepositoryPort materials, MediaAssetRepositoryPort assets,
 		WeeklyMaterialAccessPort access, WeeklyMaterialAttachmentConflictPort foreignAttachments) {
-		this(materials, assets, access, foreignAttachments, campusId -> {}, null);
+		this(materials, assets, access, foreignAttachments, () -> {}, null);
 	}
 
 	@Transactional
@@ -53,16 +53,16 @@ public class WeeklyMaterialCommandService {
 		Long mediaAssetId, Long requesterId) {
 		access.requireManager(campusId, requesterId);
 		LocalDate week = requireMonday(weekStartDate);
-		slotLocks.lockCampus(campusId);
-		WeeklyMaterial current = materials.findSlotForUpdate(campusId, week, materialType).orElse(null);
+		slotLocks.lockGlobal();
+		WeeklyMaterial current = materials.findSlotForUpdate(week, materialType).orElse(null);
 		List<Long> lockIds = current == null || current.mediaAssetId() == null
 			? List.of(mediaAssetId)
 			: java.util.stream.Stream.of(mediaAssetId, current.mediaAssetId()).distinct().sorted().toList();
-		Map<Long, MediaAsset> locked = assets.findByCampusIdAndIdInForUpdate(campusId, lockIds).stream()
+		Map<Long, MediaAsset> locked = assets.findByIdInForUpdate(lockIds).stream()
 			.collect(Collectors.toMap(MediaAsset::id, Function.identity()));
 		if (locked.size() != lockIds.size()) throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		MediaAsset incoming = locked.get(mediaAssetId);
-		requireAttachable(incoming, requesterId);
+		requireAttachable(incoming, campusId, requesterId);
 		if (!foreignAttachments.findAttachedAssetIds(List.of(mediaAssetId)).isEmpty()) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT);
 		}
@@ -73,19 +73,20 @@ public class WeeklyMaterialCommandService {
 		if (current == null) {
 			WeeklyMaterial saved = materials.save(
 				WeeklyMaterial.create(campusId, week, materialType, mediaAssetId, requesterId));
-			if (firstPublication != null) firstPublication.recordFirstRegistration(saved, true);
+			if (firstPublication != null) firstPublication.recordFirstRegistration(saved, campusId, true);
 			return saved;
 		}
 		if (current.status() == WeeklyMaterialStatus.DELETED) {
-			current.reregister(mediaAssetId, requesterId);
+			current.reregister(campusId, mediaAssetId, requesterId);
 			return current;
 		}
 		if (!current.mediaAssetId().equals(mediaAssetId)) {
 			MediaAsset old = locked.get(current.mediaAssetId());
-			if (old == null || old.kind() != MediaAssetKind.PDF || old.status() != MediaAssetStatus.READY) {
+			if (old == null || !old.campusId().equals(current.mediaCampusId())
+				|| old.kind() != MediaAssetKind.PDF || old.status() != MediaAssetStatus.READY) {
 				throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 			}
-			current.replaceMedia(mediaAssetId, requesterId);
+			current.replaceMedia(campusId, mediaAssetId, requesterId);
 			old.markOrphaned();
 		}
 		return current;
@@ -94,23 +95,24 @@ public class WeeklyMaterialCommandService {
 	@Transactional
 	public void delete(Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType, Long requesterId) {
 		access.requireManager(campusId, requesterId);
-		slotLocks.lockCampus(campusId);
-		WeeklyMaterial current = materials.findSlotForUpdate(campusId, requireMonday(weekStartDate), materialType)
+		slotLocks.lockGlobal();
+		WeeklyMaterial current = materials.findSlotForUpdate(requireMonday(weekStartDate), materialType)
 			.filter(material -> material.status() == WeeklyMaterialStatus.ACTIVE)
 			.orElseThrow(() -> new BusinessException(ErrorCode.WEEKLY_MATERIAL_NOT_FOUND));
 		if (firstPublication != null) firstPublication.suppressPending(current);
-		MediaAsset old = assets.findByCampusIdAndIdInForUpdate(campusId, List.of(current.mediaAssetId())).stream()
+		MediaAsset old = assets.findByIdInForUpdate(List.of(current.mediaAssetId())).stream()
 			.findFirst().orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_ASSET_INVALID));
-		if (old.kind() != MediaAssetKind.PDF || old.status() != MediaAssetStatus.READY) {
+		if (!old.campusId().equals(current.mediaCampusId())
+			|| old.kind() != MediaAssetKind.PDF || old.status() != MediaAssetStatus.READY) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
 		old.markOrphaned();
 		current.delete();
 	}
 
-	private static void requireAttachable(MediaAsset asset, Long requesterId) {
+	private static void requireAttachable(MediaAsset asset, Long campusId, Long requesterId) {
 		if (asset == null || asset.kind() != MediaAssetKind.PDF || asset.status() != MediaAssetStatus.READY
-			|| !asset.ownerUserId().equals(requesterId)) {
+			|| !asset.campusId().equals(campusId) || !asset.ownerUserId().equals(requesterId)) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
 	}

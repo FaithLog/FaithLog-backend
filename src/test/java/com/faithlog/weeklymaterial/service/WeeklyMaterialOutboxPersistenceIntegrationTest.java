@@ -129,8 +129,8 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 
 		Long replacementMaterialId = transaction().execute(status -> {
 			WeeklyMaterial replacement = materials.saveAndFlush(WeeklyMaterial.create(
-				1L, WEEK, WeeklyMaterialType.SHARING_SHEET, replacementAssetId, 101L));
-			firstPublication.recordFirstRegistration(replacement, true);
+				1L, WEEK, WeeklyMaterialType.SUNDAY_SHARING_SHEET, replacementAssetId, 101L));
+			firstPublication.recordFirstRegistration(replacement, 2L, true);
 			return replacement.id();
 		});
 
@@ -142,13 +142,13 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 	}
 
 	@Test
-	void mediaAccessPersistenceReturnsOnlySameCampusActiveWeeklyAttachments() {
+	void mediaAccessPersistenceReturnsGlobalActiveWeeklyAttachmentsForAnyAuthorizedCampus() {
 		Fixture fixture = persistFixture("member-access");
 
 		assertThat(weeklyMediaAccess.findActiveAttachedAssetIds(1L, List.of(fixture.assetId())))
 			.containsExactly(fixture.assetId());
 		assertThat(weeklyMediaAccess.findActiveAttachedAssetIds(2L, List.of(fixture.assetId())))
-			.isEmpty();
+			.containsExactly(fixture.assetId());
 
 		transaction().executeWithoutResult(status ->
 			materials.findById(fixture.materialId()).orElseThrow().delete());
@@ -187,7 +187,8 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 	@Timeout(10)
 	void processorAndRetentionSerializeAsSendBeforeDeleteWhenProcessorLocksFirst() throws Exception {
 		Fixture fixture = persistFixture("concurrency");
-		when(recipients.findActiveMemberUserIds(1L)).thenReturn(List.of(101L));
+		when(recipients.findAllActiveRecipients()).thenReturn(List.of(
+			new com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipient(101L, 1L)));
 		CountDownLatch sendStarted = new CountDownLatch(1);
 		CountDownLatch allowSend = new CountDownLatch(1);
 		doAnswer(invocation -> {
@@ -222,7 +223,8 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 	@Timeout(10)
 	void concurrentProcessorsThatBothReadPendingSnapshotSendExactlyOnce() throws Exception {
 		Fixture fixture = persistFixture("processor-race");
-		when(recipients.findActiveMemberUserIds(1L)).thenReturn(List.of(101L));
+		when(recipients.findAllActiveRecipients()).thenReturn(List.of(
+			new com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipient(101L, 1L)));
 		CountDownLatch bothSnapshotsRead = new CountDownLatch(2);
 		barrierOutboxes.arm(fixture.outboxId(), bothSnapshotsRead);
 
@@ -247,7 +249,7 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 		Long assetId = persistReadyPdf(suffix);
 		return transaction().execute(status -> {
 			WeeklyMaterial material = materials.saveAndFlush(WeeklyMaterial.create(
-				1L, WEEK, WeeklyMaterialType.SHARING_SHEET, assetId, 100L));
+				1L, WEEK, WeeklyMaterialType.SUNDAY_SHARING_SHEET, assetId, 100L));
 			WeeklyMaterialNotificationOutbox outbox = outboxes.saveAndFlush(
 				WeeklyMaterialNotificationOutbox.create(1L, material.id(), WEEK, 100L));
 			return new Fixture(material.id(), outbox.id(), assetId);
@@ -358,9 +360,9 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 		}
 
 		@Override
-		public java.util.Optional<WeeklyMaterialNotificationOutbox> findSlotForUpdate(Long campusId,
+		public java.util.Optional<WeeklyMaterialNotificationOutbox> findSlotForUpdate(
 			LocalDate weekStartDate, WeeklyMaterialType materialType) {
-			return delegate.findSlotForUpdate(campusId, weekStartDate, materialType);
+			return delegate.findSlotForUpdate(weekStartDate, materialType);
 		}
 
 		@Override

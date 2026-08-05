@@ -44,6 +44,13 @@ public class MediaAssetAccessPolicy {
 		return Set.copyOf(readable);
 	}
 
+	public Set<Long> readableWeeklyMaterialAssetIds(Long campusId, Long requesterId, List<Long> assetIds) {
+		if (!isAnnouncementManager(campusId, requesterId)) {
+			announcements.requireActiveMember(campusId, requesterId);
+		}
+		return weeklyMaterials.findActiveAttachedAssetIds(campusId, assetIds);
+	}
+
 	public boolean canPreviewOwnedPollAsset(Long campusId, Long requesterId) {
 		return polls.canUpload(campusId, requesterId);
 	}

@@ -18,7 +18,7 @@ import java.time.LocalDate;
 public class WeeklyMaterialNotificationOutbox {
 	@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
-	@Column(name = "campus_id", nullable = false) private Long campusId;
+	@Column(name = "campus_id", nullable = false) private Long publisherCampusId;
 	@Column(name = "weekly_material_id", nullable = false) private Long weeklyMaterialId;
 	@Column(name = "week_start_date", nullable = false) private LocalDate weekStartDate;
 	@Enumerated(EnumType.STRING)
@@ -30,25 +30,25 @@ public class WeeklyMaterialNotificationOutbox {
 
 	protected WeeklyMaterialNotificationOutbox() {}
 
-	private WeeklyMaterialNotificationOutbox(Long campusId, Long weeklyMaterialId, LocalDate weekStartDate,
+	private WeeklyMaterialNotificationOutbox(Long publisherCampusId, Long weeklyMaterialId, LocalDate weekStartDate,
 		Long uploaderId) {
-		this.campusId = campusId;
+		this.publisherCampusId = publisherCampusId;
 		this.weeklyMaterialId = weeklyMaterialId;
 		this.weekStartDate = weekStartDate;
-		this.materialType = WeeklyMaterialType.SHARING_SHEET;
+		this.materialType = WeeklyMaterialType.SUNDAY_SHARING_SHEET;
 		this.uploaderId = uploaderId;
 	}
 
-	public static WeeklyMaterialNotificationOutbox create(Long campusId, Long weeklyMaterialId,
+	public static WeeklyMaterialNotificationOutbox create(Long publisherCampusId, Long weeklyMaterialId,
 		LocalDate weekStartDate, Long uploaderId) {
-		return new WeeklyMaterialNotificationOutbox(campusId, weeklyMaterialId, weekStartDate, uploaderId);
+		return new WeeklyMaterialNotificationOutbox(publisherCampusId, weeklyMaterialId, weekStartDate, uploaderId);
 	}
 
 	@PrePersist void prePersist() { createdAt = Instant.now(); }
 	public void markProcessed(Instant now) { if (processedAt == null) processedAt = now; }
 	public boolean isProcessed() { return processedAt != null; }
 	public Long id() { return id; }
-	public Long campusId() { return campusId; }
+	public Long publisherCampusId() { return publisherCampusId; }
 	public Long weeklyMaterialId() { return weeklyMaterialId; }
 	public LocalDate weekStartDate() { return weekStartDate; }
 	public WeeklyMaterialType materialType() { return materialType; }

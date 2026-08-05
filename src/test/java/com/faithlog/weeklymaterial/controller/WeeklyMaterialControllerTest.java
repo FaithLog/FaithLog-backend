@@ -28,16 +28,16 @@ class WeeklyMaterialControllerTest {
 		var controller = new AdminWeeklyMaterialController(admin, commands);
 		LocalDate week = LocalDate.of(2026, 8, 3);
 		var result = new WeeklyMaterialWeekResult(week, null,
-			new WeeklyMaterialFileResult(20L, WeeklyMaterialType.SHARING_SHEET, "sheet.pdf",
-				200L, "a".repeat(64), Instant.parse("2026-08-03T00:00:00Z")));
-		when(admin.putAndGet(1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L)).thenReturn(result);
+			new WeeklyMaterialFileResult(20L, WeeklyMaterialType.SUNDAY_SHARING_SHEET, "sheet.pdf",
+				200L, "a".repeat(64), Instant.parse("2026-08-03T00:00:00Z")), null);
+		when(admin.putAndGet(1L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 20L, 100L)).thenReturn(result);
 
-		var response = controller.put(user, 1L, week, WeeklyMaterialType.SHARING_SHEET,
+		var response = controller.put(user, 1L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET,
 			new PutWeeklyMaterialRequest(20L));
 
-		verify(admin).putAndGet(1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L);
-		assertThat(response.getBody().data().sharingSheet().assetId()).isEqualTo(20L);
-		assertThat(response.getBody().data().sharingSheet().getClass().getRecordComponents())
+		verify(admin).putAndGet(1L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 20L, 100L);
+		assertThat(response.getBody().data().sundaySharingSheet().assetId()).isEqualTo(20L);
+		assertThat(response.getBody().data().sundaySharingSheet().getClass().getRecordComponents())
 			.extracting(component -> component.getName())
 			.doesNotContain("objectKey", "url");
 	}

@@ -18,7 +18,7 @@ public interface WeeklyMaterialNotificationOutboxRepository
 	@Override
 	@Query("""
 		select new com.faithlog.weeklymaterial.service.port.WeeklyMaterialOutboxSnapshot(
-			outbox.id, outbox.campusId, outbox.weekStartDate, outbox.materialType, outbox.processedAt)
+			outbox.id, outbox.weekStartDate, outbox.materialType, outbox.processedAt)
 		from WeeklyMaterialNotificationOutbox outbox where outbox.id = :id
 		""")
 	java.util.Optional<com.faithlog.weeklymaterial.service.port.WeeklyMaterialOutboxSnapshot> findSnapshotById(
@@ -32,10 +32,10 @@ public interface WeeklyMaterialNotificationOutboxRepository
 	@Override
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select outbox from WeeklyMaterialNotificationOutbox outbox "
-		+ "where outbox.campusId = :campusId and outbox.weekStartDate = :weekStartDate "
+		+ "where outbox.weekStartDate = :weekStartDate "
 		+ "and outbox.materialType = :materialType")
-	Optional<WeeklyMaterialNotificationOutbox> findSlotForUpdate(@Param("campusId") Long campusId,
-		@Param("weekStartDate") LocalDate weekStartDate, @Param("materialType") WeeklyMaterialType materialType);
+	Optional<WeeklyMaterialNotificationOutbox> findSlotForUpdate(@Param("weekStartDate") LocalDate weekStartDate,
+		@Param("materialType") WeeklyMaterialType materialType);
 
 	@Override
 	@Query("select outbox.id from WeeklyMaterialNotificationOutbox outbox where outbox.processedAt is null order by outbox.id")

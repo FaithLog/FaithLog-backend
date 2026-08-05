@@ -14,7 +14,8 @@ class WeeklyMaterialTest {
 	void materialTypesAreExact() {
 		assertThat(WeeklyMaterialType.values())
 			.extracting(Enum::name)
-			.containsExactly("SHEPHERD_GUIDE", "SHARING_SHEET");
+			.containsExactly("SHEPHERD_GUIDE", "SUNDAY_SHARING_SHEET",
+				"SATURDAY_LEADER_SHARING_SHEET");
 	}
 
 	@Test
@@ -24,7 +25,8 @@ class WeeklyMaterialTest {
 
 		assertThat(material.status()).isEqualTo(WeeklyMaterialStatus.ACTIVE);
 		assertThat(material.mediaAssetId()).isEqualTo(10L);
-		assertThat(material.replaceMedia(11L, 101L)).isEqualTo(10L);
+		assertThat(material.replaceMedia(2L, 11L, 101L)).isEqualTo(10L);
+		assertThat(material.mediaCampusId()).isEqualTo(2L);
 		assertThat(material.mediaAssetId()).isEqualTo(11L);
 		assertThat(material.uploadedBy()).isEqualTo(101L);
 
@@ -32,9 +34,10 @@ class WeeklyMaterialTest {
 		assertThat(material.status()).isEqualTo(WeeklyMaterialStatus.DELETED);
 		assertThat(material.mediaAssetId()).isNull();
 
-		material.reregister(12L, 102L);
+		material.reregister(3L, 12L, 102L);
 		assertThat(material.status()).isEqualTo(WeeklyMaterialStatus.ACTIVE);
 		assertThat(material.mediaAssetId()).isEqualTo(12L);
+		assertThat(material.mediaCampusId()).isEqualTo(3L);
 		assertThat(material.uploadedBy()).isEqualTo(102L);
 	}
 }

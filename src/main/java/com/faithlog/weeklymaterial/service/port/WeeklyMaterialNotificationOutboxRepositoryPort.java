@@ -12,6 +12,6 @@ public interface WeeklyMaterialNotificationOutboxRepositoryPort {
 	Optional<WeeklyMaterialOutboxSnapshot> findSnapshotById(Long id);
 	Optional<WeeklyMaterialNotificationOutbox> findByIdForUpdate(Long id);
 	Optional<WeeklyMaterialNotificationOutbox> findSlotForUpdate(
-		Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType);
+		LocalDate weekStartDate, WeeklyMaterialType materialType);
 	List<Long> findPendingIds(Pageable pageable);
 }

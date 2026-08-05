@@ -19,13 +19,13 @@ class WeeklyMaterialAdminServiceTest {
 		WeeklyMaterialQueryService queries = mock(WeeklyMaterialQueryService.class);
 		WeeklyMaterialAdminService service = new WeeklyMaterialAdminService(commands, queries);
 		LocalDate week = LocalDate.of(2026, 8, 3);
-		WeeklyMaterialWeekResult expected = new WeeklyMaterialWeekResult(week, null, null);
+		WeeklyMaterialWeekResult expected = new WeeklyMaterialWeekResult(week, null, null, null);
 		when(queries.getWeekForManager(1L, 100L, week)).thenReturn(expected);
 
-		assertThat(service.putAndGet(1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L))
+		assertThat(service.putAndGet(1L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 20L, 100L))
 			.isSameAs(expected);
 		var order = inOrder(commands, queries);
-		order.verify(commands).put(1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L);
+		order.verify(commands).put(1L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, 20L, 100L);
 		order.verify(queries).getWeekForManager(1L, 100L, week);
 
 		Transactional transaction = AnnotatedElementUtils.findMergedAnnotation(

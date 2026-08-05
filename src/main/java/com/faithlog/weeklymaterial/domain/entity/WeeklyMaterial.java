@@ -25,8 +25,8 @@ public class WeeklyMaterial {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	@Column(name = "campus_id", nullable = false)
-	private Long campusId;
+	@Column(name = "media_campus_id", nullable = false)
+	private Long mediaCampusId;
 
 	@Column(name = "week_start_date", nullable = false)
 	private LocalDate weekStartDate;
@@ -54,9 +54,9 @@ public class WeeklyMaterial {
 	protected WeeklyMaterial() {
 	}
 
-	private WeeklyMaterial(Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType,
+	private WeeklyMaterial(Long mediaCampusId, LocalDate weekStartDate, WeeklyMaterialType materialType,
 		Long mediaAssetId, Long uploadedBy) {
-		this.campusId = positive(campusId, "campusId");
+		this.mediaCampusId = positive(mediaCampusId, "mediaCampusId");
 		this.weekStartDate = monday(weekStartDate);
 		this.materialType = Objects.requireNonNull(materialType);
 		this.mediaAssetId = positive(mediaAssetId, "mediaAssetId");
@@ -64,14 +64,15 @@ public class WeeklyMaterial {
 		this.status = WeeklyMaterialStatus.ACTIVE;
 	}
 
-	public static WeeklyMaterial create(Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType,
+	public static WeeklyMaterial create(Long mediaCampusId, LocalDate weekStartDate, WeeklyMaterialType materialType,
 		Long mediaAssetId, Long uploadedBy) {
-		return new WeeklyMaterial(campusId, weekStartDate, materialType, mediaAssetId, uploadedBy);
+		return new WeeklyMaterial(mediaCampusId, weekStartDate, materialType, mediaAssetId, uploadedBy);
 	}
 
-	public Long replaceMedia(Long newMediaAssetId, Long requesterId) {
+	public Long replaceMedia(Long newMediaCampusId, Long newMediaAssetId, Long requesterId) {
 		if (status != WeeklyMaterialStatus.ACTIVE) throw new IllegalStateException("material is deleted");
 		Long old = mediaAssetId;
+		mediaCampusId = positive(newMediaCampusId, "mediaCampusId");
 		mediaAssetId = positive(newMediaAssetId, "mediaAssetId");
 		uploadedBy = positive(requesterId, "uploadedBy");
 		return old;
@@ -85,8 +86,9 @@ public class WeeklyMaterial {
 		return old;
 	}
 
-	public void reregister(Long newMediaAssetId, Long requesterId) {
+	public void reregister(Long newMediaCampusId, Long newMediaAssetId, Long requesterId) {
 		if (status != WeeklyMaterialStatus.DELETED) throw new IllegalStateException("material is active");
+		mediaCampusId = positive(newMediaCampusId, "mediaCampusId");
 		mediaAssetId = positive(newMediaAssetId, "mediaAssetId");
 		uploadedBy = positive(requesterId, "uploadedBy");
 		status = WeeklyMaterialStatus.ACTIVE;
@@ -117,7 +119,7 @@ public class WeeklyMaterial {
 	}
 
 	public Long id() { return id; }
-	public Long campusId() { return campusId; }
+	public Long mediaCampusId() { return mediaCampusId; }
 	public LocalDate weekStartDate() { return weekStartDate; }
 	public WeeklyMaterialType materialType() { return materialType; }
 	public Long mediaAssetId() { return mediaAssetId; }

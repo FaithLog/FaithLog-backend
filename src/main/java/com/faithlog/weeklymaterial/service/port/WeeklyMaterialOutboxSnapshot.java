@@ -6,7 +6,6 @@ import java.time.LocalDate;
 
 public record WeeklyMaterialOutboxSnapshot(
 	Long id,
-	Long campusId,
 	LocalDate weekStartDate,
 	WeeklyMaterialType materialType,
 	Instant processedAt

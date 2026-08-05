@@ -6,9 +6,14 @@ import com.faithlog.notification.service.command.AutomaticNotificationRequestCom
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialNotificationOutboxRepositoryPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipientPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRepositoryPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialSlotLockPort;
 import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus;
 import java.time.Clock;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,24 +24,33 @@ public class WeeklyMaterialNotificationOutboxProcessor {
 	private final WeeklyMaterialRepositoryPort materials;
 	private final WeeklyMaterialRecipientPort recipients;
 	private final NotificationRequestCommandService notifications;
+	private final WeeklyMaterialSlotLockPort slotLocks;
 	private final Clock clock;
 
+	@Autowired
 	public WeeklyMaterialNotificationOutboxProcessor(WeeklyMaterialNotificationOutboxRepositoryPort outboxes,
 		WeeklyMaterialRepositoryPort materials, WeeklyMaterialRecipientPort recipients,
-		NotificationRequestCommandService notifications, Clock clock) {
+		NotificationRequestCommandService notifications, Clock clock, WeeklyMaterialSlotLockPort slotLocks) {
 		this.outboxes = outboxes;
 		this.materials = materials;
 		this.recipients = recipients;
 		this.notifications = notifications;
 		this.clock = clock;
+		this.slotLocks = slotLocks;
+	}
+
+	public WeeklyMaterialNotificationOutboxProcessor(WeeklyMaterialNotificationOutboxRepositoryPort outboxes,
+		WeeklyMaterialRepositoryPort materials, WeeklyMaterialRecipientPort recipients,
+		NotificationRequestCommandService notifications, Clock clock) {
+		this(outboxes, materials, recipients, notifications, clock, () -> {});
 	}
 
 	@Transactional
 	public boolean process(Long outboxId) {
 		var snapshot = outboxes.findSnapshotById(outboxId).orElse(null);
 		if (snapshot == null || snapshot.isProcessed()) return false;
-		var material = materials.findSlotForUpdate(
-			snapshot.campusId(), snapshot.weekStartDate(), snapshot.materialType()).orElse(null);
+		slotLocks.lockGlobal();
+		var material = materials.findSlotForUpdate(snapshot.weekStartDate(), snapshot.materialType()).orElse(null);
 		var outbox = outboxes.findByIdForUpdate(outboxId).orElse(null);
 		if (outbox == null || outbox.isProcessed()) return false;
 		if (material == null || material.status() != WeeklyMaterialStatus.ACTIVE
@@ -44,17 +58,20 @@ public class WeeklyMaterialNotificationOutboxProcessor {
 			outbox.markProcessed(clock.instant());
 			return false;
 		}
-		var targets = recipients.findActiveMemberUserIds(outbox.campusId()).stream()
-			.filter(id -> !id.equals(outbox.uploaderId())).distinct().toList();
-		notifications.requestRequiredAutomaticNotification(new AutomaticNotificationRequestCommand(
-			outbox.campusId(), NotificationType.WEEKLY_SHARING_SHEET_PUBLISHED, outbox.weekStartDate(),
-			outbox.weeklyMaterialId(), targets, outbox.weekStartDate(),
-			"weekly-sharing-sheet:" + outbox.campusId() + ":" + outbox.weekStartDate(), TITLE,
-			outbox.weekStartDate() + " 주차 주일설교 나눔지를 확인해 주세요",
-			Map.of("eventType", "WEEKLY_SHARING_SHEET_PUBLISHED",
-				"campusId", outbox.campusId().toString(),
-				"weeklyMaterialId", outbox.weeklyMaterialId().toString(),
-				"weekStartDate", outbox.weekStartDate().toString())));
+		var targetsByCampus = recipients.findAllActiveRecipients().stream()
+			.filter(recipient -> !recipient.userId().equals(outbox.uploaderId()))
+			.collect(Collectors.groupingBy(recipient -> recipient.campusId(), LinkedHashMap::new,
+				Collectors.mapping(recipient -> recipient.userId(), Collectors.toList())));
+		targetsByCampus.forEach((campusId, targets) ->
+			notifications.requestRequiredAutomaticNotification(new AutomaticNotificationRequestCommand(
+				campusId, NotificationType.WEEKLY_SHARING_SHEET_PUBLISHED, outbox.weekStartDate(),
+				outbox.weeklyMaterialId(), targets, outbox.weekStartDate(),
+				"weekly-sharing-sheet:" + outbox.weekStartDate(), TITLE,
+				outbox.weekStartDate() + " 주차 주일설교 나눔지를 확인해 주세요",
+				Map.of("eventType", "WEEKLY_SHARING_SHEET_PUBLISHED",
+					"campusId", campusId.toString(),
+					"weeklyMaterialId", outbox.weeklyMaterialId().toString(),
+					"weekStartDate", outbox.weekStartDate().toString()))));
 		outbox.markProcessed(clock.instant());
 		return true;
 	}

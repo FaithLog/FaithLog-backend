@@ -2,5 +2,6 @@ package com.faithlog.weeklymaterial.domain.type;
 
 public enum WeeklyMaterialType {
 	SHEPHERD_GUIDE,
-	SHARING_SHEET
+	SUNDAY_SHARING_SHEET,
+	SATURDAY_LEADER_SHARING_SHEET
 }

@@ -51,7 +51,7 @@ class MediaAssetAccessPolicyTest {
 
 		assertThat(policy.readableAssetIds(7L, 12L, List.of(31L, 32L, 33L)))
 			.containsExactlyInAnyOrder(31L, 32L, 33L);
-		verify(announcements).requireActiveMember(7L, 12L);
+		verify(announcements, org.mockito.Mockito.atLeastOnce()).requireActiveMember(7L, 12L);
 	}
 
 	@Test

@@ -30,7 +30,7 @@ class WeeklyMaterialRetentionServiceTest {
 		WeeklyMaterial material = material(LocalDate.of(2026, 5, 4), 20L);
 		MediaAsset pdf = readyPdf(20L);
 		when(materials.findByIdForUpdate(10L)).thenReturn(Optional.of(material));
-		when(assets.findByCampusIdAndIdInForUpdate(1L, List.of(20L))).thenReturn(List.of(pdf));
+		when(assets.findByIdInForUpdate(List.of(20L))).thenReturn(List.of(pdf));
 
 		assertThat(service.deleteIfDue(10L, LocalDate.of(2026, 8, 4))).isTrue();
 
@@ -38,7 +38,7 @@ class WeeklyMaterialRetentionServiceTest {
 		var order = org.mockito.Mockito.inOrder(materials, publications, assets);
 		order.verify(materials).findByIdForUpdate(10L);
 		order.verify(publications).suppressPending(material);
-		order.verify(assets).findByCampusIdAndIdInForUpdate(1L, List.of(20L));
+		order.verify(assets).findByIdInForUpdate(List.of(20L));
 		verify(materials).delete(material);
 	}
 
@@ -51,8 +51,7 @@ class WeeklyMaterialRetentionServiceTest {
 		assertThat(service.deleteIfDue(10L, LocalDate.of(2026, 8, 4))).isTrue();
 
 		verify(publications).suppressPending(material);
-		verify(assets, never()).findByCampusIdAndIdInForUpdate(
-			org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyList());
+		verify(assets, never()).findByIdInForUpdate(org.mockito.ArgumentMatchers.anyList());
 		verify(materials).delete(material);
 	}
 
@@ -64,12 +63,11 @@ class WeeklyMaterialRetentionServiceTest {
 		assertThat(service.deleteIfDue(10L, LocalDate.of(2026, 8, 3))).isFalse();
 
 		verify(materials, never()).delete(material);
-		verify(assets, never()).findByCampusIdAndIdInForUpdate(
-			org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyList());
+		verify(assets, never()).findByIdInForUpdate(org.mockito.ArgumentMatchers.anyList());
 	}
 
 	private static WeeklyMaterial material(LocalDate week, Long assetId) {
-		WeeklyMaterial material = WeeklyMaterial.create(1L, week, WeeklyMaterialType.SHARING_SHEET, assetId, 100L);
+		WeeklyMaterial material = WeeklyMaterial.create(1L, week, WeeklyMaterialType.SUNDAY_SHARING_SHEET, assetId, 100L);
 		ReflectionTestUtils.setField(material, "id", 10L);
 		return material;
 	}
