@@ -12,6 +12,7 @@ import com.faithlog.announcement.domain.entity.AnnouncementImage;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementDocumentRepository;
 import com.faithlog.announcement.service.port.PollMediaAttachmentPort;
+import com.faithlog.announcement.service.port.WeeklyMaterialMediaAttachmentPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.domain.entity.MediaAsset;
@@ -33,11 +34,25 @@ class AnnouncementImageAttachmentServiceTest {
 	@Mock private AnnouncementDocumentRepository documents;
 	@Mock private MediaAssetRepositoryPort assets;
 	@Mock private PollMediaAttachmentPort pollImages;
+	@Mock private WeeklyMaterialMediaAttachmentPort weeklyAttachments;
 	private AnnouncementImageAttachmentService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new AnnouncementImageAttachmentService(images, documents, assets, pollImages);
+		service = new AnnouncementImageAttachmentService(images, documents, assets, pollImages, weeklyAttachments);
+	}
+
+	@Test
+	void legacyWeeklyImageConflictIsRejectedAfterMediaLock() {
+		MediaAsset asset = readyAsset(31L, 7L, 11L);
+		when(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of());
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(asset));
+		when(weeklyAttachments.findAttachedAssetIds(List.of(31L))).thenReturn(List.of(31L));
+
+		assertThatThrownBy(() -> service.replace(101L, 7L, 11L, List.of(31L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_STATE_CONFLICT));
+		verify(images, never()).deleteByAnnouncementId(101L);
 	}
 
 	@Test

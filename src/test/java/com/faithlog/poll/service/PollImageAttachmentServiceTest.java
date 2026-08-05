@@ -15,6 +15,7 @@ import com.faithlog.poll.domain.entity.PollImage;
 import com.faithlog.poll.infrastructure.repository.PollImageRepository;
 import com.faithlog.poll.infrastructure.repository.PollDocumentRepository;
 import com.faithlog.poll.service.port.AnnouncementMediaAttachmentPort;
+import com.faithlog.poll.service.port.WeeklyMaterialMediaAttachmentPort;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,11 +32,25 @@ class PollImageAttachmentServiceTest {
 	@Mock private PollDocumentRepository documents;
 	@Mock private MediaAssetRepositoryPort assets;
 	@Mock private AnnouncementMediaAttachmentPort announcementImages;
+	@Mock private WeeklyMaterialMediaAttachmentPort weeklyAttachments;
 	private PollImageAttachmentService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new PollImageAttachmentService(images, documents, assets, announcementImages);
+		service = new PollImageAttachmentService(images, documents, assets, announcementImages, weeklyAttachments);
+	}
+
+	@Test
+	void legacyWeeklyImageConflictIsRejectedAfterMediaLock() {
+		when(images.findByPollIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of());
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L)))
+			.thenReturn(List.of(readyAsset(31L, 7L, 11L)));
+		when(weeklyAttachments.findAttachedAssetIds(List.of(31L))).thenReturn(List.of(31L));
+
+		assertThatThrownBy(() -> service.replace(101L, 7L, 11L, List.of(31L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_STATE_CONFLICT));
+		verify(images, never()).deleteByPollId(101L);
 	}
 
 	@Test

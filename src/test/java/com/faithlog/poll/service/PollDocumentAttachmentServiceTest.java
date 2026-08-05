@@ -15,6 +15,7 @@ import com.faithlog.poll.domain.entity.PollDocument;
 import com.faithlog.poll.infrastructure.repository.PollDocumentRepository;
 import com.faithlog.poll.infrastructure.repository.PollImageRepository;
 import com.faithlog.poll.service.port.AnnouncementMediaAttachmentPort;
+import com.faithlog.poll.service.port.WeeklyMaterialMediaAttachmentPort;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,11 +32,29 @@ class PollDocumentAttachmentServiceTest {
 	@Mock private PollImageRepository images;
 	@Mock private MediaAssetRepositoryPort assets;
 	@Mock private AnnouncementMediaAttachmentPort announcementAttachments;
+	@Mock private WeeklyMaterialMediaAttachmentPort weeklyAttachments;
 	private PollDocumentAttachmentService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new PollDocumentAttachmentService(documents, images, assets, announcementAttachments);
+		service = new PollDocumentAttachmentService(
+			documents, images, assets, announcementAttachments, weeklyAttachments);
+	}
+
+	@Test
+	void weeklyPdfIsRejectedAfterMediaLockBeforeRelationMutation() {
+		MediaAsset pdf = readyPdf(31L, 7L, 11L);
+		when(documents.findByPollIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of());
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(pdf));
+		when(weeklyAttachments.findAttachedAssetIds(List.of(31L))).thenReturn(List.of(31L));
+
+		assertThatThrownBy(() -> service.replace(101L, 7L, 11L, List.of(31L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_STATE_CONFLICT));
+		var order = org.mockito.Mockito.inOrder(assets, weeklyAttachments);
+		order.verify(assets).findByCampusIdAndIdInForUpdate(7L, List.of(31L));
+		order.verify(weeklyAttachments).findAttachedAssetIds(List.of(31L));
+		verify(documents, never()).deleteByPollId(101L);
 	}
 
 	@Test

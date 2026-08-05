@@ -11,6 +11,7 @@ import com.faithlog.announcement.domain.entity.AnnouncementDocument;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementDocumentRepository;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
 import com.faithlog.announcement.service.port.PollMediaAttachmentPort;
+import com.faithlog.announcement.service.port.WeeklyMaterialMediaAttachmentPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.media.domain.entity.MediaAsset;
@@ -32,11 +33,29 @@ class AnnouncementDocumentAttachmentServiceTest {
 	@Mock private AnnouncementImageRepository images;
 	@Mock private MediaAssetRepositoryPort assets;
 	@Mock private PollMediaAttachmentPort pollAttachments;
+	@Mock private WeeklyMaterialMediaAttachmentPort weeklyAttachments;
 	private AnnouncementDocumentAttachmentService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new AnnouncementDocumentAttachmentService(documents, images, assets, pollAttachments);
+		service = new AnnouncementDocumentAttachmentService(
+			documents, images, assets, pollAttachments, weeklyAttachments);
+	}
+
+	@Test
+	void weeklyPdfIsRejectedAfterMediaLockBeforeRelationMutation() {
+		MediaAsset pdf = readyPdf(31L, 7L, 11L);
+		when(documents.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of());
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(pdf));
+		when(weeklyAttachments.findAttachedAssetIds(List.of(31L))).thenReturn(List.of(31L));
+
+		assertThatThrownBy(() -> service.replace(101L, 7L, 11L, List.of(31L)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_STATE_CONFLICT));
+		var order = inOrder(assets, weeklyAttachments);
+		order.verify(assets).findByCampusIdAndIdInForUpdate(7L, List.of(31L));
+		order.verify(weeklyAttachments).findAttachedAssetIds(List.of(31L));
+		verify(documents, never()).deleteByAnnouncementId(101L);
 	}
 
 	@Test
