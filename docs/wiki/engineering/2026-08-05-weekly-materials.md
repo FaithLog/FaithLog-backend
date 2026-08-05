@@ -1,0 +1,44 @@
+# Issue #245 캠퍼스 주간자료
+
+## 제품 계약
+
+- `SHEPHERD_GUIDE`, `SHARING_SHEET`를 campus/week/type별 독립 슬롯으로 관리한다.
+- `weekStartDate`는 Asia/Seoul 기준 월요일이다.
+- 기존 private PDF upload reservation/complete/access/cleanup과 30MiB 상한을 재사용한다.
+- 캠퍼스 관리자만 등록·교체·삭제하고 ACTIVE 멤버만 조회한다.
+- 최초 `SHARING_SHEET` 등록만 알림을 생성하며 업로더는 제외한다.
+- 승인 copy: `새 주일설교 나눔지가 등록되었어요` / `{weekStartDate} 주차 주일설교 나눔지를 확인해 주세요` / `WEEKLY_SHARING_SHEET_PUBLISHED`.
+
+## TDD 기록
+
+1. domain/time, V20, media association, query/API, outbox, REST Docs 단위마다 test-only RED를 먼저 커밋했다.
+2. same-campus requester-owned READY PDF 검증과 stable media lock을 구현했다.
+3. replacement/delete의 이전 asset은 ORPHANED로 전환하고 cleanup이 삭제할 수 있도록 DELETED tombstone의 media FK를 비운다.
+4. 최초 PUT race는 campus row lock으로 직렬화하고 같은 transaction에서 unique outbox를 기록한다.
+5. outbox processor는 ACTIVE 멤버를 조회해 업로더를 제외하고, 실패 시 pending을 유지한다.
+
+## 검증
+
+- #245 및 #242 PDF/media, #237 announcement outbox, #238 poll outbox, V18 cleanup focused regression: 82 tests, failures/errors/skipped 0.
+- 격리 PostgreSQL 17의 전용 DB/port에서 `PostgresFlywayMigrationTest`: 11 tests, failures/errors/skipped 0. V1→V20 clean과 V19→V20 upgrade를 검증했다.
+- `build asciidoctor -x test -x jacocoTestReport`: 성공, bootJar와 REST Docs HTML 생성.
+- 전체 `test build asciidoctor`는 두 번 모두 `:test` 장시간 무출력/JVM instrumentation 정지로 완료되지 않아 전체 성공으로 주장하지 않는다.
+- 실제 R2/FCM, 기존 shared PostgreSQL/Redis/app container mutation, push/PR/merge/deploy는 0이다. 검증 전용 PostgreSQL container만 생성 후 제거했다.
+
+## 프론트엔드 handoff
+
+- 목자지침과 주일설교 나눔지는 별도 control로 업로드·교체·삭제한다.
+- 기존 upload reservation → private R2 PUT → complete → weekly-material PUT 순서를 재사용한다.
+- week response의 `shepherdGuide`, `sharingSheet`는 각각 nullable이다.
+- 다운로드는 `assetId`를 기존 private media access API에 전달한다. object key/public URL을 기대하지 않는다.
+- 기기 cache key는 `assetId + sha256`, TTL은 7일이다. SHA가 바뀌면 새 PDF를 받고 이전 cache는 LRU/정리 정책으로 제거한다.
+
+## Obsidian 전달
+
+현재 작업 환경에서 Vault가 쓰기 허용 경로 밖이므로 아래 경로에 이 문서 본문을 복사해야 한다.
+
+`/Users/josephuk77/obsidian/obsidian-writing-vault/Projects/FaithLog/04_DevLog/2026-08-05_issue-245-weekly-materials.md`
+
+그리고 `/Users/josephuk77/obsidian/obsidian-writing-vault/Projects/FaithLog/00_Index.md`의 DevLog에 다음을 추가한다.
+
+`- [[04_DevLog/2026-08-05_issue-245-weekly-materials]]`

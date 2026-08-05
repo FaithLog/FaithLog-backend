@@ -1834,4 +1834,6 @@ Metric candidates:
 
 - campus/week/type 독립 PDF 슬롯, soft-delete tombstone, stable media row locking, ORPHANED cleanup handoff, 최초 주일설교 나눔지 durable outbox를 TDD로 구현했다.
 - API transaction은 storage/network port를 호출하지 않으며 기존 private R2 PDF lifecycle과 30MiB 상한을 재사용한다.
-- 테스트 수와 PostgreSQL clean/upgrade 결과는 최종 검증 후 확정한다. 실제 R2/FCM, shared Docker/PG/Redis, push/PR/merge/deploy 수치는 0으로 유지한다.
+- #245 및 #242 PDF/media, #237 announcement outbox, #238 poll outbox, V18 cleanup focused regression은 82 tests / failures 0 / errors 0 / skipped 0이다.
+- 격리 PostgreSQL 17에서 V1→V20 clean과 V19→V20 upgrade를 포함한 11 tests / failures 0 / errors 0 / skipped 0을 확인했다. 전체 `test build asciidoctor`는 두 번 모두 `:test` 장시간 무출력/JVM instrumentation 정지로 완료되지 않아 전체 suite 성공으로 주장하지 않는다.
+- 실제 R2/FCM, 기존 shared PostgreSQL/Redis/app container mutation, push/PR/merge/deploy 수치는 0이다. 검증 전용 PostgreSQL container만 생성 후 제거했다.
