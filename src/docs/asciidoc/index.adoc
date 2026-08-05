@@ -25,6 +25,8 @@ include::{snippets}/weekly-material-delete-success/http-response.adoc[]
 include::{snippets}/weekly-material-current-success/http-request.adoc[]
 include::{snippets}/weekly-material-current-success/http-response.adoc[]
 
+include::{snippets}/weekly-material-current-empty-success/http-response.adoc[]
+
 === Week Detail
 include::{snippets}/weekly-material-week-success/http-request.adoc[]
 include::{snippets}/weekly-material-week-success/http-response.adoc[]

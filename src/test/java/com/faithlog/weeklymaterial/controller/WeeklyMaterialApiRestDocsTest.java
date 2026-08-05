@@ -1,6 +1,7 @@
 package com.faithlog.weeklymaterial.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
@@ -120,16 +121,22 @@ class WeeklyMaterialApiRestDocsTest {
 				7L, week, "SHARING_SHEET")).andExpect(status().isForbidden())
 			.andDo(document("weekly-material-manage-forbidden"));
 		when(queries.getWeek(7L, 11L, week)).thenReturn(new WeeklyMaterialWeekResult(week, null, null));
+		when(queries.getCurrent(7L, 11L)).thenReturn(new WeeklyMaterialWeekResult(week, null, null));
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/weekly-materials/{weekStartDate}", 7L, week))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.shepherdGuide").doesNotExist())
-			.andExpect(jsonPath("$.data.sharingSheet").doesNotExist())
+			.andExpect(jsonPath("$.data.shepherdGuide").value(nullValue()))
+			.andExpect(jsonPath("$.data.sharingSheet").value(nullValue()))
 			.andDo(document("weekly-material-week-empty-success", relaxedResponseFields(
 				fieldWithPath("data.weekStartDate").description("조회한 주차 월요일"),
 				fieldWithPath("data.shepherdGuide").type(org.springframework.restdocs.payload.JsonFieldType.NULL)
 					.description("자료가 없으면 null"),
 				fieldWithPath("data.sharingSheet").type(org.springframework.restdocs.payload.JsonFieldType.NULL)
 					.description("자료가 없으면 null"))));
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/weekly-materials/current", 7L))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.shepherdGuide").value(nullValue()))
+			.andExpect(jsonPath("$.data.sharingSheet").value(nullValue()))
+			.andDo(document("weekly-material-current-empty-success"));
 		doThrow(new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT)).when(commands)
 			.put(7L, week, WeeklyMaterialType.SHARING_SHEET, 41L, 11L);
 		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
