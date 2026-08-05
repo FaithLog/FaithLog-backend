@@ -29,6 +29,10 @@ include::{snippets}/weekly-material-current-success/http-response.adoc[]
 include::{snippets}/weekly-material-week-success/http-request.adoc[]
 include::{snippets}/weekly-material-week-success/http-response.adoc[]
 
+자료가 없는 유효한 주차도 좌우 pager의 정상 empty state이며 두 슬롯이 `null`인 `200 OK`를 반환한다.
+
+include::{snippets}/weekly-material-week-empty-success/http-response.adoc[]
+
 === Year List
 include::{snippets}/weekly-material-list-success/http-request.adoc[]
 include::{snippets}/weekly-material-list-success/http-response.adoc[]

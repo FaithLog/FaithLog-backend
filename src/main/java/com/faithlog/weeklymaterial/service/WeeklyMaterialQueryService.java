@@ -47,7 +47,6 @@ public class WeeklyMaterialQueryService {
 			throw new BusinessException(ErrorCode.WEEKLY_MATERIAL_INVALID_WEEK_START_DATE);
 		}
 		List<WeeklyMaterialRow> rows = queries.findActiveRows(campusId, List.of(week));
-		if (rows.isEmpty()) throw new BusinessException(ErrorCode.WEEKLY_MATERIAL_NOT_FOUND);
 		return assemble(week, rows);
 	}
 

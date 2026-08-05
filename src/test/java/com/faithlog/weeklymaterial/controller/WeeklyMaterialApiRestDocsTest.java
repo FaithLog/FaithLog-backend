@@ -124,7 +124,12 @@ class WeeklyMaterialApiRestDocsTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.shepherdGuide").doesNotExist())
 			.andExpect(jsonPath("$.data.sharingSheet").doesNotExist())
-			.andDo(document("weekly-material-week-empty-success", weekResponseFields()));
+			.andDo(document("weekly-material-week-empty-success", relaxedResponseFields(
+				fieldWithPath("data.weekStartDate").description("조회한 주차 월요일"),
+				fieldWithPath("data.shepherdGuide").type(org.springframework.restdocs.payload.JsonFieldType.NULL)
+					.description("자료가 없으면 null"),
+				fieldWithPath("data.sharingSheet").type(org.springframework.restdocs.payload.JsonFieldType.NULL)
+					.description("자료가 없으면 null"))));
 		doThrow(new BusinessException(ErrorCode.MEDIA_ASSET_STATE_CONFLICT)).when(commands)
 			.put(7L, week, WeeklyMaterialType.SHARING_SHEET, 41L, 11L);
 		mockMvc.perform(put("/api/v1/admin/campuses/{campusId}/weekly-materials/{weekStartDate}/{materialType}",
@@ -145,8 +150,10 @@ class WeeklyMaterialApiRestDocsTest {
 	}
 	private static org.springframework.restdocs.snippet.Snippet weekResponseFields() {
 		return relaxedResponseFields(fieldWithPath("data.weekStartDate").description("주차 월요일"),
-			fieldWithPath("data.shepherdGuide").optional().description("nullable 목자지침 PDF"),
-			fieldWithPath("data.sharingSheet").optional().description("nullable 주일설교 나눔지 PDF"),
+			fieldWithPath("data.shepherdGuide").type(org.springframework.restdocs.payload.JsonFieldType.OBJECT)
+				.optional().description("nullable 목자지침 PDF"),
+			fieldWithPath("data.sharingSheet").type(org.springframework.restdocs.payload.JsonFieldType.OBJECT)
+				.optional().description("nullable 주일설교 나눔지 PDF"),
 			fieldWithPath("data.sharingSheet.assetId").optional().description("private media access API용 asset ID"),
 			fieldWithPath("data.sharingSheet.sha256").optional().description("assetId와 함께 사용하는 cache key"));
 	}
