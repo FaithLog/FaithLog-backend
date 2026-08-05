@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.faithlog.media.domain.entity.MediaAsset;
 import com.faithlog.media.domain.type.MediaAssetStatus;
 import com.faithlog.media.infrastructure.repository.MediaAssetRepository;
+import com.faithlog.media.service.port.WeeklyMaterialMediaAccessPort;
 import com.faithlog.notification.service.NotificationRequestCommandService;
 import com.faithlog.weeklymaterial.domain.entity.WeeklyMaterial;
 import com.faithlog.weeklymaterial.domain.entity.WeeklyMaterialNotificationOutbox;
@@ -53,6 +54,7 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 	@Autowired private WeeklyMaterialNotificationOutboxRepository outboxes;
 	@Autowired private BarrierOutboxPort barrierOutboxes;
 	@Autowired private MediaAssetRepository assets;
+	@Autowired private WeeklyMaterialMediaAccessPort weeklyMediaAccess;
 	@Autowired private WeeklyMaterialRetentionService retention;
 	@Autowired private WeeklyMaterialFirstPublication firstPublication;
 	@Autowired private WeeklyMaterialNotificationOutboxProcessor processor;
@@ -122,6 +124,22 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 			.first().extracting(WeeklyMaterialNotificationOutbox::weeklyMaterialId)
 			.isEqualTo(fixture.materialId());
 		verify(notifications, never()).requestRequiredAutomaticNotification(any());
+	}
+
+	@Test
+	void mediaAccessPersistenceReturnsOnlySameCampusActiveWeeklyAttachments() {
+		Fixture fixture = persistFixture("member-access");
+
+		assertThat(weeklyMediaAccess.findActiveAttachedAssetIds(1L, List.of(fixture.assetId())))
+			.containsExactly(fixture.assetId());
+		assertThat(weeklyMediaAccess.findActiveAttachedAssetIds(2L, List.of(fixture.assetId())))
+			.isEmpty();
+
+		transaction().executeWithoutResult(status ->
+			materials.findById(fixture.materialId()).orElseThrow().delete());
+
+		assertThat(weeklyMediaAccess.findActiveAttachedAssetIds(1L, List.of(fixture.assetId())))
+			.isEmpty();
 	}
 
 	@Test
