@@ -6,7 +6,7 @@ import com.faithlog.weeklymaterial.controller.dto.request.PutWeeklyMaterialReque
 import com.faithlog.weeklymaterial.controller.dto.response.WeeklyMaterialWeekResponse;
 import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.service.WeeklyMaterialCommandService;
-import com.faithlog.weeklymaterial.service.WeeklyMaterialQueryService;
+import com.faithlog.weeklymaterial.service.WeeklyMaterialAdminService;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import org.springframework.http.ResponseEntity;
@@ -22,11 +22,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/campuses/{campusId}/weekly-materials")
 public class AdminWeeklyMaterialController {
 	private final WeeklyMaterialCommandService commands;
-	private final WeeklyMaterialQueryService queries;
+	private final WeeklyMaterialAdminService admin;
 
-	public AdminWeeklyMaterialController(WeeklyMaterialCommandService commands, WeeklyMaterialQueryService queries) {
+	public AdminWeeklyMaterialController(WeeklyMaterialAdminService admin, WeeklyMaterialCommandService commands) {
+		this.admin = admin;
 		this.commands = commands;
-		this.queries = queries;
 	}
 
 	@PutMapping("/{weekStartDate}/{materialType}")
@@ -34,9 +34,8 @@ public class AdminWeeklyMaterialController {
 		@AuthenticationPrincipal AuthenticatedUser user, @PathVariable Long campusId,
 		@PathVariable LocalDate weekStartDate, @PathVariable WeeklyMaterialType materialType,
 		@Valid @RequestBody PutWeeklyMaterialRequest request) {
-		commands.put(campusId, weekStartDate, materialType, request.mediaAssetId(), user.userId());
 		return ResponseEntity.ok(ApiResponse.success(WeeklyMaterialWeekResponse.from(
-			queries.getWeek(campusId, user.userId(), weekStartDate))));
+			admin.putAndGet(campusId, weekStartDate, materialType, request.mediaAssetId(), user.userId()))));
 	}
 
 	@DeleteMapping("/{weekStartDate}/{materialType}")

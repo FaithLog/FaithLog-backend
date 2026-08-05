@@ -40,6 +40,15 @@ public class WeeklyMaterialQueryService {
 
 	public WeeklyMaterialWeekResult getWeek(Long campusId, Long requesterId, LocalDate weekStartDate) {
 		access.requireActiveMember(campusId, requesterId);
+		return getWeekAfterAuthorization(campusId, weekStartDate);
+	}
+
+	public WeeklyMaterialWeekResult getWeekForManager(Long campusId, Long requesterId, LocalDate weekStartDate) {
+		access.requireManager(campusId, requesterId);
+		return getWeekAfterAuthorization(campusId, weekStartDate);
+	}
+
+	private WeeklyMaterialWeekResult getWeekAfterAuthorization(Long campusId, LocalDate weekStartDate) {
 		LocalDate week;
 		try {
 			week = WeeklyMaterialWeek.requireMonday(weekStartDate);
