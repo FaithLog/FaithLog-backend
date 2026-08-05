@@ -9,6 +9,14 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-08-05 - Issue #244 보관 공지 복구 API
+
+- `POST /api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore`를 추가해 영구 삭제 전 ARCHIVED 공지를 `PUBLISHED`로 복구할 수 있게 했다. 성공 응답은 기존 공지 상세와 같은 전체 `AnnouncementResponse`이며 Controller가 Entity를 직접 반환하지 않는 기존 계층 계약을 유지했다.
+- 시간 계약은 injectable `Clock`으로 고정했다. 이미 게시된 뒤 보관된 공지는 원래 `publishedAt`을 exact 보존하고, 게시 전 예약 상태에서 보관되어 `publishedAt=null`인 공지는 restore 시각을 게시 시각으로 기록한다.
+- 복구는 알림 재발송 기능이 아니다. focused 테스트에서 announcement outbox 생성/삭제, FCM notification log 생성, image/PDF attachment ORPHANED 전환, media campus/uploader/READY 상태 변경이 0건임을 검증했다. R2/network 호출 경로는 restore use case에 연결하지 않았다.
+- 동시성은 권한 검증 뒤 announcement row `PESSIMISTIC_WRITE` lock으로 직렬화한다. 실행형 통합 테스트에서 restore가 row lock을 보유한 동안 delete가 완료되지 못하고, restore commit 뒤 delete가 최신 `PUBLISHED` 상태를 읽어 `409 ANNOUNCEMENT_STATUS_CONFLICT`로 끝나며 attachment가 고아화되지 않는 경계를 확인했다.
+- TDD RED는 production 변경 전 focused announcement suite `38 tests / 15 failures`로 확인했고, 최소 GREEN 뒤 같은 focused suite `38 tests / failures 0 / errors 0`을 통과했다. 최종 repository-wide `./gradlew --no-daemon test build asciidoctor`는 `887 tests / failures 0 / errors 0 / skipped 16`과 REST Docs HTML 생성을 확인했다.
+
 ## 2026-08-03 - Issue #236 작년도 기록 돌아보기
 
 - 사용자·연도별 immutable 회고 snapshot과 다중 기기 멱등 표시 완료 상태를 구현했다. 시간 경계는 injectable `Clock`과 `Asia/Seoul`로 통일하고 Jan 1, Jan 14/15, 늦은 첫 실행, 윤년을 테스트했다.

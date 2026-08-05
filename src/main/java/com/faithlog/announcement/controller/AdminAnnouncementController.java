@@ -109,6 +109,16 @@ public class AdminAnnouncementController {
 		return ResponseEntity.noContent().build();
 	}
 
+	@PostMapping("/announcements/{announcementId}/restore")
+	public ApiResponse<AnnouncementResponse> restoreAnnouncement(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long campusId,
+		@PathVariable Long announcementId
+	) {
+		return ApiResponse.success(AnnouncementResponse.from(
+			announcementCommandService.restoreAnnouncement(campusId, announcementId, user.userId())));
+	}
+
 	@DeleteMapping("/announcements/{announcementId}")
 	public ResponseEntity<Void> deleteAnnouncement(
 		@AuthenticationPrincipal AuthenticatedUser user,

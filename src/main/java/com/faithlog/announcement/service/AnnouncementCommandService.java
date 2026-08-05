@@ -149,6 +149,19 @@ public class AnnouncementCommandService {
 	}
 
 	@Transactional
+	public AnnouncementResult restoreAnnouncement(Long campusId, Long announcementId, Long requesterId) {
+		accessPolicy.requireManager(campusId, requesterId);
+		Announcement announcement = requireAnnouncementForUpdate(campusId, announcementId);
+		try {
+			announcement.restore(clock.instant());
+		} catch (IllegalStateException exception) {
+			throw new BusinessException(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT);
+		}
+		AnnouncementCategory category = requireCategory(campusId, announcement.categoryId());
+		return result(announcement, category);
+	}
+
+	@Transactional
 	public void deleteAnnouncement(Long campusId, Long announcementId, Long requesterId) {
 		accessPolicy.requireManager(campusId, requesterId);
 		Announcement announcement = requireAnnouncementForUpdate(campusId, announcementId);

@@ -293,7 +293,9 @@ class AnnouncementCommandServiceTest {
 
 		var result = restore(restoreService, 1L, 100L, 20L);
 
-		verify(accessPolicy).requireManager(1L, 20L);
+		var accessThenLock = inOrder(accessPolicy, announcementRepository);
+		accessThenLock.verify(accessPolicy).requireManager(1L, 20L);
+		accessThenLock.verify(announcementRepository).findByCampusIdAndIdForUpdate(1L, 100L);
 		assertThat(result.status()).isEqualTo(AnnouncementStatus.PUBLISHED);
 		assertThat(result.publishedAt()).isEqualTo(NOW);
 		assertThat(result.title()).isEqualTo("공지");

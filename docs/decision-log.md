@@ -10,6 +10,15 @@ This file records user-approved project decisions so Codex does not rely on gues
 
 ## Decisions
 
+### 2026-08-05 - Issue #244 Archived Announcement Restore
+
+- Context: ARCHIVED 상태 공지를 영구 삭제하기 전에 관리자 API로 다시 일반 게시 상태에 노출해야 한다. #242 PDF 첨부와 #243 보관 공지 삭제 계약을 완화하지 않고, 복구 자체가 알림 재발송이나 첨부 lifecycle 변경을 만들면 안 된다.
+- Decision: `POST /api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore`는 Access Token과 해당 캠퍼스 관리자 권한을 요구하고 request body를 받지 않는다. 성공은 `200 OK`와 현재 공지 상세와 같은 전체 `AnnouncementResponse`다. `ARCHIVED`만 `PUBLISHED`로 복구하며 `SCHEDULED`로 되돌리지 않는다.
+- Time/status: 이미 게시됐다 보관된 공지는 원래 `publishedAt`을 그대로 보존한다. 게시 전에 예약 상태로 보관되어 `publishedAt`이 null인 공지는 injected server `Clock`의 restore instant를 `publishedAt`으로 기록한다. 같은 요청 반복은 첫 200 뒤 두 번째 요청이 non-ARCHIVED이므로 `409 ANNOUNCEMENT_STATUS_CONFLICT`다.
+- Boundary: missing, deleted, other-campus ID는 `404 ANNOUNCEMENT_NOT_FOUND`; non-ARCHIVED는 `409 ANNOUNCEMENT_STATUS_CONFLICT`; 권한 부족은 `403 ANNOUNCEMENT_MANAGE_FORBIDDEN`이다. Restore는 FCM 알림, announcement outbox 생성/재발송, attachment ORPHANED 전환, R2/network 호출을 하지 않는다. 기존 본문, category, author, ordered image/PDF links, media READY 상태, uploader, campus는 보존한다.
+- Concurrency: 캠퍼스/권한 검증 뒤 announcement row를 pessimistic write lock으로 잡아 restore/delete/archive/publish 경쟁을 직렬화한다. 단일 DB transaction 안에서 상태와 게시 시각을 변경하며, 이후 실패는 전체 rollback한다. Restore/delete race는 lock 순서에 따라 restore 성공 후 delete 409 또는 delete 성공 후 restore 404만 허용한다.
+- Verification: Production 변경 전에 domain/service/controller/REST Docs/integration/rollback/concurrency RED를 커밋했고, 최소 GREEN에서 focused 38-test announcement suite를 통과했다. 최종 repository gate는 `./gradlew --no-daemon test build asciidoctor`로 확인한다.
+
 ### 2026-08-03 - Issue #236 Previous-Year Recap Snapshot
 
 - Context: 로그인 복원 뒤 새해 첫 실행에서 직전 연도 활동을 한 번 자동 표시하고, 1월 1일부터 14일까지 홈에서 다시 열 수 있는 매년 재사용 가능한 회고가 필요하다. 기기 변경, 재설치, 다중 기기에서도 표시 완료 상태가 중복되면 안 되며 원본 retention이나 후속 수정이 과거 회고를 바꾸면 안 된다.
