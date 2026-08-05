@@ -17,7 +17,7 @@
 4. 최초 PUT race는 campus row lock으로 직렬화하고 같은 transaction에서 unique outbox를 기록한다.
 5. outbox processor는 ACTIVE 멤버를 조회해 업로더를 제외하고, 실패 시 pending을 유지한다.
 6. `weekStartDate.plusMonths(3)`의 Asia/Seoul 00:00부터 scheduler가 row lock 아래 ACTIVE PDF를 ORPHANED로 전환하고 weekly-material 행을 물리 삭제한다. tombstone도 같은 경계에서 삭제하며 outbox/log는 보존한다.
-7. 추가 승인에 따라 공지도 `publishedAt`의 서울 달력 날짜에서 `plusMonths(3)`인 00:00에 PUBLISHED/ARCHIVED 행을 물리 삭제한다. SCHEDULED는 제외하고 첨부 media만 ORPHANED로 넘기며 outbox/log는 보존한다.
+7. 추가 승인에 따라 공지도 `publishedAt`의 서울 달력 날짜에서 `plusMonths(3)`인 00:00에 PUBLISHED/ARCHIVED 행, attachment link, announcement outbox를 물리 삭제한다. SCHEDULED는 제외하고 첨부 media는 ORPHANED로 넘긴다. notification log는 기존 14일 retention, R2 객체와 media 행은 기존 24시간 cleanup retry/lease가 물리 삭제한다.
 
 ## 검증
 
