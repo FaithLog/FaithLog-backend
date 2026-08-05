@@ -73,6 +73,14 @@ public enum ErrorCode {
 	MEDIA_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이미지 저장소를 사용할 수 없습니다."),
 	MEDIA_UPLOAD_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "이미지 업로드 요청이 너무 많습니다."),
 
+	WEEKLY_MATERIAL_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
+	WEEKLY_MATERIAL_MANAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "주간자료 관리 권한이 없습니다."),
+	WEEKLY_MATERIAL_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "주간자료 조회 권한이 없습니다."),
+	WEEKLY_MATERIAL_NOT_FOUND(HttpStatus.NOT_FOUND, "주간자료를 찾을 수 없습니다."),
+	WEEKLY_MATERIAL_INVALID_YEAR(HttpStatus.BAD_REQUEST, "조회 연도가 올바르지 않습니다."),
+	WEEKLY_MATERIAL_INVALID_PAGE(HttpStatus.BAD_REQUEST, "페이지 번호는 0 이상이어야 합니다."),
+	WEEKLY_MATERIAL_INVALID_SIZE(HttpStatus.BAD_REQUEST, "페이지 크기는 1 이상 100 이하이어야 합니다."),
+
 	DEVOTION_INVALID_WEEK_START_DATE(HttpStatus.BAD_REQUEST, "weekStartDate는 월요일이어야 합니다."),
 	DEVOTION_INVALID_YEAR_MONTH(HttpStatus.BAD_REQUEST, "조회 연월이 올바르지 않습니다."),
 	DEVOTION_DAILY_CHECK_DATE_OUT_OF_WEEK(HttpStatus.BAD_REQUEST, "dailyChecks[].recordDate는 요청 주차 안의 날짜여야 합니다."),
