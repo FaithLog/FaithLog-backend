@@ -45,7 +45,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @ActiveProfiles("test")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AnnouncementDeleteIntegrationTest {
 
 	private static final Instant NOW = Instant.parse("2026-08-03T05:00:00Z");
