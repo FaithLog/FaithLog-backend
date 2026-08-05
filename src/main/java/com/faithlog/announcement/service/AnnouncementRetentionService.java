@@ -3,6 +3,7 @@ package com.faithlog.announcement.service;
 import com.faithlog.announcement.domain.entity.Announcement;
 import com.faithlog.announcement.domain.type.AnnouncementStatus;
 import com.faithlog.announcement.service.port.AnnouncementRepositoryPort;
+import com.faithlog.announcement.service.port.AnnouncementNotificationOutboxRepositoryPort;
 import java.time.Instant;
 import java.time.ZoneId;
 import org.springframework.stereotype.Service;
@@ -14,12 +15,15 @@ public class AnnouncementRetentionService {
 	private final AnnouncementRepositoryPort announcements;
 	private final AnnouncementImageAttachmentService images;
 	private final AnnouncementDocumentAttachmentService documents;
+	private final AnnouncementNotificationOutboxRepositoryPort outboxes;
 
 	public AnnouncementRetentionService(AnnouncementRepositoryPort announcements,
-		AnnouncementImageAttachmentService images, AnnouncementDocumentAttachmentService documents) {
+		AnnouncementImageAttachmentService images, AnnouncementDocumentAttachmentService documents,
+		AnnouncementNotificationOutboxRepositoryPort outboxes) {
 		this.announcements = announcements;
 		this.images = images;
 		this.documents = documents;
+		this.outboxes = outboxes;
 	}
 
 	@Transactional
@@ -29,6 +33,7 @@ public class AnnouncementRetentionService {
 
 		images.orphanAll(announcement.id(), announcement.campusId());
 		documents.orphanAll(announcement.id(), announcement.campusId());
+		outboxes.deleteByAnnouncementId(announcement.id());
 		announcements.delete(announcement);
 		return true;
 	}
