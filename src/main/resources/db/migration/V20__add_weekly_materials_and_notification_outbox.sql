@@ -3,7 +3,7 @@ CREATE TABLE weekly_materials (
     campus_id BIGINT NOT NULL,
     week_start_date DATE NOT NULL,
     material_type VARCHAR(30) NOT NULL,
-    media_asset_id BIGINT NOT NULL,
+    media_asset_id BIGINT,
     uploaded_by BIGINT NOT NULL,
     status VARCHAR(10) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -22,7 +22,12 @@ CREATE TABLE weekly_materials (
     CONSTRAINT ck_weekly_materials_type
         CHECK (material_type IN ('SHEPHERD_GUIDE', 'SHARING_SHEET')),
     CONSTRAINT ck_weekly_materials_status
-        CHECK (status IN ('ACTIVE', 'DELETED'))
+        CHECK (status IN ('ACTIVE', 'DELETED')),
+    CONSTRAINT ck_weekly_materials_status_media
+        CHECK (
+            (status = 'ACTIVE' AND media_asset_id IS NOT NULL)
+            OR (status = 'DELETED' AND media_asset_id IS NULL)
+        )
 );
 
 CREATE INDEX idx_weekly_materials_campus_week

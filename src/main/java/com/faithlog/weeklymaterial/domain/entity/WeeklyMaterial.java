@@ -35,7 +35,7 @@ public class WeeklyMaterial {
 	@Column(name = "material_type", nullable = false, length = 30)
 	private WeeklyMaterialType materialType;
 
-	@Column(name = "media_asset_id", nullable = false)
+	@Column(name = "media_asset_id")
 	private Long mediaAssetId;
 
 	@Column(name = "uploaded_by", nullable = false)
@@ -79,8 +79,10 @@ public class WeeklyMaterial {
 
 	public Long delete() {
 		if (status != WeeklyMaterialStatus.ACTIVE) throw new IllegalStateException("material is deleted");
+		Long old = mediaAssetId;
+		mediaAssetId = null;
 		status = WeeklyMaterialStatus.DELETED;
-		return mediaAssetId;
+		return old;
 	}
 
 	public void reregister(Long newMediaAssetId, Long requesterId) {

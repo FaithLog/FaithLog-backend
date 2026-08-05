@@ -55,7 +55,7 @@ public class WeeklyMaterialCommandService {
 		LocalDate week = requireMonday(weekStartDate);
 		slotLocks.lockCampus(campusId);
 		WeeklyMaterial current = materials.findSlotForUpdate(campusId, week, materialType).orElse(null);
-		List<Long> lockIds = current == null
+		List<Long> lockIds = current == null || current.mediaAssetId() == null
 			? List.of(mediaAssetId)
 			: java.util.stream.Stream.of(mediaAssetId, current.mediaAssetId()).distinct().sorted().toList();
 		Map<Long, MediaAsset> locked = assets.findByCampusIdAndIdInForUpdate(campusId, lockIds).stream()
