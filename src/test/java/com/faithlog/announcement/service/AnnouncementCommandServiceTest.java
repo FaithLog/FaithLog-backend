@@ -3,6 +3,7 @@ package com.faithlog.announcement.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,6 +15,7 @@ import com.faithlog.announcement.service.command.UpdateAnnouncementCommand;
 import com.faithlog.announcement.service.policy.AnnouncementAccessPolicy;
 import com.faithlog.announcement.service.port.AnnouncementCategoryRepositoryPort;
 import com.faithlog.announcement.service.port.AnnouncementPublishedEventPort;
+import com.faithlog.announcement.service.port.AnnouncementNotificationOutboxRepositoryPort;
 import com.faithlog.announcement.service.port.AnnouncementRepositoryPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -41,6 +43,12 @@ class AnnouncementCommandServiceTest {
 	private AnnouncementAccessPolicy accessPolicy;
 	@Mock
 	private AnnouncementPublishedEventPort publishedEventPort;
+	@Mock
+	private AnnouncementNotificationOutboxRepositoryPort outboxRepository;
+	@Mock
+	private AnnouncementImageAttachmentService imageAttachmentService;
+	@Mock
+	private AnnouncementDocumentAttachmentService documentAttachmentService;
 
 	private AnnouncementCommandService service;
 
@@ -202,6 +210,48 @@ class AnnouncementCommandServiceTest {
 		assertThatThrownBy(() -> service.publishAnnouncement(1L, 100L, 20L))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT));
+	}
+
+	@Test
+	void archived_announcement_delete_orphans_attachments_then_deletes_outbox_and_announcement() {
+		Announcement announcement = Announcement.createPublished(1L, 2L, 10L, "공지", "본문", false, NOW);
+		ReflectionTestUtils.setField(announcement, "id", 100L);
+		announcement.archive();
+		when(announcementRepository.findByCampusIdAndIdForUpdate(1L, 100L)).thenReturn(Optional.of(announcement));
+		AnnouncementCommandService deletionService = new AnnouncementCommandService(
+			announcementRepository, categoryRepository, accessPolicy, publishedEventPort,
+			imageAttachmentService, documentAttachmentService, outboxRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		deletionService.deleteAnnouncement(1L, 100L, 20L);
+
+		verify(accessPolicy).requireManager(1L, 20L);
+		var ordered = inOrder(imageAttachmentService, documentAttachmentService, outboxRepository,
+			announcementRepository);
+		ordered.verify(imageAttachmentService).orphanAll(100L, 1L);
+		ordered.verify(documentAttachmentService).orphanAll(100L, 1L);
+		ordered.verify(outboxRepository).deleteByAnnouncementId(100L);
+		ordered.verify(announcementRepository).delete(announcement);
+	}
+
+	@Test
+	void non_archived_announcement_delete_is_rejected_without_mutation() {
+		Announcement announcement = Announcement.createPublished(1L, 2L, 10L, "공지", "본문", false, NOW);
+		ReflectionTestUtils.setField(announcement, "id", 100L);
+		when(announcementRepository.findByCampusIdAndIdForUpdate(1L, 100L)).thenReturn(Optional.of(announcement));
+		AnnouncementCommandService deletionService = new AnnouncementCommandService(
+			announcementRepository, categoryRepository, accessPolicy, publishedEventPort,
+			imageAttachmentService, documentAttachmentService, outboxRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThatThrownBy(() -> deletionService.deleteAnnouncement(1L, 100L, 20L))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT));
+
+		verify(imageAttachmentService, never()).orphanAll(org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyLong());
+		verify(documentAttachmentService, never()).orphanAll(org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyLong());
+		verify(outboxRepository, never()).deleteByAnnouncementId(org.mockito.ArgumentMatchers.anyLong());
+		verify(announcementRepository, never()).delete(org.mockito.ArgumentMatchers.any());
 	}
 
 	private AnnouncementCategory activeCategory(Long campusId) {
