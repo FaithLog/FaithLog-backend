@@ -27,6 +27,7 @@
 - `build asciidoctor -x test -x jacocoTestReport`: 성공, bootJar와 REST Docs HTML 생성.
 - 전체 `test build asciidoctor`는 두 번 모두 `:test` 장시간 무출력/JVM instrumentation 정지로 완료되지 않아 전체 성공으로 주장하지 않는다.
 - 실제 R2/FCM, 기존 shared PostgreSQL/Redis/app container mutation, push/PR/merge/deploy는 0이다. 검증 전용 PostgreSQL container만 생성 후 제거했다.
+- 최종 retention 변경 뒤 weeklymaterial/announcement/media/Flyway contract 회귀: 173 tests, failures/errors/skipped 0. `build asciidoctor -x test -x jacocoTestReport`는 성공했다. 전체 `test build asciidoctor` 재시도는 관련 없는 `PasswordResetTransactionIntegrationTest`의 Spring context 생성 중 `OutOfMemoryError`로 완료되지 않았다.
 
 ## 프론트엔드 handoff
 
