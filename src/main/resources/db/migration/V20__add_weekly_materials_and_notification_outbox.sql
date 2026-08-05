@@ -40,6 +40,16 @@ CREATE INDEX idx_weekly_materials_active_slot
 CREATE INDEX idx_weekly_materials_retention_due
     ON weekly_materials ((week_start_date + INTERVAL '3 months'), id);
 
+ALTER TABLE announcement_notification_outbox
+    DROP CONSTRAINT fk_announcement_notification_outbox_announcement;
+
+CREATE INDEX idx_announcements_retention_due
+    ON announcements (
+        (((published_at AT TIME ZONE 'Asia/Seoul')::date + INTERVAL '3 months')),
+        id
+    )
+    WHERE published_at IS NOT NULL AND status IN ('PUBLISHED', 'ARCHIVED');
+
 CREATE TABLE weekly_material_notification_outbox (
     id BIGSERIAL PRIMARY KEY,
     campus_id BIGINT NOT NULL,

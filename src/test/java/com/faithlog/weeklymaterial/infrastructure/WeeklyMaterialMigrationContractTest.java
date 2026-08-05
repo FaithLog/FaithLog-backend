@@ -33,11 +33,9 @@ class WeeklyMaterialMigrationContractTest {
 			"ENABLE ROW LEVEL SECURITY"
 		);
 		assertThat(sql).doesNotContain("object_key", "file_content", "public_url");
-		assertThat(sql).doesNotContain(
-			"fk_weekly_material_outbox_material",
-			"fk_announcement_notification_outbox_announcement"
-		);
+		assertThat(sql).doesNotContain("fk_weekly_material_outbox_material");
 		assertThat(sql).contains(
+			"DROP CONSTRAINT fk_announcement_notification_outbox_announcement",
 			"published_at AT TIME ZONE 'Asia/Seoul'",
 			"CREATE INDEX idx_announcements_retention_due"
 		);

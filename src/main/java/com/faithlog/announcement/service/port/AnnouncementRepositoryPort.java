@@ -22,4 +22,6 @@ public interface AnnouncementRepositoryPort {
 	Page<Announcement> findByCampusIdAndStatus(Long campusId, AnnouncementStatus status, Pageable pageable);
 
 	List<Long> findDueScheduledIds(Instant now, Pageable pageable);
+
+	List<Long> findDuePhysicalDeletionIds(Instant now, Pageable pageable);
 }

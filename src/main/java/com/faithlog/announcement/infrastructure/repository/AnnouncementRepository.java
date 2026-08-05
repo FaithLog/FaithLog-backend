@@ -47,4 +47,15 @@ public interface AnnouncementRepository extends JpaRepository<Announcement, Long
 		order by announcement.publishAt asc, announcement.id asc
 		""")
 	List<Long> findDueScheduledIds(@Param("now") Instant now, Pageable pageable);
+
+	@Query(value = """
+		select announcement.id
+		from announcements announcement
+		where announcement.status in ('PUBLISHED', 'ARCHIVED')
+		  and announcement.published_at is not null
+		  and ((announcement.published_at AT TIME ZONE 'Asia/Seoul')::date + INTERVAL '3 months')
+		      <= (:now AT TIME ZONE 'Asia/Seoul')::date
+		order by announcement.published_at, announcement.id
+		""", nativeQuery = true)
+	List<Long> findDuePhysicalDeletionIds(@Param("now") Instant now, Pageable pageable);
 }
