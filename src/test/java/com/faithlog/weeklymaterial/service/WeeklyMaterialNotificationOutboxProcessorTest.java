@@ -10,8 +10,11 @@ import static org.mockito.Mockito.when;
 
 import com.faithlog.notification.service.NotificationRequestCommandService;
 import com.faithlog.weeklymaterial.domain.entity.WeeklyMaterialNotificationOutbox;
+import com.faithlog.weeklymaterial.domain.entity.WeeklyMaterial;
+import com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialNotificationOutboxRepositoryPort;
 import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRecipientPort;
+import com.faithlog.weeklymaterial.service.port.WeeklyMaterialRepositoryPort;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -24,15 +27,19 @@ class WeeklyMaterialNotificationOutboxProcessorTest {
 	private final WeeklyMaterialNotificationOutboxRepositoryPort outboxes =
 		mock(WeeklyMaterialNotificationOutboxRepositoryPort.class);
 	private final WeeklyMaterialRecipientPort recipients = mock(WeeklyMaterialRecipientPort.class);
+	private final WeeklyMaterialRepositoryPort materials = mock(WeeklyMaterialRepositoryPort.class);
 	private final NotificationRequestCommandService notifications = mock(NotificationRequestCommandService.class);
 	private final Clock clock = Clock.fixed(Instant.parse("2026-08-05T00:00:00Z"), ZoneOffset.UTC);
 	private final WeeklyMaterialNotificationOutboxProcessor processor =
-		new WeeklyMaterialNotificationOutboxProcessor(outboxes, recipients, notifications, clock);
+		new WeeklyMaterialNotificationOutboxProcessor(outboxes, materials, recipients, notifications, clock);
 
 	@Test
 	void sendsApprovedSundaySermonSharingSheetCopyToActiveMembersExceptUploader() {
 		var outbox = WeeklyMaterialNotificationOutbox.create(
 			1L, 10L, LocalDate.of(2026, 8, 3), 100L);
+		when(outboxes.findById(1L)).thenReturn(Optional.of(outbox));
+		when(materials.findSlotForUpdate(1L, LocalDate.of(2026, 8, 3), WeeklyMaterialType.SHARING_SHEET))
+			.thenReturn(Optional.of(material(10L)));
 		when(outboxes.findByIdForUpdate(1L)).thenReturn(Optional.of(outbox));
 		when(recipients.findActiveMemberUserIds(1L)).thenReturn(List.of(100L, 101L, 102L, 102L));
 
@@ -52,6 +59,9 @@ class WeeklyMaterialNotificationOutboxProcessorTest {
 	void leavesOutboxPendingWhenNotificationRequestFailsForRetry() {
 		var outbox = WeeklyMaterialNotificationOutbox.create(
 			1L, 10L, LocalDate.of(2026, 8, 3), 100L);
+		when(outboxes.findById(1L)).thenReturn(Optional.of(outbox));
+		when(materials.findSlotForUpdate(1L, LocalDate.of(2026, 8, 3), WeeklyMaterialType.SHARING_SHEET))
+			.thenReturn(Optional.of(material(10L)));
 		when(outboxes.findByIdForUpdate(1L)).thenReturn(Optional.of(outbox));
 		when(recipients.findActiveMemberUserIds(1L)).thenReturn(List.of(101L));
 		org.mockito.Mockito.doThrow(new IllegalStateException("temporary"))
@@ -66,9 +76,34 @@ class WeeklyMaterialNotificationOutboxProcessorTest {
 		var outbox = WeeklyMaterialNotificationOutbox.create(
 			1L, 10L, LocalDate.of(2026, 8, 3), 100L);
 		outbox.markProcessed(clock.instant());
+		when(outboxes.findById(1L)).thenReturn(Optional.of(outbox));
+		when(materials.findSlotForUpdate(1L, LocalDate.of(2026, 8, 3), WeeklyMaterialType.SHARING_SHEET))
+			.thenReturn(Optional.of(material(10L)));
 		when(outboxes.findByIdForUpdate(1L)).thenReturn(Optional.of(outbox));
 
 		assertThat(processor.process(1L)).isFalse();
 		verify(notifications, never()).requestRequiredAutomaticNotification(any());
+	}
+
+	@Test
+	void suppressesPendingOutboxWhenMaterialWasDeletedBeforeProcessing() {
+		var outbox = WeeklyMaterialNotificationOutbox.create(
+			1L, 10L, LocalDate.of(2026, 8, 3), 100L);
+		when(outboxes.findById(1L)).thenReturn(Optional.of(outbox));
+		when(materials.findSlotForUpdate(1L, LocalDate.of(2026, 8, 3), WeeklyMaterialType.SHARING_SHEET))
+			.thenReturn(Optional.empty());
+		when(outboxes.findByIdForUpdate(1L)).thenReturn(Optional.of(outbox));
+
+		assertThat(processor.process(1L)).isFalse();
+
+		assertThat(outbox.isProcessed()).isTrue();
+		verify(notifications, never()).requestRequiredAutomaticNotification(any());
+	}
+
+	private static WeeklyMaterial material(Long id) {
+		WeeklyMaterial material = WeeklyMaterial.create(1L, LocalDate.of(2026, 8, 3),
+			WeeklyMaterialType.SHARING_SHEET, 20L, 100L);
+		org.springframework.test.util.ReflectionTestUtils.setField(material, "id", id);
+		return material;
 	}
 }

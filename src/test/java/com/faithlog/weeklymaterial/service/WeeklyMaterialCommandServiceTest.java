@@ -99,6 +99,30 @@ class WeeklyMaterialCommandServiceTest {
 		order.verify(assets).findByCampusIdAndIdInForUpdate(1L, List.of(20L, 30L));
 	}
 
+	@Test
+	void manualDeleteSuppressesPendingPublicationBeforeLockingAndOrphaningMedia() {
+		var slotLocks = mock(WeeklyMaterialSlotLockPort.class);
+		var publications = mock(WeeklyMaterialFirstPublication.class);
+		var command = new WeeklyMaterialCommandService(materials, assets, access, conflicts, slotLocks, publications);
+		LocalDate week = LocalDate.of(2026, 8, 3);
+		WeeklyMaterial current = WeeklyMaterial.create(
+			1L, week, WeeklyMaterialType.SHARING_SHEET, 20L, 100L);
+		ReflectionTestUtils.setField(current, "id", 10L);
+		MediaAsset pdf = readyPdf(20L, 1L, 100L);
+		when(materials.findSlotForUpdate(1L, week, WeeklyMaterialType.SHARING_SHEET))
+			.thenReturn(Optional.of(current));
+		when(assets.findByCampusIdAndIdInForUpdate(1L, List.of(20L))).thenReturn(List.of(pdf));
+
+		command.delete(1L, week, WeeklyMaterialType.SHARING_SHEET, 100L);
+
+		var order = inOrder(slotLocks, materials, publications, assets);
+		order.verify(slotLocks).lockCampus(1L);
+		order.verify(materials).findSlotForUpdate(1L, week, WeeklyMaterialType.SHARING_SHEET);
+		order.verify(publications).suppressPending(current);
+		order.verify(assets).findByCampusIdAndIdInForUpdate(1L, List.of(20L));
+		assertThat(current.status().name()).isEqualTo("DELETED");
+	}
+
 	private static MediaAsset readyPdf(Long id, Long campusId, Long ownerId) {
 		MediaAsset asset = MediaAsset.reserve(campusId, ownerId, "application/pdf", 100,
 			"a".repeat(64), "tmp/" + id, Instant.parse("2026-08-05T00:00:00Z"), "weekly.pdf");

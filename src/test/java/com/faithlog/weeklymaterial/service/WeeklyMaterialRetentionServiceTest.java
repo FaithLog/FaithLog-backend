@@ -21,7 +21,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 class WeeklyMaterialRetentionServiceTest {
 	private final WeeklyMaterialRepositoryPort materials = mock(WeeklyMaterialRepositoryPort.class);
 	private final MediaAssetRepositoryPort assets = mock(MediaAssetRepositoryPort.class);
-	private final WeeklyMaterialRetentionService service = new WeeklyMaterialRetentionService(materials, assets);
+	private final WeeklyMaterialFirstPublication publications = mock(WeeklyMaterialFirstPublication.class);
+	private final WeeklyMaterialRetentionService service =
+		new WeeklyMaterialRetentionService(materials, assets, publications);
 
 	@Test
 	void physicallyDeletesDueActiveRowAndHandsPdfToExistingCleanup() {
@@ -33,6 +35,10 @@ class WeeklyMaterialRetentionServiceTest {
 		assertThat(service.deleteIfDue(10L, LocalDate.of(2026, 8, 4))).isTrue();
 
 		assertThat(pdf.status().name()).isEqualTo("ORPHANED");
+		var order = org.mockito.Mockito.inOrder(materials, publications, assets);
+		order.verify(materials).findByIdForUpdate(10L);
+		order.verify(publications).suppressPending(material);
+		order.verify(assets).findByCampusIdAndIdInForUpdate(1L, List.of(20L));
 		verify(materials).delete(material);
 	}
 
@@ -44,6 +50,7 @@ class WeeklyMaterialRetentionServiceTest {
 
 		assertThat(service.deleteIfDue(10L, LocalDate.of(2026, 8, 4))).isTrue();
 
+		verify(publications).suppressPending(material);
 		verify(assets, never()).findByCampusIdAndIdInForUpdate(
 			org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyList());
 		verify(materials).delete(material);
