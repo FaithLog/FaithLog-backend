@@ -6,6 +6,7 @@ import com.faithlog.announcement.service.command.CreateAnnouncementCommand;
 import com.faithlog.announcement.service.command.UpdateAnnouncementCommand;
 import com.faithlog.announcement.service.policy.AnnouncementAccessPolicy;
 import com.faithlog.announcement.service.port.AnnouncementCategoryRepositoryPort;
+import com.faithlog.announcement.service.port.AnnouncementNotificationOutboxRepositoryPort;
 import com.faithlog.announcement.service.port.AnnouncementPublishedEventPort;
 import com.faithlog.announcement.service.port.AnnouncementRepositoryPort;
 import com.faithlog.announcement.service.result.AnnouncementResult;
@@ -13,8 +14,8 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import java.time.Clock;
 import java.time.Instant;
-import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -26,6 +27,7 @@ public class AnnouncementCommandService {
 	private final AnnouncementPublishedEventPort publishedEventPort;
 	private final AnnouncementImageAttachmentService imageAttachmentService;
 	private final AnnouncementDocumentAttachmentService documentAttachmentService;
+	private final AnnouncementNotificationOutboxRepositoryPort outboxRepository;
 	private final Clock clock;
 
 	@Autowired
@@ -36,6 +38,7 @@ public class AnnouncementCommandService {
 		AnnouncementPublishedEventPort publishedEventPort,
 		AnnouncementImageAttachmentService imageAttachmentService,
 		AnnouncementDocumentAttachmentService documentAttachmentService,
+		AnnouncementNotificationOutboxRepositoryPort outboxRepository,
 		Clock clock
 	) {
 		this.announcementRepository = announcementRepository;
@@ -44,7 +47,21 @@ public class AnnouncementCommandService {
 		this.publishedEventPort = publishedEventPort;
 		this.imageAttachmentService = imageAttachmentService;
 		this.documentAttachmentService = documentAttachmentService;
+		this.outboxRepository = outboxRepository;
 		this.clock = clock;
+	}
+
+	public AnnouncementCommandService(
+		AnnouncementRepositoryPort announcementRepository,
+		AnnouncementCategoryRepositoryPort categoryRepository,
+		AnnouncementAccessPolicy accessPolicy,
+		AnnouncementPublishedEventPort publishedEventPort,
+		AnnouncementImageAttachmentService imageAttachmentService,
+		AnnouncementDocumentAttachmentService documentAttachmentService,
+		Clock clock
+	) {
+		this(announcementRepository, categoryRepository, accessPolicy, publishedEventPort,
+			imageAttachmentService, documentAttachmentService, null, clock);
 	}
 
 	public AnnouncementCommandService(
@@ -54,7 +71,7 @@ public class AnnouncementCommandService {
 		AnnouncementPublishedEventPort publishedEventPort,
 		Clock clock
 	) {
-		this(announcementRepository, categoryRepository, accessPolicy, publishedEventPort, null, null, clock);
+		this(announcementRepository, categoryRepository, accessPolicy, publishedEventPort, null, null, null, clock);
 	}
 
 	@Transactional
@@ -129,6 +146,25 @@ public class AnnouncementCommandService {
 	public void archiveAnnouncement(Long campusId, Long announcementId, Long requesterId) {
 		accessPolicy.requireManager(campusId, requesterId);
 		requireAnnouncementForUpdate(campusId, announcementId).archive();
+	}
+
+	@Transactional
+	public void deleteAnnouncement(Long campusId, Long announcementId, Long requesterId) {
+		accessPolicy.requireManager(campusId, requesterId);
+		Announcement announcement = requireAnnouncementForUpdate(campusId, announcementId);
+		if (announcement.status() != com.faithlog.announcement.domain.type.AnnouncementStatus.ARCHIVED) {
+			throw new BusinessException(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT);
+		}
+		if (imageAttachmentService != null) {
+			imageAttachmentService.orphanAll(announcement.id(), campusId);
+		}
+		if (documentAttachmentService != null) {
+			documentAttachmentService.orphanAll(announcement.id(), campusId);
+		}
+		if (outboxRepository != null) {
+			outboxRepository.deleteByAnnouncementId(announcement.id());
+		}
+		announcementRepository.delete(announcement);
 	}
 
 	private Announcement requireAnnouncementForUpdate(Long campusId, Long announcementId) {

@@ -2,6 +2,7 @@ package com.faithlog.announcement.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -78,6 +79,41 @@ class AnnouncementDocumentAttachmentServiceTest {
 		when(assets.findByCampusIdAndIdForUpdate(7L, 31L)).thenReturn(java.util.Optional.of(pdf));
 		service.replace(102L, 7L, 22L, List.of());
 		assertThat(pdf.status()).isEqualTo(MediaAssetStatus.ORPHANED);
+	}
+
+	@Test
+	void orphanAll_locks_existing_pdfs_by_stable_asset_order_then_orphans_and_deletes_links() {
+		MediaAsset first = readyPdf(31L, 7L, 11L);
+		MediaAsset second = readyPdf(32L, 7L, 11L);
+		when(documents.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of(
+			AnnouncementDocument.create(7L, 101L, 32L, 0),
+			AnnouncementDocument.create(7L, 101L, 31L, 1)));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L, 32L))).thenReturn(List.of(first, second));
+
+		service.orphanAll(101L, 7L);
+
+		verify(assets).findByCampusIdAndIdInForUpdate(7L, List.of(31L, 32L));
+		assertThat(first.status()).isEqualTo(MediaAssetStatus.ORPHANED);
+		assertThat(second.status()).isEqualTo(MediaAssetStatus.ORPHANED);
+		var ordered = inOrder(documents);
+		ordered.verify(documents).deleteByAnnouncementId(101L);
+		ordered.verify(documents).flush();
+	}
+
+	@Test
+	void orphanAll_rejects_missing_or_non_ready_pdf_without_deleting_links() {
+		MediaAsset pending = MediaAsset.reserve(7L, 11L, "application/pdf", 10, "a".repeat(64),
+			"temporary/pending-document/original", Instant.parse("2026-08-04T00:00:00Z"), "notice.pdf");
+		ReflectionTestUtils.setField(pending, "id", 31L);
+		when(documents.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L))
+			.thenReturn(List.of(AnnouncementDocument.create(7L, 101L, 31L, 0)));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(pending));
+
+		assertThatThrownBy(() -> service.orphanAll(101L, 7L))
+			.isInstanceOfSatisfying(BusinessException.class,
+				exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_INVALID));
+
+		verify(documents, never()).deleteByAnnouncementId(101L);
 	}
 
 	private MediaAsset readyPdf(Long id, Long campusId, Long ownerId) {

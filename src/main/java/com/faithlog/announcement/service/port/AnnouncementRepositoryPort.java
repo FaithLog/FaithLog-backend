@@ -12,6 +12,8 @@ public interface AnnouncementRepositoryPort {
 
 	Announcement save(Announcement announcement);
 
+	void delete(Announcement announcement);
+
 	Optional<Announcement> findByCampusIdAndId(Long campusId, Long announcementId);
 
 	Optional<Announcement> findByCampusIdAndIdForUpdate(Long campusId, Long announcementId);

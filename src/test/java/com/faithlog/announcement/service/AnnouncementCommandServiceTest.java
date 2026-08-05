@@ -2,8 +2,8 @@ package com.faithlog.announcement.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,8 +14,8 @@ import com.faithlog.announcement.service.command.CreateAnnouncementCommand;
 import com.faithlog.announcement.service.command.UpdateAnnouncementCommand;
 import com.faithlog.announcement.service.policy.AnnouncementAccessPolicy;
 import com.faithlog.announcement.service.port.AnnouncementCategoryRepositoryPort;
-import com.faithlog.announcement.service.port.AnnouncementPublishedEventPort;
 import com.faithlog.announcement.service.port.AnnouncementNotificationOutboxRepositoryPort;
+import com.faithlog.announcement.service.port.AnnouncementPublishedEventPort;
 import com.faithlog.announcement.service.port.AnnouncementRepositoryPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
@@ -252,6 +252,25 @@ class AnnouncementCommandServiceTest {
 			org.mockito.ArgumentMatchers.anyLong());
 		verify(outboxRepository, never()).deleteByAnnouncementId(org.mockito.ArgumentMatchers.anyLong());
 		verify(announcementRepository, never()).delete(org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
+	void missing_announcement_delete_returns_not_found_without_attachment_lookup() {
+		when(announcementRepository.findByCampusIdAndIdForUpdate(1L, 100L)).thenReturn(Optional.empty());
+		AnnouncementCommandService deletionService = new AnnouncementCommandService(
+			announcementRepository, categoryRepository, accessPolicy, publishedEventPort,
+			imageAttachmentService, documentAttachmentService, outboxRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+
+		assertThatThrownBy(() -> deletionService.deleteAnnouncement(1L, 100L, 20L))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.ANNOUNCEMENT_NOT_FOUND));
+
+		verify(accessPolicy).requireManager(1L, 20L);
+		verify(announcementRepository).findByCampusIdAndIdForUpdate(1L, 100L);
+		verify(imageAttachmentService, never()).orphanAll(org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyLong());
+		verify(documentAttachmentService, never()).orphanAll(org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyLong());
 	}
 
 	private AnnouncementCategory activeCategory(Long campusId) {

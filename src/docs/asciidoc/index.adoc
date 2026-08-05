@@ -3347,7 +3347,7 @@ include::{snippets}/meal-charges-my-accounts-success/http-response.adoc[]
 
 == Campus Announcements And Private Media
 
-캠퍼스 공지는 해당 캠퍼스 ACTIVE 멤버만 조회한다. 생성·수정·게시·보관과 카테고리 관리는 기존 캠퍼스 관리자 권한을 재사용한다. 이미지·PDF binary와 URL은 공지 응답이나 FCM payload에 저장하지 않고, ordered `imageAssetIds`와 `documentAssetIds`를 권한 검증된 배치 URL API로 교환한다.
+캠퍼스 공지는 해당 캠퍼스 ACTIVE 멤버만 조회한다. 생성·수정·게시·보관·삭제와 카테고리 관리는 기존 캠퍼스 관리자 권한을 재사용한다. 이미지·PDF binary와 URL은 공지 응답이나 FCM payload에 저장하지 않고, ordered `imageAssetIds`와 `documentAssetIds`를 권한 검증된 배치 URL API로 교환한다.
 
 === Create Announcement
 
@@ -3358,12 +3358,23 @@ include::{snippets}/announcement-create-success/response-fields.adoc[]
 
 즉시 게시는 `publishAt=null`, 예약 게시는 미래 `publishAt`을 사용한다. 공지와 게시 알림 outbox는 같은 DB transaction에서 결속되며 이미지와 PDF 순서는 각각 `imageAssetIds`, `documentAssetIds` 그대로 보존된다.
 
+=== Delete Archived Announcement
+
+`DELETE /api/v1/admin/campuses/{campusId}/announcements/{announcementId}`는 request body가 없다. 삭제는 `ARCHIVED` 상태에서만 가능하며, 공지 row, image/PDF attachment link row, 삭제 대상 공지의 미처리 announcement outbox row를 같은 DB transaction에서 제거한다. 연결된 READY media asset은 `ORPHANED`로 전환하고 R2 object 삭제는 기존 media cleanup이 담당한다. 이미 생성된 `notification_logs` 발송 이력은 유지한다.
+
+include::{snippets}/announcement-delete-success/http-request.adoc[]
+include::{snippets}/announcement-delete-success/path-parameters.adoc[]
+include::{snippets}/announcement-delete-success/http-response.adoc[]
+
 === Announcement Errors
 
 include::{snippets}/announcement-create-validation/http-response.adoc[]
 include::{snippets}/announcement-manage-forbidden/http-response.adoc[]
 include::{snippets}/announcement-not-found/http-response.adoc[]
 include::{snippets}/announcement-status-conflict/http-response.adoc[]
+include::{snippets}/announcement-delete-forbidden/http-response.adoc[]
+include::{snippets}/announcement-delete-not-found/http-response.adoc[]
+include::{snippets}/announcement-delete-status-conflict/http-response.adoc[]
 
 === Reserve And Complete Private Image Upload
 

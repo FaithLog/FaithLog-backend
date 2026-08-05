@@ -174,6 +174,42 @@ class AnnouncementImageAttachmentServiceTest {
 		ordered.verify(images, org.mockito.Mockito.times(101)).save(org.mockito.ArgumentMatchers.any());
 	}
 
+	@Test
+	void orphanAll_locks_existing_images_by_stable_asset_order_then_orphans_and_deletes_links() {
+		MediaAsset first = readyAsset(31L, 7L, 11L);
+		MediaAsset second = readyAsset(32L, 7L, 11L);
+		when(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L)).thenReturn(List.of(
+			AnnouncementImage.create(7L, 101L, 32L, 0),
+			AnnouncementImage.create(7L, 101L, 31L, 1)
+		));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L, 32L))).thenReturn(List.of(first, second));
+
+		service.orphanAll(101L, 7L);
+
+		verify(assets).findByCampusIdAndIdInForUpdate(7L, List.of(31L, 32L));
+		assertThat(first.status()).isEqualTo(com.faithlog.media.domain.type.MediaAssetStatus.ORPHANED);
+		assertThat(second.status()).isEqualTo(com.faithlog.media.domain.type.MediaAssetStatus.ORPHANED);
+		var ordered = inOrder(images);
+		ordered.verify(images).deleteByAnnouncementId(101L);
+		ordered.verify(images).flush();
+	}
+
+	@Test
+	void orphanAll_rejects_missing_or_non_ready_image_without_deleting_links() {
+		MediaAsset pending = MediaAsset.reserve(7L, 11L, "image/jpeg", 10, "a".repeat(64),
+			"temporary/pending/original", Instant.parse("2026-08-04T00:00:00Z"));
+		ReflectionTestUtils.setField(pending, "id", 31L);
+		when(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(101L))
+			.thenReturn(List.of(AnnouncementImage.create(7L, 101L, 31L, 0)));
+		when(assets.findByCampusIdAndIdInForUpdate(7L, List.of(31L))).thenReturn(List.of(pending));
+
+		assertThatThrownBy(() -> service.orphanAll(101L, 7L))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEDIA_ASSET_INVALID));
+
+		verify(images, never()).deleteByAnnouncementId(101L);
+	}
+
 	private MediaAsset readyAsset(Long id, Long campusId, Long ownerId) {
 		MediaAsset asset = MediaAsset.reserve(campusId, ownerId, "image/jpeg", 10, "a".repeat(64),
 			"temporary/" + id + "/original", Instant.parse("2026-08-04T00:00:00Z"));

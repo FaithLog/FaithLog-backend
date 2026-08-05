@@ -80,6 +80,34 @@ public class AnnouncementDocumentAttachmentService {
 		}
 	}
 
+	public void orphanAll(Long announcementId, Long campusId) {
+		List<AnnouncementDocument> existing = documents.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(announcementId);
+		if (existing.isEmpty()) {
+			documents.deleteByAnnouncementId(announcementId);
+			documents.flush();
+			return;
+		}
+		List<Long> sortedIds = existing.stream().map(AnnouncementDocument::mediaAssetId).sorted().toList();
+		Map<Long, MediaAsset> lockedById = new LinkedHashMap<>();
+		for (int start = 0; start < sortedIds.size(); start += VALIDATION_BATCH_SIZE) {
+			List<Long> batch = sortedIds.subList(start, Math.min(start + VALIDATION_BATCH_SIZE, sortedIds.size()));
+			assets.findByCampusIdAndIdInForUpdate(campusId, batch)
+				.forEach(asset -> lockedById.put(asset.id(), asset));
+		}
+		if (lockedById.size() != sortedIds.size()) {
+			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
+		}
+		for (Long assetId : sortedIds) {
+			MediaAsset asset = lockedById.get(assetId);
+			if (asset == null || asset.kind() != MediaAssetKind.PDF || asset.status() != MediaAssetStatus.READY) {
+				throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
+			}
+			asset.markOrphaned();
+		}
+		documents.deleteByAnnouncementId(announcementId);
+		documents.flush();
+	}
+
 	public List<Long> getOrderedAssetIds(Long announcementId) {
 		return documents.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(announcementId).stream()
 			.map(AnnouncementDocument::mediaAssetId).toList();

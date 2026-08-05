@@ -15,6 +15,7 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.relaxedR
 import static org.springframework.restdocs.payload.PayloadDocumentation.requestFields;
 import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.restdocs.request.RequestDocumentation.pathParameters;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -164,6 +165,45 @@ class AnnouncementApiRestDocsTest {
 				preprocessResponse(prettyPrint()), pathParameters(
 					parameterWithName("campusId").description("캠퍼스 ID"),
 					parameterWithName("announcementId").description("공지 ID"))));
+	}
+
+	@Test
+	void documents_announcement_delete_success_not_found_conflict_and_forbidden() throws Exception {
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/announcements/{announcementId}", 7L, 99L)
+				.header("Authorization", "Bearer access-token"))
+			.andExpect(status().isNoContent())
+			.andDo(document("announcement-delete-success",
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("삭제할 ARCHIVED 공지의 캠퍼스 ID"),
+					parameterWithName("announcementId").description("ARCHIVED 상태 공지 ID"))));
+
+		doThrow(new BusinessException(ErrorCode.ANNOUNCEMENT_NOT_FOUND))
+			.when(announcementCommands).deleteAnnouncement(7L, 404L, 11L);
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/announcements/{announcementId}", 7L, 404L))
+			.andExpect(status().isNotFound())
+			.andDo(document("announcement-delete-not-found", preprocessResponse(prettyPrint()),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("announcementId").description("없거나 이미 삭제된 공지 ID"))));
+
+		doThrow(new BusinessException(ErrorCode.ANNOUNCEMENT_STATUS_CONFLICT))
+			.when(announcementCommands).deleteAnnouncement(7L, 409L, 11L);
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/announcements/{announcementId}", 7L, 409L))
+			.andExpect(status().isConflict())
+			.andDo(document("announcement-delete-status-conflict", preprocessResponse(prettyPrint()),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("announcementId").description("SCHEDULED 또는 PUBLISHED 상태 공지 ID"))));
+
+		doThrow(new BusinessException(ErrorCode.ANNOUNCEMENT_MANAGE_FORBIDDEN))
+			.when(announcementCommands).deleteAnnouncement(7L, 403L, 11L);
+		mockMvc.perform(delete("/api/v1/admin/campuses/{campusId}/announcements/{announcementId}", 7L, 403L))
+			.andExpect(status().isForbidden())
+			.andDo(document("announcement-delete-forbidden", preprocessResponse(prettyPrint()),
+				pathParameters(
+					parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("announcementId").description("관리 권한이 필요한 공지 ID"))));
 	}
 
 	@Test
