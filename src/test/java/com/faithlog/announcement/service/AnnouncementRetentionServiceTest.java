@@ -21,10 +21,10 @@ class AnnouncementRetentionServiceTest {
 	private final AnnouncementNotificationOutboxRepositoryPort outboxes =
 		mock(AnnouncementNotificationOutboxRepositoryPort.class);
 	private final AnnouncementRetentionService service =
-		new AnnouncementRetentionService(announcements, images, documents);
+		new AnnouncementRetentionService(announcements, images, documents, outboxes);
 
 	@Test
-	void physicallyDeletesPublishedAnnouncementAtSeoulCalendarMonthBoundaryAndPreservesOutbox() {
+	void physicallyDeletesPublishedAnnouncementAndAllRelatedRowsAtSeoulCalendarMonthBoundary() {
 		Announcement announcement = published(Instant.parse("2026-05-04T20:00:00Z"));
 		when(announcements.findByIdForUpdate(10L)).thenReturn(Optional.of(announcement));
 
@@ -32,8 +32,8 @@ class AnnouncementRetentionServiceTest {
 
 		verify(images).orphanAll(10L, 1L);
 		verify(documents).orphanAll(10L, 1L);
+		verify(outboxes).deleteByAnnouncementId(10L);
 		verify(announcements).delete(announcement);
-		verify(outboxes, never()).deleteByAnnouncementId(10L);
 	}
 
 	@Test

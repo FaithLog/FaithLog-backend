@@ -64,7 +64,7 @@ class AnnouncementDeleteIntegrationTest {
 	@Autowired private PlatformTransactionManager transactionManager;
 
 	@Test
-	void retention_physically_deletes_due_announcement_but_preserves_outbox_and_logs() {
+	void retention_physically_deletes_due_announcement_and_all_related_rows() {
 		Fixture fixture = transaction().execute(status -> createArchivedFixture("retention"));
 
 		assertThat(retentionService.deleteIfDue(
@@ -75,7 +75,7 @@ class AnnouncementDeleteIntegrationTest {
 			assertThat(images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(fixture.announcementId())).isEmpty();
 			assertThat(documents.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(fixture.announcementId())).isEmpty();
 			assertThat(outboxes.findAll())
-				.anyMatch(outbox -> outbox.announcementId().equals(fixture.announcementId()));
+				.noneMatch(outbox -> outbox.announcementId().equals(fixture.announcementId()));
 			assertThat(notificationLogs.findByRequestIdOrderByIdAsc(fixture.notificationRequestId()))
 				.hasSize(1);
 			assertThat(mediaAssets.findById(fixture.imageAssetId())).get()
