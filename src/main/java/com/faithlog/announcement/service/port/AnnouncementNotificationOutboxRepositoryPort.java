@@ -9,6 +9,8 @@ public interface AnnouncementNotificationOutboxRepositoryPort {
 
 	AnnouncementNotificationOutbox save(AnnouncementNotificationOutbox outbox);
 
+	void deleteByAnnouncementId(Long announcementId);
+
 	Optional<AnnouncementNotificationOutbox> findByIdForUpdate(Long outboxId);
 	List<Long> findPendingIds(Pageable pageable);
 }

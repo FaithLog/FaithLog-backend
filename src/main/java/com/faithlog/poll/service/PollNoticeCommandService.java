@@ -19,19 +19,22 @@ public class PollNoticeCommandService {
 	private final MealDutyAccessService mealDutyAccessService;
 	private final PollResultAssembler pollResultAssembler;
 	private final PollImageAttachmentService imageAttachmentService;
+	private final PollDocumentAttachmentService documentAttachmentService;
 
 	public PollNoticeCommandService(
 		PollLookupSupport pollLookupSupport,
 		PollAccessService pollAccessService,
 		MealDutyAccessService mealDutyAccessService,
 		PollResultAssembler pollResultAssembler,
-		PollImageAttachmentService imageAttachmentService
+		PollImageAttachmentService imageAttachmentService,
+		PollDocumentAttachmentService documentAttachmentService
 	) {
 		this.pollLookupSupport = pollLookupSupport;
 		this.pollAccessService = pollAccessService;
 		this.mealDutyAccessService = mealDutyAccessService;
 		this.pollResultAssembler = pollResultAssembler;
 		this.imageAttachmentService = imageAttachmentService;
+		this.documentAttachmentService = documentAttachmentService;
 	}
 
 	@Transactional
@@ -59,6 +62,8 @@ public class PollNoticeCommandService {
 		}
 		updateContent(poll, command);
 		imageAttachmentService.replace(poll.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
+		documentAttachmentService.replace(
+			poll.id(), command.campusId(), command.requesterId(), command.documentAssetIds());
 		return pollResultAssembler.toResult(poll);
 	}
 
@@ -66,6 +71,8 @@ public class PollNoticeCommandService {
 		Poll poll = pollLookupSupport.getPollInCampusForUpdate(command.campusId(), command.pollId());
 		updateContent(poll, command);
 		imageAttachmentService.replace(poll.id(), command.campusId(), command.requesterId(), command.imageAssetIds());
+		documentAttachmentService.replace(
+			poll.id(), command.campusId(), command.requesterId(), command.documentAssetIds());
 		return pollResultAssembler.toResult(poll);
 	}
 

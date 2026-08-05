@@ -86,7 +86,7 @@ class AnnouncementTest {
 	}
 
 	@Test
-	void published_update_does_not_change_publication_time_and_archived_cannot_change_or_restore() {
+	void published_update_does_not_change_publication_time_and_archived_cannot_be_updated_or_published_directly() {
 		Announcement announcement = Announcement.createPublished(
 			1L, 2L, 3L, "공지", "본문", false, NOW
 		);
@@ -105,5 +105,59 @@ class AnnouncementTest {
 		)).isInstanceOf(IllegalStateException.class);
 		assertThatThrownBy(() -> announcement.publish(NOW.plusSeconds(20)))
 			.isInstanceOf(IllegalStateException.class);
+	}
+
+	@Test
+	void archived_published_announcement_restore_preserves_original_publication_time() throws Exception {
+		Announcement announcement = Announcement.createPublished(
+			1L, 2L, 3L, "공지", "본문", false, NOW
+		);
+		announcement.archive();
+
+		restore(announcement, NOW.plusSeconds(3600));
+
+		assertThat(announcement.status()).isEqualTo(AnnouncementStatus.PUBLISHED);
+		assertThat(announcement.publishedAt()).isEqualTo(NOW);
+		assertThat(announcement.publishAt()).isEqualTo(NOW);
+	}
+
+	@Test
+	void archived_scheduled_announcement_restore_uses_restore_time_when_never_published() throws Exception {
+		Announcement announcement = Announcement.createScheduled(
+			1L, 2L, 3L, "공지", "본문", false, NOW.plusSeconds(3600), NOW
+		);
+		announcement.archive();
+		Instant restoreTime = NOW.plusSeconds(120);
+
+		restore(announcement, restoreTime);
+
+		assertThat(announcement.status()).isEqualTo(AnnouncementStatus.PUBLISHED);
+		assertThat(announcement.publishedAt()).isEqualTo(restoreTime);
+		assertThat(announcement.publishAt()).isEqualTo(restoreTime);
+	}
+
+	@Test
+	void non_archived_announcement_restore_is_rejected() {
+		Announcement announcement = Announcement.createPublished(
+			1L, 2L, 3L, "공지", "본문", false, NOW
+		);
+
+		assertThatThrownBy(() -> restore(announcement, NOW.plusSeconds(1)))
+			.isInstanceOf(IllegalStateException.class);
+	}
+
+	private void restore(Announcement announcement, Instant now) throws Exception {
+		try {
+			Announcement.class.getMethod("restore", Instant.class).invoke(announcement, now);
+		} catch (java.lang.reflect.InvocationTargetException exception) {
+			Throwable cause = exception.getCause();
+			if (cause instanceof RuntimeException runtimeException) {
+				throw runtimeException;
+			}
+			if (cause instanceof Error error) {
+				throw error;
+			}
+			throw new AssertionError(cause);
+		}
 	}
 }

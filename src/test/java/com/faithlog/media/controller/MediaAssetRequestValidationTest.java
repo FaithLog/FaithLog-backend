@@ -19,4 +19,19 @@ class MediaAssetRequestValidationTest {
 				.containsExactly("byteSize");
 		}
 	}
+
+	@Test
+	void pdf_accepts_exactly_thirty_mib_and_requires_a_file_name() {
+		var valid = new MediaAssetController.UploadReservationRequest(
+			"application/pdf", MediaAsset.MAX_PDF_INPUT_BYTES, "a".repeat(64), "주보.pdf");
+		var missingName = new MediaAssetController.UploadReservationRequest(
+			"application/pdf", 1024, "a".repeat(64), null);
+
+		try (var factory = Validation.buildDefaultValidatorFactory()) {
+			assertThat(factory.getValidator().validate(valid)).isEmpty();
+			assertThat(factory.getValidator().validate(missingName))
+				.extracting(violation -> violation.getPropertyPath().toString())
+				.contains("fileName");
+		}
+	}
 }

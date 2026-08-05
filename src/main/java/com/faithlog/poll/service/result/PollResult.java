@@ -26,18 +26,25 @@ public record PollResult(
 	Instant endsAt,
 	PollStatus status,
 	List<PollOptionResult> options,
-	List<Long> imageAssetIds
+	List<Long> imageAssetIds,
+	List<Long> documentAssetIds
 ) {
 	public PollResult {
 		options = options == null ? List.of() : List.copyOf(options);
 		imageAssetIds = imageAssetIds == null ? List.of() : List.copyOf(imageAssetIds);
+		documentAssetIds = documentAssetIds == null ? List.of() : List.copyOf(documentAssetIds);
 	}
 
 	public static PollResult of(Poll poll, List<PollOptionResult> options) {
-		return of(poll, options, List.of());
+		return of(poll, options, List.of(), List.of());
 	}
 
 	public static PollResult of(Poll poll, List<PollOptionResult> options, List<Long> imageAssetIds) {
+		return of(poll, options, imageAssetIds, List.of());
+	}
+
+	public static PollResult of(Poll poll, List<PollOptionResult> options, List<Long> imageAssetIds,
+		List<Long> documentAssetIds) {
 		return new PollResult(
 			poll.id(),
 			poll.campusId(),
@@ -55,7 +62,8 @@ public record PollResult(
 			poll.endsAt(),
 			poll.status(),
 			options,
-			imageAssetIds
+			imageAssetIds,
+			documentAssetIds
 		);
 	}
 }

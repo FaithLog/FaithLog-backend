@@ -2,11 +2,15 @@ package com.faithlog.announcement.service;
 
 import com.faithlog.announcement.domain.entity.AnnouncementImage;
 import com.faithlog.announcement.infrastructure.repository.AnnouncementImageRepository;
+import com.faithlog.announcement.infrastructure.repository.AnnouncementDocumentRepository;
+import com.faithlog.announcement.service.port.PollMediaAttachmentPort;
+import com.faithlog.announcement.service.port.WeeklyMaterialMediaAttachmentPort;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
+import com.faithlog.media.domain.entity.MediaAsset;
+import com.faithlog.media.domain.type.MediaAssetKind;
 import com.faithlog.media.domain.type.MediaAssetStatus;
 import com.faithlog.media.service.port.MediaAssetRepositoryPort;
-import com.faithlog.announcement.service.port.PollMediaAttachmentPort;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,17 +21,23 @@ import org.springframework.stereotype.Service;
 public class AnnouncementImageAttachmentService {
 	private static final int VALIDATION_BATCH_SIZE = 100;
 	private final AnnouncementImageRepository images;
+	private final AnnouncementDocumentRepository documents;
 	private final MediaAssetRepositoryPort assets;
 	private final PollMediaAttachmentPort pollImages;
+	private final WeeklyMaterialMediaAttachmentPort weeklyAttachments;
 
 	public AnnouncementImageAttachmentService(
 		AnnouncementImageRepository images,
+		AnnouncementDocumentRepository documents,
 		MediaAssetRepositoryPort assets,
-		PollMediaAttachmentPort pollImages
+		PollMediaAttachmentPort pollImages,
+		WeeklyMaterialMediaAttachmentPort weeklyAttachments
 	) {
 		this.images = images;
+		this.documents = documents;
 		this.assets = assets;
 		this.pollImages = pollImages;
+		this.weeklyAttachments = weeklyAttachments;
 	}
 
 	public void replace(Long announcementId, Long campusId, Long ownerId, List<Long> orderedAssetIds) {
@@ -44,14 +54,16 @@ public class AnnouncementImageAttachmentService {
 		for (int start = 0; start < sortedIds.size(); start += VALIDATION_BATCH_SIZE) {
 			List<Long> batch = sortedIds.subList(start, Math.min(start + VALIDATION_BATCH_SIZE, sortedIds.size()));
 			loaded.addAll(assets.findByCampusIdAndIdInForUpdate(campusId, batch));
+			conflictingIds.addAll(weeklyAttachments.findAttachedAssetIds(batch));
 			conflictingIds.addAll(images.findAttachedAssetIdsForOtherAnnouncements(announcementId, batch));
+			conflictingIds.addAll(documents.findAttachedAssetIds(batch));
 			conflictingIds.addAll(pollImages.findAttachedAssetIds(batch));
 		}
 		var byId = new LinkedHashMap<Long, com.faithlog.media.domain.entity.MediaAsset>();
 		loaded.forEach(asset -> byId.put(asset.id(), asset));
 		if (byId.size() != requested.size() || requested.stream().anyMatch(id -> {
 			var asset = byId.get(id);
-			return asset == null || asset.status() != MediaAssetStatus.READY
+			return asset == null || asset.kind() != MediaAssetKind.IMAGE || asset.status() != MediaAssetStatus.READY
 				|| (!existingAssetIds.contains(id) && !asset.ownerUserId().equals(ownerId));
 		})) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
@@ -69,6 +81,34 @@ public class AnnouncementImageAttachmentService {
 		for (int index = 0; index < requested.size(); index++) {
 			images.save(AnnouncementImage.create(campusId, announcementId, requested.get(index), index));
 		}
+	}
+
+	public void orphanAll(Long announcementId, Long campusId) {
+		var existing = images.findByAnnouncementIdOrderByDisplayOrderAscIdAsc(announcementId);
+		if (existing.isEmpty()) {
+			images.deleteByAnnouncementId(announcementId);
+			images.flush();
+			return;
+		}
+		List<Long> sortedIds = existing.stream().map(AnnouncementImage::mediaAssetId).sorted().toList();
+		Map<Long, MediaAsset> lockedById = new LinkedHashMap<>();
+		for (int start = 0; start < sortedIds.size(); start += VALIDATION_BATCH_SIZE) {
+			List<Long> batch = sortedIds.subList(start, Math.min(start + VALIDATION_BATCH_SIZE, sortedIds.size()));
+			assets.findByCampusIdAndIdInForUpdate(campusId, batch)
+				.forEach(asset -> lockedById.put(asset.id(), asset));
+		}
+		if (lockedById.size() != sortedIds.size()) {
+			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
+		}
+		for (Long assetId : sortedIds) {
+			MediaAsset asset = lockedById.get(assetId);
+			if (asset == null || asset.kind() != MediaAssetKind.IMAGE || asset.status() != MediaAssetStatus.READY) {
+				throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
+			}
+			asset.markOrphaned();
+		}
+		images.deleteByAnnouncementId(announcementId);
+		images.flush();
 	}
 
 	public List<Long> getOrderedAssetIds(Long announcementId) {

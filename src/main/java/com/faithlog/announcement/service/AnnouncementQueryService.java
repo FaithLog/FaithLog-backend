@@ -27,18 +27,21 @@ public class AnnouncementQueryService {
 	private final AnnouncementCategoryRepositoryPort categoryRepository;
 	private final AnnouncementAccessPolicy accessPolicy;
 	private final AnnouncementImageAttachmentService imageAttachmentService;
+	private final AnnouncementDocumentAttachmentService documentAttachmentService;
 
 	@Autowired
 	public AnnouncementQueryService(
 		AnnouncementRepositoryPort announcementRepository,
 		AnnouncementCategoryRepositoryPort categoryRepository,
 		AnnouncementAccessPolicy accessPolicy,
-		AnnouncementImageAttachmentService imageAttachmentService
+		AnnouncementImageAttachmentService imageAttachmentService,
+		AnnouncementDocumentAttachmentService documentAttachmentService
 	) {
 		this.announcementRepository = announcementRepository;
 		this.categoryRepository = categoryRepository;
 		this.accessPolicy = accessPolicy;
 		this.imageAttachmentService = imageAttachmentService;
+		this.documentAttachmentService = documentAttachmentService;
 	}
 
 	public AnnouncementQueryService(
@@ -46,7 +49,7 @@ public class AnnouncementQueryService {
 		AnnouncementCategoryRepositoryPort categoryRepository,
 		AnnouncementAccessPolicy accessPolicy
 	) {
-		this(announcementRepository, categoryRepository, accessPolicy, null);
+		this(announcementRepository, categoryRepository, accessPolicy, null, null);
 	}
 
 	public Page<AnnouncementResult> getAnnouncements(
@@ -59,10 +62,12 @@ public class AnnouncementQueryService {
 		Page<Announcement> announcements = announcementRepository.findByCampusIdAndStatus(campusId, status, pageable);
 		Map<Long, AnnouncementCategory> categories = categoriesById(campusId, announcements.getContent());
 		Map<Long, List<Long>> imagesByAnnouncement = imageAssetIdsByAnnouncement(announcements.getContent());
+		Map<Long, List<Long>> documentsByAnnouncement = documentAssetIdsByAnnouncement(announcements.getContent());
 		return announcements.map(announcement -> AnnouncementResult.from(
 			announcement,
 			requireCategory(categories, announcement.categoryId()),
-			imagesByAnnouncement.getOrDefault(announcement.id(), List.of())
+			imagesByAnnouncement.getOrDefault(announcement.id(), List.of()),
+			documentsByAnnouncement.getOrDefault(announcement.id(), List.of())
 		));
 	}
 
@@ -73,7 +78,8 @@ public class AnnouncementQueryService {
 		AnnouncementCategory category = categoryRepository.findByCampusIdAndId(campusId, announcement.categoryId())
 			.orElseThrow(() -> new BusinessException(ErrorCode.ANNOUNCEMENT_CATEGORY_NOT_FOUND));
 		return AnnouncementResult.from(announcement, category,
-			imageAttachmentService == null ? List.of() : imageAttachmentService.getOrderedAssetIds(announcement.id()));
+			imageAttachmentService == null ? List.of() : imageAttachmentService.getOrderedAssetIds(announcement.id()),
+			documentAttachmentService == null ? List.of() : documentAttachmentService.getOrderedAssetIds(announcement.id()));
 	}
 
 	private void requireStatusAccess(Long campusId, Long requesterId, AnnouncementStatus status) {
@@ -113,6 +119,12 @@ public class AnnouncementQueryService {
 			return Map.of();
 		}
 		return imageAttachmentService.getOrderedAssetIdsByAnnouncementIds(
+			announcements.stream().map(Announcement::id).toList());
+	}
+
+	private Map<Long, List<Long>> documentAssetIdsByAnnouncement(List<Announcement> announcements) {
+		if (documentAttachmentService == null || announcements.isEmpty()) return Map.of();
+		return documentAttachmentService.getOrderedAssetIdsByAnnouncementIds(
 			announcements.stream().map(Announcement::id).toList());
 	}
 }

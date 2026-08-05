@@ -19,20 +19,30 @@ public record AnnouncementResult(
 	Instant publishedAt,
 	Instant createdAt,
 	Instant updatedAt,
-	List<Long> imageAssetIds
+	List<Long> imageAssetIds,
+	List<Long> documentAssetIds
 ) {
+	public AnnouncementResult(Long id, Long campusId, AnnouncementCategoryResult category, Long authorId,
+		String title, String content, boolean pinned, AnnouncementStatus status, Instant publishAt,
+		Instant publishedAt, Instant createdAt, Instant updatedAt, List<Long> imageAssetIds) {
+		this(id, campusId, category, authorId, title, content, pinned, status, publishAt, publishedAt,
+			createdAt, updatedAt, imageAssetIds, List.of());
+	}
+
 	public AnnouncementResult {
 		imageAssetIds = imageAssetIds == null ? List.of() : List.copyOf(imageAssetIds);
+		documentAssetIds = documentAssetIds == null ? List.of() : List.copyOf(documentAssetIds);
 	}
 
 	public static AnnouncementResult from(Announcement announcement, AnnouncementCategory category) {
-		return from(announcement, category, List.of());
+		return from(announcement, category, List.of(), List.of());
 	}
 
 	public static AnnouncementResult from(
 		Announcement announcement,
 		AnnouncementCategory category,
-		List<Long> imageAssetIds
+		List<Long> imageAssetIds,
+		List<Long> documentAssetIds
 	) {
 		return new AnnouncementResult(
 			announcement.id(),
@@ -47,7 +57,8 @@ public record AnnouncementResult(
 			announcement.publishedAt(),
 			announcement.createdAt(),
 			announcement.updatedAt(),
-			imageAssetIds
+			imageAssetIds,
+			documentAssetIds
 		);
 	}
 }

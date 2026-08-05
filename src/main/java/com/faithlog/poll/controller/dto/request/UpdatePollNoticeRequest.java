@@ -8,15 +8,17 @@ import java.util.List;
 public record UpdatePollNoticeRequest(
 	@NotBlank @Size(max = 200) String title,
 	@Size(max = 5_000) String notice,
-	List<@Positive Long> imageAssetIds
+	List<@Positive Long> imageAssetIds,
+	List<@Positive Long> documentAssetIds
 ) {
 	public UpdatePollNoticeRequest(String title, String notice) {
-		this(title, notice, List.of());
+		this(title, notice, List.of(), List.of());
 	}
 
 	public UpdatePollNoticeRequest {
 		title = title == null ? null : title.trim();
 		notice = notice == null || notice.isBlank() ? null : notice.trim();
 		imageAssetIds = imageAssetIds == null ? List.of() : List.copyOf(imageAssetIds);
+		documentAssetIds = documentAssetIds == null ? List.of() : List.copyOf(documentAssetIds);
 	}
 }
