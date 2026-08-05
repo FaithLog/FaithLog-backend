@@ -1248,3 +1248,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - PDF는 thumbnail/detail로 변환하지 않고 검증된 단일 private final object로 저장한다. 다운로드는 10분 Presigned GET과 `Content-Disposition: attachment`를 사용하며 안전한 원본 파일명, MIME, 크기, SHA-256만 응답한다.
 - 공지·투표 생성과 수정은 ordered `documentAssetIds`를 additive로 지원한다. 공동 관리자는 현재 글에 이미 첨부된 타인 소유 PDF만 유지·재정렬할 수 있고, 새 unattached 타인 소유 PDF 추가는 계속 거부한다. 제거는 ORPHANED와 기존 retry/lease cleanup을 재사용한다.
 - 첨부 개수의 제품 상한은 두지 않는다. 기존 100-ID 경계는 SQL lock 및 access URL 요청의 기술적 batch 크기일 뿐이다. poll 공개 알림 payload와 수정 시 재알림 정책은 변경하지 않는다.
+
+## 2026-08-05 - Issue #243 보관된 공지 영구 삭제 API
+
+- 사용자는 `DELETE /api/v1/admin/campuses/{campusId}/announcements/{announcementId}`를 승인했다. request body는 없고, 캠퍼스 관리자 권한이 필요하며, 성공은 `204 No Content`다.
+- 이전 #237 문서의 “physical deletion 미노출” 의미는 #243 승인으로 대체한다. 삭제는 `ARCHIVED` 상태에서만 가능하고, `SCHEDULED`/`PUBLISHED`는 기존 `ANNOUNCEMENT_STATUS_CONFLICT` 409를 재사용한다. 없는 공지와 이미 삭제된 공지는 기존 `ANNOUNCEMENT_NOT_FOUND` 404를 재사용한다.
+- 삭제 transaction은 캠퍼스 범위로 announcement row를 lock하고, 연결된 image/PDF attachment media row를 stable batch로 lock한 뒤 same-campus READY 상태를 검증한다. 연결 media는 `ORPHANED`로 전환하고 `announcement_images`/`announcement_documents` link row를 삭제한다.
+- 삭제 대상 공지의 `announcement_notification_outbox` row는 announcement row 삭제 전에 제거한다. 이미 생성된 `notification_logs` 이력은 유지한다.
+- API transaction에서는 R2 또는 외부 network/storage 호출을 하지 않는다. 실제 object 삭제는 기존 24h media cleanup/retry/lease 경로가 담당한다.
+- 어떤 단계에서든 실패하면 전체 DB transaction을 rollback하며, 다른 공지, 다른 캠퍼스, poll media는 변경하지 않는다. 새 ErrorCode, Flyway, dependency, push/PR/deploy 변경은 없다.

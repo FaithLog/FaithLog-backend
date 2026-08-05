@@ -1813,3 +1813,11 @@ Metric candidates:
 - PDFBox parser로 암호화, embedded file, JavaScript 및 자동 action을 거부하고, 원본 파일명은 object key나 로그가 아닌 attachment 다운로드 표시값으로만 사용한다. 외부 malware scanner 성능이나 탐지율은 주장하지 않는다.
 - 최종 `./gradlew test build asciidoctor --no-daemon`은 862 tests / failures 0 / errors 0 / skipped 16으로 통과했고 bootJar, JaCoCo, REST Docs HTML을 생성했다.
 - 실제 R2 네트워크, 모바일 7일 cache, 비용 절감, 다운로드 성능 수치는 검증 전까지 성과로 기록하지 않는다. Docker daemon을 사용할 수 없어 V19 실제 PostgreSQL clean/upgrade 및 app 배포도 아직 완료로 주장하지 않는다.
+
+## 2026-08-05 Issue #243 보관된 공지 영구 삭제
+
+- TDD RED: PM test-only 초안을 먼저 커밋했고, 최초 focused 실행은 `deleteAnnouncement`, attachment `orphanAll`, outbox/announcement delete port 부재로 `compileTestJava` 12 errors를 재현했다.
+- 구현 범위: `DELETE /api/v1/admin/campuses/{campusId}/announcements/{announcementId}`를 추가하고, `ARCHIVED` 전용 삭제, campus manager 권한, 204/no body, 404/409 기존 ErrorCode 재사용, image/PDF link 삭제, READY media ORPHANED 전환, target announcement outbox 선삭제, notification_logs 보존을 고정했다.
+- 검증 보강: focused unit tests는 삭제 순서, row lock 조회, status conflict no-mutation, missing 404, stable attachment lock batch, READY 검증을 다룬다. 실제 Spring/JPA integration test는 tenant mismatch, FK/outbox 순서, 다른 공지/캠퍼스 media 보존, already-deleted 404, outbox 실패 시 media/link/announcement rollback을 확인한다.
+- REST Docs: DELETE success 204, not found 404, status conflict 409, forbidden 403 snippets와 `src/docs/asciidoc/index.adoc` 섹션을 추가했다.
+- 실제 R2 network, Docker QA, 운영 cleanup 24h 실행, push/PR/deploy는 수행하지 않는다. 최종 전체 test/build/asciidoctor 수치는 검증 완료 후 이 항목에 갱신한다.
