@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 public interface WeeklyMaterialQueryPort {
-	List<WeeklyMaterialRow> findActiveRows(List<LocalDate> weekStartDates);
-	Page<LocalDate> findActiveWeekDates(LocalDate fromInclusive, LocalDate toExclusive, Pageable pageable);
+	List<WeeklyMaterialRow> findActiveRows(Long campusId, List<LocalDate> weekStartDates);
+	Page<LocalDate> findActiveWeekDates(Long campusId, LocalDate fromInclusive, LocalDate toExclusive,
+		Pageable pageable);
 }

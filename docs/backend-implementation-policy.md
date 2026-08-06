@@ -632,11 +632,12 @@ Keep these out of MVP scope:
 
 ## Weekly Materials
 
-- Weekly materials expose three exact global types: `SHEPHERD_GUIDE`, `SUNDAY_SHARING_SHEET`, and `SATURDAY_LEADER_SHARING_SHEET`. `SHARING_SHEET` is legacy migration input only.
-- Slots are global by Asia/Seoul Monday `weekStartDate + materialType`, not campus-owned. Any manager may write/delete through a campus they manage; an ACTIVE member reads the same global content through their requested campus.
+- Weekly materials expose `SHEPHERD_GUIDE`, `SUNDAY_SHARING_SHEET`, and `SATURDAY_LEADER_SHARING_SHEET`. `SHARING_SHEET` is legacy migration input only.
+- `SHEPHERD_GUIDE` is scoped by `campusId + Asia/Seoul Monday weekStartDate`; the two sharing sheets remain global by `weekStartDate + materialType`.
+- An ACTIVE `MINISTER`, `ELDER`, or `CAMPUS_LEADER` of the same campus, and a service `ADMIN`, may register, replace, or delete that campus's shepherd guide. Every ACTIVE member of that campus may read it. Other campuses cannot read or mutate it.
 - The response fields are exactly `shepherdGuide`, `sundaySharingSheet`, and `saturdayLeaderSharingSheet`, all nullable. A valid empty Monday returns 200 with three nulls; list pagination includes only weeks with ACTIVE rows.
-- New attachments remain requester-owned READY PDFs in the requested campus. The material row stores `mediaCampusId` separately from global content scope. A later manager from another campus may replace/delete the slot; the old asset is validated against its stored media tenant and marked ORPHANED in the same transaction.
-- Reads expose metadata without object keys/public URLs and reuse the private access API plus `assetId + sha256` seven-day cache. Cross-media-tenant access is permitted only for an ACTIVE global weekly attachment after request-campus member/manager authorization; announcement, poll, and owner-preview tenant boundaries remain unchanged.
+- New attachments remain requester-owned READY PDFs in the requested campus. The material row stores `mediaCampusId` separately from nullable `scopeCampusId`. Shepherd guides require the same scope campus; global sharing sheets keep a null scope and may change media tenant when another authorized campus manager replaces them.
+- Reads expose metadata without object keys/public URLs and reuse the private access API plus `assetId + sha256` seven-day cache. Cross-media-tenant access is permitted for active global sharing sheets, while shepherd-guide media is readable only through its scope campus.
 - Media attachment exclusivity is symmetric: after stable media row locks, weekly, announcement, and poll flows query consumer-owned conflict ports before mutation.
 - A dedicated PostgreSQL singleton lock serializes writes across all campuses. Command, retention, and processor flows preserve global-lock → material → outbox ordering; media locks remain deterministically ordered and rollback is atomic.
 - Only the global first `SUNDAY_SHARING_SHEET` registration creates an outbox. The approved copy is `새 주일설교 나눔지가 등록되었어요` / `{weekStartDate} 주차 주일설교 나눔지를 확인해 주세요`, event type `WEEKLY_SHARING_SHEET_PUBLISHED`. Guide, Saturday sheet, replacement, delete, and re-registration mutations send zero notifications.

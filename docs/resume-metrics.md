@@ -1855,3 +1855,11 @@ Metric candidates:
 - GitHub Actions의 기본 병렬 test worker가 953-test 전체 suite에서 runner 메모리를 소진하는 RED를 재현했다.
 - Test task를 512 MiB, 단일 worker, 25-class 주기 fork로 고정하고 V19->V20 전용 migration test의 Flyway target을 20으로 명시했다.
 - production/API/schema 동작 변경 없이 저장소 설정만 사용한 `test build asciidoctor`가 953 tests / failures 0 / errors 0 / skipped 19, BUILD SUCCESSFUL in 9m 36s로 통과했다. 별도 PostgreSQL 17에서 PostgresFlywayMigrationTest 전체도 GREEN했다.
+
+## 2026-08-06 Issue #249 campus-scoped shepherd guide
+
+- RED는 기존 repository/query/entity가 목자지침 campus scope를 표현하지 못해 compile errors 13건으로 재현됐다.
+- GREEN은 목자지침에만 `scopeCampusId`를 결속하고 두 나눔지의 전역 슬롯, 최초 주일 알림, private PDF lifecycle을 유지한다.
+- focused weekly/media/Flyway static gate는 77 tests / failures 0이다. 전용 PostgreSQL 17의 14 migration tests는 failures/errors/skipped 0으로 clean V1→V22, V21→V22, campus shepherd coexistence와 global sheet uniqueness를 검증했다.
+- 최종 `./gradlew test build asciidoctor --no-daemon`은 957 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 12m 49s`로 통과했다. 첫 시도에서 임시 worktree의 재생성 가능한 build 산출물이 디스크를 채운 환경 오류가 발생해 해당 build 디렉터리만 정리한 뒤 동일 명령을 재실행했으며, source·Gradle 설정·shared runtime은 변경하지 않았다.
+- 실제 R2/FCM/Cloud Run/shared QA PostgreSQL·Redis mutation은 0이며 이 기록은 기능 정확성 검증이지 성능·비용 개선 수치가 아니다.

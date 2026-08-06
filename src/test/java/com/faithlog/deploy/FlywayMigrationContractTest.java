@@ -353,7 +353,7 @@ class FlywayMigrationContractTest {
 	}
 
 	@Test
-	void postgresFixturesRequireThePhysicalV14ToV15ToV16ToV17ToV18ToV19ToV20ToV21Order() throws IOException {
+	void postgresFixturesRequireThePhysicalV14ToV15ToV16ToV17ToV18ToV19ToV20ToV21ToV22Order() throws IOException {
 		String source = Files.readString(POSTGRES_MIGRATION_TEST);
 		String cleanFixture = source.substring(
 			source.indexOf("void flywayMigratesCleanPostgresDatabase"),
@@ -384,7 +384,7 @@ class FlywayMigrationContractTest {
 			source.indexOf("void v21FailsClosedWithSqlState23505AndPreservesDuplicateLegacyGlobalSlots")
 		);
 
-		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"21\")");
+		assertThat(cleanFixture).contains("MigrationVersion.fromVersion(\"22\")");
 		assertThat(v16UpgradeFixture).contains(".target(\"15\")");
 		assertThat(v16UpgradeFixture).doesNotContain(".target(\"14\")");
 		assertThat(v17UpgradeFixture).contains(".target(\"16\")", ".target(\"17\")");
@@ -394,6 +394,7 @@ class FlywayMigrationContractTest {
 			"MigrationVersion.fromVersion(\"19\")");
 		assertThat(v20UpgradeFixture).contains(".target(\"19\")", "MigrationVersion.fromVersion(\"20\")");
 		assertThat(v21UpgradeFixture).contains(".target(\"20\")", "MigrationVersion.fromVersion(\"21\")");
+		assertThat(source).contains("void v22ScopesShepherdGuidesByCampusAndKeepsSharingSheetsGlobal");
 	}
 
 	@Test

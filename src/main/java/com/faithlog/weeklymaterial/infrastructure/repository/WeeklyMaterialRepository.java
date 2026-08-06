@@ -30,8 +30,13 @@ public interface WeeklyMaterialRepository
 		select material from WeeklyMaterial material
 		where material.weekStartDate = :weekStartDate
 		  and material.materialType = :materialType
+		  and ((material.materialType = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE
+		        and material.scopeCampusId = :campusId)
+		    or (material.materialType <> com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE
+		        and material.scopeCampusId is null))
 		""")
-	Optional<WeeklyMaterial> findSlotForUpdate(@Param("weekStartDate") LocalDate weekStartDate,
+	Optional<WeeklyMaterial> findSlotForUpdate(@Param("campusId") Long campusId,
+		@Param("weekStartDate") LocalDate weekStartDate,
 		@Param("materialType") WeeklyMaterialType materialType);
 
 	@Override
@@ -59,8 +64,12 @@ public interface WeeklyMaterialRepository
 		select material.mediaAssetId from WeeklyMaterial material
 		where material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
 		  and material.mediaAssetId in :assetIds
+		  and ((material.materialType = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE
+		        and material.scopeCampusId = :campusId)
+		    or material.materialType <> com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE)
 		""")
-	Set<Long> findActiveAttachedAssetIds(@Param("assetIds") List<Long> assetIds);
+	Set<Long> findActiveAttachedAssetIds(@Param("campusId") Long campusId,
+		@Param("assetIds") List<Long> assetIds);
 
 	@Override
 	@Query("""
@@ -71,22 +80,33 @@ public interface WeeklyMaterialRepository
 		join MediaAsset asset on asset.id = material.mediaAssetId and asset.campusId = material.mediaCampusId
 		where material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
 		  and material.weekStartDate in :weekStartDates
+		  and ((material.materialType = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE
+		        and material.scopeCampusId = :campusId)
+		    or material.materialType <> com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE)
 		order by material.weekStartDate desc, material.id desc
 		""")
-	List<WeeklyMaterialRow> findActiveRows(@Param("weekStartDates") List<LocalDate> weekStartDates);
+	List<WeeklyMaterialRow> findActiveRows(@Param("campusId") Long campusId,
+		@Param("weekStartDates") List<LocalDate> weekStartDates);
 
 	@Override
 	@Query(value = """
 		select distinct material.weekStartDate from WeeklyMaterial material
 		where material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
 		  and material.weekStartDate >= :fromInclusive and material.weekStartDate < :toExclusive
+		  and ((material.materialType = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE
+		        and material.scopeCampusId = :campusId)
+		    or material.materialType <> com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE)
 		order by material.weekStartDate desc
 		""", countQuery = """
 		select count(distinct material.weekStartDate) from WeeklyMaterial material
 		where material.status = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialStatus.ACTIVE
 		  and material.weekStartDate >= :fromInclusive and material.weekStartDate < :toExclusive
+		  and ((material.materialType = com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE
+		        and material.scopeCampusId = :campusId)
+		    or material.materialType <> com.faithlog.weeklymaterial.domain.type.WeeklyMaterialType.SHEPHERD_GUIDE)
 		""")
-	Page<LocalDate> findActiveWeekDates(@Param("fromInclusive") LocalDate fromInclusive,
+	Page<LocalDate> findActiveWeekDates(@Param("campusId") Long campusId,
+		@Param("fromInclusive") LocalDate fromInclusive,
 		@Param("toExclusive") LocalDate toExclusive,
 		Pageable pageable);
 }

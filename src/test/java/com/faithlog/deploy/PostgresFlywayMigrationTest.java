@@ -80,7 +80,7 @@ class PostgresFlywayMigrationTest {
 		);
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
-		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("21"));
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("22"));
 		assertColumnExists(jdbcUrl, username, password, "media_assets", "asset_kind");
 		assertColumnExists(jdbcUrl, username, password, "media_assets", "document_object_key");
 		assertTableExists(jdbcUrl, username, password, "announcement_documents");
@@ -91,6 +91,11 @@ class PostgresFlywayMigrationTest {
 		assertTableExists(jdbcUrl, username, password, "weekly_material_notification_outbox");
 		assertTableExists(jdbcUrl, username, password, "weekly_material_global_lock");
 		assertColumnExists(jdbcUrl, username, password, "weekly_materials", "media_campus_id");
+		assertColumnExists(jdbcUrl, username, password, "weekly_materials", "scope_campus_id");
+		assertIndexExists(jdbcUrl, username, password,
+			"weekly_materials", "uk_weekly_materials_shepherd_slot");
+		assertIndexExists(jdbcUrl, username, password,
+			"weekly_materials", "uk_weekly_materials_global_sheet_slot");
 		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_materials");
 		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_material_notification_outbox");
 		assertPdfMediaAndDocumentRelationBoundaries(jdbcUrl, username, password);
@@ -119,7 +124,7 @@ class PostgresFlywayMigrationTest {
 		insertLegacyWeeklyMaterialAndOutbox(jdbcUrl, username, password, false);
 
 		Flyway v21 = Flyway.configure().dataSource(jdbcUrl, username, password)
-			.locations("classpath:db/migration").load();
+			.locations("classpath:db/migration").target("21").load();
 		assertThat(v21.migrate().success).isTrue();
 		assertThat(v21.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("21"));
 		assertThat(migrationChecksum(jdbcUrl, username, password, "20")).isEqualTo(v20Checksum);
@@ -144,6 +149,28 @@ class PostgresFlywayMigrationTest {
 
 	@Test
 	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
+	void v22ScopesShepherdGuidesByCampusAndKeepsSharingSheetsGlobal() throws Exception {
+		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
+		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
+		String password = envOrDefault("FLYWAY_TEST_PASSWORD", "faithlog");
+		Flyway v21 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.cleanDisabled(false).locations("classpath:db/migration").target("21").load();
+		v21.clean();
+		assertThat(v21.migrate().success).isTrue();
+		insertV21ShepherdGuideFixture(jdbcUrl, username, password);
+
+		Flyway v22 = Flyway.configure().dataSource(jdbcUrl, username, password)
+			.locations("classpath:db/migration").load();
+		assertThat(v22.migrate().success).isTrue();
+		assertThat(v22.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("22"));
+		assertThat(queryText(jdbcUrl, username, password,
+			"select scope_campus_id::text from weekly_materials where material_type = 'SHEPHERD_GUIDE'"))
+			.isEqualTo("101");
+		assertHybridWeeklyMaterialSlots(jdbcUrl, username, password);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "FAITHLOG_RUN_POSTGRES_FLYWAY_TEST", matches = "true")
 	void v21FailsClosedWithSqlState23505AndPreservesDuplicateLegacyGlobalSlots() throws Exception {
 		String jdbcUrl = envOrDefault("FLYWAY_TEST_JDBC_URL", "jdbc:postgresql://localhost:5432/faithlog_test");
 		String username = envOrDefault("FLYWAY_TEST_USERNAME", "faithlog");
@@ -155,7 +182,7 @@ class PostgresFlywayMigrationTest {
 		insertLegacyWeeklyMaterialAndOutbox(jdbcUrl, username, password, true);
 
 		Flyway v21 = Flyway.configure().dataSource(jdbcUrl, username, password)
-			.locations("classpath:db/migration").load();
+			.locations("classpath:db/migration").target("21").load();
 		assertThatThrownBy(v21::migrate)
 			.isInstanceOf(FlywayException.class)
 			.hasMessageContaining("SQL State  : 23505")
@@ -649,6 +676,63 @@ class PostgresFlywayMigrationTest {
 				(campus_id, weekly_material_id, week_start_date, material_type, uploader_id, processed_at, created_at)
 				values (102, 9002, date '2026-08-03', 'SHARING_SHEET', 502, now(), now())
 				""");
+		}
+	}
+
+	private static void insertV21ShepherdGuideFixture(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement statement = connection.createStatement()) {
+			statement.executeUpdate("""
+				insert into users
+				(id, name, email, password_hash, role, is_active, token_version, created_at, updated_at)
+				values (501, 'guide uploader', 'guide-v22@example.com', 'hash', 'ADMIN', true, 0, now(), now())
+				""");
+			statement.executeUpdate("""
+				insert into campuses
+				(id, name, region, description, invite_code, is_active, created_at, updated_at)
+				values
+				(101, 'guide campus 1', 'Seoul', '', 'guide-v22-1', true, now(), now()),
+				(102, 'guide campus 2', 'Seoul', '', 'guide-v22-2', true, now(), now())
+				""");
+			statement.executeUpdate("""
+				insert into weekly_materials
+				(media_campus_id, week_start_date, material_type, media_asset_id, uploaded_by, status,
+				 created_at, updated_at)
+				values (101, date '2026-08-03', 'SHEPHERD_GUIDE', null, 501, 'DELETED', now(), now())
+				""");
+		}
+	}
+
+	private static void assertHybridWeeklyMaterialSlots(
+		String jdbcUrl, String username, String password
+	) throws Exception {
+		try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+			Statement statement = connection.createStatement()) {
+			statement.executeUpdate("""
+				insert into weekly_materials
+				(media_campus_id, scope_campus_id, week_start_date, material_type, media_asset_id,
+				 uploaded_by, status, created_at, updated_at)
+				values (102, 102, date '2026-08-03', 'SHEPHERD_GUIDE', null, 501, 'DELETED', now(), now())
+				""");
+			assertThat(queryText(jdbcUrl, username, password,
+				"select count(*)::text from weekly_materials where material_type = 'SHEPHERD_GUIDE'"))
+				.isEqualTo("2");
+			statement.executeUpdate("""
+				insert into weekly_materials
+				(media_campus_id, scope_campus_id, week_start_date, material_type, media_asset_id,
+				 uploaded_by, status, created_at, updated_at)
+				values (101, null, date '2026-08-03', 'SUNDAY_SHARING_SHEET', null, 501, 'DELETED', now(), now())
+				""");
+			assertThatThrownBy(() -> statement.executeUpdate("""
+				insert into weekly_materials
+				(media_campus_id, scope_campus_id, week_start_date, material_type, media_asset_id,
+				 uploaded_by, status, created_at, updated_at)
+				values (102, null, date '2026-08-03', 'SUNDAY_SHARING_SHEET', null, 501, 'DELETED', now(), now())
+				"""))
+				.isInstanceOfSatisfying(java.sql.SQLException.class,
+					exception -> assertThat(exception.getSQLState()).isEqualTo("23505"));
 		}
 	}
 
