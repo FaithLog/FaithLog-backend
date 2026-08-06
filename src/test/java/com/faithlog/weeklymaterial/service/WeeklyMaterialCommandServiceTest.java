@@ -62,7 +62,7 @@ class WeeklyMaterialCommandServiceTest {
 	void firstGuideRegistrationLocksReadyOwnedPdfAndSavesOneSlotWithoutNetwork() {
 		MediaAsset pdf = readyPdf(20L, 1L, 100L);
 		LocalDate week = LocalDate.of(2026, 8, 3);
-		when(materials.findSlotForUpdate(week, WeeklyMaterialType.SHEPHERD_GUIDE))
+		when(materials.findSlotForUpdate(1L, week, WeeklyMaterialType.SHEPHERD_GUIDE))
 			.thenReturn(Optional.empty());
 		when(assets.findByIdInForUpdate(List.of(20L))).thenReturn(List.of(pdf));
 		when(conflicts.findAttachedAssetIds(List.of(20L))).thenReturn(List.of());
@@ -127,31 +127,33 @@ class WeeklyMaterialCommandServiceTest {
 	}
 
 	@Test
-	void anotherCampusManagerReplacesGlobalSlotAndOrphansMediaUsingOriginalTenant() {
+	void anotherCampusManagerCreatesAnIndependentShepherdGuideSlot() {
 		LocalDate week = LocalDate.of(2026, 8, 3);
 		WeeklyMaterial current = WeeklyMaterial.create(
 			1L, week, WeeklyMaterialType.SHEPHERD_GUIDE, 30L, 100L);
 		ReflectionTestUtils.setField(current, "id", 5L);
 		MediaAsset incoming = readyPdf(20L, 2L, 200L);
-		MediaAsset old = readyPdf(30L, 1L, 100L);
-		when(materials.findSlotForUpdate(week, WeeklyMaterialType.SHEPHERD_GUIDE))
-			.thenReturn(Optional.of(current));
-		when(assets.findByIdInForUpdate(List.of(20L, 30L))).thenReturn(List.of(incoming, old));
+		when(materials.findSlotForUpdate(2L, week, WeeklyMaterialType.SHEPHERD_GUIDE))
+			.thenReturn(Optional.empty());
+		when(assets.findByIdInForUpdate(List.of(20L))).thenReturn(List.of(incoming));
 		when(conflicts.findAttachedAssetIds(List.of(20L))).thenReturn(List.of());
-		when(materials.findAttachedAssetIdsExcludingMaterialId(List.of(20L), 5L)).thenReturn(List.of());
+		when(materials.findAttachedAssetIds(List.of(20L))).thenReturn(List.of());
+		when(materials.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-		service.put(2L, week, WeeklyMaterialType.SHEPHERD_GUIDE, 20L, 200L);
+		WeeklyMaterial secondCampus = service.put(
+			2L, week, WeeklyMaterialType.SHEPHERD_GUIDE, 20L, 200L);
 
-		assertThat(current.mediaCampusId()).isEqualTo(2L);
-		assertThat(current.mediaAssetId()).isEqualTo(20L);
-		assertThat(old.status().name()).isEqualTo("ORPHANED");
+		assertThat(current.scopeCampusId()).isEqualTo(1L);
+		assertThat(current.mediaAssetId()).isEqualTo(30L);
+		assertThat(secondCampus.scopeCampusId()).isEqualTo(2L);
+		assertThat(secondCampus.mediaAssetId()).isEqualTo(20L);
 	}
 
 	@Test
 	void incomingAssetMustStillBelongToRequestCampusAndRequester() {
 		LocalDate week = LocalDate.of(2026, 8, 3);
 		MediaAsset otherCampus = readyPdf(20L, 1L, 200L);
-		when(materials.findSlotForUpdate(week, WeeklyMaterialType.SHEPHERD_GUIDE))
+		when(materials.findSlotForUpdate(2L, week, WeeklyMaterialType.SHEPHERD_GUIDE))
 			.thenReturn(Optional.empty());
 		when(assets.findByIdInForUpdate(List.of(20L))).thenReturn(List.of(otherCampus));
 
