@@ -28,6 +28,9 @@ public class WeeklyMaterial {
 	@Column(name = "media_campus_id", nullable = false)
 	private Long mediaCampusId;
 
+	@Column(name = "scope_campus_id")
+	private Long scopeCampusId;
+
 	@Column(name = "week_start_date", nullable = false)
 	private LocalDate weekStartDate;
 
@@ -59,6 +62,7 @@ public class WeeklyMaterial {
 		this.mediaCampusId = positive(mediaCampusId, "mediaCampusId");
 		this.weekStartDate = monday(weekStartDate);
 		this.materialType = Objects.requireNonNull(materialType);
+		this.scopeCampusId = materialType == WeeklyMaterialType.SHEPHERD_GUIDE ? this.mediaCampusId : null;
 		this.mediaAssetId = positive(mediaAssetId, "mediaAssetId");
 		this.uploadedBy = positive(uploadedBy, "uploadedBy");
 		this.status = WeeklyMaterialStatus.ACTIVE;
@@ -120,6 +124,7 @@ public class WeeklyMaterial {
 
 	public Long id() { return id; }
 	public Long mediaCampusId() { return mediaCampusId; }
+	public Long scopeCampusId() { return scopeCampusId; }
 	public LocalDate weekStartDate() { return weekStartDate; }
 	public WeeklyMaterialType materialType() { return materialType; }
 	public Long mediaAssetId() { return mediaAssetId; }

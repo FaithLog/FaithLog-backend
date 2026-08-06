@@ -56,7 +56,9 @@ class WeeklyMaterialGlobalScopeContractTest {
 		String outboxes = Files.readString(Path.of(
 			"src/main/java/com/faithlog/weeklymaterial/infrastructure/repository/WeeklyMaterialNotificationOutboxRepository.java"));
 
-		assertThat(repository).contains("findSlotForUpdate(@Param(\"weekStartDate\")");
+		assertThat(repository).contains(
+			"material.scopeCampusId = :campusId",
+			"material.scopeCampusId is null");
 		assertThat(repository).doesNotContain("material.campusId = :campusId");
 		assertThat(publication).contains("WeeklyMaterialType.SUNDAY_SHARING_SHEET");
 		assertThat(publication).doesNotContain("WeeklyMaterialType.SHARING_SHEET");

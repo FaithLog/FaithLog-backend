@@ -1297,3 +1297,11 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 953-test 전체 suite는 CI에서 `maxParallelForks=1`, `maxHeapSize=512m`, `forkEvery=25`로 실행한다.
 - V19에서 V20만 검증하는 migration test는 최신 migration을 암묵적으로 따라가지 않고 Flyway target 20을 명시한다.
 - 이 결정은 테스트 실행 안정화만을 위한 것이며 production runtime과 Flyway V21 동작을 변경하지 않는다.
+
+## 2026-08-06 - Issue #249 목자지침 캠퍼스별 공동 관리
+
+- 사용자는 목자지침 PDF만 캠퍼스 범위로 되돌리고, 주일 나눔지와 토목모 나눔지는 기존 전역 공유를 유지하기로 결정했다.
+- 같은 캠퍼스의 ACTIVE `MINISTER`, `ELDER`, `CAMPUS_LEADER`와 전역 `ADMIN`은 목자지침을 등록·교체·삭제할 수 있다. 같은 캠퍼스의 모든 ACTIVE 구성원은 조회할 수 있고 다른 캠퍼스 접근은 거부한다.
+- 기존 API path와 응답의 nullable 세 필드는 유지한다. 요청 `campusId`는 목자지침의 실제 scope이고 두 나눔지에는 인가 context다.
+- 배포된 V21은 수정하지 않는다. V22는 기존 목자지침을 `media_campus_id` 캠퍼스로 귀속하고, 목자지침 campus partial unique와 두 나눔지 global partial unique를 분리한다.
+- 목자지침과 토목모 나눔지는 알림 0이고, 최초 전역 주일 나눔지 알림 계약만 유지한다.

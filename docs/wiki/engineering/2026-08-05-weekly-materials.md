@@ -1,11 +1,12 @@
-# Issue #245 전역 주간자료
+# Issue #245/#249 혼합 범위 주간자료
 
 ## 제품 계약
 
-- `SHEPHERD_GUIDE`, `SUNDAY_SHARING_SHEET`, `SATURDAY_LEADER_SHARING_SHEET`를 global week/type별 독립 슬롯으로 관리한다. 기존 `SHARING_SHEET`와 outbox history는 V21에서 주일 나눔지로 이관한다.
+- `SHEPHERD_GUIDE`는 campus/week별 독립 슬롯이고 `SUNDAY_SHARING_SHEET`, `SATURDAY_LEADER_SHARING_SHEET`는 global week/type별 독립 슬롯이다. 기존 `SHARING_SHEET`와 outbox history는 V21에서 주일 나눔지로 이관한다.
 - `weekStartDate`는 Asia/Seoul 기준 월요일이다.
 - 기존 private PDF upload reservation/complete/access/cleanup과 30MiB 상한을 재사용한다.
-- 관리자는 자신이 관리하는 campus path로 전역 슬롯을 등록·교체·삭제하고, 요청 campus ACTIVE 멤버는 모든 캠퍼스가 공유하는 같은 자료를 조회한다.
+- 같은 캠퍼스의 ACTIVE `MINISTER`, `ELDER`, `CAMPUS_LEADER`와 전역 `ADMIN`은 목자지침을 공동 등록·교체·삭제한다. 같은 캠퍼스 ACTIVE 멤버는 조회할 수 있고 다른 캠퍼스 접근은 거부한다.
+- 두 나눔지는 기존처럼 관리 campus path를 통해 전역 슬롯을 등록·교체·삭제하고 모든 캠퍼스 ACTIVE 멤버가 공유한다.
 - 최초 global `SUNDAY_SHARING_SHEET` 등록만 전체 캠퍼스 distinct ACTIVE 사용자에게 알림을 생성하며 업로더는 제외한다. 다중 membership 사용자는 하나의 유효 campus context로 한 번만 받는다.
 - 승인 copy: `새 주일설교 나눔지가 등록되었어요` / `{weekStartDate} 주차 주일설교 나눔지를 확인해 주세요` / `WEEKLY_SHARING_SHEET_PUBLISHED`.
 
@@ -21,6 +22,8 @@
 8. PM 리뷰에서 빈 주차 200, ACTIVE weekly PDF media access, weekly/announcement/poll 양방향 exclusivity, pending outbox 삭제 억제, 물리 삭제 후 재등록 dedupe, global ADMIN PUT transaction을 각각 RED→GREEN으로 보강했다.
 9. processor-vs-processor 테스트는 managed Entity snapshot에서 실제 중복 성공 `[true,true]`를 재현했다. 초기 조회를 immutable scalar projection으로 바꾸고 material→outbox row lock에서 최신 processed 상태를 읽어 exact-one으로 수정했다.
 10. PM 후속 RED는 enum/응답/V21/global repository/outbox/recipient 계약 3개 실패를 먼저 고정했다. GREEN은 V20 무수정 V21, global lock, cross-tenant weekly-only private access, 다른 campus manager 교체·삭제, global recipient routing을 구현했다.
+11. #249는 V21을 수정하지 않고 V22에서 nullable `scope_campus_id`를 추가한다. 기존 목자지침은 `media_campus_id`로 귀속하고, 목자지침 campus partial unique와 두 나눔지 global partial unique를 분리한다.
+12. query와 private media access는 목자지침에만 requested campus scope를 적용한다. 같은 주차의 서로 다른 캠퍼스 목자지침은 공존하고 두 나눔지는 계속 전역 한 슬롯이다.
 
 ## 검증
 
@@ -37,6 +40,7 @@
 - 후속 전역 계약의 test-only RED는 3 tests / failures 3으로 시작했다. GREEN focused gate는 weekly/media/Flyway 78 tests와 투표 미디어 회귀 3 tests가 모두 통과했다.
 - 전용 `faithlog-245-v21-pg:55446` PostgreSQL 17에서 V1→V21 clean, V20→V21 legacy migration, material duplicate 및 outbox-only duplicate SQLSTATE 23505 fail-closed, global CHECK/FK/RLS/index/outbox unique를 3 tests / failures 0 / errors 0 / skipped 0으로 실제 실행했다.
 - 후속 full `test build asciidoctor`는 저장소 정책을 바꾸지 않는 one-off 조건(daemon 256MiB, test worker 512MiB, maxParallelForks 1, forkEvery 25)에서 953 tests / failures 0 / errors 0 / skipped 19, `BUILD SUCCESSFUL in 8m 8s`로 끝났다. 첫 시도에서 기존 투표 테스트 2건의 campus-scoped mock이 전역 조회 포트와 맞지 않아 실패했고, fixture를 새 포트로 보정한 뒤 재실행했다.
+- #249 focused weekly/media/Flyway static gate는 77 tests / failures 0으로 통과했다. 전용 PostgreSQL 17에서 `PostgresFlywayMigrationTest` 14/14가 통과해 clean V1→V22와 V21→V22, campus shepherd coexistence, global sharing-sheet uniqueness를 확인했다.
 
 ## 프론트엔드 handoff
 

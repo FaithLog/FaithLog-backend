@@ -54,7 +54,7 @@ public class WeeklyMaterialCommandService {
 		access.requireManager(campusId, requesterId);
 		LocalDate week = requireMonday(weekStartDate);
 		slotLocks.lockGlobal();
-		WeeklyMaterial current = materials.findSlotForUpdate(week, materialType).orElse(null);
+		WeeklyMaterial current = findSlotForUpdate(campusId, week, materialType).orElse(null);
 		List<Long> lockIds = current == null || current.mediaAssetId() == null
 			? List.of(mediaAssetId)
 			: java.util.stream.Stream.of(mediaAssetId, current.mediaAssetId()).distinct().sorted().toList();
@@ -96,7 +96,7 @@ public class WeeklyMaterialCommandService {
 	public void delete(Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType, Long requesterId) {
 		access.requireManager(campusId, requesterId);
 		slotLocks.lockGlobal();
-		WeeklyMaterial current = materials.findSlotForUpdate(requireMonday(weekStartDate), materialType)
+		WeeklyMaterial current = findSlotForUpdate(campusId, requireMonday(weekStartDate), materialType)
 			.filter(material -> material.status() == WeeklyMaterialStatus.ACTIVE)
 			.orElseThrow(() -> new BusinessException(ErrorCode.WEEKLY_MATERIAL_NOT_FOUND));
 		if (firstPublication != null) firstPublication.suppressPending(current);
@@ -115,6 +115,15 @@ public class WeeklyMaterialCommandService {
 			|| !asset.campusId().equals(campusId) || !asset.ownerUserId().equals(requesterId)) {
 			throw new BusinessException(ErrorCode.MEDIA_ASSET_INVALID);
 		}
+	}
+
+	private java.util.Optional<WeeklyMaterial> findSlotForUpdate(
+		Long campusId, LocalDate weekStartDate, WeeklyMaterialType materialType
+	) {
+		if (materialType == WeeklyMaterialType.SHEPHERD_GUIDE) {
+			return materials.findSlotForUpdate(campusId, weekStartDate, materialType);
+		}
+		return materials.findSlotForUpdate(weekStartDate, materialType);
 	}
 
 	private static LocalDate requireMonday(LocalDate value) {

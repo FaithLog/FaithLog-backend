@@ -16,6 +16,6 @@ public class WeeklyMaterialMediaAccessAdapter implements WeeklyMaterialMediaAcce
 
 	@Override
 	public Set<Long> findActiveAttachedAssetIds(Long campusId, List<Long> assetIds) {
-		return materials.findActiveAttachedAssetIds(assetIds);
+		return materials.findActiveAttachedAssetIds(campusId, assetIds);
 	}
 }
