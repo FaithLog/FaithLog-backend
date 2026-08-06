@@ -55,7 +55,7 @@ public class WeeklyMaterialQueryService {
 		} catch (IllegalArgumentException exception) {
 			throw new BusinessException(ErrorCode.WEEKLY_MATERIAL_INVALID_WEEK_START_DATE);
 		}
-		List<WeeklyMaterialRow> rows = queries.findActiveRows(List.of(week));
+		List<WeeklyMaterialRow> rows = queries.findActiveRows(campusId, List.of(week));
 		return assemble(week, rows);
 	}
 
@@ -71,9 +71,9 @@ public class WeeklyMaterialQueryService {
 			throw new BusinessException(ErrorCode.WEEKLY_MATERIAL_INVALID_YEAR);
 		}
 		PageRequest pageable = PageRequest.of(page, size);
-		Page<LocalDate> weeks = queries.findActiveWeekDates(from, from.plusYears(1), pageable);
+		Page<LocalDate> weeks = queries.findActiveWeekDates(campusId, from, from.plusYears(1), pageable);
 		if (weeks.isEmpty()) return new PageImpl<>(List.of(), pageable, weeks.getTotalElements());
-		List<WeeklyMaterialRow> rows = queries.findActiveRows(weeks.getContent());
+		List<WeeklyMaterialRow> rows = queries.findActiveRows(campusId, weeks.getContent());
 		Map<LocalDate, List<WeeklyMaterialRow>> byWeek = rows.stream()
 			.collect(Collectors.groupingBy(WeeklyMaterialRow::weekStartDate));
 		List<WeeklyMaterialWeekResult> content = weeks.getContent().stream()

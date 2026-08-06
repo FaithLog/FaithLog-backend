@@ -158,6 +158,18 @@ class WeeklyMaterialOutboxPersistenceIntegrationTest {
 	}
 
 	@Test
+	void mediaAccessPersistenceScopesShepherdGuideAttachmentToItsCampus() {
+		Long assetId = persistReadyPdf("campus-guide-access");
+		transaction().executeWithoutResult(status -> materials.saveAndFlush(
+			WeeklyMaterial.create(1L, WEEK, WeeklyMaterialType.SHEPHERD_GUIDE, assetId, 100L)));
+
+		assertThat(weeklyMediaAccess.findActiveAttachedAssetIds(1L, List.of(assetId)))
+			.containsExactly(assetId);
+		assertThat(weeklyMediaAccess.findActiveAttachedAssetIds(2L, List.of(assetId)))
+			.isEmpty();
+	}
+
+	@Test
 	@Timeout(10)
 	void concurrentWeeklyAndAnnouncementPdfAttachmentHasExactlyOneWinner() throws Exception {
 		Long assetId = persistReadyPdf("announcement-race");
