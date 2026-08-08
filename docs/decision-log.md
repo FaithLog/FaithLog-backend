@@ -1305,3 +1305,10 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 기존 API path와 응답의 nullable 세 필드는 유지한다. 요청 `campusId`는 목자지침의 실제 scope이고 두 나눔지에는 인가 context다.
 - 배포된 V21은 수정하지 않는다. V22는 기존 목자지침을 `media_campus_id` 캠퍼스로 귀속하고, 목자지침 campus partial unique와 두 나눔지 global partial unique를 분리한다.
 - 목자지침과 토목모 나눔지는 알림 0이고, 최초 전역 주일 나눔지 알림 계약만 유지한다.
+
+## 2026-08-08 - Issue #253 사용자 마감 투표 조회 기간 7일 연장
+
+- 사용자는 ACTIVE 캠퍼스 구성원의 마감 투표 조회 기간을 기존 `endsAt + 3일`에서 `endsAt + 7일`로 연장하기로 결정했다.
+- 사용자 목록, 직접 상세, 결과, 댓글 읽기, 이미지/PDF 접근은 모두 같은 7일 경계를 사용한다. 정확히 `endsAt + 7일`인 시각은 포함하고 그 이후에는 목록에서 숨기며 직접 조회와 첨부 접근도 거부한다.
+- 관리자 7일 정책, ACTIVE membership과 campus tenant 검증, 익명 투표 신원 비노출, 마감 후 응답·댓글 쓰기 금지 정책은 유지한다.
+- 투표 원본의 30일 retention과 cleanup scheduler, API path/DTO/ErrorCode, DB/Flyway/dependency는 변경하지 않는다.

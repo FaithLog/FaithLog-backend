@@ -34,9 +34,9 @@ class PollMediaAccessPolicyTest {
 	@Test
 	void readable_attachment_lookup_combines_visible_images_and_pdf_documents() {
 		List<Long> assetIds = List.of(41L, 42L);
-		when(images.findVisibleAttachedAssetIds(7L, assetIds, NOW, NOW.minusSeconds(3L * 24 * 60 * 60)))
+		when(images.findVisibleAttachedAssetIds(7L, assetIds, NOW, NOW.minusSeconds(7L * 24 * 60 * 60)))
 			.thenReturn(List.of(41L));
-		when(documents.findVisibleAttachedAssetIds(7L, assetIds, NOW, NOW.minusSeconds(3L * 24 * 60 * 60)))
+		when(documents.findVisibleAttachedAssetIds(7L, assetIds, NOW, NOW.minusSeconds(7L * 24 * 60 * 60)))
 			.thenReturn(List.of(42L));
 
 		assertThat(policy.readableAttachedAssetIds(7L, 11L, assetIds))

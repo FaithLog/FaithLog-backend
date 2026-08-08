@@ -141,7 +141,7 @@ Cloud Run 환경변수 확인이 필요하다.
 
 | # | Method/path | 허용식 | 객체 범위/guard |
 | ---: | --- | --- | --- |
-| 47 | `GET /api/v1/campuses/{campusId}/polls` | AM 또는 SA | campus list + 3일/7일 visibility |
+| 47 | `GET /api/v1/campuses/{campusId}/polls` | AM 또는 SA | campus list + 종료 후 7일 visibility |
 | 48 | `GET /api/v1/campuses/{campusId}/polls/{pollId}` | AM 또는 SA | `poll.campusId == path`, visibility |
 | 49 | `PUT /api/v1/campuses/{campusId}/polls/{pollId}/responses/me` | AM+SELF | same poll/campus, OPEN, option belongs to poll |
 | 50 | `POST /api/v1/campuses/{campusId}/polls/{pollId}/options` | AM+SELF | same poll/campus, OPEN, option-add enabled |
