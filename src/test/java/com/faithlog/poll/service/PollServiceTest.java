@@ -2366,28 +2366,32 @@ class PollServiceTest {
 	}
 
 	@Test
-	void poll_visibility_uses_three_day_member_window_and_seven_day_admin_window() {
+	void poll_visibility_uses_seven_day_member_and_admin_windows() {
 		User manager = saveUser("poll-window-manager@example.com", UserRole.MANAGER);
 		User member = saveUser("poll-window-member@example.com", UserRole.USER);
 		User admin = saveUser("poll-window-admin@example.com", UserRole.ADMIN);
 		CampusCreateResult campus = createCampus(manager, "144캠");
 		joinCampus(campus, member);
-		PollResult expiredForMember = createOpenCustomPoll(campus.campusId(), manager.id(), "나흘 전 종료", SelectionType.SINGLE, false, List.of("A"));
-		closePollAt(expiredForMember.id(), Instant.now().minusSeconds(4 * 24 * 60 * 60));
+		PollResult visibleForMember = createOpenCustomPoll(campus.campusId(), manager.id(), "나흘 전 종료", SelectionType.SINGLE, false, List.of("A"));
+		closePollAt(visibleForMember.id(), Instant.now().minusSeconds(4 * 24 * 60 * 60));
 
 		assertThat(pollService.listPolls(campus.campusId(), member.id()))
 			.extracting(PollListItemResult::id)
-			.doesNotContain(expiredForMember.id());
-		assertThatThrownBy(() -> pollService.getPoll(campus.campusId(), expiredForMember.id(), member.id()))
+			.contains(visibleForMember.id());
+		assertThat(pollService.getPoll(campus.campusId(), visibleForMember.id(), member.id()).id())
+			.isEqualTo(visibleForMember.id());
+		assertThat(pollService.getPollResults(campus.campusId(), visibleForMember.id(), member.id()).pollId())
+			.isEqualTo(visibleForMember.id());
+		assertThat(pollService.listPolls(campus.campusId(), admin.id()))
+			.extracting(PollListItemResult::id)
+			.contains(visibleForMember.id());
+
+		closePollAt(visibleForMember.id(), Instant.now().minusSeconds(8 * 24 * 60 * 60));
+		assertThatThrownBy(() -> pollService.getPoll(campus.campusId(), visibleForMember.id(), member.id()))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_NOT_FOUND)
 			);
-		assertThat(pollService.listPolls(campus.campusId(), admin.id()))
-			.extracting(PollListItemResult::id)
-			.contains(expiredForMember.id());
-
-		closePollAt(expiredForMember.id(), Instant.now().minusSeconds(8 * 24 * 60 * 60));
-		assertThatThrownBy(() -> pollService.getPollResults(campus.campusId(), expiredForMember.id(), admin.id()))
+		assertThatThrownBy(() -> pollService.getPollResults(campus.campusId(), visibleForMember.id(), admin.id()))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_NOT_FOUND)
 			);
