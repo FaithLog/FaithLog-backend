@@ -4,7 +4,6 @@ import com.faithlog.poll.infrastructure.repository.PollImageRepository;
 import com.faithlog.poll.infrastructure.repository.PollDocumentRepository;
 import com.faithlog.poll.service.PollAccessService;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
@@ -41,9 +40,9 @@ public class PollMediaAccessPolicy {
 		pollAccessService.requirePollReader(campusId, requesterId);
 		Instant now = clock.instant();
 		HashSet<Long> readable = new HashSet<>(images.findVisibleAttachedAssetIds(
-			campusId, assetIds, now, now.minus(Duration.ofDays(3))));
+			campusId, assetIds, now, now.minus(PollVisibilityWindow.MEMBER_AFTER_END)));
 		readable.addAll(documents.findVisibleAttachedAssetIds(
-			campusId, assetIds, now, now.minus(Duration.ofDays(3))));
+			campusId, assetIds, now, now.minus(PollVisibilityWindow.MEMBER_AFTER_END)));
 		if (pollAccessService.hasAdminVisibility(campusId, requesterId)) {
 			readable.addAll(assetIds);
 		} else {

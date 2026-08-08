@@ -4,10 +4,10 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.poll.domain.entity.Poll;
 import com.faithlog.poll.domain.type.PollStatus;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.Clock;
 import com.faithlog.poll.service.port.PollPublishedEventPort;
+import com.faithlog.poll.service.policy.PollVisibilityWindow;
+import java.time.Clock;
+import java.time.Instant;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -44,8 +44,7 @@ class PollStatusSynchronizer {
 		if (now.isBefore(poll.endsAt())) {
 			return false;
 		}
-		Duration window = adminWindow ? Duration.ofDays(7) : Duration.ofDays(3);
-		return !now.isAfter(poll.endsAt().plus(window));
+		return !now.isAfter(poll.endsAt().plus(PollVisibilityWindow.forViewer(adminWindow)));
 	}
 
 	void requireOpenPoll(Poll poll) {

@@ -2425,7 +2425,7 @@ class PollServiceTest {
 		joinCampus(otherCampus, member);
 		PollResult currentScheduled = createOpenCustomPoll(campus.campusId(), manager.id(), "현재 기간 SCHEDULED", SelectionType.SINGLE, false, List.of("A", "B"));
 		PollResult futureScheduled = createScheduledCustomPoll(campus.campusId(), manager.id(), "시작 전 예약", SelectionType.SINGLE, false, List.of("A"));
-		PollResult recentlyEnded = createOpenCustomPoll(campus.campusId(), manager.id(), "마감 후 3일 이내", SelectionType.SINGLE, false, List.of("A"));
+		PollResult recentlyEnded = createOpenCustomPoll(campus.campusId(), manager.id(), "최근 마감", SelectionType.SINGLE, false, List.of("A"));
 		PollResult otherCampusCurrent = createOpenCustomPoll(otherCampus.campusId(), manager.id(), "다른 캠퍼스 현재 기간", SelectionType.SINGLE, false, List.of("A"));
 		setPollStatus(currentScheduled.id(), PollStatus.SCHEDULED);
 		setPollStatus(otherCampusCurrent.id(), PollStatus.SCHEDULED);

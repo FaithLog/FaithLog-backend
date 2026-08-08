@@ -1863,3 +1863,10 @@ Metric candidates:
 - focused weekly/media/Flyway static gate는 77 tests / failures 0이다. 전용 PostgreSQL 17의 14 migration tests는 failures/errors/skipped 0으로 clean V1→V22, V21→V22, campus shepherd coexistence와 global sheet uniqueness를 검증했다.
 - 최종 `./gradlew test build asciidoctor --no-daemon`은 957 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 12m 49s`로 통과했다. 첫 시도에서 임시 worktree의 재생성 가능한 build 산출물이 디스크를 채운 환경 오류가 발생해 해당 build 디렉터리만 정리한 뒤 동일 명령을 재실행했으며, source·Gradle 설정·shared runtime은 변경하지 않았다.
 - 실제 R2/FCM/Cloud Run/shared QA PostgreSQL·Redis mutation은 0이며 이 기록은 기능 정확성 검증이지 성능·비용 개선 수치가 아니다.
+
+## 2026-08-08 Issue #253 user closed-poll visibility
+
+- 사용자 마감 투표 목록·상세·결과와 이미지/PDF 접근의 서로 다른 3일 상수를 test-first로 재현하고 하나의 7일 정책으로 통일했다.
+- focused RED는 4 tests 중 3 failures로 기존 3일 경계를 확인했고, GREEN은 정확히 종료 후 7일 포함과 7일 초과 제외를 고정한다.
+- 관리자 7일, ACTIVE campus scope, 익명 결과 보호, 30일 retention, API/DTO/DB/Flyway/dependency는 변경하지 않는다.
+- 최종 `./gradlew test build asciidoctor --no-daemon`은 959 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 22m 57s`로 통과했다.
