@@ -1870,3 +1870,11 @@ Metric candidates:
 - focused RED는 4 tests 중 3 failures로 기존 3일 경계를 확인했고, GREEN은 정확히 종료 후 7일 포함과 7일 초과 제외를 고정한다.
 - 관리자 7일, ACTIVE campus scope, 익명 결과 보호, 30일 retention, API/DTO/DB/Flyway/dependency는 변경하지 않는다.
 - 최종 `./gradlew test build asciidoctor --no-daemon`은 959 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 22m 57s`로 통과했다.
+
+## 2026-08-12 Issue #257 payment account update
+
+- 납부 계좌 정보 수정 API를 test-first로 구현했다. RED는 전용 command/service/domain method 부재로 compile 실패를 재현했고, GREEN은 PENALTY manager와 COFFEE/MEAL duty-owner 권한을 기존 정책에 결속했다.
+- 계좌와 연결된 UNPAID 청구를 deterministic ID order의 pessimistic lock으로 읽어 account snapshot을 원자적으로 갱신한다. 종료 청구와 다른 계좌 청구는 보존한다.
+- 자체 리뷰에서 수정 경로가 account->duty, 기존 비활성화 경로가 duty->account 순서로 잠그는 교착 가능성을 발견했다. 실행형 RED 후 수정도 duty->account->UNPAID charge ID 순으로 정렬했다.
+- 첫 전체 gate는 기존 `JwtRefreshTokenVersionTest`가 2026-07-29 고정 발급 시각을 사용해 2026-08-12 이후 만료되는 테스트 시간 경계로 1건 실패했다. tokenVersion 계약은 유지하고 테스트 Clock만 현재 UTC로 보정했다.
+- 최종 `./gradlew --no-daemon test build asciidoctor`는 969 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 15m 51s`로 통과했다. bootJar/plain jar, JaCoCo, REST Docs HTML 생성을 확인했다.

@@ -1312,3 +1312,12 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 사용자 목록, 직접 상세, 결과, 댓글 읽기, 이미지/PDF 접근은 모두 같은 7일 경계를 사용한다. 정확히 `endsAt + 7일`인 시각은 포함하고 그 이후에는 목록에서 숨기며 직접 조회와 첨부 접근도 거부한다.
 - 관리자 7일 정책, ACTIVE membership과 campus tenant 검증, 익명 투표 신원 비노출, 마감 후 응답·댓글 쓰기 금지 정책은 유지한다.
 - 투표 원본의 30일 retention과 cleanup scheduler, API path/DTO/ErrorCode, DB/Flyway/dependency는 변경하지 않는다.
+
+## 2026-08-12 - Issue #257 캠퍼스 납부 계좌 정보 수정
+
+- 사용자는 `PATCH /api/v1/campuses/{campusId}/payment-accounts/{accountId}`와 `nickname`, `bankName`, `accountNumber`, `accountHolder` 네 필드의 전체 교체 요청을 승인했다. 모든 값은 trim 후 필수이며 최대 100자다.
+- `PENALTY`는 ACTIVE 캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 수정한다. `COFFEE`와 `MEAL`은 각각 현재 담당이면서 target account owner인 사용자만 자기 계좌를 수정한다.
+- active/inactive 계좌는 수정할 수 있고 soft deleted 또는 다른 campus 계좌는 `404`다. 같은 값 요청은 멱등 성공한다. account type, owner, active 상태와 생성 시각은 변경하지 않는다.
+- 수정 계좌에 연결된 `UNPAID` 청구의 은행명·계좌번호·예금주 snapshot만 계좌 수정 transaction에서 잠그고 갱신한다. `PAID`, `WAIVED`, `CANCELED`의 과거 snapshot과 다른 계좌의 청구는 유지한다.
+- `COFFEE`와 `MEAL` 수정은 기존 비활성화 경로와 동일하게 현재 담당 row를 먼저 잠그고 계좌 row를 잠근다. 계좌 수정과 비활성화가 반대 순서로 잠금을 획득하는 교착 가능성을 허용하지 않는다.
+- 일반 ACTIVE 멤버의 납부용 활성 PENALTY/COFFEE 조회와 담당자별 본인 COFFEE/MEAL 관리 조회 계약은 변경하지 않는다. DB/Flyway/dependency 변경은 없다.
