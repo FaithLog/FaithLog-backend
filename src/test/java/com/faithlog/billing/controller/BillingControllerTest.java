@@ -80,6 +80,95 @@ class BillingControllerTest {
 	private JdbcTemplate jdbcTemplate;
 
 	@Test
+	void payment_account_update_api_trims_fields_and_returns_full_account_without_changing_identity() throws Exception {
+		String managerToken = signupAndLogin("billing-257-http-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-257-http-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "257HTTP계좌수정캠");
+		long campusId = campus.path("campusId").asLong();
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId, manager.id(), PaymentCategory.PENALTY, "기존 벌금 계좌", "하나은행",
+			"257-HTTP-OLD", "기존회계", null
+		));
+
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/payment-accounts/{accountId}", campusId, account.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "  밥 정산 계좌  ",
+					  "bankName": "  카카오뱅크  ",
+					  "accountNumber": "  3333370425901  ",
+					  "accountHolder": "  홍길동  "
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.message").value("납부 계좌가 수정되었습니다."))
+			.andExpect(jsonPath("$.data.id").value(account.id()))
+			.andExpect(jsonPath("$.data.campusId").value(campusId))
+			.andExpect(jsonPath("$.data.accountType").value("PENALTY"))
+			.andExpect(jsonPath("$.data.nickname").value("밥 정산 계좌"))
+			.andExpect(jsonPath("$.data.bankName").value("카카오뱅크"))
+			.andExpect(jsonPath("$.data.accountNumber").value("3333370425901"))
+			.andExpect(jsonPath("$.data.accountHolder").value("홍길동"))
+			.andExpect(jsonPath("$.data.ownerUserId").value(account.ownerUserId()))
+			.andExpect(jsonPath("$.data.isActive").value(true));
+	}
+
+	@Test
+	void payment_account_update_api_rejects_blank_overlong_and_ordinary_member() throws Exception {
+		String managerToken = signupAndLogin("billing-257-http-boundary-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("billing-257-http-boundary-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "257HTTP계좌수정경계캠");
+		long campusId = campus.path("campusId").asLong();
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId, manager.id(), PaymentCategory.PENALTY, "기존 벌금 계좌", "하나은행",
+			"257-HTTP-BOUNDARY", "기존회계", null
+		));
+		String memberToken = signupAndLogin("billing-257-http-boundary-member@example.com", UserRole.USER);
+		joinCampus(memberToken, campus.path("inviteCode").asText());
+
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/payment-accounts/{accountId}", campusId, account.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "   ",
+					  "bankName": "카카오뱅크",
+					  "accountNumber": "3333370425901",
+					  "accountHolder": "홍길동"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"));
+
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/payment-accounts/{accountId}", campusId, account.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsString(java.util.Map.of(
+					"nickname", "가".repeat(101),
+					"bankName", "카카오뱅크",
+					"accountNumber", "3333370425901",
+					"accountHolder", "홍길동"
+				))))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"));
+
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/payment-accounts/{accountId}", campusId, account.id())
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "권한 없음",
+					  "bankName": "카카오뱅크",
+					  "accountNumber": "3333370425901",
+					  "accountHolder": "홍길동"
+					}
+					"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN"));
+	}
+
+	@Test
 	void meal_account_api_is_owned_and_visible_only_by_active_meal_duty() throws Exception {
 		String managerToken = signupAndLogin("meal-account-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("meal-account-manager@example.com").orElseThrow();

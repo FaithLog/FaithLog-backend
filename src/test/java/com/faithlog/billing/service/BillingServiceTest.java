@@ -5,6 +5,8 @@ import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.command.CreateCoffeeChargeCommand;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
+import com.faithlog.billing.service.command.CreateMealPaymentAccountCommand;
+import com.faithlog.billing.service.command.UpdatePaymentAccountCommand;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +58,9 @@ class BillingServiceTest {
 	private BillingService billingService;
 
 	@Autowired
+	private MealPaymentAccountService mealPaymentAccountService;
+
+	@Autowired
 	private CampusService campusService;
 
 	@Autowired
@@ -69,6 +74,103 @@ class BillingServiceTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Test
+	void updatePenaltyAccount_refreshes_only_linked_unpaid_snapshot_and_preserves_terminal_history() {
+		User manager = saveUser("billing-257-penalty-manager@example.com", UserRole.MANAGER);
+		User member = saveUser("billing-257-penalty-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "257벌금계좌수정캠");
+		campusService.joinCampus(new JoinCampusCommand(member.id(), campus.inviteCode()));
+		PaymentAccountResult account = createPenaltyAccount(campus.campusId(), manager.id(), "257-PENALTY-OLD");
+		ChargeItem unpaid = saveCharge(campus.campusId(), member.id(), account, 25701L);
+		ChargeItem paid = saveCharge(campus.campusId(), member.id(), account, 25702L);
+		paid.markPaid(Instant.parse("2026-08-12T00:00:00Z"));
+		chargeItemRepository.saveAndFlush(paid);
+
+		PaymentAccountResult updated = billingService.updatePaymentAccount(new UpdatePaymentAccountCommand(
+			campus.campusId(),
+			account.id(),
+			manager.id(),
+			"수정 벌금 계좌",
+			"카카오뱅크",
+			"257-PENALTY-NEW",
+			"새회계"
+		));
+
+		assertThat(updated.id()).isEqualTo(account.id());
+		assertThat(updated.accountType()).isEqualTo(PaymentCategory.PENALTY);
+		assertThat(updated.ownerUserId()).isEqualTo(account.ownerUserId());
+		assertThat(updated.isActive()).isTrue();
+		assertThat(chargeItemRepository.findById(unpaid.id())).get().satisfies(charge -> {
+			assertThat(charge.paymentAccountId()).isEqualTo(account.id());
+			assertThat(charge.bankNameSnapshot()).isEqualTo("카카오뱅크");
+			assertThat(charge.accountNumberSnapshot()).isEqualTo("257-PENALTY-NEW");
+			assertThat(charge.accountHolderSnapshot()).isEqualTo("새회계");
+		});
+		assertThat(chargeItemRepository.findById(paid.id())).get().satisfies(charge -> {
+			assertThat(charge.status()).isEqualTo(ChargeStatus.PAID);
+			assertThat(charge.bankNameSnapshot()).isEqualTo(account.bankName());
+			assertThat(charge.accountNumberSnapshot()).isEqualTo("257-PENALTY-OLD");
+			assertThat(charge.accountHolderSnapshot()).isEqualTo(account.accountHolder());
+		});
+	}
+
+	@Test
+	void updateCoffeeAccount_requires_active_duty_and_exact_owner() {
+		User manager = saveUser("billing-257-coffee-manager@example.com", UserRole.MANAGER);
+		User owner = saveUser("billing-257-coffee-owner@example.com", UserRole.USER);
+		User otherDuty = saveUser("billing-257-coffee-other@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "257커피계좌수정캠");
+		campusService.joinCampus(new JoinCampusCommand(owner.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(otherDuty.id(), campus.inviteCode()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), owner.id()));
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), otherDuty.id()));
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campus.campusId(), owner.id(), PaymentCategory.COFFEE, "내 커피 계좌", "하나은행",
+			"257-COFFEE-OLD", "커피담당", owner.id()
+		));
+
+		assertThatThrownBy(() -> billingService.updatePaymentAccount(new UpdatePaymentAccountCommand(
+			campus.campusId(), account.id(), otherDuty.id(), "탈취", "국민은행", "257-HIJACK", "다른담당"
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN));
+
+		PaymentAccountResult updated = billingService.updatePaymentAccount(new UpdatePaymentAccountCommand(
+			campus.campusId(), account.id(), owner.id(), "수정 커피 계좌", "신한은행", "257-COFFEE-NEW", "커피담당"
+		));
+		assertThat(updated.accountNumber()).isEqualTo("257-COFFEE-NEW");
+		assertThat(updated.ownerUserId()).isEqualTo(owner.id());
+	}
+
+	@Test
+	void updateMealAccount_requires_active_duty_and_exact_owner_and_allows_inactive_account() {
+		User manager = saveUser("billing-257-meal-manager@example.com", UserRole.MANAGER);
+		User owner = saveUser("billing-257-meal-owner@example.com", UserRole.USER);
+		User otherDuty = saveUser("billing-257-meal-other@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "257밥계좌수정캠");
+		campusService.joinCampus(new JoinCampusCommand(owner.id(), campus.inviteCode()));
+		campusService.joinCampus(new JoinCampusCommand(otherDuty.id(), campus.inviteCode()));
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), owner.id()));
+		campusService.assignMealDuty(new AssignMealDutyCommand(campus.campusId(), manager.id(), otherDuty.id()));
+		PaymentAccountResult account = mealPaymentAccountService.create(new CreateMealPaymentAccountCommand(
+			campus.campusId(), owner.id(), "내 밥 계좌", "하나은행", "257-MEAL-OLD", "밥담당"
+		));
+		mealPaymentAccountService.deactivate(campus.campusId(), account.id(), owner.id());
+
+		assertThatThrownBy(() -> billingService.updatePaymentAccount(new UpdatePaymentAccountCommand(
+			campus.campusId(), account.id(), otherDuty.id(), "탈취", "국민은행", "257-HIJACK", "다른담당"
+		)))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MEAL_PAYMENT_ACCOUNT_NOT_FOUND));
+
+		PaymentAccountResult updated = billingService.updatePaymentAccount(new UpdatePaymentAccountCommand(
+			campus.campusId(), account.id(), owner.id(), "수정 밥 계좌", "카카오뱅크", "257-MEAL-NEW", "밥담당"
+		));
+		assertThat(updated.accountNumber()).isEqualTo("257-MEAL-NEW");
+		assertThat(updated.ownerUserId()).isEqualTo(owner.id());
+		assertThat(updated.isActive()).isFalse();
+	}
 
 	@Test
 	void createPenaltyPaymentAccount_defaults_missing_owner_to_requester_and_preserves_explicit_owner() {
