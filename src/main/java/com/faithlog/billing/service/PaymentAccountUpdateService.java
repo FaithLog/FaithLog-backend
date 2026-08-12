@@ -5,6 +5,7 @@ import com.faithlog.billing.domain.type.ChargeStatus;
 import com.faithlog.billing.service.command.UpdatePaymentAccountCommand;
 import com.faithlog.billing.service.policy.BillingAccessPolicy;
 import com.faithlog.billing.service.port.ChargeItemRepositoryPort;
+import com.faithlog.billing.service.port.PaymentAccountLockScope;
 import com.faithlog.billing.service.port.PaymentAccountRepositoryPort;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import com.faithlog.campus.domain.entity.CampusMember;
@@ -16,6 +17,7 @@ import com.faithlog.campus.service.port.CampusUserLookupPort;
 import com.faithlog.campus.service.port.CampusUserLookupResult;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,11 +50,18 @@ public class PaymentAccountUpdateService {
 
 	@Transactional
 	public PaymentAccountResult updatePaymentAccount(UpdatePaymentAccountCommand command) {
-		PaymentAccount account = paymentAccountRepository.findByIdForUpdate(command.accountId())
-			.filter(candidate -> !candidate.isDeleted())
+		PaymentAccountLockScope scope = paymentAccountRepository.findLockScopeById(command.accountId())
+			.filter(candidate -> candidate.deletedAt() == null)
 			.filter(candidate -> candidate.campusId().equals(command.campusId()))
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
-		requireUpdateAccess(account, command.requesterId());
+		requireUpdateAccess(scope, command.requesterId());
+
+		PaymentAccount account = paymentAccountRepository.findByIdForUpdate(command.accountId())
+			.filter(candidate -> !candidate.isDeleted())
+			.filter(candidate -> candidate.campusId().equals(scope.campusId()))
+			.filter(candidate -> candidate.accountType() == scope.accountType())
+			.filter(candidate -> Objects.equals(candidate.ownerUserId(), scope.ownerUserId()))
+			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_NOT_FOUND));
 
 		account.updateDetails(
 			command.nickname(),
@@ -64,11 +73,11 @@ public class PaymentAccountUpdateService {
 		return PaymentAccountResult.from(account);
 	}
 
-	private void requireUpdateAccess(PaymentAccount account, Long requesterId) {
-		switch (account.accountType()) {
-			case PENALTY -> requirePenaltyManager(account.campusId(), requesterId);
-			case COFFEE -> requireCoffeeOwnerDuty(account, requesterId);
-			case MEAL -> requireMealOwnerDuty(account, requesterId);
+	private void requireUpdateAccess(PaymentAccountLockScope scope, Long requesterId) {
+		switch (scope.accountType()) {
+			case PENALTY -> requirePenaltyManager(scope.campusId(), requesterId);
+			case COFFEE -> requireCoffeeOwnerDuty(scope, requesterId);
+			case MEAL -> requireMealOwnerDuty(scope, requesterId);
 		}
 	}
 
@@ -83,22 +92,22 @@ public class PaymentAccountUpdateService {
 		BillingAccessPolicy.requirePaymentAccountManager(membership);
 	}
 
-	private void requireCoffeeOwnerDuty(PaymentAccount account, Long requesterId) {
+	private void requireCoffeeOwnerDuty(PaymentAccountLockScope scope, Long requesterId) {
 		getActiveUser(requesterId);
-		if (!requesterId.equals(account.ownerUserId())) {
+		if (!requesterId.equals(scope.ownerUserId())) {
 			throw new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN);
 		}
-		campusMemberRepository.findByCampusIdAndUserId(account.campusId(), requesterId)
+		campusMemberRepository.findByCampusIdAndUserId(scope.campusId(), requesterId)
 			.filter(CampusMember::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN));
 		dutyAssignmentRepository.findActiveByCampusIdAndDutyTypeAndUserIdForUpdate(
-			account.campusId(), DutyType.COFFEE, requesterId
+			scope.campusId(), DutyType.COFFEE, requesterId
 		).orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_ACCOUNT_MANAGE_FORBIDDEN));
 	}
 
-	private void requireMealOwnerDuty(PaymentAccount account, Long requesterId) {
-		mealDutyAccessService.requireActiveMealDutyForUpdate(account.campusId(), requesterId);
-		if (!requesterId.equals(account.ownerUserId())) {
+	private void requireMealOwnerDuty(PaymentAccountLockScope scope, Long requesterId) {
+		mealDutyAccessService.requireActiveMealDutyForUpdate(scope.campusId(), requesterId);
+		if (!requesterId.equals(scope.ownerUserId())) {
 			throw new BusinessException(ErrorCode.MEAL_PAYMENT_ACCOUNT_NOT_FOUND);
 		}
 	}
