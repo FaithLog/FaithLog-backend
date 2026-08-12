@@ -42,6 +42,13 @@ public interface ChargeItemRepositoryPort {
 		Set<Long> paymentAccountIds
 	);
 
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAscForUpdate(
+		Long campusId,
+		PaymentCategory paymentCategory,
+		ChargeStatus status,
+		Set<Long> paymentAccountIds
+	);
+
 	boolean existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
 		Long campusId,
 		PaymentCategory paymentCategory,

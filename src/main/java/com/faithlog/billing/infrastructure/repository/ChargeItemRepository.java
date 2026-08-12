@@ -123,6 +123,23 @@ public interface ChargeItemRepository extends JpaRepository<ChargeItem, Long>, J
 		Set<Long> paymentAccountIds
 	);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select charge
+		from ChargeItem charge
+		where charge.campusId = :campusId
+		  and charge.paymentCategory = :paymentCategory
+		  and charge.status = :status
+		  and charge.paymentAccountId in :paymentAccountIds
+		order by charge.id asc
+		""")
+	List<ChargeItem> findByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdInOrderByIdAscForUpdate(
+		@Param("campusId") Long campusId,
+		@Param("paymentCategory") PaymentCategory paymentCategory,
+		@Param("status") ChargeStatus status,
+		@Param("paymentAccountIds") Set<Long> paymentAccountIds
+	);
+
 	boolean existsByCampusIdAndPaymentCategoryAndStatusAndPaymentAccountIdIn(
 		Long campusId,
 		PaymentCategory paymentCategory,

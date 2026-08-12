@@ -116,6 +116,58 @@ class BillingApiRestDocsTest {
 	private JdbcTemplate jdbcTemplate;
 
 	@Test
+	void documents_payment_account_update_contract() throws Exception {
+		String managerToken = signupAndLogin("docs-billing-257-update-manager@example.com", UserRole.MANAGER);
+		User manager = userRepository.findByEmail("docs-billing-257-update-manager@example.com").orElseThrow();
+		JsonNode campus = createCampus(managerToken, "257문서계좌수정캠");
+		long campusId = campus.path("campusId").asLong();
+		PaymentAccountResult account = billingService.createPaymentAccount(new CreatePaymentAccountCommand(
+			campusId,
+			manager.id(),
+			PaymentCategory.PENALTY,
+			"기존 벌금 계좌",
+			"하나은행",
+			"257-DOCS-OLD",
+			"기존회계",
+			null
+		));
+
+		mockMvc.perform(patch("/api/v1/campuses/{campusId}/payment-accounts/{accountId}", campusId, account.id())
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "밥 정산 계좌",
+					  "bankName": "카카오뱅크",
+					  "accountNumber": "3333370425901",
+					  "accountHolder": "홍길동"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.message").value("납부 계좌가 수정되었습니다."))
+			.andExpect(jsonPath("$.data.id").value(account.id()))
+			.andExpect(jsonPath("$.data.accountType").value("PENALTY"))
+			.andExpect(jsonPath("$.data.accountNumber").value("3333370425901"))
+			.andDo(document("payment-account-update-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(
+					parameterWithName("campusId").description("수정할 납부 계좌의 캠퍼스 ID"),
+					parameterWithName("accountId").description("수정할 납부 계좌 ID")
+				),
+				requestFields(
+					fieldWithPath("nickname").description("계좌 별칭. trim 후 필수, 최대 100자"),
+					fieldWithPath("bankName").description("은행명. trim 후 필수, 최대 100자"),
+					fieldWithPath("accountNumber").description("계좌번호. trim 후 필수, 최대 100자"),
+					fieldWithPath("accountHolder").description("예금주. trim 후 필수, 최대 100자")
+				),
+				responseFields(apiResponseFields(adminAccountFields("data.")))
+			));
+	}
+
+	@Test
 	void documents_payment_account_create_list_and_deactivate_contracts() throws Exception {
 		String managerToken = signupAndLogin("docs-billing-manager@example.com", UserRole.MANAGER);
 		User manager = userRepository.findByEmail("docs-billing-manager@example.com").orElseThrow();
