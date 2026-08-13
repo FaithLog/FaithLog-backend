@@ -17,7 +17,7 @@
 
 - Entity: `shepherd_groups`, `shepherd_group_assignees`, `weekly_shepherd_attendance_reports`
 - Service: `ShepherdService`
-- Repository: 관리자 board page projection, assignee bulk projection, campus aggregate projection, 홈 카드 담당 목장+현재 Sunday report bulk projection
+- Repository: 관리자 board page projection, assignee bulk projection, SUBMITTED 기준 campus aggregate projection, 홈 카드 담당 목장+현재 Sunday report bulk projection
 - API: 일반 생성/내 목록/보고서 조회·저장/홈 카드, 관리자 그룹 목록/수정/담당자 교체/board/대리 저장
 - Migration: `V23__add_shepherd_attendance.sql`
 
@@ -29,6 +29,7 @@
 4. N+1: 1/100/1000 목장 관리자 board prepared statement count 4 고정 확인.
 5. 추가 RED: 최신 홈 카드 계약 반영 후 `ShepherdHomeCardResult`/`getMyHome` 부재로 `compileTestJava` 11 errors 확인.
 6. 추가 GREEN: server Clock + Asia/Seoul, 홈 bulk projection, 전용 API/DTO/REST Docs 구현 뒤 service/docs 12 tests 통과.
+7. Self-review RED: 관리자 board 완료 수가 DRAFT까지 세는 문제를 실행형 테스트로 재현하고, SUBMITTED만 완료로 집계하도록 수정.
 
 ## 검증
 

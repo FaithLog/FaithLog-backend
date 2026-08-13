@@ -35,7 +35,7 @@ public interface WeeklyShepherdAttendanceReportRepository extends JpaRepository<
 	@Query("""
 		select new com.faithlog.shepherd.service.result.ShepherdAttendanceSummaryRow(
 			count(shepherdGroup.id),
-			count(report.id),
+			coalesce(sum(case when report.status = com.faithlog.shepherd.domain.type.WeeklyShepherdAttendanceStatus.SUBMITTED then 1 else 0 end), 0),
 			coalesce(sum(report.smallGroupMeetingCount), 0),
 			coalesce(sum(report.holyWaveCount), 0),
 			coalesce(sum(report.otherWorshipCount), 0)

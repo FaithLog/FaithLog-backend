@@ -1340,6 +1340,6 @@ This file records user-approved project decisions so Codex does not rely on gues
 - `serviceDate`는 Sunday만 허용하고, 세 count는 각각 0 이상이다. 상태는 `DRAFT`/`SUBMITTED`이며 제출 전후 수정 가능하다. 응답은 마지막 수정자/시각과 integer `version`을 포함하고, 저장 요청은 신규 `0`, 기존 현재 version을 보내야 한다. 불일치는 `409 SHEPHERD_ATTENDANCE_CONFLICT`다.
 - 일반 사용자 홈 카드는 `GET /api/v1/campuses/{campusId}/shepherd-attendance/me/home` 전용 API로 제공한다. 서버 `Clock`과 `Asia/Seoul` 기준 현재 시각이 Sunday 00:00:00 이상 Monday 00:00:00 미만이고, 현재 ACTIVE campus에서 담당 ACTIVE 목장이 1개 이상인 사용자에게만 노출한다.
 - 캠퍼스 관리자와 서비스 `ADMIN`도 담당 목장이 없으면 일반 사용자 홈 카드는 미노출이며 전체 입력은 관리자 페이지가 담당한다. 노출 문구는 exact `이번 주 목홀타를 입력해 주세요`이고, 담당 목장 수와 현재 Sunday `SUBMITTED` 완료 수를 반환한다. 비일요일 또는 미노출 응답은 `visible=false`, `groups=[]`다.
-- 관리자 주차 화면은 `normalizedName, groupId` stable ordering, `size <= 100`, 목장+report page projection 1회, 담당자 bulk projection 1회, 합계 aggregate 1회로 조립한다. 인증/권한 확인까지 포함한 실행형 테스트에서 1/100/1000 목장 모두 prepared statement 4개를 유지한다.
+- 관리자 주차 화면은 `normalizedName, groupId` stable ordering, `size <= 100`, 목장+report page projection 1회, 담당자 bulk projection 1회, 합계 aggregate 1회로 조립한다. 완료 수는 `SUBMITTED` report만 세고 DRAFT는 완료 전으로 본다. 인증/권한 확인까지 포함한 실행형 테스트에서 1/100/1000 목장 모두 prepared statement 4개를 유지한다.
 - 일반 홈 카드는 담당 assignment+group+현재 Sunday report를 bulk projection 1회로 조립하고, 인증/권한 확인까지 포함한 실행형 테스트에서 1/100 담당 목장 모두 prepared statement 2개를 유지한다.
 - V23은 `shepherd_groups`, `shepherd_group_assignees`, `weekly_shepherd_attendance_reports`를 추가하고 unique, tenant FK, Sunday/count/status/version CHECK, RLS, index를 적용한다. 기존 migration은 수정하지 않는다.
