@@ -4,9 +4,10 @@ import com.faithlog.global.security.AuthenticatedUser;
 import com.faithlog.shepherd.service.command.UpdateShepherdGroupCommand;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 public record UpdateShepherdGroupRequest(
-	@NotBlank String name,
+	@NotBlank @Size(max = 100) String name,
 	@NotNull Integer version
 ) {
 

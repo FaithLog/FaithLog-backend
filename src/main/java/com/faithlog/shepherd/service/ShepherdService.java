@@ -538,7 +538,7 @@ public class ShepherdService {
 	private String normalizeDisplayName(String name) {
 		String normalized = name == null ? "" : name.trim().replaceAll("\\s+", " ");
 		if (normalized.isBlank() || normalized.length() > 100) {
-			throw new BusinessException(ErrorCode.SHEPHERD_GROUP_ASSIGNEE_INVALID);
+			throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED);
 		}
 		return normalized;
 	}
