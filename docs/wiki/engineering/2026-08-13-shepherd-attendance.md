@@ -37,7 +37,7 @@
 - `./gradlew test --tests com.faithlog.shepherd.controller.ShepherdApiRestDocsTest`: BUILD SUCCESSFUL
 - `./gradlew test --tests com.faithlog.shepherd.service.ShepherdServiceTest --tests com.faithlog.shepherd.controller.ShepherdApiRestDocsTest`: 12 tests, failures 0
 - focused shepherd + Flyway static + architecture 묶음: BUILD SUCCESSFUL
-- disposable PostgreSQL 17 `PostgresFlywayMigrationTest`: 14 tests, failures 0, errors 0, skipped 0
+- final disposable PostgreSQL 17 `faithlog-260-pg-final-20260813` / port `55461` `PostgresFlywayMigrationTest`: 14 tests, failures 0, errors 0, skipped 0
 
 ## 남은 확인
 
