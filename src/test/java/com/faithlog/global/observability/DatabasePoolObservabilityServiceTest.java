@@ -13,13 +13,14 @@ import org.junit.jupiter.api.Test;
 class DatabasePoolObservabilityServiceTest {
 
 	private HikariPoolMXBean pool;
+	private HikariDataSource dataSource;
 	private OperationalEventPort events;
 	private DatabasePoolObservabilityService service;
 
 	@BeforeEach
 	void setUp() {
 		pool = mock(HikariPoolMXBean.class);
-		HikariDataSource dataSource = mock(HikariDataSource.class);
+		dataSource = mock(HikariDataSource.class);
 		when(dataSource.getHikariPoolMXBean()).thenReturn(pool);
 		events = mock(OperationalEventPort.class);
 		service = new DatabasePoolObservabilityService(dataSource, events);
@@ -28,7 +29,7 @@ class DatabasePoolObservabilityServiceTest {
 	@Test
 	void records_pending_connections_without_exposing_connection_details() {
 		when(pool.getActiveConnections()).thenReturn(2);
-		when(pool.getTotalConnections()).thenReturn(5);
+		when(dataSource.getMaximumPoolSize()).thenReturn(5);
 		when(pool.getThreadsAwaitingConnection()).thenReturn(1);
 
 		service.sample();
@@ -39,7 +40,7 @@ class DatabasePoolObservabilityServiceTest {
 	@Test
 	void records_utilization_at_exactly_ninety_percent() {
 		when(pool.getActiveConnections()).thenReturn(9);
-		when(pool.getTotalConnections()).thenReturn(10);
+		when(dataSource.getMaximumPoolSize()).thenReturn(10);
 		when(pool.getThreadsAwaitingConnection()).thenReturn(0);
 
 		service.sample();
@@ -50,7 +51,7 @@ class DatabasePoolObservabilityServiceTest {
 	@Test
 	void does_not_record_pressure_below_approved_thresholds() {
 		when(pool.getActiveConnections()).thenReturn(8);
-		when(pool.getTotalConnections()).thenReturn(10);
+		when(dataSource.getMaximumPoolSize()).thenReturn(10);
 		when(pool.getThreadsAwaitingConnection()).thenReturn(0);
 
 		service.sample();

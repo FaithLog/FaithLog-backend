@@ -6,6 +6,8 @@ import com.faithlog.user.service.port.EmailDispatchStore;
 import com.faithlog.user.service.port.EmailDispatchStore.EmailDispatchPayload;
 import com.faithlog.user.service.port.EmailSenderPort;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
+import com.faithlog.global.observability.ExternalService;
+import com.faithlog.global.observability.OperationalEventPort;
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -21,15 +23,18 @@ public class EmailDispatchWorkerService {
 	private final EmailDispatchStore dispatchStore;
 	private final EmailSenderPort emailSenderPort;
 	private final OneTimeTokenGenerator tokenGenerator;
+	private final OperationalEventPort operationalEvents;
 
 	public EmailDispatchWorkerService(
 		EmailDispatchStore dispatchStore,
 		EmailSenderPort emailSenderPort,
-		OneTimeTokenGenerator tokenGenerator
+		OneTimeTokenGenerator tokenGenerator,
+		OperationalEventPort operationalEvents
 	) {
 		this.dispatchStore = dispatchStore;
 		this.emailSenderPort = emailSenderPort;
 		this.tokenGenerator = tokenGenerator;
+		this.operationalEvents = operationalEvents;
 	}
 
 	public void dispatch(String dispatchToken) {
@@ -57,6 +62,9 @@ public class EmailDispatchWorkerService {
 			}
 		} catch (EmailDeliveryException | EmailDispatchQueueException exception) {
 			dispatchStore.release(dispatchToken, leaseToken);
+			if (exception instanceof EmailDeliveryException) {
+				operationalEvents.externalServiceFailure(ExternalService.BREVO);
+			}
 			throw exception;
 		} catch (RuntimeException exception) {
 			dispatchStore.release(dispatchToken, leaseToken);
