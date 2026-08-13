@@ -1876,3 +1876,9 @@ Metric candidates:
 - focused RED는 4 tests 중 3 failures로 기존 3일 경계를 확인했고, GREEN은 정확히 종료 후 7일 포함과 7일 초과 제외를 고정한다.
 - 관리자 7일, ACTIVE campus scope, 익명 결과 보호, 30일 retention, API/DTO/DB/Flyway/dependency는 변경하지 않는다.
 - 최종 `./gradlew test build asciidoctor --no-daemon`은 959 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 22m 57s`로 통과했다.
+
+## 2026-08-13 Issue #258 operational observability
+
+- DB pool, 8 scheduler jobs, Upstash Redis, Brevo, FCM transient failure, Cloudflare R2, login/refresh/email-verification failure를 PII 없는 bounded event로 분리했다.
+- Google Cloud `faithlog-95890`에 전용 로그 기반 metric 19개와 enabled alert policy 19개를 실제 생성했고 기존 관리자 이메일 채널에 연결했다. 일일 scheduler 4개는 승인된 24시간 10분 window를 PromQL로 보존했다.
+- focused 관측 회귀와 artifact gate는 GREEN이다. 전체 repository gate의 유일한 failure는 #258 무관 `JwtRefreshTokenVersionTest`의 2026-07-29 고정 발급 토큰이 현재 날짜에 만료되는 기존 날짜 경계이며, #258 성능 또는 운영 장애 감소 수치로 해석하지 않는다.
