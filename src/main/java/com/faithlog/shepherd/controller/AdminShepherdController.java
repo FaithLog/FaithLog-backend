@@ -12,7 +12,6 @@ import com.faithlog.shepherd.service.ShepherdService;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -76,7 +75,7 @@ public class AdminShepherdController {
 	) {
 		return ApiResponse.success(ShepherdAttendanceBoardResponse.from(
 			shepherdService.getAdminAttendanceBoard(
-				campusId, serviceDate, authenticatedUser.userId(), PageRequest.of(page, size))));
+				campusId, serviceDate, authenticatedUser.userId(), page, size)));
 	}
 
 	@PutMapping("/shepherd-groups/{groupId}/attendance/{serviceDate}")

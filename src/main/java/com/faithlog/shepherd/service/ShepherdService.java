@@ -21,6 +21,7 @@ import com.faithlog.shepherd.service.command.UpdateShepherdGroupCommand;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceBoardGroupResult;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceBoardGroupRow;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceBoardResult;
+import com.faithlog.shepherd.service.result.ShepherdAttendanceReportRow;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceReportResult;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceSummaryRow;
 import com.faithlog.shepherd.service.result.ShepherdGroupAssigneeResult;
@@ -48,6 +49,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -107,7 +109,10 @@ public class ShepherdService {
 			saveAssignees(group.id(), command.campusId(), assigneeUserIds, requester.userId());
 			return toGroupResult(group);
 		} catch (DataIntegrityViolationException exception) {
-			throw new BusinessException(ErrorCode.SHEPHERD_GROUP_DUPLICATE);
+			if (isShepherdGroupNameUniqueViolation(exception)) {
+				throw new BusinessException(ErrorCode.SHEPHERD_GROUP_DUPLICATE);
+			}
+			throw exception;
 		}
 	}
 
@@ -162,8 +167,16 @@ public class ShepherdService {
 			&& groupRepository.existsByCampusIdAndNormalizedName(command.campusId(), normalizedName)) {
 			throw new BusinessException(ErrorCode.SHEPHERD_GROUP_DUPLICATE);
 		}
-		group.update(displayName, normalizedName);
-		return toGroupResult(group);
+		try {
+			group.update(displayName, normalizedName);
+			groupRepository.flush();
+			return toGroupResult(group);
+		} catch (DataIntegrityViolationException exception) {
+			if (isShepherdGroupNameUniqueViolation(exception)) {
+				throw new BusinessException(ErrorCode.SHEPHERD_GROUP_DUPLICATE);
+			}
+			throw exception;
+		}
 	}
 
 	@Transactional
@@ -199,8 +212,8 @@ public class ShepherdService {
 		validateServiceDate(serviceDate);
 		ShepherdRequesterAccessRow requester = requireActiveRequester(campusId, requesterId);
 		requireGroupReadable(campusId, groupId, requester);
-		return reportRepository.findByCampusIdAndShepherdGroupIdAndServiceDate(campusId, groupId, serviceDate)
-			.map(report -> toReportResult(report, null))
+		return reportRepository.findReportRowBySlot(campusId, groupId, serviceDate)
+			.map(this::toReportResult)
 			.orElse(null);
 	}
 
@@ -252,6 +265,18 @@ public class ShepherdService {
 			);
 		}
 		return toReportResult(report, requester.name());
+	}
+
+	@Transactional(readOnly = true)
+	public ShepherdAttendanceBoardResult getAdminAttendanceBoard(
+		Long campusId,
+		LocalDate serviceDate,
+		Long requesterId,
+		int page,
+		int size
+	) {
+		validatePageRequest(page, size);
+		return getAdminAttendanceBoard(campusId, serviceDate, requesterId, PageRequest.of(page, size));
 	}
 
 	@Transactional(readOnly = true)
@@ -430,6 +455,24 @@ public class ShepherdService {
 		);
 	}
 
+	private ShepherdAttendanceReportResult toReportResult(ShepherdAttendanceReportRow row) {
+		return new ShepherdAttendanceReportResult(
+			row.reportId(),
+			row.campusId(),
+			row.groupId(),
+			row.serviceDate(),
+			row.smallGroupMeetingCount(),
+			row.holyWaveCount(),
+			row.otherWorshipCount(),
+			row.note(),
+			row.status(),
+			row.lastModifiedByUserId(),
+			row.lastModifiedByName(),
+			row.lastModifiedAt(),
+			row.version()
+		);
+	}
+
 	private ShepherdAttendanceReportResult toReportResult(ShepherdAttendanceBoardGroupRow row) {
 		if (row.reportId() == null) {
 			return null;
@@ -516,11 +559,35 @@ public class ShepherdService {
 	}
 
 	private void validatePageable(Pageable pageable) {
-		if (pageable.getPageNumber() < 0) {
+		validatePageRequest(pageable.getPageNumber(), pageable.getPageSize());
+	}
+
+	private void validatePageRequest(int page, int size) {
+		if (page < 0) {
 			throw new BusinessException(ErrorCode.SHEPHERD_INVALID_PAGE);
 		}
-		if (pageable.getPageSize() < 1 || pageable.getPageSize() > MAX_PAGE_SIZE) {
+		if (size < 1 || size > MAX_PAGE_SIZE) {
 			throw new BusinessException(ErrorCode.SHEPHERD_INVALID_SIZE);
 		}
+	}
+
+	private boolean isShepherdGroupNameUniqueViolation(Throwable throwable) {
+		Throwable current = throwable;
+		while (current != null) {
+			if (current instanceof org.hibernate.exception.ConstraintViolationException constraintViolation
+				&& containsShepherdGroupNameConstraint(constraintViolation.getConstraintName())) {
+				return true;
+			}
+			if (containsShepherdGroupNameConstraint(current.getMessage())) {
+				return true;
+			}
+			current = current.getCause();
+		}
+		return false;
+	}
+
+	private boolean containsShepherdGroupNameConstraint(String value) {
+		return value != null && value.toLowerCase(Locale.ROOT)
+			.contains("uk_shepherd_groups_campus_normalized_name");
 	}
 }

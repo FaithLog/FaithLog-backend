@@ -4,14 +4,18 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.Instant;
+import org.springframework.data.domain.Persistable;
 
 @Entity
 @Table(name = "shepherd_group_assignees")
 @IdClass(ShepherdGroupAssigneeId.class)
-public class ShepherdGroupAssignee {
+public class ShepherdGroupAssignee implements Persistable<ShepherdGroupAssigneeId> {
 
 	@Id
 	@Column(name = "shepherd_group_id", nullable = false)
@@ -29,6 +33,9 @@ public class ShepherdGroupAssignee {
 
 	@Column(name = "assigned_at", nullable = false)
 	private Instant assignedAt;
+
+	@Transient
+	private boolean isNew = true;
 
 	protected ShepherdGroupAssignee() {
 	}
@@ -49,6 +56,22 @@ public class ShepherdGroupAssignee {
 		if (assignedAt == null) {
 			assignedAt = Instant.now();
 		}
+	}
+
+	@PostPersist
+	@PostLoad
+	void markNotNew() {
+		isNew = false;
+	}
+
+	@Override
+	public ShepherdGroupAssigneeId getId() {
+		return new ShepherdGroupAssigneeId(shepherdGroupId, userId);
+	}
+
+	@Override
+	public boolean isNew() {
+		return isNew;
 	}
 
 	public Long shepherdGroupId() { return shepherdGroupId; }

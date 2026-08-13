@@ -1,6 +1,7 @@
 package com.faithlog.shepherd.infrastructure.repository;
 
 import com.faithlog.shepherd.domain.entity.WeeklyShepherdAttendanceReport;
+import com.faithlog.shepherd.service.result.ShepherdAttendanceReportRow;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceSummaryRow;
 import java.time.LocalDate;
 import java.util.Optional;
@@ -30,6 +31,34 @@ public interface WeeklyShepherdAttendanceReportRepository extends JpaRepository<
 		Long campusId,
 		Long shepherdGroupId,
 		LocalDate serviceDate
+	);
+
+	@Query("""
+		select new com.faithlog.shepherd.service.result.ShepherdAttendanceReportRow(
+			report.id,
+			report.campusId,
+			report.shepherdGroupId,
+			report.serviceDate,
+			report.smallGroupMeetingCount,
+			report.holyWaveCount,
+			report.otherWorshipCount,
+			report.note,
+			cast(report.status as string),
+			report.lastModifiedBy,
+			modifier.name,
+			report.lastModifiedAt,
+			report.version
+		)
+		from WeeklyShepherdAttendanceReport report
+		join User modifier on modifier.id = report.lastModifiedBy
+		where report.campusId = :campusId
+			and report.shepherdGroupId = :groupId
+			and report.serviceDate = :serviceDate
+		""")
+	Optional<ShepherdAttendanceReportRow> findReportRowBySlot(
+		@Param("campusId") Long campusId,
+		@Param("groupId") Long groupId,
+		@Param("serviceDate") LocalDate serviceDate
 	);
 
 	@Query("""
