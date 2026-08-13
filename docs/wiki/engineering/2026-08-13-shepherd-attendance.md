@@ -45,7 +45,8 @@
 - PM review disposable PostgreSQL 17 `faithlog-260-pg-final-review-20260813` / port `55463`: `PostgresFlywayMigrationTest` BUILD SUCCESSFUL in 43s, `ShepherdPostgresPersistenceTest` 4 tests BUILD SUCCESSFUL in 33s/29s
 - PM re-review 중간 full `./gradlew test build asciidoctor`: BUILD SUCCESSFUL in 19m 41s. 이후 re-review fix가 추가되어 최종 full gate는 재실행한다.
 - Initial full `./gradlew test build asciidoctor`: 205 suites / 997 tests / failures 0 / errors 0 / skipped 20, BUILD SUCCESSFUL in 14m 54s
+- Final full `./gradlew --no-daemon test build asciidoctor`: 206 suites / 1006 tests / failures 0 / errors 0 / skipped 24, BUILD SUCCESSFUL in 21m 18s
 
 ## 남은 확인
 
-- PM 보정 후 최종 full gate와 PM 재리뷰
+- PM 재리뷰
