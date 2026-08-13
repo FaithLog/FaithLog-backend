@@ -3,6 +3,7 @@ package com.faithlog.billing.controller;
 import com.faithlog.billing.service.ChargeStatusCommandService;
 import com.faithlog.billing.service.MyChargeQueryService;
 import com.faithlog.billing.service.PaymentAccountQueryService;
+import com.faithlog.billing.service.PaymentAccountUpdateService;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.billing.service.query.MyChargeListQuery;
 import com.faithlog.billing.service.query.MyChargeSummaryQuery;
@@ -13,9 +14,12 @@ import com.faithlog.billing.controller.dto.request.CompleteChargePaymentRequest;
 import com.faithlog.billing.controller.dto.response.MyChargeSummaryResponse;
 import com.faithlog.billing.controller.dto.response.MyChargesResponse;
 import com.faithlog.billing.controller.dto.response.PaymentAccountMemberResponse;
+import com.faithlog.billing.controller.dto.request.UpdatePaymentAccountRequest;
+import com.faithlog.billing.controller.dto.response.PaymentAccountAdminResponse;
 import com.faithlog.global.response.ApiResponse;
 import com.faithlog.global.security.AuthenticatedUser;
 import java.util.List;
+import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,15 +36,18 @@ public class BillingController {
 	private final MyChargeQueryService myChargeQueryService;
 	private final PaymentAccountQueryService paymentAccountQueryService;
 	private final ChargeStatusCommandService chargeStatusCommandService;
+	private final PaymentAccountUpdateService paymentAccountUpdateService;
 
 	public BillingController(
 		MyChargeQueryService myChargeQueryService,
 		PaymentAccountQueryService paymentAccountQueryService,
-		ChargeStatusCommandService chargeStatusCommandService
+		ChargeStatusCommandService chargeStatusCommandService,
+		PaymentAccountUpdateService paymentAccountUpdateService
 	) {
 		this.myChargeQueryService = myChargeQueryService;
 		this.paymentAccountQueryService = paymentAccountQueryService;
 		this.chargeStatusCommandService = chargeStatusCommandService;
+		this.paymentAccountUpdateService = paymentAccountUpdateService;
 	}
 
 	@GetMapping("/{campusId}/payment-accounts")
@@ -56,6 +63,21 @@ public class BillingController {
 			.map(PaymentAccountMemberResponse::from)
 			.toList();
 		return ApiResponse.success(responses);
+	}
+
+	@PatchMapping("/{campusId}/payment-accounts/{accountId}")
+	public ApiResponse<PaymentAccountAdminResponse> updatePaymentAccount(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long campusId,
+		@PathVariable Long accountId,
+		@Valid @RequestBody UpdatePaymentAccountRequest request
+	) {
+		return ApiResponse.success(
+			PaymentAccountAdminResponse.from(paymentAccountUpdateService.updatePaymentAccount(
+				request.toCommand(campusId, accountId, authenticatedUser)
+			)),
+			"납부 계좌가 수정되었습니다."
+		);
 	}
 
 	@GetMapping("/{campusId}/charges/me")

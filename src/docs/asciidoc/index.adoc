@@ -1544,6 +1544,36 @@ include::{snippets}/payment-account-list-success/http-response.adoc[]
 
 include::{snippets}/payment-account-list-success/response-fields.adoc[]
 
+=== Update Payment Account
+
+`PATCH /api/v1/campuses/{campusId}/payment-accounts/{accountId}`
+
+`PENALTY`는 해당 캠퍼스의 `MINISTER`, `ELDER`, `CAMPUS_LEADER` 또는 전역 `ADMIN`이 수정한다. `COFFEE`와 `MEAL`은 현재 해당 담당이면서 계좌 owner인 사용자만 자기 계좌를 수정한다. active/inactive 계좌 모두 수정할 수 있지만 soft deleted 계좌와 다른 캠퍼스 계좌는 `404`로 거부한다. `accountType`, `ownerUserId`, 활성 상태, 생성 시각은 변경하지 않는다. 해당 계좌에 연결된 `UNPAID` 청구의 은행명·계좌번호·예금주 snapshot만 같은 transaction에서 갱신하며 종료된 청구 이력은 유지한다.
+
+==== Request
+
+include::{snippets}/payment-account-update-success/http-request.adoc[]
+
+==== Request Headers
+
+include::{snippets}/payment-account-update-success/request-headers.adoc[]
+
+==== Path Parameters
+
+include::{snippets}/payment-account-update-success/path-parameters.adoc[]
+
+==== Request Fields
+
+include::{snippets}/payment-account-update-success/request-fields.adoc[]
+
+==== Response
+
+include::{snippets}/payment-account-update-success/http-response.adoc[]
+
+==== Response Fields
+
+include::{snippets}/payment-account-update-success/response-fields.adoc[]
+
 === List Admin Payment Accounts
 
 `GET /api/v1/admin/campuses/{campusId}/payment-accounts`
