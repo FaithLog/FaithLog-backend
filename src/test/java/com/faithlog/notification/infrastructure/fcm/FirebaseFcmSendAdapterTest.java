@@ -2,7 +2,12 @@ package com.faithlog.notification.infrastructure.fcm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
+import com.faithlog.global.observability.ExternalService;
+import com.faithlog.global.observability.OperationalEventPort;
 import com.faithlog.notification.service.FcmSendException;
 import com.faithlog.notification.service.port.FcmSendCommand;
 import com.faithlog.notification.service.port.FcmSendFailureType;
@@ -14,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class FirebaseFcmSendAdapterTest {
+	private final OperationalEventPort operationalEvents = mock(OperationalEventPort.class);
 
 	@Test
 	void maps_unregistered_and_token_not_registered_to_permanent_failure() {
@@ -27,6 +33,7 @@ class FirebaseFcmSendAdapterTest {
 			.isInstanceOf(FcmSendException.class)
 			.extracting("failureType")
 			.isEqualTo(FcmSendFailureType.PERMANENT);
+		verify(operationalEvents, never()).externalServiceFailure(ExternalService.FCM);
 	}
 
 	@Test
@@ -41,6 +48,7 @@ class FirebaseFcmSendAdapterTest {
 			.isInstanceOf(FcmSendException.class)
 			.extracting("failureType")
 			.isEqualTo(FcmSendFailureType.TRANSIENT);
+		verify(operationalEvents).externalServiceFailure(ExternalService.FCM);
 	}
 
 	@Test
@@ -63,7 +71,7 @@ class FirebaseFcmSendAdapterTest {
 		FirebaseFcmSendAdapter adapter = new FirebaseFcmSendAdapter(message -> {
 			captured.set(message);
 			return "message-id";
-		});
+		}, operationalEvents);
 		Map<String, String> data = Map.of(
 			"eventType", "ANNOUNCEMENT_PUBLISHED",
 			"campusId", "7",
@@ -79,7 +87,7 @@ class FirebaseFcmSendAdapterTest {
 	private FirebaseFcmSendAdapter adapterThrowing(FirebaseFcmFailure failure) {
 		return new FirebaseFcmSendAdapter(message -> {
 			throw failure;
-		});
+		}, operationalEvents);
 	}
 
 	private FcmSendCommand command() {
