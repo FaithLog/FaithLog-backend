@@ -291,6 +291,95 @@ class ShepherdApiRestDocsTest {
 			));
 	}
 
+	@Test
+	void admin_board_invalid_page_and_size_return_typed_shepherd_errors() throws Exception {
+		String managerToken = signupAndLogin("docs-shepherd-page-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "260목장페이지캠");
+		long campusId = campus.path("campusId").asLong();
+
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/shepherd-attendance", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("serviceDate", "2026-08-16")
+				.param("page", "-1")
+				.param("size", "50"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("SHEPHERD_INVALID_PAGE"));
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/shepherd-attendance", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("serviceDate", "2026-08-16")
+				.param("page", "0")
+				.param("size", "0"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("SHEPHERD_INVALID_SIZE"));
+		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/shepherd-attendance", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.param("serviceDate", "2026-08-16")
+				.param("page", "0")
+				.param("size", "101"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("SHEPHERD_INVALID_SIZE"));
+	}
+
+	@Test
+	void group_name_size_validation_uses_normalized_value_for_create_and_update() throws Exception {
+		String managerToken = signupAndLogin("docs-shepherd-name-manager@example.com", UserRole.MANAGER);
+		JsonNode campus = createCampus(managerToken, "260목장이름캠");
+		long campusId = campus.path("campusId").asLong();
+		String normalized100 = "가".repeat(50) + " " + "나".repeat(49);
+		String rawOver100ButNormalized100 = "   " + "가".repeat(50) + "      " + "나".repeat(49) + "   ";
+
+		String createdBody = mockMvc.perform(post("/api/v1/campuses/{campusId}/shepherd-groups", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "%s",
+					  "assigneeUserIds": [%d]
+					}
+					""".formatted(rawOver100ButNormalized100, currentUserId("docs-shepherd-name-manager@example.com"))))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.name").value(normalized100))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		long groupId = objectMapper.readTree(createdBody).path("data").path("groupId").asLong();
+
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/shepherd-groups/{groupId}", campusId, groupId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "%s",
+					  "version": 1
+					}
+					""".formatted(rawOver100ButNormalized100)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.name").value(normalized100));
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/shepherd-groups", campusId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "%s",
+					  "assigneeUserIds": [%d]
+					}
+					""".formatted("다".repeat(101), currentUserId("docs-shepherd-name-manager@example.com"))))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("SHEPHERD_GROUP_ASSIGNEE_INVALID"));
+		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/shepherd-groups/{groupId}", campusId, groupId)
+				.header("Authorization", "Bearer " + managerToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "%s",
+					  "version": 2
+					}
+					""".formatted("라".repeat(101))))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("SHEPHERD_GROUP_ASSIGNEE_INVALID"));
+	}
+
 	private FieldDescriptor[] groupResponseFields() {
 		return apiResponseFields(
 			fieldWithPath("data.groupId").description("목장 ID"),
@@ -467,6 +556,10 @@ class ShepherdApiRestDocsTest {
 			.getResponse()
 			.getContentAsString();
 		return objectMapper.readTree(body).path("data").path("accessToken").asText();
+	}
+
+	private Long currentUserId(String email) {
+		return userRepository.findByEmail(email).orElseThrow().id();
 	}
 
 	@TestConfiguration

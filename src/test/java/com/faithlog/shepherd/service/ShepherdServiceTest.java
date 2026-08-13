@@ -20,6 +20,7 @@ import com.faithlog.shepherd.infrastructure.repository.WeeklyShepherdAttendanceR
 import com.faithlog.shepherd.service.command.CreateShepherdGroupCommand;
 import com.faithlog.shepherd.service.command.ReplaceShepherdGroupAssigneesCommand;
 import com.faithlog.shepherd.service.command.SaveShepherdAttendanceCommand;
+import com.faithlog.shepherd.service.command.UpdateShepherdGroupCommand;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceBoardGroupResult;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceBoardResult;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceReportResult;
@@ -53,7 +54,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("test")
-@TestPropertySource(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
+@TestPropertySource(properties = {
+	"spring.jpa.properties.hibernate.generate_statistics=true",
+	"spring.jpa.properties.hibernate.session_factory.statement_inspector=com.faithlog.shepherd.service.ShepherdSqlCounterStatementInspector"
+})
 @Transactional
 class ShepherdServiceTest {
 
@@ -236,6 +240,59 @@ class ShepherdServiceTest {
 			fixture.campus().id(), group.groupId(), sunday, fixture.manager().id(), 5, 2, 1, "관리자 입력", "SUBMITTED", 0
 		));
 		assertThat(managerWrite.status()).isEqualTo("SUBMITTED");
+	}
+
+	@Test
+	void get_attendance_returns_last_modifier_name_after_entity_cache_is_cleared() {
+		Fixture fixture = createFixture("modifier-name");
+		ShepherdGroupResult group = shepherdService.createGroup(new CreateShepherdGroupCommand(
+			fixture.campus().id(),
+			fixture.memberA().id(),
+			"수정자 목장",
+			List.of()
+		));
+		LocalDate sunday = LocalDate.of(2026, 8, 16);
+		shepherdService.saveAttendance(new SaveShepherdAttendanceCommand(
+			fixture.campus().id(),
+			group.groupId(),
+			sunday,
+			fixture.memberA().id(),
+			1,
+			1,
+			1,
+			null,
+			"SUBMITTED",
+			0
+		));
+		entityManager.flush();
+		entityManager.clear();
+
+		ShepherdAttendanceReportResult reread = shepherdService.getAttendance(
+			fixture.campus().id(), group.groupId(), sunday, fixture.memberA().id());
+
+		assertThat(reread.lastModifiedByUserId()).isEqualTo(fixture.memberA().id());
+		assertThat(reread.lastModifiedByName()).isEqualTo(fixture.memberA().name());
+	}
+
+	@Test
+	void manager_create_does_not_issue_merge_existence_select_for_each_new_assignee() {
+		Fixture one = createFixture("assignee-select-one");
+		List<Long> oneAssignee = createAdditionalActiveMembers(one, 1);
+		ShepherdSqlCounterStatementInspector.reset();
+
+		shepherdService.createGroup(new CreateShepherdGroupCommand(
+			one.campus().id(), one.manager().id(), "담당자 1", oneAssignee));
+
+		assertThat(ShepherdSqlCounterStatementInspector.assigneeSelectCount()).isEqualTo(1);
+
+		Fixture hundred = createFixture("assignee-select-hundred");
+		List<Long> hundredAssignees = createAdditionalActiveMembers(hundred, 100);
+		ShepherdSqlCounterStatementInspector.reset();
+
+		shepherdService.createGroup(new CreateShepherdGroupCommand(
+			hundred.campus().id(), hundred.manager().id(), "담당자 100", hundredAssignees));
+
+		assertThat(ShepherdSqlCounterStatementInspector.assigneeSelectCount()).isEqualTo(1);
 	}
 
 	@Test
@@ -514,6 +571,16 @@ class ShepherdServiceTest {
 			fixture.manager().id()
 		));
 		return group;
+	}
+
+	private List<Long> createAdditionalActiveMembers(Fixture fixture, int count) {
+		List<Long> userIds = new ArrayList<>();
+		for (int index = 0; index < count; index++) {
+			User user = saveUser("shepherd-extra-" + fixture.campus().id() + "-" + index + "@example.com", UserRole.USER);
+			campusMemberRepository.saveAndFlush(CampusMember.createMember(fixture.campus().id(), user.id()));
+			userIds.add(user.id());
+		}
+		return userIds;
 	}
 
 	private void setSeoulNow(String seoulDateTime) {
