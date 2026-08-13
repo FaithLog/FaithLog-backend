@@ -38,7 +38,8 @@
 - `./gradlew test --tests com.faithlog.shepherd.service.ShepherdServiceTest --tests com.faithlog.shepherd.controller.ShepherdApiRestDocsTest`: 12 tests, failures 0
 - focused shepherd + Flyway static + architecture 묶음: BUILD SUCCESSFUL
 - final disposable PostgreSQL 17 `faithlog-260-pg-final-20260813` / port `55461` `PostgresFlywayMigrationTest`: 14 tests, failures 0, errors 0, skipped 0
+- `./gradlew test build asciidoctor`: 205 suites / 997 tests / failures 0 / errors 0 / skipped 20, BUILD SUCCESSFUL in 14m 54s
 
 ## 남은 확인
 
-- 전체 `./gradlew test build asciidoctor`
+- PM 독립 코드리뷰

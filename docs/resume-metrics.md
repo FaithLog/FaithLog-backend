@@ -1901,4 +1901,4 @@ Metric candidates:
 - 홈 카드 SQL 경계는 H2/Hibernate statistics 기준 담당 목장 1/100개 모두 prepared statement count 2로 고정됨을 실행형 테스트로 검증했다. 이는 로컬 테스트 SQL 경계이며 운영 latency/throughput 성과로 주장하지 않는다.
 - Self-review에서 관리자 board 완료 수가 DRAFT까지 세는 aggregate 결함을 추가 RED로 재현했고, SUBMITTED만 완료로 집계하도록 수정했다.
 - 전용 disposable `postgres:17` 컨테이너 `faithlog-260-pg-final-20260813` / port `55461`에서 최종 HEAD `PostgresFlywayMigrationTest` 14 tests / failures 0 / errors 0 / skipped 0으로 V1→V23 clean, 보호된 upgrade, V23 table/FK/CHECK/RLS/index catalog를 검증한 뒤 컨테이너를 제거했다.
-- 전체 `test build asciidoctor` 최종 수치는 최종 gate 실행 뒤 갱신한다. push/PR/merge/deploy/shared DB mutation은 수행하지 않는다.
+- 최종 `./gradlew test build asciidoctor`는 205 suites / 997 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 14m 54s`로 통과했고 bootJar/plain jar, JaCoCo, REST Docs HTML을 생성했다. push/PR/merge/deploy/shared DB mutation은 수행하지 않는다.
