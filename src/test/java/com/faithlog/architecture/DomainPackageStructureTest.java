@@ -21,6 +21,7 @@ class DomainPackageStructureTest {
             "notification",
             "poll",
             "prayer",
+            "shepherd",
             "user");
 
     private final Path mainSourceRoot = Path.of("src/main/java/com/faithlog");

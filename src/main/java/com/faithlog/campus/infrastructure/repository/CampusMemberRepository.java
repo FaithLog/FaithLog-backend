@@ -77,6 +77,8 @@ public interface CampusMemberRepository extends JpaRepository<CampusMember, Long
 
 	List<CampusMember> findByCampusIdAndStatusOrderByIdAsc(Long campusId, CampusMemberStatus status);
 
+	List<CampusMember> findByCampusIdAndUserIdInAndStatus(Long campusId, Collection<Long> userIds, CampusMemberStatus status);
+
 	List<CampusMember> findByCampusIdOrderByIdAsc(Long campusId);
 
 	List<CampusMember> findByUserIdAndStatusOrderByIdDesc(Long userId, CampusMemberStatus status);

@@ -1890,3 +1890,20 @@ Metric candidates:
 - DB pool, 8 scheduler jobs, Upstash Redis, Brevo, FCM transient failure, Cloudflare R2, login/refresh/email-verification failure를 PII 없는 bounded event로 분리했다.
 - Google Cloud `faithlog-95890`에 전용 로그 기반 metric 19개와 enabled alert policy 19개를 실제 생성했고 기존 관리자 이메일 채널에 연결했다. 일일 scheduler 4개는 승인된 24시간 10분 window를 PromQL로 보존했다.
 - focused 관측 회귀와 artifact gate는 GREEN이다. 전체 repository gate의 유일한 failure는 #258 무관 `JwtRefreshTokenVersionTest`의 2026-07-29 고정 발급 토큰이 현재 날짜에 만료되는 기존 날짜 경계이며, #258 성능 또는 운영 장애 감소 수치로 해석하지 않는다.
+
+## 2026-08-13 Issue #260 shepherd attendance
+
+- 목장 담당자와 주간 목홀타 집계를 test-first로 구현했다. RED는 `ShepherdService`, command/result, 전용 ErrorCode 부재로 `compileTestJava` 43 errors를 재현했다.
+- GREEN focused service gate는 7 tests / failures 0 / errors 0 / skipped 0이다. 권한, self assignment, 관리자 복수 담당자, 중복 normalized name, Sunday/count 검증, stale version 409, 관리자 board totals를 확인했다.
+- N+1 회귀는 H2/Hibernate statistics 기준 관리자 board 1/100/1000 목장에서 prepared statement count가 모두 4로 고정됨을 실행형 테스트로 검증했다. 이는 로컬 테스트 SQL 경계이며 운영 latency/throughput 성과로 주장하지 않는다.
+- REST Docs focused gate는 `ShepherdApiRestDocsTest` 1 scenario / failures 0으로 통과했고 create, my list, assignee replace, save/get attendance, admin board, non-Sunday error snippets를 생성했다.
+- 최신 사용자 승인 계약 반영 후 홈 카드 RED를 별도 추가했다. RED는 `ShepherdHomeCardResult`와 `getMyHome` 부재로 `compileTestJava` 11 errors를 재현했고, GREEN focused gate는 서비스/REST Docs 12 tests / failures 0 / errors 0 / skipped 0으로 통과했다.
+- 홈 카드 SQL 경계는 H2/Hibernate statistics 기준 담당 목장 1/100개 모두 prepared statement count 2로 고정됨을 실행형 테스트로 검증했다. 이는 로컬 테스트 SQL 경계이며 운영 latency/throughput 성과로 주장하지 않는다.
+- Self-review에서 관리자 board 완료 수가 DRAFT까지 세는 aggregate 결함을 추가 RED로 재현했고, SUBMITTED만 완료로 집계하도록 수정했다.
+- 초기 PM 리뷰 전 전용 disposable `postgres:17` 컨테이너 `faithlog-260-pg-final-20260813` / port `55461`에서 `PostgresFlywayMigrationTest` 14 tests / failures 0 / errors 0 / skipped 0으로 V1→V23 clean, 보호된 upgrade, V23 table/FK/CHECK/RLS/index catalog를 검증한 뒤 컨테이너를 제거했다.
+- 초기 PM 리뷰 전 `./gradlew test build asciidoctor`는 205 suites / 997 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 14m 54s`로 통과했고 bootJar/plain jar, JaCoCo, REST Docs HTML을 생성했다.
+- PM 독립 리뷰 RED→GREEN은 concurrent normalized rename unique 500 누출, 신규 담당자 composite ID merge SELECT, 일반 GET last modifier name null, invalid page/size 500, normalize-before-size validation, name 101자 assignee error 노출을 실행형 테스트로 고정했다.
+- PM 보정 focused GREEN: `ShepherdServiceTest` + `ShepherdApiRestDocsTest` 18 tests / failures 0 / errors 0 / skipped 0, `ShepherdPostgresPersistenceTest` 4 tests / failures 0 / errors 0 / skipped 0.
+- PM 보정 PostgreSQL actual gate는 disposable `postgres:17` 컨테이너 `faithlog-260-pg-final-review-20260813` / port `55463`에서 실행했다. `PostgresFlywayMigrationTest`는 BUILD SUCCESSFUL in 43s로 V1→V23 clean/upgrade/catalog를 재검증했고, 별도 DB의 `ShepherdPostgresPersistenceTest`는 BUILD SUCCESSFUL in 33s/29s로 concurrent normalized create, concurrent normalized rename, concurrent first attendance save one-winner, stale version 409를 검증했다.
+- PM 재리뷰 전 중간 full gate `./gradlew test build asciidoctor`는 새 finding 수신 전 실행 중이던 결과로 `BUILD SUCCESSFUL in 19m 41s`였다. 이후 관리자 board nested report `campusId` null 보정과 PostgreSQL concurrent create 검증 테스트를 추가해 아래 최종 gate를 재실행했다.
+- 최종 `./gradlew --no-daemon test build asciidoctor`는 206 suites / 1006 tests / failures 0 / errors 0 / skipped 24, `BUILD SUCCESSFUL in 21m 18s`로 통과했고 bootJar/plain jar, JaCoCo, REST Docs HTML을 생성했다. push/PR/merge/deploy/shared DB mutation은 수행하지 않는다.

@@ -50,6 +50,9 @@ class FlywayMigrationContractTest {
 	private static final Path PDF_DOCUMENT_MIGRATION = Path.of(
 		"src/main/resources/db/migration/V19__add_pdf_document_attachments.sql"
 	);
+	private static final Path SHEPHERD_ATTENDANCE_MIGRATION = Path.of(
+		"src/main/resources/db/migration/V23__add_shepherd_attendance.sql"
+	);
 	private static final Path POSTGRES_MIGRATION_TEST = Path.of(
 		"src/test/java/com/faithlog/deploy/PostgresFlywayMigrationTest.java"
 	);
@@ -228,6 +231,33 @@ class FlywayMigrationContractTest {
 			"SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}"
 		);
 		assertThat(compose).doesNotContain("upstash");
+	}
+
+	@Test
+	void v23MigrationDefinesShepherdAttendanceIntegrityAndIndexes() throws IOException {
+		String sql = Files.readString(SHEPHERD_ATTENDANCE_MIGRATION);
+
+		assertThat(sql).contains(
+			"CREATE TABLE shepherd_groups",
+			"CREATE TABLE shepherd_group_assignees",
+			"CREATE TABLE weekly_shepherd_attendance_reports",
+			"uk_shepherd_groups_campus_normalized_name",
+			"pk_shepherd_group_assignees",
+			"uk_weekly_shepherd_attendance_group_date",
+			"fk_shepherd_groups_campus",
+			"fk_shepherd_group_assignees_group_tenant",
+			"fk_shepherd_group_assignees_member",
+			"fk_weekly_shepherd_attendance_group_tenant",
+			"fk_weekly_shepherd_attendance_group",
+			"ck_weekly_shepherd_attendance_sunday",
+			"ck_weekly_shepherd_attendance_counts_nonnegative",
+			"idx_shepherd_groups_campus_status_normalized_id",
+			"idx_shepherd_group_assignees_user_campus_group",
+			"idx_weekly_shepherd_attendance_campus_date_group",
+			"ALTER TABLE shepherd_groups ENABLE ROW LEVEL SECURITY",
+			"ALTER TABLE shepherd_group_assignees ENABLE ROW LEVEL SECURITY",
+			"ALTER TABLE weekly_shepherd_attendance_reports ENABLE ROW LEVEL SECURITY"
+		);
 	}
 
 	@Test
