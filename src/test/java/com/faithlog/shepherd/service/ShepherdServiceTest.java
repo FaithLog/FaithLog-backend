@@ -10,6 +10,13 @@ import com.faithlog.campus.infrastructure.repository.CampusMemberRepository;
 import com.faithlog.campus.infrastructure.repository.CampusRepository;
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
+import com.faithlog.shepherd.domain.entity.ShepherdGroup;
+import com.faithlog.shepherd.domain.entity.ShepherdGroupAssignee;
+import com.faithlog.shepherd.domain.entity.WeeklyShepherdAttendanceReport;
+import com.faithlog.shepherd.domain.type.WeeklyShepherdAttendanceStatus;
+import com.faithlog.shepherd.infrastructure.repository.ShepherdGroupAssigneeRepository;
+import com.faithlog.shepherd.infrastructure.repository.ShepherdGroupRepository;
+import com.faithlog.shepherd.infrastructure.repository.WeeklyShepherdAttendanceReportRepository;
 import com.faithlog.shepherd.service.command.CreateShepherdGroupCommand;
 import com.faithlog.shepherd.service.command.ReplaceShepherdGroupAssigneesCommand;
 import com.faithlog.shepherd.service.command.SaveShepherdAttendanceCommand;
@@ -53,6 +60,15 @@ class ShepherdServiceTest {
 
 	@Autowired
 	private CampusMemberRepository campusMemberRepository;
+
+	@Autowired
+	private ShepherdGroupRepository shepherdGroupRepository;
+
+	@Autowired
+	private ShepherdGroupAssigneeRepository shepherdGroupAssigneeRepository;
+
+	@Autowired
+	private WeeklyShepherdAttendanceReportRepository shepherdAttendanceReportRepository;
 
 	@Autowired
 	private EntityManager entityManager;
@@ -247,10 +263,44 @@ class ShepherdServiceTest {
 		assertThat(board.totalHolyWaveCount()).isEqualTo(80);
 		assertThat(board.totalOtherWorshipCount()).isEqualTo(120);
 		assertThat(board.groups()).hasSize(100);
-		assertThat(board.groups()).extracting(ShepherdAttendanceBoardGroupResult::groupId)
-			.containsExactlyElementsOf(groupIds);
+		assertThat(board.groups()).extracting(ShepherdAttendanceBoardGroupResult::groupName)
+			.containsExactly(
+				"목장 0", "목장 1", "목장 10", "목장 11", "목장 12", "목장 13", "목장 14", "목장 15", "목장 16", "목장 17",
+				"목장 18", "목장 19", "목장 2", "목장 20", "목장 21", "목장 22", "목장 23", "목장 24", "목장 25", "목장 26",
+				"목장 27", "목장 28", "목장 29", "목장 3", "목장 30", "목장 31", "목장 32", "목장 33", "목장 34", "목장 35",
+				"목장 36", "목장 37", "목장 38", "목장 39", "목장 4", "목장 40", "목장 41", "목장 42", "목장 43", "목장 44",
+				"목장 45", "목장 46", "목장 47", "목장 48", "목장 49", "목장 5", "목장 50", "목장 51", "목장 52", "목장 53",
+				"목장 54", "목장 55", "목장 56", "목장 57", "목장 58", "목장 59", "목장 6", "목장 60", "목장 61", "목장 62",
+				"목장 63", "목장 64", "목장 65", "목장 66", "목장 67", "목장 68", "목장 69", "목장 7", "목장 70", "목장 71",
+				"목장 72", "목장 73", "목장 74", "목장 75", "목장 76", "목장 77", "목장 78", "목장 79", "목장 8", "목장 80",
+				"목장 81", "목장 82", "목장 83", "목장 84", "목장 85", "목장 86", "목장 87", "목장 88", "목장 89", "목장 9",
+				"목장 90", "목장 91", "목장 92", "목장 93", "목장 94", "목장 95", "목장 96", "목장 97", "목장 98", "목장 99"
+			);
 		assertThat(board.groups()).filteredOn(group -> group.report() == null).hasSize(60);
 		assertThat(statistics.getPrepareStatementCount()).isEqualTo(4);
+	}
+
+	@Test
+	void admin_weekly_board_query_count_is_constant_for_one_hundred_and_thousand_groups() {
+		LocalDate sunday = LocalDate.of(2026, 8, 16);
+		List<Long> counts = new ArrayList<>();
+		for (int groupCount : List.of(1, 100, 1000)) {
+			Fixture fixture = createFixture("constant-query-" + groupCount);
+			seedAttendanceBoardFixture(fixture, sunday, groupCount);
+			Statistics statistics = resetStatistics();
+
+			ShepherdAttendanceBoardResult board = shepherdService.getAdminAttendanceBoard(
+				fixture.campus().id(),
+				sunday,
+				fixture.manager().id(),
+				PageRequest.of(0, 100)
+			);
+
+			assertThat(board.totalElements()).isEqualTo(groupCount);
+			assertThat(statistics.getPrepareStatementCount()).isEqualTo(4);
+			counts.add(statistics.getPrepareStatementCount());
+		}
+		assertThat(counts).containsExactly(4L, 4L, 4L);
 	}
 
 	private Statistics resetStatistics() {
@@ -285,6 +335,38 @@ class ShepherdServiceTest {
 		campusMemberRepository.saveAndFlush(CampusMember.createMember(campus.id(), memberB.id()));
 		campusMemberRepository.saveAndFlush(CampusMember.createMember(otherCampus.id(), otherCampusMember.id()));
 		return new Fixture(campus, manager, memberA, memberB, otherCampusMember);
+	}
+
+	private void seedAttendanceBoardFixture(Fixture fixture, LocalDate sunday, int groupCount) {
+		for (int index = 0; index < groupCount; index++) {
+			String name = "상수쿼리 " + groupCount + " " + String.format("%04d", index);
+			ShepherdGroup group = shepherdGroupRepository.save(ShepherdGroup.create(
+				fixture.campus().id(),
+				name,
+				name.toLowerCase(java.util.Locale.ROOT),
+				fixture.manager().id()
+			));
+			shepherdGroupAssigneeRepository.save(ShepherdGroupAssignee.create(
+				group.id(),
+				fixture.campus().id(),
+				fixture.memberA().id(),
+				fixture.manager().id()
+			));
+			if (index % 2 == 0) {
+				shepherdAttendanceReportRepository.save(WeeklyShepherdAttendanceReport.create(
+					fixture.campus().id(),
+					group.id(),
+					sunday,
+					1,
+					1,
+					1,
+					null,
+					WeeklyShepherdAttendanceStatus.SUBMITTED,
+					fixture.manager().id(),
+					java.time.Instant.now()
+				));
+			}
+		}
 	}
 
 	private User saveUser(String email, UserRole role) {
