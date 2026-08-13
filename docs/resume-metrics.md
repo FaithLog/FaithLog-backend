@@ -1890,3 +1890,11 @@ Metric candidates:
 - DB pool, 8 scheduler jobs, Upstash Redis, Brevo, FCM transient failure, Cloudflare R2, login/refresh/email-verification failure를 PII 없는 bounded event로 분리했다.
 - Google Cloud `faithlog-95890`에 전용 로그 기반 metric 19개와 enabled alert policy 19개를 실제 생성했고 기존 관리자 이메일 채널에 연결했다. 일일 scheduler 4개는 승인된 24시간 10분 window를 PromQL로 보존했다.
 - focused 관측 회귀와 artifact gate는 GREEN이다. 전체 repository gate의 유일한 failure는 #258 무관 `JwtRefreshTokenVersionTest`의 2026-07-29 고정 발급 토큰이 현재 날짜에 만료되는 기존 날짜 경계이며, #258 성능 또는 운영 장애 감소 수치로 해석하지 않는다.
+
+## 2026-08-13 Issue #260 shepherd attendance
+
+- 목장 담당자와 주간 목홀타 집계를 test-first로 구현했다. RED는 `ShepherdService`, command/result, 전용 ErrorCode 부재로 `compileTestJava` 43 errors를 재현했다.
+- GREEN focused service gate는 7 tests / failures 0 / errors 0 / skipped 0이다. 권한, self assignment, 관리자 복수 담당자, 중복 normalized name, Sunday/count 검증, stale version 409, 관리자 board totals를 확인했다.
+- N+1 회귀는 H2/Hibernate statistics 기준 관리자 board 1/100/1000 목장에서 prepared statement count가 모두 4로 고정됨을 실행형 테스트로 검증했다. 이는 로컬 테스트 SQL 경계이며 운영 latency/throughput 성과로 주장하지 않는다.
+- REST Docs focused gate는 `ShepherdApiRestDocsTest` 1 scenario / failures 0으로 통과했고 create, my list, assignee replace, save/get attendance, admin board, non-Sunday error snippets를 생성했다.
+- 실제 PostgreSQL clean/upgrade 결과와 전체 `test build asciidoctor` 최종 수치는 최종 gate 실행 뒤 갱신한다. push/PR/merge/deploy/shared DB mutation은 수행하지 않는다.

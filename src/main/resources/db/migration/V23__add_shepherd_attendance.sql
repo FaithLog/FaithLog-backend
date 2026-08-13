@@ -9,6 +9,7 @@ CREATE TABLE shepherd_groups (
     created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     CONSTRAINT uk_shepherd_groups_campus_normalized_name UNIQUE (campus_id, normalized_name),
+    CONSTRAINT uk_shepherd_groups_id_campus UNIQUE (id, campus_id),
     CONSTRAINT fk_shepherd_groups_campus FOREIGN KEY (campus_id) REFERENCES campuses(id),
     CONSTRAINT fk_shepherd_groups_created_by FOREIGN KEY (created_by) REFERENCES users(id),
     CONSTRAINT ck_shepherd_groups_status CHECK (status IN ('ACTIVE', 'ARCHIVED')),
@@ -25,6 +26,8 @@ CREATE TABLE shepherd_group_assignees (
     assigned_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_shepherd_group_assignees PRIMARY KEY (shepherd_group_id, user_id),
     CONSTRAINT fk_shepherd_group_assignees_group FOREIGN KEY (shepherd_group_id) REFERENCES shepherd_groups(id),
+    CONSTRAINT fk_shepherd_group_assignees_group_tenant FOREIGN KEY (shepherd_group_id, campus_id)
+        REFERENCES shepherd_groups(id, campus_id),
     CONSTRAINT fk_shepherd_group_assignees_campus FOREIGN KEY (campus_id) REFERENCES campuses(id),
     CONSTRAINT fk_shepherd_group_assignees_user FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT fk_shepherd_group_assignees_assigned_by FOREIGN KEY (assigned_by) REFERENCES users(id),
@@ -51,6 +54,8 @@ CREATE TABLE weekly_shepherd_attendance_reports (
     CONSTRAINT uk_weekly_shepherd_attendance_group_date UNIQUE (shepherd_group_id, service_date),
     CONSTRAINT fk_weekly_shepherd_attendance_campus FOREIGN KEY (campus_id) REFERENCES campuses(id),
     CONSTRAINT fk_weekly_shepherd_attendance_group FOREIGN KEY (shepherd_group_id) REFERENCES shepherd_groups(id),
+    CONSTRAINT fk_weekly_shepherd_attendance_group_tenant FOREIGN KEY (shepherd_group_id, campus_id)
+        REFERENCES shepherd_groups(id, campus_id),
     CONSTRAINT fk_weekly_shepherd_attendance_created_by FOREIGN KEY (created_by) REFERENCES users(id),
     CONSTRAINT fk_weekly_shepherd_attendance_last_modified_by FOREIGN KEY (last_modified_by) REFERENCES users(id),
     CONSTRAINT ck_weekly_shepherd_attendance_status CHECK (status IN ('DRAFT', 'SUBMITTED')),

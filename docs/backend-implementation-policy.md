@@ -651,3 +651,15 @@ Keep these out of MVP scope:
 - A physically deleted historical slot may be registered again, but existing global outbox history prevents another notification without relying on duplicate-key exceptions.
 - Admin PUT and manager response assembly share one transaction. Public GET always retains requested-campus ACTIVE membership authorization.
 - Retention remains Asia/Seoul midnight at `weekStartDate.plusMonths(3)`. It physically deletes the material row, hands an attached READY PDF to ORPHANED cleanup, retains durable outbox/log history, and performs no R2/network call in the API transaction.
+
+## Shepherd Groups And Weekly Attendance
+
+- Shepherd groups are campus-owned. ACTIVE campus members may create a group; a normal member becomes the group's assignee automatically. Campus managers and service `ADMIN` may create groups with one or more same-campus ACTIVE assignees.
+- Group names are trim-normalized, whitespace-collapsed, and unique per campus by case-insensitive normalized name. Duplicate creation never grants a normal member assignment to an existing group.
+- A group may have multiple assignees, and a user may be assigned to multiple groups. Campus managers may replace assignees in bulk, but the final assignee set must contain at least one same-campus ACTIVE user.
+- Normal members may list, read, create attendance, and update attendance only for groups where they are assignees. Campus managers and service `ADMIN` may manage every group and weekly attendance report in the campus.
+- Weekly attendance uses Sunday `serviceDate`. The independent non-negative counts are `smallGroupMeetingCount`, `holyWaveCount`, and `otherWorshipCount`; they are not a unique-person total. Optional `note` is capped at 500 characters.
+- Report status is `DRAFT` or `SUBMITTED`. Assignees and managers may edit both statuses. Responses expose the last modifier, last modified time, and integer `version`; save requests must send `version`, with `0` for first insert, and stale writes return `409 SHEPHERD_ATTENDANCE_CONFLICT`.
+- Admin weekly board ordering is fixed by `normalizedName, groupId`; `page` starts at 0 and `size` is capped at 100. The board returns per-group report-or-null rows, assignees, submitted/missing counts, and the three campus totals.
+- Admin board SQL must stay N-invariant: requester access 1 query, group+report page projection 1 query, assignee bulk projection 1 query, and campus aggregate 1 query. The executable regression covers 1, 100, and 1,000 groups.
+- `V23__add_shepherd_attendance.sql` owns the schema: `shepherd_groups`, `shepherd_group_assignees`, `weekly_shepherd_attendance_reports`, tenant FKs, Sunday/count/status/version CHECKs, unique slots, query indexes, and explicit RLS enablement.
