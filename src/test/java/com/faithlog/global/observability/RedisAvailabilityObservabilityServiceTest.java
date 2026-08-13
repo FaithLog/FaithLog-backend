@@ -45,4 +45,16 @@ class RedisAvailabilityObservabilityServiceTest {
 		verify(connection).close();
 		verify(events, never()).externalServiceFailure(ExternalService.UPSTASH_REDIS);
 	}
+
+	@Test
+	void records_upstash_probe_failure_when_ping_response_is_not_pong() {
+		RedisConnection connection = mock(RedisConnection.class);
+		when(connectionFactory.getConnection()).thenReturn(connection);
+		when(connection.ping()).thenReturn(null);
+
+		service.probe();
+
+		verify(connection).close();
+		verify(events).externalServiceFailure(ExternalService.UPSTASH_REDIS);
+	}
 }
