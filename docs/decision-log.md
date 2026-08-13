@@ -1331,3 +1331,19 @@ This file records user-approved project decisions so Codex does not rely on gues
 - event label은 enum과 job 상수만 사용한다. 이메일, 사용자 ID, token, code, IP, object key, provider 응답 및 exception 원문은 관측 로그와 metric label에 저장하지 않는다. 기존 API, 예외, transaction, retry/outbox 동작은 변경하지 않는다.
 - Google Cloud `faithlog-95890`에는 event별 로그 기반 metric 19개와 alert policy 19개를 생성하고 기존 `FaithLog Admin` 이메일 채널을 연결했다. 고정 지연 job은 11분 metric absence, 일일 cron은 일반 absence의 23시간 30분 제한을 피하면서 승인된 24시간 10분을 유지하는 PromQL `absent_over_time`을 사용한다. 일일 정책은 최근 25시간 내 최초 성공 sample이 존재할 때만 평가해 배포 전 오탐을 막는다.
 - Upstash probe는 예외뿐 아니라 `PING` 결과가 exact `PONG`이 아닌 경우도 동일한 bounded provider failure로 기록한다.
+
+## 2026-08-13 - Issue #260 목장 담당자 및 주간 목홀타 집계
+
+- 사용자는 캠퍼스별 목장과 담당자, 매주 일요일 `목장모임`/`홀리웨이브`/`타예배` 독립 count 집계를 승인했다. 일반 ACTIVE 멤버 생성은 본인 자동 담당이며, 캠퍼스 관리자는 같은 캠퍼스 ACTIVE 사용자 중 담당자를 1명 이상 지정하거나 교체할 수 있다. 마지막 담당자 제거는 금지한다.
+- 같은 캠퍼스의 목장 이름은 trim, 공백 정규화, case-insensitive normalized name으로 unique다. 중복 생성은 `409 SHEPHERD_GROUP_DUPLICATE`이고 일반 사용자가 기존 목장의 담당 권한을 임의 획득하지 않는다.
+- 일반 사용자는 자신이 담당자인 목장만 목록/조회/작성/수정할 수 있고, 다른 목장은 존재를 숨기는 `SHEPHERD_GROUP_NOT_FOUND`로 처리한다. 캠퍼스 관리자와 서비스 `ADMIN`은 캠퍼스 전체 목장, 담당자, 주간 값을 관리한다.
+- `serviceDate`는 Sunday만 허용하고, 세 count는 각각 0 이상이다. 상태는 `DRAFT`/`SUBMITTED`이며 제출 전후 수정 가능하다. 응답은 마지막 수정자/시각과 integer `version`을 포함하고, 저장 요청은 신규 `0`, 기존 현재 version을 보내야 한다. 불일치는 `409 SHEPHERD_ATTENDANCE_CONFLICT`다.
+- 일반 사용자 홈 카드는 `GET /api/v1/campuses/{campusId}/shepherd-attendance/me/home` 전용 API로 제공한다. 서버 `Clock`과 `Asia/Seoul` 기준 현재 시각이 Sunday 00:00:00 이상 Monday 00:00:00 미만이고, 현재 ACTIVE campus에서 담당 ACTIVE 목장이 1개 이상인 사용자에게만 노출한다.
+- 캠퍼스 관리자와 서비스 `ADMIN`도 담당 목장이 없으면 일반 사용자 홈 카드는 미노출이며 전체 입력은 관리자 페이지가 담당한다. 노출 문구는 exact `이번 주 목홀타를 입력해 주세요`이고, 담당 목장 수와 현재 Sunday `SUBMITTED` 완료 수를 반환한다. 비일요일 또는 미노출 응답은 `visible=false`, `groups=[]`다.
+- 관리자 주차 화면은 `normalizedName, groupId` stable ordering, `size <= 100`, 목장+report page projection 1회, 담당자 bulk projection 1회, 합계 aggregate 1회로 조립한다. 완료 수는 `SUBMITTED` report만 세고 DRAFT는 완료 전으로 본다. 인증/권한 확인까지 포함한 실행형 테스트에서 1/100/1000 목장 모두 prepared statement 4개를 유지한다.
+- 일반 홈 카드는 담당 assignment+group+현재 Sunday report를 bulk projection 1회로 조립하고, 인증/권한 확인까지 포함한 실행형 테스트에서 1/100 담당 목장 모두 prepared statement 2개를 유지한다.
+- V23은 `shepherd_groups`, `shepherd_group_assignees`, `weekly_shepherd_attendance_reports`를 추가하고 unique, tenant FK, Sunday/count/status/version CHECK, RLS, index를 적용한다. 기존 migration은 수정하지 않는다.
+- PM 독립 리뷰 보정으로 동시 목장명 rename의 exact `uk_shepherd_groups_campus_normalized_name` 충돌은 flush 경계에서 `409 SHEPHERD_GROUP_DUPLICATE`로 변환하고, 다른 integrity 오류는 그대로 전파한다.
+- 목장명 request DTO는 compact constructor에서 trim/공백 정규화 후 Bean Validation `@Size(max=100)`을 적용한다. HTTP create/update의 normalized 101자 이름은 기존 `GLOBAL_VALIDATION_FAILED` 400으로 처리하며 담당자 오류로 노출하지 않는다. Service command 직접 호출의 이름 방어 검증도 같은 공통 validation 오류를 사용한다.
+- `shepherd_group_assignees` 복합 ID 신규 저장은 `Persistable` 경계로 신규 row를 명시해 신규 담당자 수만큼 merge existence SELECT가 늘어나지 않게 한다. 담당자 응답 조립에 필요한 bulk SELECT와 필수 INSERT 자체는 유지한다.
+- 일반 report GET은 report+last modifier user projection으로 재조회 직후에도 `lastModifiedByName`을 반환한다. 관리자 board의 기존 modifier projection과 권한/tenant 경계는 유지한다.

@@ -80,7 +80,7 @@ class PostgresFlywayMigrationTest {
 		);
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
-		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("22"));
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("23"));
 		assertColumnExists(jdbcUrl, username, password, "media_assets", "asset_kind");
 		assertColumnExists(jdbcUrl, username, password, "media_assets", "document_object_key");
 		assertTableExists(jdbcUrl, username, password, "announcement_documents");
@@ -102,6 +102,22 @@ class PostgresFlywayMigrationTest {
 		assertCaseInsensitiveDuplicateEmailRejected(jdbcUrl, username, password);
 		assertConstraintExists(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
 		assertConstraintValidated(jdbcUrl, username, password, "charge_items", "ck_charge_items_amount_positive");
+		assertTableExists(jdbcUrl, username, password, "shepherd_groups");
+		assertTableExists(jdbcUrl, username, password, "shepherd_group_assignees");
+		assertTableExists(jdbcUrl, username, password, "weekly_shepherd_attendance_reports");
+		assertIndexExists(jdbcUrl, username, password,
+			"shepherd_groups", "uk_shepherd_groups_campus_normalized_name");
+		assertIndexExists(jdbcUrl, username, password,
+			"weekly_shepherd_attendance_reports", "uk_weekly_shepherd_attendance_group_date");
+		assertConstraintExists(jdbcUrl, username, password,
+			"weekly_shepherd_attendance_reports", "ck_weekly_shepherd_attendance_sunday");
+		assertConstraintExists(jdbcUrl, username, password,
+			"shepherd_group_assignees", "fk_shepherd_group_assignees_group_tenant");
+		assertConstraintExists(jdbcUrl, username, password,
+			"weekly_shepherd_attendance_reports", "fk_weekly_shepherd_attendance_group_tenant");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "shepherd_groups");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "shepherd_group_assignees");
+		assertRowLevelSecurityEnabled(jdbcUrl, username, password, "weekly_shepherd_attendance_reports");
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, 0);
 		assertInvalidChargeAmountRejected(jdbcUrl, username, password, -1);
 		assertAnnouncementNotificationTypeBoundary(jdbcUrl, username, password);
@@ -160,7 +176,7 @@ class PostgresFlywayMigrationTest {
 		insertV21ShepherdGuideFixture(jdbcUrl, username, password);
 
 		Flyway v22 = Flyway.configure().dataSource(jdbcUrl, username, password)
-			.locations("classpath:db/migration").load();
+			.locations("classpath:db/migration").target("22").load();
 		assertThat(v22.migrate().success).isTrue();
 		assertThat(v22.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("22"));
 		assertThat(queryText(jdbcUrl, username, password,

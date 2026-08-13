@@ -9,6 +9,61 @@
 FaithLog의 상세 API 계약은 Spring REST Docs 테스트가 검증한 request/response snippets를 기준으로 문서화한다.
 Swagger/springdoc은 간단한 API 탐색용으로 유지하지만, 정확한 계약 문서는 이 REST Docs 산출물을 기준으로 본다.
 
+== Shepherd Groups And Attendance
+
+목장은 캠퍼스에 귀속되며 일반 사용자는 본인이 담당자로 연결된 목장만 조회·작성·수정할 수 있다.
+캠퍼스 관리자는 전체 목장, 담당자, 주간 목홀타 값을 관리한다.
+
+=== Create Shepherd Group
+include::{snippets}/shepherd-group-create-member-success/http-request.adoc[]
+include::{snippets}/shepherd-group-create-member-success/request-fields.adoc[]
+include::{snippets}/shepherd-group-create-member-success/http-response.adoc[]
+include::{snippets}/shepherd-group-create-member-success/response-fields.adoc[]
+
+=== My Shepherd Groups
+include::{snippets}/shepherd-groups-me-success/http-request.adoc[]
+include::{snippets}/shepherd-groups-me-success/http-response.adoc[]
+include::{snippets}/shepherd-groups-me-success/response-fields.adoc[]
+
+=== Replace Shepherd Group Assignees
+include::{snippets}/shepherd-group-assignees-replace-success/http-request.adoc[]
+include::{snippets}/shepherd-group-assignees-replace-success/request-fields.adoc[]
+include::{snippets}/shepherd-group-assignees-replace-success/http-response.adoc[]
+include::{snippets}/shepherd-group-assignees-replace-success/response-fields.adoc[]
+
+=== Update Shepherd Group
+include::{snippets}/shepherd-group-update-success/http-request.adoc[]
+include::{snippets}/shepherd-group-update-success/request-fields.adoc[]
+include::{snippets}/shepherd-group-update-success/http-response.adoc[]
+include::{snippets}/shepherd-group-update-success/response-fields.adoc[]
+
+=== Save Shepherd Attendance
+include::{snippets}/shepherd-attendance-save-success/http-request.adoc[]
+include::{snippets}/shepherd-attendance-save-success/request-fields.adoc[]
+include::{snippets}/shepherd-attendance-save-success/http-response.adoc[]
+include::{snippets}/shepherd-attendance-save-success/response-fields.adoc[]
+
+=== Get Shepherd Attendance
+include::{snippets}/shepherd-attendance-get-success/http-request.adoc[]
+include::{snippets}/shepherd-attendance-get-success/http-response.adoc[]
+include::{snippets}/shepherd-attendance-get-success/response-fields.adoc[]
+
+=== My Shepherd Attendance Home
+include::{snippets}/shepherd-attendance-home-success/http-request.adoc[]
+include::{snippets}/shepherd-attendance-home-success/http-response.adoc[]
+include::{snippets}/shepherd-attendance-home-success/response-fields.adoc[]
+
+=== Admin Weekly Shepherd Attendance Board
+include::{snippets}/shepherd-attendance-admin-board-success/http-request.adoc[]
+include::{snippets}/shepherd-attendance-admin-board-success/query-parameters.adoc[]
+include::{snippets}/shepherd-attendance-admin-board-success/http-response.adoc[]
+include::{snippets}/shepherd-attendance-admin-board-success/response-fields.adoc[]
+
+=== Shepherd Attendance Error: Non Sunday
+include::{snippets}/shepherd-attendance-save-non-sunday/http-request.adoc[]
+include::{snippets}/shepherd-attendance-save-non-sunday/http-response.adoc[]
+include::{snippets}/shepherd-attendance-save-non-sunday/response-fields.adoc[]
+
 == Weekly Materials
 
 주간자료 응답은 object key나 public URL을 노출하지 않는다. PDF 다운로드는 `assetId`를 기존 private media access URL API에 전달한다.
