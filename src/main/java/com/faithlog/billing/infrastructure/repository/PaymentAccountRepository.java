@@ -16,7 +16,7 @@ public interface PaymentAccountRepository extends JpaRepository<PaymentAccount, 
 
 	@Query("""
 		select new com.faithlog.billing.service.port.PaymentAccountLockScope(
-			account.id, account.campusId, account.accountType, account.ownerUserId
+			account.id, account.campusId, account.accountType, account.ownerUserId, account.deletedAt
 		)
 		from PaymentAccount account
 		where account.id = :accountId

@@ -14,6 +14,8 @@ import com.faithlog.user.service.port.EmailDispatchStore.EmailDispatchAcquisitio
 import com.faithlog.user.service.port.EmailDispatchStore.EmailDispatchPayload;
 import com.faithlog.user.service.port.EmailSenderPort;
 import com.faithlog.user.service.port.OneTimeTokenGenerator;
+import com.faithlog.global.observability.ExternalService;
+import com.faithlog.global.observability.OperationalEventPort;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,12 +35,15 @@ class EmailDispatchWorkerServiceTest {
 	@Mock
 	private OneTimeTokenGenerator tokenGenerator;
 
+	@Mock
+	private OperationalEventPort operationalEvents;
+
 	private EmailDispatchWorkerService service;
 
 	@BeforeEach
 	void setUp() {
 		when(tokenGenerator.generate()).thenReturn("lease-token");
-		service = new EmailDispatchWorkerService(dispatchStore, emailSender, tokenGenerator);
+		service = new EmailDispatchWorkerService(dispatchStore, emailSender, tokenGenerator, operationalEvents);
 	}
 
 	@Test
@@ -83,6 +88,7 @@ class EmailDispatchWorkerServiceTest {
 		assertThatThrownBy(() -> service.dispatch("dispatch-token"))
 			.isInstanceOf(EmailDeliveryException.class);
 		verify(dispatchStore).release("dispatch-token", "lease-token");
+		verify(operationalEvents).externalServiceFailure(ExternalService.BREVO);
 		verify(dispatchStore, never()).acknowledge(anyString(), anyString());
 	}
 

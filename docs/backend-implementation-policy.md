@@ -468,6 +468,7 @@ Issue #34 is P0.
 - Campus creation must not create `PaymentAccount` or default `penalty_rules`.
 - Admins manage campus payment accounts through:
   - `GET /api/v1/campuses/{campusId}/payment-accounts`
+  - `PATCH /api/v1/campuses/{campusId}/payment-accounts/{accountId}`
   - `POST /api/v1/admin/campuses/{campusId}/payment-accounts`
   - `PATCH /api/v1/admin/payment-accounts/{accountId}/deactivate`
   - `GET /api/v1/admin/campuses/{campusId}/payment-accounts`
@@ -480,6 +481,10 @@ Issue #34 is P0.
 - COFFEE account creation is requester-owned. If `ownerUserId` is null, the owner is the requester. If `ownerUserId` is present and different from the requester, reject the request with `403 BILLING_PAYMENT_ACCOUNT_OWNER_FORBIDDEN`.
 - Active COFFEE duty assignees can deactivate only their own `COFFEE` payment account. Campus managers and service admins without the matching active duty cannot change COFFEE accounts. Active COFFEE duty alone must not create or deactivate `PENALTY` accounts.
 - `PENALTY` payment account creation/deactivation keeps the existing campus admin or service admin permission.
+- Payment account updates replace only `nickname`, `bankName`, `accountNumber`, and `accountHolder`; they preserve account type, owner, active state, and creation identity.
+- PENALTY updates require campus-manager or service-ADMIN authority. COFFEE and MEAL updates require the current duty holder to own the target account.
+- COFFEE and MEAL updates lock the current duty assignment before the payment account, matching deactivate flows and preventing opposite lock-order deadlocks.
+- Updating an account refreshes only linked `UNPAID` charge account snapshots in the same transaction. Terminal charge history is immutable.
 - `GET /api/v1/admin/campuses/{campusId}/payment-accounts` returns manager-facing metadata including `ownerUserId`, `isActive`, `createdAt`, and `deactivatedAt`. Campus managers and service-level `ADMIN` can see all campus accounts. Active COFFEE duty users can see only active COFFEE accounts they own.
 - `GET /api/v1/admin/campuses/{campusId}/charges` supports optional `paymentAccountId`; when present, `summary + members[]` must include only charge items linked to that payment account and must compose with existing filters. Campus managers and service-level `ADMIN` can filter any COFFEE account in the campus, while COFFEE duty users remain limited to their own COFFEE accounts.
 - `GET /api/v1/admin/campuses/{campusId}/charges/my-accounts` includes active PENALTY accounts for campus managers and service-level `ADMIN` regardless of `ownerUserId`, including legacy active PENALTY accounts whose owner is null. COFFEE remains limited to active COFFEE accounts owned by the current user. Active COFFEE duty users are limited to owned active COFFEE accounts and cannot see PENALTY data.

@@ -1,0 +1,12 @@
+package com.faithlog.global.observability;
+
+public enum AuthFailure {
+	INVALID_CREDENTIALS,
+	UNAUTHORIZED,
+	INVALID_CODE,
+	EXPIRED_CODE,
+	ATTEMPTS_EXCEEDED,
+	RATE_LIMITED,
+	INVALID_TOKEN,
+	SERVICE_UNAVAILABLE
+}

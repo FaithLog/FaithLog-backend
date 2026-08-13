@@ -120,6 +120,18 @@ public class PaymentAccount {
 		this.deactivatedAt = null;
 	}
 
+	public void updateDetails(
+		String nickname,
+		String bankName,
+		String accountNumber,
+		String accountHolder
+	) {
+		this.nickname = nickname;
+		this.bankName = bankName;
+		this.accountNumber = accountNumber;
+		this.accountHolder = accountHolder;
+	}
+
 	public void softDelete() {
 		this.deletedAt = Instant.now();
 	}

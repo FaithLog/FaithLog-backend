@@ -9,6 +9,12 @@ FaithLog를 운영 가능한 프로젝트로 만들면서 이력서에 사용할
 - 장애, 버그, 성능 저하, 설정 문제는 원인, 해결, 재발 방지, 전후 수치를 함께 기록한다.
 - 이력서에 쓸 수 있는 문장 후보는 별도로 남긴다.
 
+## 2026-08-13 - Issue #258 운영 장애 원인별 관측
+
+- 기존 Cloud Run 공통 인프라 알림에 더해 DB 풀 timeout/pending/90% 사용, scheduler heartbeat/failure, Upstash/Brevo/FCM/R2 실패, 로그인/Refresh/이메일 인증 실패를 bounded event로 분리했다.
+- DB와 Redis는 1분 sampler를 사용하고, FCM은 invalid/unregistered token을 제외한 transient provider 실패만 집계한다. 계측 로그에는 이메일, 사용자 ID, token, 인증번호, IP, object key, provider 응답 원문을 남기지 않는다.
+- 이 항목은 운영 탐지 기능 구현 기록이며 장애 감소율, 가용성 향상 또는 MTTR 개선 수치는 실제 운영 incident와 alert delivery를 관찰하기 전에는 성과로 주장하지 않는다.
+
 ## 2026-08-05 - Issue #244 보관 공지 복구 API
 
 - `POST /api/v1/admin/campuses/{campusId}/announcements/{announcementId}/restore`를 추가해 영구 삭제 전 ARCHIVED 공지를 `PUBLISHED`로 복구할 수 있게 했다. 성공 응답은 기존 공지 상세와 같은 전체 `AnnouncementResponse`이며 Controller가 Entity를 직접 반환하지 않는 기존 계층 계약을 유지했다.
@@ -1870,3 +1876,17 @@ Metric candidates:
 - focused RED는 4 tests 중 3 failures로 기존 3일 경계를 확인했고, GREEN은 정확히 종료 후 7일 포함과 7일 초과 제외를 고정한다.
 - 관리자 7일, ACTIVE campus scope, 익명 결과 보호, 30일 retention, API/DTO/DB/Flyway/dependency는 변경하지 않는다.
 - 최종 `./gradlew test build asciidoctor --no-daemon`은 959 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 22m 57s`로 통과했다.
+
+## 2026-08-12 Issue #257 payment account update
+
+- 납부 계좌 정보 수정 API를 test-first로 구현했다. RED는 전용 command/service/domain method 부재로 compile 실패를 재현했고, GREEN은 PENALTY manager와 COFFEE/MEAL duty-owner 권한을 기존 정책에 결속했다.
+- 계좌와 연결된 UNPAID 청구를 deterministic ID order의 pessimistic lock으로 읽어 account snapshot을 원자적으로 갱신한다. 종료 청구와 다른 계좌 청구는 보존한다.
+- 자체 리뷰에서 수정 경로가 account->duty, 기존 비활성화 경로가 duty->account 순서로 잠그는 교착 가능성을 발견했다. 실행형 RED 후 수정도 duty->account->UNPAID charge ID 순으로 정렬했다.
+- 첫 전체 gate는 기존 `JwtRefreshTokenVersionTest`가 2026-07-29 고정 발급 시각을 사용해 2026-08-12 이후 만료되는 테스트 시간 경계로 1건 실패했다. tokenVersion 계약은 유지하고 테스트 Clock만 현재 UTC로 보정했다.
+- 최종 `./gradlew --no-daemon test build asciidoctor`는 969 tests / failures 0 / errors 0 / skipped 20, `BUILD SUCCESSFUL in 15m 51s`로 통과했다. bootJar/plain jar, JaCoCo, REST Docs HTML 생성을 확인했다.
+
+## 2026-08-13 Issue #258 operational observability
+
+- DB pool, 8 scheduler jobs, Upstash Redis, Brevo, FCM transient failure, Cloudflare R2, login/refresh/email-verification failure를 PII 없는 bounded event로 분리했다.
+- Google Cloud `faithlog-95890`에 전용 로그 기반 metric 19개와 enabled alert policy 19개를 실제 생성했고 기존 관리자 이메일 채널에 연결했다. 일일 scheduler 4개는 승인된 24시간 10분 window를 PromQL로 보존했다.
+- focused 관측 회귀와 artifact gate는 GREEN이다. 전체 repository gate의 유일한 failure는 #258 무관 `JwtRefreshTokenVersionTest`의 2026-07-29 고정 발급 토큰이 현재 날짜에 만료되는 기존 날짜 경계이며, #258 성능 또는 운영 장애 감소 수치로 해석하지 않는다.

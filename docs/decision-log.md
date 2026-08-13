@@ -1312,3 +1312,22 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 사용자 목록, 직접 상세, 결과, 댓글 읽기, 이미지/PDF 접근은 모두 같은 7일 경계를 사용한다. 정확히 `endsAt + 7일`인 시각은 포함하고 그 이후에는 목록에서 숨기며 직접 조회와 첨부 접근도 거부한다.
 - 관리자 7일 정책, ACTIVE membership과 campus tenant 검증, 익명 투표 신원 비노출, 마감 후 응답·댓글 쓰기 금지 정책은 유지한다.
 - 투표 원본의 30일 retention과 cleanup scheduler, API path/DTO/ErrorCode, DB/Flyway/dependency는 변경하지 않는다.
+## 2026-08-12 - Issue #257 캠퍼스 납부 계좌 정보 수정
+
+- 사용자는 `PATCH /api/v1/campuses/{campusId}/payment-accounts/{accountId}`와 `nickname`, `bankName`, `accountNumber`, `accountHolder` 네 필드의 전체 교체 요청을 승인했다. 모든 값은 trim 후 필수이며 최대 100자다.
+- `PENALTY`는 ACTIVE 캠퍼스 관리자(`MINISTER`, `ELDER`, `CAMPUS_LEADER`) 또는 전역 `ADMIN`이 수정한다. `COFFEE`와 `MEAL`은 각각 현재 담당이면서 target account owner인 사용자만 자기 계좌를 수정한다.
+- active/inactive 계좌는 수정할 수 있고 soft deleted 또는 다른 campus 계좌는 `404`다. 같은 값 요청은 멱등 성공한다. account type, owner, active 상태와 생성 시각은 변경하지 않는다.
+- 수정 계좌에 연결된 `UNPAID` 청구의 은행명·계좌번호·예금주 snapshot만 계좌 수정 transaction에서 잠그고 갱신한다. `PAID`, `WAIVED`, `CANCELED`의 과거 snapshot과 다른 계좌의 청구는 유지한다.
+- `COFFEE`와 `MEAL` 수정은 기존 비활성화 경로와 동일하게 현재 담당 row를 먼저 잠그고 계좌 row를 잠근다. 계좌 수정과 비활성화가 반대 순서로 잠금을 획득하는 교착 가능성을 허용하지 않는다.
+- 일반 ACTIVE 멤버의 납부용 활성 PENALTY/COFFEE 조회와 담당자별 본인 COFFEE/MEAL 관리 조회 계약은 변경하지 않는다. DB/Flyway/dependency 변경은 없다.
+
+## 2026-08-13 - Issue #258 운영 장애 전용 관측
+
+- 사용자는 기존 uptime, 5xx, p95, CPU, memory, instance, container, ERROR 급증 및 Cloud Tasks queue depth 정책에 DB 풀, scheduler, Upstash, Brevo, FCM, R2, 인증 실패 전용 관측을 추가하기로 승인했다.
+- Hikari는 timeout 증가 1건을 즉시 기록하고, 1분 sampler에서 pending이 0보다 크거나 active/maximum이 90% 이상일 때 bounded event를 기록한다. pending은 2분, 90% 사용은 5분 지속을 알림 기준으로 사용한다.
+- scheduler는 job별 성공 heartbeat와 실패 event를 기록한다. 고정 1분 작업은 11분 success absence, 일일 cron은 예정 시각 + 10분 absence를 미실행 기준으로 사용한다.
+- Upstash Redis 3건/5분, Brevo 3건/10분, FCM transient 5건/10분, Cloudflare R2 3건/10분을 승인했다. FCM 영구 token 오류는 provider 장애에서 제외한다.
+- 로그인과 Refresh Token 실패는 각각 20건/5분, 이메일 인증·password reset 인증 실패는 20건/10분을 승인했다.
+- event label은 enum과 job 상수만 사용한다. 이메일, 사용자 ID, token, code, IP, object key, provider 응답 및 exception 원문은 관측 로그와 metric label에 저장하지 않는다. 기존 API, 예외, transaction, retry/outbox 동작은 변경하지 않는다.
+- Google Cloud `faithlog-95890`에는 event별 로그 기반 metric 19개와 alert policy 19개를 생성하고 기존 `FaithLog Admin` 이메일 채널을 연결했다. 고정 지연 job은 11분 metric absence, 일일 cron은 일반 absence의 23시간 30분 제한을 피하면서 승인된 24시간 10분을 유지하는 PromQL `absent_over_time`을 사용한다. 일일 정책은 최근 25시간 내 최초 성공 sample이 존재할 때만 평가해 배포 전 오탐을 막는다.
+- Upstash probe는 예외뿐 아니라 `PING` 결과가 exact `PONG`이 아닌 경우도 동일한 bounded provider failure로 기록한다.

@@ -6,6 +6,7 @@ import com.faithlog.billing.service.command.CompleteChargePaymentCommand;
 import com.faithlog.billing.service.command.CreateCoffeeChargeCommand;
 import com.faithlog.billing.service.command.CreatePaymentAccountCommand;
 import com.faithlog.billing.service.command.CreatePenaltyChargeCommand;
+import com.faithlog.billing.service.command.UpdatePaymentAccountCommand;
 import com.faithlog.billing.service.result.ChargeItemResult;
 import com.faithlog.billing.service.result.PaymentAccountResult;
 import java.util.List;
@@ -18,17 +19,20 @@ public class BillingService {
 	private final ChargeCreationService chargeCreationService;
 	private final ChargeStatusCommandService chargeStatusCommandService;
 	private final PaymentAccountQueryService paymentAccountQueryService;
+	private final PaymentAccountUpdateService paymentAccountUpdateService;
 
 	public BillingService(
 		PaymentAccountCommandService paymentAccountCommandService,
 		ChargeCreationService chargeCreationService,
 		ChargeStatusCommandService chargeStatusCommandService,
-		PaymentAccountQueryService paymentAccountQueryService
+		PaymentAccountQueryService paymentAccountQueryService,
+		PaymentAccountUpdateService paymentAccountUpdateService
 	) {
 		this.paymentAccountCommandService = paymentAccountCommandService;
 		this.chargeCreationService = chargeCreationService;
 		this.chargeStatusCommandService = chargeStatusCommandService;
 		this.paymentAccountQueryService = paymentAccountQueryService;
+		this.paymentAccountUpdateService = paymentAccountUpdateService;
 	}
 
 	public PaymentAccountResult createPaymentAccount(CreatePaymentAccountCommand command) {
@@ -37,6 +41,10 @@ public class BillingService {
 
 	public PaymentAccountResult deactivatePaymentAccount(Long accountId, Long requesterId) {
 		return paymentAccountCommandService.deactivatePaymentAccount(accountId, requesterId);
+	}
+
+	public PaymentAccountResult updatePaymentAccount(UpdatePaymentAccountCommand command) {
+		return paymentAccountUpdateService.updatePaymentAccount(command);
 	}
 
 	public PaymentAccountResult activatePenaltyPaymentAccount(Long campusId, Long paymentAccountId, Long requesterId) {
