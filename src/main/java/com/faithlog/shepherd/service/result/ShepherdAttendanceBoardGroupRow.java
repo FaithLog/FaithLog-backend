@@ -5,6 +5,7 @@ import java.time.LocalDate;
 
 public record ShepherdAttendanceBoardGroupRow(
 	Long groupId,
+	Long campusId,
 	String groupName,
 	int groupVersion,
 	Long reportId,

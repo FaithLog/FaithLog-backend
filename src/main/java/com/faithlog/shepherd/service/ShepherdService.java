@@ -479,7 +479,7 @@ public class ShepherdService {
 		}
 		return new ShepherdAttendanceReportResult(
 			row.reportId(),
-			null,
+			row.campusId(),
 			row.groupId(),
 			row.serviceDate(),
 			row.smallGroupMeetingCount(),

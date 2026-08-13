@@ -101,6 +101,7 @@ public interface ShepherdGroupRepository extends JpaRepository<ShepherdGroup, Lo
 	@Query("""
 			select new com.faithlog.shepherd.service.result.ShepherdAttendanceBoardGroupRow(
 				shepherdGroup.id,
+				shepherdGroup.campusId,
 				shepherdGroup.name,
 				shepherdGroup.version,
 				report.id,
