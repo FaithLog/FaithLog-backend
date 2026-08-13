@@ -366,7 +366,7 @@ class ShepherdApiRestDocsTest {
 					}
 					""".formatted("다".repeat(101), currentUserId("docs-shepherd-name-manager@example.com"))))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("SHEPHERD_GROUP_ASSIGNEE_INVALID"));
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"));
 		mockMvc.perform(patch("/api/v1/admin/campuses/{campusId}/shepherd-groups/{groupId}", campusId, groupId)
 				.header("Authorization", "Bearer " + managerToken)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -377,7 +377,7 @@ class ShepherdApiRestDocsTest {
 					}
 					""".formatted("라".repeat(101))))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("SHEPHERD_GROUP_ASSIGNEE_INVALID"));
+			.andExpect(jsonPath("$.code").value("GLOBAL_VALIDATION_FAILED"));
 	}
 
 	private FieldDescriptor[] groupResponseFields() {

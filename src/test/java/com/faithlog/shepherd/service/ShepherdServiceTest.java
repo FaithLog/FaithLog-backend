@@ -121,6 +121,37 @@ class ShepherdServiceTest {
 	}
 
 	@Test
+	void direct_group_commands_report_invalid_name_as_validation_error() {
+		Fixture fixture = createFixture("invalid-name");
+		ShepherdGroupResult created = shepherdService.createGroup(new CreateShepherdGroupCommand(
+			fixture.campus().id(),
+			fixture.memberA().id(),
+			"정상 목장",
+			List.of()
+		));
+
+		assertThatThrownBy(() -> shepherdService.createGroup(new CreateShepherdGroupCommand(
+			fixture.campus().id(),
+			fixture.memberA().id(),
+			"가".repeat(101),
+			List.of()
+		)))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode")
+			.isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED);
+		assertThatThrownBy(() -> shepherdService.updateGroup(new UpdateShepherdGroupCommand(
+			fixture.campus().id(),
+			created.groupId(),
+			fixture.manager().id(),
+			"나".repeat(101),
+			created.version()
+		)))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode")
+			.isEqualTo(ErrorCode.GLOBAL_VALIDATION_FAILED);
+	}
+
+	@Test
 	void manager_creates_group_with_multiple_same_campus_active_assignees_and_rejects_last_assignee_removal() {
 		Fixture fixture = createFixture("manager-assignees");
 
