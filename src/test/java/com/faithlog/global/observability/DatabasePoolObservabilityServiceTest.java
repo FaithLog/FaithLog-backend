@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +17,7 @@ class DatabasePoolObservabilityServiceTest {
 	private HikariDataSource dataSource;
 	private OperationalEventPort events;
 	private DatabasePoolObservabilityService service;
+	private SimpleMeterRegistry meterRegistry;
 
 	@BeforeEach
 	void setUp() {
@@ -23,7 +25,21 @@ class DatabasePoolObservabilityServiceTest {
 		dataSource = mock(HikariDataSource.class);
 		when(dataSource.getHikariPoolMXBean()).thenReturn(pool);
 		events = mock(OperationalEventPort.class);
-		service = new DatabasePoolObservabilityService(dataSource, events);
+		meterRegistry = new SimpleMeterRegistry();
+		service = new DatabasePoolObservabilityService(dataSource, events, meterRegistry);
+	}
+
+	@Test
+	void records_only_new_hikari_connection_timeouts_after_the_initial_baseline() {
+		when(dataSource.getMaximumPoolSize()).thenReturn(10);
+		var timeoutCounter = meterRegistry.counter("hikaricp.connections.timeout");
+
+		service.sample();
+		timeoutCounter.increment();
+		service.sample();
+		service.sample();
+
+		verify(events).databasePoolTimeout(1);
 	}
 
 	@Test
