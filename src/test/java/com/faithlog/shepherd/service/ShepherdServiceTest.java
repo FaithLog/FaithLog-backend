@@ -376,6 +376,9 @@ class ShepherdServiceTest {
 				"목장 90", "목장 91", "목장 92", "목장 93", "목장 94", "목장 95", "목장 96", "목장 97", "목장 98", "목장 99"
 			);
 		assertThat(board.groups()).filteredOn(group -> group.report() == null).hasSize(60);
+		assertThat(board.groups()).filteredOn(group -> group.report() != null)
+			.extracting(group -> group.report().campusId())
+			.containsOnly(fixture.campus().id());
 		assertThat(statistics.getPrepareStatementCount()).isEqualTo(4);
 	}
 
