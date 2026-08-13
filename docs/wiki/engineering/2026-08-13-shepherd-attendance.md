@@ -30,6 +30,9 @@
 5. 추가 RED: 최신 홈 카드 계약 반영 후 `ShepherdHomeCardResult`/`getMyHome` 부재로 `compileTestJava` 11 errors 확인.
 6. 추가 GREEN: server Clock + Asia/Seoul, 홈 bulk projection, 전용 API/DTO/REST Docs 구현 뒤 service/docs 12 tests 통과.
 7. Self-review RED: 관리자 board 완료 수가 DRAFT까지 세는 문제를 실행형 테스트로 재현하고, SUBMITTED만 완료로 집계하도록 수정.
+8. PM review RED: 동시 normalized rename unique 500 누출, 담당자 composite ID merge SELECT, 일반 GET last modifier name null, invalid page/size 500, normalize-before-size validation, PostgreSQL persistence race/stale 경계를 실행형 테스트로 재현.
+9. PM review GREEN: exact unique constraint만 `SHEPHERD_GROUP_DUPLICATE`로 변환, assignee `Persistable` 신규 경계, report+modifier projection, controller 이전 page/size validation, normalize 후 `@Size(max=100)`, service direct command 이름 오류 `GLOBAL_VALIDATION_FAILED` 보정.
+10. PM re-review RED/GREEN: PostgreSQL concurrent create 검증 누락은 actual test 추가 즉시 GREEN으로 확인했고, 관리자 board nested report `campusId=null`은 RED 재현 뒤 projection에 `shepherdGroup.campusId`를 결속했다.
 
 ## 검증
 
@@ -37,9 +40,12 @@
 - `./gradlew test --tests com.faithlog.shepherd.controller.ShepherdApiRestDocsTest`: BUILD SUCCESSFUL
 - `./gradlew test --tests com.faithlog.shepherd.service.ShepherdServiceTest --tests com.faithlog.shepherd.controller.ShepherdApiRestDocsTest`: 12 tests, failures 0
 - focused shepherd + Flyway static + architecture 묶음: BUILD SUCCESSFUL
-- final disposable PostgreSQL 17 `faithlog-260-pg-final-20260813` / port `55461` `PostgresFlywayMigrationTest`: 14 tests, failures 0, errors 0, skipped 0
-- `./gradlew test build asciidoctor`: 205 suites / 997 tests / failures 0 / errors 0 / skipped 20, BUILD SUCCESSFUL in 14m 54s
+- initial disposable PostgreSQL 17 `faithlog-260-pg-final-20260813` / port `55461` `PostgresFlywayMigrationTest`: 14 tests, failures 0, errors 0, skipped 0
+- PM review focused `./gradlew test --tests com.faithlog.shepherd.service.ShepherdServiceTest --tests com.faithlog.shepherd.controller.ShepherdApiRestDocsTest`: 18 tests, failures 0
+- PM review disposable PostgreSQL 17 `faithlog-260-pg-final-review-20260813` / port `55463`: `PostgresFlywayMigrationTest` BUILD SUCCESSFUL in 43s, `ShepherdPostgresPersistenceTest` 4 tests BUILD SUCCESSFUL in 33s/29s
+- PM re-review 중간 full `./gradlew test build asciidoctor`: BUILD SUCCESSFUL in 19m 41s. 이후 re-review fix가 추가되어 최종 full gate는 재실행한다.
+- Initial full `./gradlew test build asciidoctor`: 205 suites / 997 tests / failures 0 / errors 0 / skipped 20, BUILD SUCCESSFUL in 14m 54s
 
 ## 남은 확인
 
-- PM 독립 코드리뷰
+- PM 보정 후 최종 full gate와 PM 재리뷰

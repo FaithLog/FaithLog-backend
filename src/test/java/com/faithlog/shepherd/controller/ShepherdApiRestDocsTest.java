@@ -408,7 +408,7 @@ class ShepherdApiRestDocsTest {
 	private FieldDescriptor[] attendanceResponseFields() {
 		return apiResponseFields(
 			fieldWithPath("data.reportId").description("목홀타 보고서 ID"),
-			fieldWithPath("data.campusId").type(JsonFieldType.NUMBER).optional().description("캠퍼스 ID. 관리자 board row 내부에서는 null일 수 있음"),
+			fieldWithPath("data.campusId").type(JsonFieldType.NUMBER).description("캠퍼스 ID"),
 			fieldWithPath("data.groupId").description("목장 ID"),
 			fieldWithPath("data.serviceDate").description("집계 기준 일요일 날짜"),
 			fieldWithPath("data.smallGroupMeetingCount").description("목장모임 참여 인원"),

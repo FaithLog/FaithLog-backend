@@ -1343,3 +1343,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 관리자 주차 화면은 `normalizedName, groupId` stable ordering, `size <= 100`, 목장+report page projection 1회, 담당자 bulk projection 1회, 합계 aggregate 1회로 조립한다. 완료 수는 `SUBMITTED` report만 세고 DRAFT는 완료 전으로 본다. 인증/권한 확인까지 포함한 실행형 테스트에서 1/100/1000 목장 모두 prepared statement 4개를 유지한다.
 - 일반 홈 카드는 담당 assignment+group+현재 Sunday report를 bulk projection 1회로 조립하고, 인증/권한 확인까지 포함한 실행형 테스트에서 1/100 담당 목장 모두 prepared statement 2개를 유지한다.
 - V23은 `shepherd_groups`, `shepherd_group_assignees`, `weekly_shepherd_attendance_reports`를 추가하고 unique, tenant FK, Sunday/count/status/version CHECK, RLS, index를 적용한다. 기존 migration은 수정하지 않는다.
+- PM 독립 리뷰 보정으로 동시 목장명 rename의 exact `uk_shepherd_groups_campus_normalized_name` 충돌은 flush 경계에서 `409 SHEPHERD_GROUP_DUPLICATE`로 변환하고, 다른 integrity 오류는 그대로 전파한다.
+- 목장명 request DTO는 compact constructor에서 trim/공백 정규화 후 Bean Validation `@Size(max=100)`을 적용한다. HTTP create/update의 normalized 101자 이름은 기존 `GLOBAL_VALIDATION_FAILED` 400으로 처리하며 담당자 오류로 노출하지 않는다. Service command 직접 호출의 이름 방어 검증도 같은 공통 validation 오류를 사용한다.
+- `shepherd_group_assignees` 복합 ID 신규 저장은 `Persistable` 경계로 신규 row를 명시해 신규 담당자 수만큼 merge existence SELECT가 늘어나지 않게 한다. 담당자 응답 조립에 필요한 bulk SELECT와 필수 INSERT 자체는 유지한다.
+- 일반 report GET은 report+last modifier user projection으로 재조회 직후에도 `lastModifiedByName`을 반환한다. 관리자 board의 기존 modifier projection과 권한/tenant 경계는 유지한다.
