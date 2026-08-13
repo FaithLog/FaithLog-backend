@@ -26,7 +26,9 @@ public class RedisAvailabilityObservabilityService {
 	@Scheduled(fixedDelayString = "${faithlog.observability.redis-probe-delay-ms:60000}")
 	public void probe() {
 		try (RedisConnection connection = connectionFactory.getConnection()) {
-			connection.ping();
+			if (!"PONG".equals(connection.ping())) {
+				events.externalServiceFailure(ExternalService.UPSTASH_REDIS);
+			}
 		} catch (RuntimeException exception) {
 			events.externalServiceFailure(ExternalService.UPSTASH_REDIS);
 		}
