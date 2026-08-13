@@ -43,7 +43,7 @@
 - initial disposable PostgreSQL 17 `faithlog-260-pg-final-20260813` / port `55461` `PostgresFlywayMigrationTest`: 14 tests, failures 0, errors 0, skipped 0
 - PM review focused `./gradlew test --tests com.faithlog.shepherd.service.ShepherdServiceTest --tests com.faithlog.shepherd.controller.ShepherdApiRestDocsTest`: 18 tests, failures 0
 - PM review disposable PostgreSQL 17 `faithlog-260-pg-final-review-20260813` / port `55463`: `PostgresFlywayMigrationTest` BUILD SUCCESSFUL in 43s, `ShepherdPostgresPersistenceTest` 4 tests BUILD SUCCESSFUL in 33s/29s
-- PM re-review 중간 full `./gradlew test build asciidoctor`: BUILD SUCCESSFUL in 19m 41s. 이후 re-review fix가 추가되어 최종 full gate는 재실행한다.
+- PM re-review 중간 full `./gradlew test build asciidoctor`: BUILD SUCCESSFUL in 19m 41s. 이후 re-review fix를 추가하고 최종 full gate를 재실행했다.
 - Initial full `./gradlew test build asciidoctor`: 205 suites / 997 tests / failures 0 / errors 0 / skipped 20, BUILD SUCCESSFUL in 14m 54s
 - Final full `./gradlew --no-daemon test build asciidoctor`: 206 suites / 1006 tests / failures 0 / errors 0 / skipped 24, BUILD SUCCESSFUL in 21m 18s
 
