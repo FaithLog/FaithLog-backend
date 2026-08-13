@@ -24,12 +24,17 @@ import com.faithlog.shepherd.service.result.ShepherdAttendanceBoardGroupResult;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceBoardResult;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceReportResult;
 import com.faithlog.shepherd.service.result.ShepherdGroupResult;
+import com.faithlog.shepherd.service.result.ShepherdHomeCardResult;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import org.hibernate.SessionFactory;
@@ -37,6 +42,9 @@ import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
@@ -48,6 +56,9 @@ import org.springframework.transaction.annotation.Transactional;
 @TestPropertySource(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @Transactional
 class ShepherdServiceTest {
+
+	private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
+	private static final MutableClock TEST_CLOCK = new MutableClock(Instant.parse("2026-08-16T00:00:00Z"));
 
 	@Autowired
 	private ShepherdService shepherdService;
@@ -303,6 +314,95 @@ class ShepherdServiceTest {
 		assertThat(counts).containsExactly(4L, 4L, 4L);
 	}
 
+	@Test
+	void home_card_visible_only_on_seoul_sunday_for_assigned_groups_and_submitted_count() {
+		setSeoulNow("2026-08-16T00:00:00+09:00");
+		Fixture fixture = createFixture("home-sunday");
+		LocalDate sunday = LocalDate.of(2026, 8, 16);
+		ShepherdGroup first = seedGroup(fixture, "홈 1", fixture.memberA().id());
+		ShepherdGroup second = seedGroup(fixture, "홈 2", fixture.memberA().id());
+		shepherdAttendanceReportRepository.save(WeeklyShepherdAttendanceReport.create(
+			fixture.campus().id(),
+			second.id(),
+			sunday,
+			2,
+			3,
+			4,
+			"완료",
+			WeeklyShepherdAttendanceStatus.SUBMITTED,
+			fixture.memberA().id(),
+			Instant.now()
+		));
+
+		ShepherdHomeCardResult home = shepherdService.getMyHome(
+			fixture.campus().id(), fixture.memberA().id());
+
+		assertThat(home.visible()).isTrue();
+		assertThat(home.title()).isEqualTo("이번 주 목홀타를 입력해 주세요");
+		assertThat(home.serviceDate()).isEqualTo(sunday);
+		assertThat(home.assignedGroupCount()).isEqualTo(2);
+		assertThat(home.submittedGroupCount()).isEqualTo(1);
+		assertThat(home.groups()).hasSize(2);
+		assertThat(home.groups()).extracting("groupId").containsExactly(first.id(), second.id());
+		assertThat(home.groups().get(0).report()).isNull();
+		assertThat(home.groups().get(1).report().status()).isEqualTo("SUBMITTED");
+	}
+
+	@Test
+	void home_card_hides_outside_seoul_sunday_and_does_not_return_group_details() {
+		setSeoulNow("2026-08-17T00:00:00+09:00");
+		Fixture fixture = createFixture("home-monday");
+		seedGroup(fixture, "월요일 숨김", fixture.memberA().id());
+
+		ShepherdHomeCardResult home = shepherdService.getMyHome(
+			fixture.campus().id(), fixture.memberA().id());
+
+		assertThat(home.visible()).isFalse();
+		assertThat(home.serviceDate()).isNull();
+		assertThat(home.assignedGroupCount()).isZero();
+		assertThat(home.submittedGroupCount()).isZero();
+		assertThat(home.groups()).isEmpty();
+	}
+
+	@Test
+	void home_card_hidden_for_unassigned_member_and_unassigned_manager() {
+		setSeoulNow("2026-08-16T12:00:00+09:00");
+		Fixture fixture = createFixture("home-unassigned");
+		seedGroup(fixture, "다른 담당", fixture.memberA().id());
+
+		ShepherdHomeCardResult memberHome = shepherdService.getMyHome(
+			fixture.campus().id(), fixture.memberB().id());
+		ShepherdHomeCardResult managerHome = shepherdService.getMyHome(
+			fixture.campus().id(), fixture.manager().id());
+
+		assertThat(memberHome.visible()).isFalse();
+		assertThat(memberHome.groups()).isEmpty();
+		assertThat(managerHome.visible()).isFalse();
+		assertThat(managerHome.groups()).isEmpty();
+	}
+
+	@Test
+	void home_card_query_count_is_constant_for_one_and_hundred_assigned_groups() {
+		setSeoulNow("2026-08-16T23:59:59+09:00");
+		List<Long> counts = new ArrayList<>();
+		for (int groupCount : List.of(1, 100)) {
+			Fixture fixture = createFixture("home-query-" + groupCount);
+			for (int index = 0; index < groupCount; index++) {
+				seedGroup(fixture, "홈상수 " + groupCount + " " + String.format("%03d", index), fixture.memberA().id());
+			}
+			Statistics statistics = resetStatistics();
+
+			ShepherdHomeCardResult home = shepherdService.getMyHome(
+				fixture.campus().id(), fixture.memberA().id());
+
+			assertThat(home.visible()).isTrue();
+			assertThat(home.assignedGroupCount()).isEqualTo(groupCount);
+			assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+			counts.add(statistics.getPrepareStatementCount());
+		}
+		assertThat(counts).containsExactly(2L, 2L);
+	}
+
 	private Statistics resetStatistics() {
 		entityManager.flush();
 		entityManager.clear();
@@ -340,18 +440,7 @@ class ShepherdServiceTest {
 	private void seedAttendanceBoardFixture(Fixture fixture, LocalDate sunday, int groupCount) {
 		for (int index = 0; index < groupCount; index++) {
 			String name = "상수쿼리 " + groupCount + " " + String.format("%04d", index);
-			ShepherdGroup group = shepherdGroupRepository.save(ShepherdGroup.create(
-				fixture.campus().id(),
-				name,
-				name.toLowerCase(java.util.Locale.ROOT),
-				fixture.manager().id()
-			));
-			shepherdGroupAssigneeRepository.save(ShepherdGroupAssignee.create(
-				group.id(),
-				fixture.campus().id(),
-				fixture.memberA().id(),
-				fixture.manager().id()
-			));
+			ShepherdGroup group = seedGroup(fixture, name, fixture.memberA().id());
 			if (index % 2 == 0) {
 				shepherdAttendanceReportRepository.save(WeeklyShepherdAttendanceReport.create(
 					fixture.campus().id(),
@@ -369,6 +458,26 @@ class ShepherdServiceTest {
 		}
 	}
 
+	private ShepherdGroup seedGroup(Fixture fixture, String name, Long assigneeUserId) {
+		ShepherdGroup group = shepherdGroupRepository.save(ShepherdGroup.create(
+			fixture.campus().id(),
+			name,
+			name.toLowerCase(java.util.Locale.ROOT),
+			fixture.manager().id()
+		));
+		shepherdGroupAssigneeRepository.save(ShepherdGroupAssignee.create(
+			group.id(),
+			fixture.campus().id(),
+			assigneeUserId,
+			fixture.manager().id()
+		));
+		return group;
+	}
+
+	private void setSeoulNow(String seoulDateTime) {
+		TEST_CLOCK.set(Instant.from(java.time.OffsetDateTime.parse(seoulDateTime).atZoneSameInstant(ZoneOffset.UTC)));
+	}
+
 	private User saveUser(String email, UserRole role) {
 		User user = User.create("Shepherd User", email, "dummy-password-hash");
 		ReflectionTestUtils.setField(user, "role", role);
@@ -376,5 +485,43 @@ class ShepherdServiceTest {
 	}
 
 	private record Fixture(Campus campus, User manager, User memberA, User memberB, User otherCampusMember) {
+	}
+
+	@TestConfiguration
+	static class ClockTestConfig {
+
+		@Bean
+		@Primary
+		Clock shepherdTestClock() {
+			return TEST_CLOCK;
+		}
+	}
+
+	private static class MutableClock extends Clock {
+
+		private Instant instant;
+
+		MutableClock(Instant instant) {
+			this.instant = instant;
+		}
+
+		void set(Instant instant) {
+			this.instant = instant;
+		}
+
+		@Override
+		public ZoneId getZone() {
+			return SEOUL_ZONE;
+		}
+
+		@Override
+		public Clock withZone(ZoneId zone) {
+			return Clock.fixed(instant, zone);
+		}
+
+		@Override
+		public Instant instant() {
+			return instant;
+		}
 	}
 }

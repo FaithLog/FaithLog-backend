@@ -25,11 +25,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.faithlog.user.domain.entity.User;
 import com.faithlog.user.domain.type.UserRole;
 import com.faithlog.user.infrastructure.repository.UserRepository;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.restdocs.headers.RequestHeadersSnippet;
 import org.springframework.restdocs.payload.FieldDescriptor;
@@ -183,6 +189,22 @@ class ShepherdApiRestDocsTest {
 				relaxedResponseFields(attendanceResponseFields())
 			));
 
+		mockMvc.perform(get("/api/v1/campuses/{campusId}/shepherd-attendance/me/home", campusId)
+				.header("Authorization", "Bearer " + memberAToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.visible").value(true))
+			.andExpect(jsonPath("$.data.title").value("이번 주 목홀타를 입력해 주세요"))
+			.andExpect(jsonPath("$.data.assignedGroupCount").value(2))
+			.andExpect(jsonPath("$.data.submittedGroupCount").value(1))
+			.andExpect(jsonPath("$.data.groups[0].report.status").value("SUBMITTED"))
+			.andDo(document("shepherd-attendance-home-success",
+				preprocessRequest(prettyPrint()),
+				preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				relaxedResponseFields(homeResponseFields())
+			));
+
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/shepherd-attendance", campusId)
 				.header("Authorization", "Bearer " + managerToken)
 				.param("serviceDate", "2026-08-16")
@@ -326,6 +348,28 @@ class ShepherdApiRestDocsTest {
 		);
 	}
 
+	private FieldDescriptor[] homeResponseFields() {
+		return apiResponseFields(
+			fieldWithPath("data.visible").description("Asia/Seoul 기준 현재 시각이 일요일이고 ACTIVE campus 담당 목장이 있으면 true"),
+			fieldWithPath("data.title").type(JsonFieldType.STRING).optional().description("노출 카드 문구. 노출 시 '이번 주 목홀타를 입력해 주세요'"),
+			fieldWithPath("data.serviceDate").type(JsonFieldType.STRING).optional().description("Asia/Seoul 기준 현재 일요일 날짜. 비일요일 또는 미노출 시 null"),
+			fieldWithPath("data.assignedGroupCount").description("현재 사용자가 담당자인 활성 목장 수. 미노출 시 0"),
+			fieldWithPath("data.submittedGroupCount").description("현재 일요일 보고서가 SUBMITTED인 담당 목장 수. 미노출 시 0"),
+			fieldWithPath("data.groups[]").description("담당 목장별 현재 일요일 입력 상태. 비일요일 또는 미노출 시 빈 배열"),
+			fieldWithPath("data.groups[].groupId").description("목장 ID"),
+			fieldWithPath("data.groups[].groupName").description("목장 이름"),
+			fieldWithPath("data.groups[].report").type(JsonFieldType.OBJECT).optional().description("현재 일요일 보고서. 신규 입력 대상은 null"),
+			fieldWithPath("data.groups[].report.reportId").type(JsonFieldType.NUMBER).optional().description("목홀타 보고서 ID"),
+			fieldWithPath("data.groups[].report.smallGroupMeetingCount").type(JsonFieldType.NUMBER).optional().description("목장모임 참여 인원"),
+			fieldWithPath("data.groups[].report.holyWaveCount").type(JsonFieldType.NUMBER).optional().description("홀리웨이브 참여 인원"),
+			fieldWithPath("data.groups[].report.otherWorshipCount").type(JsonFieldType.NUMBER).optional().description("타예배 참여 인원"),
+			fieldWithPath("data.groups[].report.note").type(JsonFieldType.STRING).optional().description("선택 메모"),
+			fieldWithPath("data.groups[].report.status").type(JsonFieldType.STRING).optional().description("DRAFT 또는 SUBMITTED"),
+			fieldWithPath("data.groups[].report.version").type(JsonFieldType.NUMBER).optional().description("보고서 수정 version"),
+			fieldWithPath("data.groups[].report.lastModifiedAt").type(JsonFieldType.STRING).optional().description("마지막 수정 시각")
+		);
+	}
+
 	private FieldDescriptor[] errorResponseFields() {
 		return new FieldDescriptor[] {
 			fieldWithPath("success").description("요청 성공 여부. 오류 응답에서는 false"),
@@ -412,5 +456,15 @@ class ShepherdApiRestDocsTest {
 			.getResponse()
 			.getContentAsString();
 		return objectMapper.readTree(body).path("data").path("accessToken").asText();
+	}
+
+	@TestConfiguration
+	static class ShepherdDocsClockConfig {
+
+		@Bean
+		@Primary
+		Clock shepherdDocsClock() {
+			return Clock.fixed(Instant.parse("2026-08-16T03:00:00Z"), ZoneOffset.UTC);
+		}
 	}
 }
