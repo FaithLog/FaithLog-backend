@@ -1320,5 +1320,5 @@ This file records user-approved project decisions so Codex does not rely on gues
 - Upstash Redis 3건/5분, Brevo 3건/10분, FCM transient 5건/10분, Cloudflare R2 3건/10분을 승인했다. FCM 영구 token 오류는 provider 장애에서 제외한다.
 - 로그인과 Refresh Token 실패는 각각 20건/5분, 이메일 인증·password reset 인증 실패는 20건/10분을 승인했다.
 - event label은 enum과 job 상수만 사용한다. 이메일, 사용자 ID, token, code, IP, object key, provider 응답 및 exception 원문은 관측 로그와 metric label에 저장하지 않는다. 기존 API, 예외, transaction, retry/outbox 동작은 변경하지 않는다.
-- Google Cloud `faithlog-95890`에는 event별 로그 기반 metric 19개와 alert policy 19개를 생성하고 기존 `FaithLog Admin` 이메일 채널을 연결했다. 고정 지연 job은 11분 metric absence, 일일 cron은 일반 absence의 23시간 30분 제한을 피하면서 승인된 24시간 10분을 유지하는 PromQL `absent_over_time`을 사용한다.
+- Google Cloud `faithlog-95890`에는 event별 로그 기반 metric 19개와 alert policy 19개를 생성하고 기존 `FaithLog Admin` 이메일 채널을 연결했다. 고정 지연 job은 11분 metric absence, 일일 cron은 일반 absence의 23시간 30분 제한을 피하면서 승인된 24시간 10분을 유지하는 PromQL `absent_over_time`을 사용한다. 일일 정책은 최근 25시간 내 최초 성공 sample이 존재할 때만 평가해 배포 전 오탐을 막는다.
 - Upstash probe는 예외뿐 아니라 `PING` 결과가 exact `PONG`이 아닌 경우도 동일한 bounded provider failure로 기록한다.

@@ -57,7 +57,7 @@ pending-notification-reprocess
 
 Cloud Run revision 교체 시간에는 old/new revision 로그가 겹칠 수 있으므로 metric은 service 단위로 합산하고 revision 이름을 알림 조건에 고정하지 않는다.
 
-Cloud Monitoring의 일반 metric-absence 조건은 최대 23시간 30분이므로 일일 작업에는 이를 사용하지 않는다. 일일 작업 4개는 승인된 24시간 10분을 그대로 조회하는 `absent_over_time(...[24h10m])` PromQL 정책을 사용한다. 고정 지연 작업 4개는 일반 11분 metric-absence 정책을 사용한다.
+Cloud Monitoring의 일반 metric-absence 조건은 최대 23시간 30분이므로 일일 작업에는 이를 사용하지 않는다. 일일 작업 4개는 승인된 24시간 10분을 그대로 조회하는 `absent_over_time(...[24h10m])` PromQL 정책을 사용한다. 아직 배포되지 않았거나 최초 성공 시계열이 없는 상태의 오탐을 막기 위해 같은 metric의 최근 25시간 sample이 하나 이상 있을 때만 absence를 평가한다. 고정 지연 작업 4개는 일반 11분 metric-absence 정책을 사용한다.
 
 ## 2026-08-13 Google Cloud 적용 결과
 
