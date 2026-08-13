@@ -31,6 +31,11 @@ public class Slf4jOperationalEventAdapter implements OperationalEventPort {
 	}
 
 	@Override
+	public void databasePoolTimeout(long count) {
+		log.error("FAITHLOG_OBSERVABILITY event=DB_POOL_TIMEOUT count={}", count);
+	}
+
+	@Override
 	public void externalServiceFailure(ExternalService service) {
 		log.warn("FAITHLOG_OBSERVABILITY event=EXTERNAL_SERVICE_FAILURE service={}", service);
 	}

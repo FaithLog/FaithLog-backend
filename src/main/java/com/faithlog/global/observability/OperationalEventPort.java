@@ -6,6 +6,8 @@ public interface OperationalEventPort {
 
 	void databasePoolHighUtilization(int active, int maximum);
 
+	void databasePoolTimeout(long count);
+
 	void externalServiceFailure(ExternalService service);
 
 	void authenticationFailure(AuthFlow flow, AuthFailure failure);
@@ -30,6 +32,10 @@ public interface OperationalEventPort {
 
 		@Override
 		public void databasePoolHighUtilization(int active, int maximum) {
+		}
+
+		@Override
+		public void databasePoolTimeout(long count) {
 		}
 
 		@Override
