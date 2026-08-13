@@ -292,6 +292,48 @@ class ShepherdServiceTest {
 	}
 
 	@Test
+	void admin_weekly_board_counts_only_submitted_reports_as_completed() {
+		Fixture fixture = createFixture("board-draft");
+		LocalDate sunday = LocalDate.of(2026, 8, 16);
+		ShepherdGroup submitted = seedGroup(fixture, "완료 목장", fixture.memberA().id());
+		ShepherdGroup draft = seedGroup(fixture, "임시 목장", fixture.memberA().id());
+		shepherdAttendanceReportRepository.save(WeeklyShepherdAttendanceReport.create(
+			fixture.campus().id(),
+			submitted.id(),
+			sunday,
+			1,
+			1,
+			1,
+			null,
+			WeeklyShepherdAttendanceStatus.SUBMITTED,
+			fixture.manager().id(),
+			java.time.Instant.now()
+		));
+		shepherdAttendanceReportRepository.save(WeeklyShepherdAttendanceReport.create(
+			fixture.campus().id(),
+			draft.id(),
+			sunday,
+			2,
+			2,
+			2,
+			null,
+			WeeklyShepherdAttendanceStatus.DRAFT,
+			fixture.manager().id(),
+			java.time.Instant.now()
+		));
+
+		ShepherdAttendanceBoardResult board = shepherdService.getAdminAttendanceBoard(
+			fixture.campus().id(),
+			sunday,
+			fixture.manager().id(),
+			PageRequest.of(0, 100)
+		);
+
+		assertThat(board.totalSubmittedCount()).isEqualTo(1);
+		assertThat(board.totalMissingCount()).isEqualTo(1);
+	}
+
+	@Test
 	void admin_weekly_board_query_count_is_constant_for_one_hundred_and_thousand_groups() {
 		LocalDate sunday = LocalDate.of(2026, 8, 16);
 		List<Long> counts = new ArrayList<>();
