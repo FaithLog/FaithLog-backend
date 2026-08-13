@@ -1312,3 +1312,11 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 사용자 목록, 직접 상세, 결과, 댓글 읽기, 이미지/PDF 접근은 모두 같은 7일 경계를 사용한다. 정확히 `endsAt + 7일`인 시각은 포함하고 그 이후에는 목록에서 숨기며 직접 조회와 첨부 접근도 거부한다.
 - 관리자 7일 정책, ACTIVE membership과 campus tenant 검증, 익명 투표 신원 비노출, 마감 후 응답·댓글 쓰기 금지 정책은 유지한다.
 - 투표 원본의 30일 retention과 cleanup scheduler, API path/DTO/ErrorCode, DB/Flyway/dependency는 변경하지 않는다.
+## 2026-08-13 - Issue #258 운영 장애 전용 관측
+
+- 사용자는 기존 uptime, 5xx, p95, CPU, memory, instance, container, ERROR 급증 및 Cloud Tasks queue depth 정책에 DB 풀, scheduler, Upstash, Brevo, FCM, R2, 인증 실패 전용 관측을 추가하기로 승인했다.
+- Hikari는 timeout 증가 1건을 즉시 기록하고, 1분 sampler에서 pending이 0보다 크거나 active/maximum이 90% 이상일 때 bounded event를 기록한다. pending은 2분, 90% 사용은 5분 지속을 알림 기준으로 사용한다.
+- scheduler는 job별 성공 heartbeat와 실패 event를 기록한다. 고정 1분 작업은 11분 success absence, 일일 cron은 예정 시각 + 10분 absence를 미실행 기준으로 사용한다.
+- Upstash Redis 3건/5분, Brevo 3건/10분, FCM transient 5건/10분, Cloudflare R2 3건/10분을 승인했다. FCM 영구 token 오류는 provider 장애에서 제외한다.
+- 로그인과 Refresh Token 실패는 각각 20건/5분, 이메일 인증·password reset 인증 실패는 20건/10분을 승인했다.
+- event label은 enum과 job 상수만 사용한다. 이메일, 사용자 ID, token, code, IP, object key, provider 응답 및 exception 원문은 관측 로그와 metric label에 저장하지 않는다. 기존 API, 예외, transaction, retry/outbox 동작은 변경하지 않는다.

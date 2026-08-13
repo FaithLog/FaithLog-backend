@@ -61,10 +61,10 @@ public class EmailDispatchWorkerService {
 				throw new EmailDispatchQueueException("Email dispatch acknowledgement failed");
 			}
 		} catch (EmailDeliveryException | EmailDispatchQueueException exception) {
-			dispatchStore.release(dispatchToken, leaseToken);
 			if (exception instanceof EmailDeliveryException) {
 				operationalEvents.externalServiceFailure(ExternalService.BREVO);
 			}
+			dispatchStore.release(dispatchToken, leaseToken);
 			throw exception;
 		} catch (RuntimeException exception) {
 			dispatchStore.release(dispatchToken, leaseToken);
