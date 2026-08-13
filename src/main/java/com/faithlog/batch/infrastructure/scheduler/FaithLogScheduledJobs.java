@@ -8,6 +8,7 @@ import com.faithlog.batch.service.PendingNotificationRecoveryService;
 import com.faithlog.batch.service.PaymentUnpaidNotificationService;
 import com.faithlog.batch.service.PollMissingNotificationService;
 import com.faithlog.batch.service.ScheduledPollCreationService;
+import com.faithlog.global.observability.OperationalEventPort;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ public class FaithLogScheduledJobs {
 	private final PollMissingNotificationService pollMissingNotificationService;
 	private final PaymentUnpaidNotificationService paymentUnpaidNotificationService;
 	private final PendingNotificationRecoveryService pendingNotificationRecoveryService;
+	private final OperationalEventPort operationalEvents;
 
 	public FaithLogScheduledJobs(
 		ScheduledPollCreationService scheduledPollCreationService,
@@ -39,7 +41,8 @@ public class FaithLogScheduledJobs {
 		DevotionMissingNotificationService devotionMissingNotificationService,
 		PollMissingNotificationService pollMissingNotificationService,
 		PaymentUnpaidNotificationService paymentUnpaidNotificationService,
-		PendingNotificationRecoveryService pendingNotificationRecoveryService
+		PendingNotificationRecoveryService pendingNotificationRecoveryService,
+		OperationalEventPort operationalEvents
 	) {
 		this.scheduledPollCreationService = scheduledPollCreationService;
 		this.dueCoffeePollClosureService = dueCoffeePollClosureService;
@@ -49,6 +52,7 @@ public class FaithLogScheduledJobs {
 		this.pollMissingNotificationService = pollMissingNotificationService;
 		this.paymentUnpaidNotificationService = paymentUnpaidNotificationService;
 		this.pendingNotificationRecoveryService = pendingNotificationRecoveryService;
+		this.operationalEvents = operationalEvents;
 	}
 
 	@Scheduled(fixedDelayString = "${faithlog.scheduler.poll-auto-create-delay-ms:60000}", zone = SEOUL_ZONE)
@@ -95,8 +99,10 @@ public class FaithLogScheduledJobs {
 		try {
 			int changedCount = job.run();
 			log.info("FaithLog scheduled job completed: jobName={}, changedCount={}", jobName, changedCount);
+			operationalEvents.schedulerSuccess(jobName, changedCount);
 		} catch (RuntimeException exception) {
 			log.error("FaithLog scheduled job failed: jobName={}", jobName, exception);
+			operationalEvents.schedulerFailure(jobName);
 		}
 	}
 

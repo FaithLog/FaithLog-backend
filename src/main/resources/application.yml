@@ -82,3 +82,7 @@ faithlog:
     poll-missing-delay-ms: ${FAITHLOG_POLL_MISSING_DELAY_MS:60000}
     payment-unpaid-cron: ${FAITHLOG_PAYMENT_UNPAID_CRON:0 0 12 * * *}
     pending-notification-recovery-delay-ms: ${FAITHLOG_PENDING_NOTIFICATION_RECOVERY_DELAY_MS:60000}
+  observability:
+    enabled: ${FAITHLOG_OBSERVABILITY_ENABLED:true}
+    db-pool-sample-delay-ms: ${FAITHLOG_DB_POOL_SAMPLE_DELAY_MS:60000}
+    redis-probe-delay-ms: ${FAITHLOG_REDIS_PROBE_DELAY_MS:60000}

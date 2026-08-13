@@ -1,6 +1,7 @@
 package com.faithlog.notification.infrastructure.fcm;
 
 import com.faithlog.notification.service.port.FcmSendPort;
+import com.faithlog.global.observability.OperationalEventPort;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
@@ -51,8 +52,11 @@ public class FirebaseAdminFcmConfig {
 	}
 
 	@Bean
-	FcmSendPort fcmSendPort(FirebaseMessagingClient firebaseMessagingClient) {
-		return new FirebaseFcmSendAdapter(firebaseMessagingClient);
+	FcmSendPort fcmSendPort(
+		FirebaseMessagingClient firebaseMessagingClient,
+		OperationalEventPort operationalEvents
+	) {
+		return new FirebaseFcmSendAdapter(firebaseMessagingClient, operationalEvents);
 	}
 
 	private FirebaseApp findExistingApp() {
