@@ -189,6 +189,17 @@ class ShepherdApiRestDocsTest {
 				relaxedResponseFields(attendanceResponseFields())
 			));
 
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/shepherd-groups", campusId)
+				.header("Authorization", "Bearer " + memberAToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "은혜 목장",
+					  "assigneeUserIds": []
+					}
+					"""))
+			.andExpect(status().isCreated());
+
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/shepherd-attendance/me/home", campusId)
 				.header("Authorization", "Bearer " + memberAToken))
 			.andExpect(status().isOk())

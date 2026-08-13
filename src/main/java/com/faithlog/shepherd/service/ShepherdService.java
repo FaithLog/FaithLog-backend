@@ -27,10 +27,16 @@ import com.faithlog.shepherd.service.result.ShepherdGroupAssigneeResult;
 import com.faithlog.shepherd.service.result.ShepherdGroupAssigneeRow;
 import com.faithlog.shepherd.service.result.ShepherdGroupResult;
 import com.faithlog.shepherd.service.result.ShepherdGroupRow;
+import com.faithlog.shepherd.service.result.ShepherdHomeCardResult;
+import com.faithlog.shepherd.service.result.ShepherdHomeGroupResult;
+import com.faithlog.shepherd.service.result.ShepherdHomeGroupRow;
+import com.faithlog.shepherd.service.result.ShepherdHomeReportResult;
 import com.faithlog.shepherd.service.result.ShepherdRequesterAccessRow;
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -51,25 +57,29 @@ public class ShepherdService {
 
 	private static final int MAX_PAGE_SIZE = 100;
 	private static final int MAX_NOTE_LENGTH = 500;
+	private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
 
 	private final ShepherdGroupRepository groupRepository;
 	private final ShepherdGroupAssigneeRepository assigneeRepository;
 	private final WeeklyShepherdAttendanceReportRepository reportRepository;
 	private final ShepherdAccessRepository accessRepository;
 	private final CampusMemberRepository campusMemberRepository;
+	private final Clock clock;
 
 	public ShepherdService(
 		ShepherdGroupRepository groupRepository,
 		ShepherdGroupAssigneeRepository assigneeRepository,
 		WeeklyShepherdAttendanceReportRepository reportRepository,
 		ShepherdAccessRepository accessRepository,
-		CampusMemberRepository campusMemberRepository
+		CampusMemberRepository campusMemberRepository,
+		Clock clock
 	) {
 		this.groupRepository = groupRepository;
 		this.assigneeRepository = assigneeRepository;
 		this.reportRepository = reportRepository;
 		this.accessRepository = accessRepository;
 		this.campusMemberRepository = campusMemberRepository;
+		this.clock = clock;
 	}
 
 	@Transactional
@@ -116,6 +126,25 @@ public class ShepherdService {
 		ShepherdRequesterAccessRow requester = requireActiveRequester(campusId, requesterId);
 		requireCampusManagerOrAdmin(requester);
 		return toGroupResults(groupRepository.findAdminGroupRows(campusId));
+	}
+
+	@Transactional(readOnly = true)
+	public ShepherdHomeCardResult getMyHome(Long campusId, Long requesterId) {
+		ShepherdRequesterAccessRow requester = requireActiveRequester(campusId, requesterId);
+		requireActiveMembershipOrAdmin(requester, ErrorCode.SHEPHERD_GROUP_ACCESS_FORBIDDEN);
+		LocalDate serviceDate = LocalDate.now(clock.withZone(SEOUL_ZONE));
+		if (serviceDate.getDayOfWeek() != DayOfWeek.SUNDAY) {
+			return ShepherdHomeCardResult.hidden();
+		}
+		List<ShepherdHomeGroupResult> groups = groupRepository
+			.findMyHomeRows(campusId, requester.userId(), serviceDate)
+			.stream()
+			.map(this::toHomeGroupResult)
+			.toList();
+		if (groups.isEmpty()) {
+			return ShepherdHomeCardResult.hidden();
+		}
+		return ShepherdHomeCardResult.visible(serviceDate, groups);
 	}
 
 	@Transactional
@@ -196,7 +225,7 @@ public class ShepherdService {
 		if (existing != null && expectedVersion != existing.version()) {
 			throw new BusinessException(ErrorCode.SHEPHERD_ATTENDANCE_CONFLICT);
 		}
-		Instant now = Instant.now();
+		Instant now = clock.instant();
 		WeeklyShepherdAttendanceReport report = existing == null
 			? reportRepository.save(WeeklyShepherdAttendanceReport.create(
 				command.campusId(),
@@ -419,6 +448,26 @@ public class ShepherdService {
 			row.lastModifiedByName(),
 			row.lastModifiedAt(),
 			row.reportVersion()
+		);
+	}
+
+	private ShepherdHomeGroupResult toHomeGroupResult(ShepherdHomeGroupRow row) {
+		return new ShepherdHomeGroupResult(row.groupId(), row.groupName(), toHomeReportResult(row));
+	}
+
+	private ShepherdHomeReportResult toHomeReportResult(ShepherdHomeGroupRow row) {
+		if (row.reportId() == null) {
+			return null;
+		}
+		return new ShepherdHomeReportResult(
+			row.reportId(),
+			row.smallGroupMeetingCount(),
+			row.holyWaveCount(),
+			row.otherWorshipCount(),
+			row.note(),
+			row.reportStatus(),
+			row.reportVersion(),
+			row.lastModifiedAt()
 		);
 	}
 

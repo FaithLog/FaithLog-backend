@@ -1897,5 +1897,7 @@ Metric candidates:
 - GREEN focused service gate는 7 tests / failures 0 / errors 0 / skipped 0이다. 권한, self assignment, 관리자 복수 담당자, 중복 normalized name, Sunday/count 검증, stale version 409, 관리자 board totals를 확인했다.
 - N+1 회귀는 H2/Hibernate statistics 기준 관리자 board 1/100/1000 목장에서 prepared statement count가 모두 4로 고정됨을 실행형 테스트로 검증했다. 이는 로컬 테스트 SQL 경계이며 운영 latency/throughput 성과로 주장하지 않는다.
 - REST Docs focused gate는 `ShepherdApiRestDocsTest` 1 scenario / failures 0으로 통과했고 create, my list, assignee replace, save/get attendance, admin board, non-Sunday error snippets를 생성했다.
+- 최신 사용자 승인 계약 반영 후 홈 카드 RED를 별도 추가했다. RED는 `ShepherdHomeCardResult`와 `getMyHome` 부재로 `compileTestJava` 11 errors를 재현했고, GREEN focused gate는 서비스/REST Docs 12 tests / failures 0 / errors 0 / skipped 0으로 통과했다.
+- 홈 카드 SQL 경계는 H2/Hibernate statistics 기준 담당 목장 1/100개 모두 prepared statement count 2로 고정됨을 실행형 테스트로 검증했다. 이는 로컬 테스트 SQL 경계이며 운영 latency/throughput 성과로 주장하지 않는다.
 - 전용 disposable `postgres:17` 컨테이너 `faithlog-260-pg-20260813` / port `55460`에서 `PostgresFlywayMigrationTest` 14 tests / failures 0 / errors 0 / skipped 0으로 V1→V23 clean, 보호된 upgrade, V23 table/FK/CHECK/RLS/index catalog를 검증한 뒤 컨테이너를 제거했다.
 - 전체 `test build asciidoctor` 최종 수치는 최종 gate 실행 뒤 갱신한다. push/PR/merge/deploy/shared DB mutation은 수행하지 않는다.

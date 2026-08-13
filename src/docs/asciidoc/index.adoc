@@ -48,6 +48,11 @@ include::{snippets}/shepherd-attendance-get-success/http-request.adoc[]
 include::{snippets}/shepherd-attendance-get-success/http-response.adoc[]
 include::{snippets}/shepherd-attendance-get-success/response-fields.adoc[]
 
+=== My Shepherd Attendance Home
+include::{snippets}/shepherd-attendance-home-success/http-request.adoc[]
+include::{snippets}/shepherd-attendance-home-success/http-response.adoc[]
+include::{snippets}/shepherd-attendance-home-success/response-fields.adoc[]
+
 === Admin Weekly Shepherd Attendance Board
 include::{snippets}/shepherd-attendance-admin-board-success/http-request.adoc[]
 include::{snippets}/shepherd-attendance-admin-board-success/query-parameters.adoc[]

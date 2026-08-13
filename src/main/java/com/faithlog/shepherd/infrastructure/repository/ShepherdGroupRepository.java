@@ -3,6 +3,7 @@ package com.faithlog.shepherd.infrastructure.repository;
 import com.faithlog.shepherd.domain.entity.ShepherdGroup;
 import com.faithlog.shepherd.domain.type.ShepherdGroupStatus;
 import com.faithlog.shepherd.service.result.ShepherdAttendanceBoardGroupRow;
+import com.faithlog.shepherd.service.result.ShepherdHomeGroupRow;
 import com.faithlog.shepherd.service.result.ShepherdGroupRow;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
@@ -66,6 +67,35 @@ public interface ShepherdGroupRepository extends JpaRepository<ShepherdGroup, Lo
 	List<ShepherdGroupRow> findMyGroupRows(
 		@Param("campusId") Long campusId,
 		@Param("userId") Long userId
+	);
+
+	@Query("""
+		select new com.faithlog.shepherd.service.result.ShepherdHomeGroupRow(
+			shepherdGroup.id,
+			shepherdGroup.name,
+			report.id,
+			report.smallGroupMeetingCount,
+			report.holyWaveCount,
+			report.otherWorshipCount,
+			report.note,
+			cast(report.status as string),
+			report.version,
+			report.lastModifiedAt
+		)
+		from ShepherdGroupAssignee assignee
+		join ShepherdGroup shepherdGroup on shepherdGroup.id = assignee.shepherdGroupId
+		left join WeeklyShepherdAttendanceReport report
+			on report.shepherdGroupId = shepherdGroup.id
+			and report.serviceDate = :serviceDate
+		where assignee.campusId = :campusId
+			and assignee.userId = :userId
+			and shepherdGroup.status = com.faithlog.shepherd.domain.type.ShepherdGroupStatus.ACTIVE
+		order by shepherdGroup.normalizedName asc, shepherdGroup.id asc
+		""")
+	List<ShepherdHomeGroupRow> findMyHomeRows(
+		@Param("campusId") Long campusId,
+		@Param("userId") Long userId,
+		@Param("serviceDate") LocalDate serviceDate
 	);
 
 	@Query("""
