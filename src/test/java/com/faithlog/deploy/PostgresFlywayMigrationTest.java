@@ -176,7 +176,7 @@ class PostgresFlywayMigrationTest {
 		insertV21ShepherdGuideFixture(jdbcUrl, username, password);
 
 		Flyway v22 = Flyway.configure().dataSource(jdbcUrl, username, password)
-			.locations("classpath:db/migration").load();
+			.locations("classpath:db/migration").target("22").load();
 		assertThat(v22.migrate().success).isTrue();
 		assertThat(v22.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("22"));
 		assertThat(queryText(jdbcUrl, username, password,

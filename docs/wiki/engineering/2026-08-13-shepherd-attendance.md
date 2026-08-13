@@ -31,8 +31,8 @@
 - `./gradlew test --tests com.faithlog.shepherd.service.ShepherdServiceTest`: BUILD SUCCESSFUL
 - `./gradlew test --tests com.faithlog.shepherd.controller.ShepherdApiRestDocsTest`: BUILD SUCCESSFUL
 - focused shepherd + Flyway static + architecture 묶음: BUILD SUCCESSFUL
+- disposable PostgreSQL 17 `PostgresFlywayMigrationTest`: 14 tests, failures 0, errors 0, skipped 0
 
 ## 남은 확인
 
 - 전체 `./gradlew test build asciidoctor`
-- 가능한 disposable PostgreSQL Flyway clean/upgrade gate
