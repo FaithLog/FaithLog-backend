@@ -1914,3 +1914,5 @@ Metric candidates:
 - 기능 검증: 관련 4개 테스트 클래스 81개 통과, REST Docs 및 bootJar 빌드 성공.
 - 전체 테스트 통과 수치로 사용하지 않는다. 전체 실행 중 기존 BillingControllerTest summary.totalAmount 기대 5000/실제 2500 실패가 확인되어 중단했다. 수정 전 main f63bd081에서도 동일 실패를 재현했다.
 - 성능·운영 개선 수치는 측정하지 않았다. 상세 기록: docs/devlogs/2026-10-16-263-coffee-manual-options.md.
+
+- #263 후속 조사: 청구 기본 조회의 한 달 보관 정책과 고정 fixture 간 불일치를 테스트 요청 옵션으로 수정. 청구 생성·조회 관련 69개 테스트 통과(1m43s). 운영 청구 로직 변경 없음.

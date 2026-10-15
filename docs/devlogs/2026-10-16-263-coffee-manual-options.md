@@ -45,3 +45,12 @@
 - 브랜치: codex/coffee-manual-options. 기존 /Users/josephuk77/FaithLog 체크아웃 변경 없음.
 - 변경 파일 목록과 전체 diff는 해당 브랜치에서 `git diff f63bd081...HEAD`로 확인.
 - 서버 코드 구현 및 로컬 검증 완료. push/PR/merge/배포 및 이슈 종료 미실행.
+
+## 청구 조회 실패 원인 및 수정
+- 사용자 추가 요청: 병합 전에 청구 관련 실패부터 조사·수정.
+- 원인: 테스트가 납부 완료일을 2026-07-16으로 고정했지만, 관리자 조회는 includeArchived=false일 때 완료 후 한 달이 지난 청구를 제외한다(ChargeArchivePolicy의 minusMonths(1)).
+- 미납 2500원과 납부 2500원 생성 자체는 정상이다. 기본 조회에서 과거 납부 2500원이 제외되면서 테스트 기대 5000원과 달라졌다.
+- 수정: 과거 월별 fixture의 관리자 전체/개인 조회 요청 두 곳에 includeArchived=true를 명시했다. 운영 청구 생성/조회 코드는 변경하지 않았다.
+- 기존 archive-window 테스트는 기본 조회에서 오래된 완료 청구를 숨기고 미납은 유지하는 정책을 별도로 검증한다.
+- 수정 전 재현: main f63bd081 단독 테스트 실패(기대 5000/실제 2500).
+- 수정 후 BillingControllerTest/BillingQueryServiceTest/BillingServiceTest 69개 통과(BUILD SUCCESSFUL, 1m43s).

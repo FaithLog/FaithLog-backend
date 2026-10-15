@@ -1357,3 +1357,10 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 기존 청구 검증에 맞춰 직접 입력 금액은 양의 정수, 이름은 trim 후 1~200자로 검증한다.
 - DB 변경 없이 poll_options 이름·금액과 nullable 메뉴 코드를 사용한다. CLOSED 정산 흐름은 유지한다.
 - 반복 템플릿 편집과 프론트 변경은 이번 구현 범위에 포함하지 않는다.
+
+
+## 2026-10-16 - #263 병합 및 청구 테스트 수정 순서
+
+- 사용자가 develop과 main에 병합하도록 승인했다.
+- 이어 청구 관련 실패를 먼저 수정하도록 요청했다. 조사 결과 생성 오류가 아닌 과거 납부 fixture와 기본 한 달 보관 정책의 테스트 불일치로 확인했다.
+- 과거 내역을 검사하는 두 관리자 조회에 includeArchived=true를 명시하고 청구 관련 테스트를 통과시킨 뒤 두 브랜치 병합을 진행한다. 운영 청구 정책은 변경하지 않는다.
