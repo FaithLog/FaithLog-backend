@@ -5,8 +5,13 @@ public record AddPollOptionCommand(
 	Long pollId,
 	Long requesterId,
 	String content,
-	Long menuId
+	Long menuId,
+	Integer priceAmount
 ) {
+
+	public AddPollOptionCommand(Long campusId, Long pollId, Long requesterId, String content, Long menuId) {
+		this(campusId, pollId, requesterId, content, menuId, null);
+	}
 
 	public AddPollOptionCommand(Long campusId, Long pollId, Long requesterId, String content) {
 		this(campusId, pollId, requesterId, content, null);

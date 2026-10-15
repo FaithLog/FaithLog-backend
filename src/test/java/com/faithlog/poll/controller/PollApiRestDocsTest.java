@@ -1652,13 +1652,13 @@ class PollApiRestDocsTest {
 					  "startsAt": "2026-06-20T00:00:00Z",
 					  "endsAt": "2026-06-21T00:00:00Z",
 					  "options": [
-					    {"content": "클라이언트 메뉴", "menuId": null, "priceAmount": 1, "sortOrder": 1}
+					    {"content": "클라이언트 메뉴", "menuId": null, "priceAmount": null, "sortOrder": 1}
 					  ]
 					}
 					""".formatted(coffeeAccountId)))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("POLL_COFFEE_OPTION_MENU_REQUIRED"))
-			.andExpect(jsonPath("$.message").value("커피 투표 선택지는 menuId가 필요합니다."))
+			.andExpect(jsonPath("$.code").value("POLL_INVALID_OPTION"))
+			.andExpect(jsonPath("$.message").value("투표 선택지가 올바르지 않습니다."))
 			.andDo(document("poll-create-coffee-menu-required-error",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
@@ -1685,7 +1685,8 @@ class PollApiRestDocsTest {
 					  "startsAt": "2026-06-20T00:00:00Z",
 					  "endsAt": "2026-06-21T00:00:00Z",
 					  "options": [
-					    {"content": "클라이언트 아메리카노", "menuId": %d, "priceAmount": 1, "sortOrder": 1}
+					    {"content": "클라이언트 아메리카노", "menuId": %d, "priceAmount": 1, "sortOrder": 1},
+					    {"content": "  직접 입력 모카  ", "priceAmount": 4800, "sortOrder": 2}
 					  ]
 					}
 					""".formatted(coffeeAccountId, americanoMenuId)))
@@ -1693,6 +1694,12 @@ class PollApiRestDocsTest {
 			.andExpect(jsonPath("$.data.options[0].content").value("아메리카노"))
 			.andExpect(jsonPath("$.data.options[0].composeMenuCode").value("AMERICANO_HOT"))
 			.andExpect(jsonPath("$.data.options[0].priceAmount").value(1500))
+			.andExpect(jsonPath("$.data.options[1].content").value("직접 입력 모카"))
+			.andExpect(jsonPath("$.data.options[1].priceAmount").value(4800))
+			.andDo(document("poll-create-coffee-manual-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()), authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID")),
+				requestFields(pollCreateRequestFields()), relaxedResponseFields(pollResponseFields())))
 			.andReturn()
 			.getResponse()
 			.getContentAsString();
@@ -1737,7 +1744,7 @@ class PollApiRestDocsTest {
 					}
 					"""))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("POLL_USER_OPTION_MENU_REQUIRED"))
+			.andExpect(jsonPath("$.code").value("POLL_INVALID_OPTION"))
 			.andDo(document("poll-user-option-add-coffee-content-only-error",
 				preprocessRequest(prettyPrint()),
 				preprocessResponse(prettyPrint()),
@@ -1749,6 +1756,23 @@ class PollApiRestDocsTest {
 				requestFields(userOptionAddRequestFields()),
 				responseFields(errorResponseFields())
 			));
+
+		mockMvc.perform(post("/api/v1/campuses/{campusId}/polls/{pollId}/options", campusId, coffeePollId)
+				.header("Authorization", "Bearer " + memberToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"content":"  동네 카페 라떼  ","priceAmount":4500}
+					"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.content").value("동네 카페 라떼"))
+			.andExpect(jsonPath("$.data.priceAmount").value(4500))
+			.andExpect(jsonPath("$.data.userAdded").value(true))
+			.andDo(document("poll-user-option-add-coffee-manual-success",
+				preprocessRequest(prettyPrint()), preprocessResponse(prettyPrint()),
+				authHeader(),
+				pathParameters(parameterWithName("campusId").description("캠퍼스 ID"),
+					parameterWithName("pollId").description("COFFEE 투표 ID")),
+				requestFields(userOptionAddRequestFields()), responseFields(optionResponseFields())));
 
 		mockMvc.perform(put("/api/v1/campuses/{campusId}/polls/{pollId}/responses/me", campusId, coffeePollId)
 				.header("Authorization", "Bearer " + memberToken)
@@ -1811,9 +1835,9 @@ class PollApiRestDocsTest {
 			fieldWithPath("endDayOfWeek").description("마감 요일. 1=월요일, 7=일요일"),
 			fieldWithPath("endTime").description("마감 시간"),
 			fieldWithPath("options[]").description("템플릿 선택지"),
-			fieldWithPath("options[].content").optional().description("비-COFFEE 직접 선택지명. COFFEE에서는 전달돼도 catalog 메뉴명으로 덮어씀"),
-			fieldWithPath("options[].menuId").optional().description("COFFEE에서는 필수인 active backend catalog 메뉴 ID"),
-			fieldWithPath("options[].priceAmount").optional().description("비-COFFEE 직접 선택지 가격. COFFEE에서는 전달돼도 catalog 가격으로 덮어씀"),
+			fieldWithPath("options[].content").optional().description("직접 선택지명. COFFEE 직접 입력 시 필수, menuId 선택 시 catalog 메뉴명 사용"),
+			fieldWithPath("options[].menuId").optional().description("active backend catalog 메뉴 ID. COFFEE 직접 입력 시 생략 가능"),
+			fieldWithPath("options[].priceAmount").optional().description("직접 선택지 가격. COFFEE 직접 입력 시 양의 정수 필수, menuId 선택 시 catalog 가격 사용"),
 			fieldWithPath("options[].sortOrder").description("정렬 순서")
 		};
 	}
@@ -1853,9 +1877,9 @@ class PollApiRestDocsTest {
 			fieldWithPath("startsAt").description("투표 시작 시각"),
 			fieldWithPath("endsAt").description("투표 종료 시각"),
 			fieldWithPath("options[]").optional().description("직접 선택지 목록. 템플릿 기반 생성 시 사용하지 않음"),
-			fieldWithPath("options[].content").optional().description("비-COFFEE 직접 선택지명. COFFEE에서는 전달돼도 catalog 메뉴명으로 덮어씀"),
-			fieldWithPath("options[].menuId").optional().description("COFFEE에서는 필수인 active backend catalog 메뉴 ID"),
-			fieldWithPath("options[].priceAmount").optional().description("비-COFFEE 직접 선택지 가격. COFFEE에서는 전달돼도 catalog 가격으로 덮어씀"),
+			fieldWithPath("options[].content").optional().description("직접 선택지명. COFFEE 직접 입력 시 필수, menuId 선택 시 catalog 메뉴명 사용"),
+			fieldWithPath("options[].menuId").optional().description("active backend catalog 메뉴 ID. COFFEE 직접 입력 시 생략 가능"),
+			fieldWithPath("options[].priceAmount").optional().description("직접 선택지 가격. COFFEE 직접 입력 시 양의 정수 필수, menuId 선택 시 catalog 가격 사용"),
 			fieldWithPath("options[].sortOrder").optional().description("정렬 순서")
 		};
 	}
@@ -1918,8 +1942,9 @@ class PollApiRestDocsTest {
 
 	private FieldDescriptor[] userOptionAddRequestFields() {
 		return new FieldDescriptor[] {
-			fieldWithPath("content").type(JsonFieldType.STRING).optional().description("커피 외 투표에서 추가할 선택지명. COFFEE 투표에서는 content 단독 또는 menuId와 함께 사용할 수 없음"),
-			fieldWithPath("menuId").type(JsonFieldType.NUMBER).optional().description("COFFEE 투표에서 추가할 커피 메뉴 ID. 커피 외 투표에서는 사용할 수 없음")
+			fieldWithPath("content").type(JsonFieldType.STRING).optional().description("직접 추가할 선택지명. COFFEE 직접 입력에서는 priceAmount도 필수, menuId와 동시 사용 불가"),
+			fieldWithPath("menuId").type(JsonFieldType.NUMBER).optional().description("COFFEE 카탈로그 메뉴 ID. 직접 입력 시 생략, 커피 외 투표에서는 사용 불가"),
+			fieldWithPath("priceAmount").type(JsonFieldType.NUMBER).optional().description("COFFEE 직접 입력 시 필수인 양의 정수 금액. menuId 및 커피 외 투표에서는 사용 불가")
 		};
 	}
 
@@ -1927,8 +1952,8 @@ class PollApiRestDocsTest {
 		return apiResponseFields(
 			fieldWithPath("data.id").description("투표 선택지 ID"),
 			fieldWithPath("data.content").description("선택지명"),
-			fieldWithPath("data.composeMenuCode").optional().description("커피 메뉴 코드. COFFEE 메뉴 추가 항목은 메뉴 snapshot, 커피 외 직접 추가 항목은 null"),
-			fieldWithPath("data.priceAmount").description("선택지 가격. COFFEE 메뉴 추가 항목은 메뉴 snapshot 가격, 커피 외 직접 추가 항목은 0"),
+			fieldWithPath("data.composeMenuCode").optional().description("커피 메뉴 코드. 카탈로그 항목은 메뉴 snapshot, 직접 입력 항목은 null"),
+			fieldWithPath("data.priceAmount").description("선택지 가격. COFFEE는 카탈로그 또는 직접 입력 금액, 커피 외 사용자 추가 항목은 0"),
 			fieldWithPath("data.sortOrder").description("정렬 순서"),
 			fieldWithPath("data.userAdded").description("사용자 추가 선택지 여부")
 		);
