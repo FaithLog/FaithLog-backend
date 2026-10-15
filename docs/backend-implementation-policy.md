@@ -455,9 +455,9 @@ Issue #39 is P0.
 - New campus creation must not automatically create a default COFFEE poll template or recurring coffee poll. Existing auto-created COFFEE templates are not deleted or deactivated by Issue #112.
 - Additional coffee template options are selected from the backend menu catalog and copied into `poll_template_options`.
 - `poll_template_options` and `poll_options` keep copied `composeMenuCode`, display name, and `priceAmount` snapshots so later catalog price changes do not mutate existing templates, polls, or charges.
-- Every option in direct `pollType=COFFEE` Poll creation and persisted `pollType=COFFEE` PollTemplate creation/update requires an active backend `coffee_menu_catalog` `menuId`.
-- COFFEE option snapshots always use `content = catalog.name`, `composeMenuCode = catalog.menuCode`, and `priceAmount = catalog.priceAmount`. Client `content` and `priceAmount` fields remain accepted for request compatibility but are never authoritative for COFFEE snapshots.
-- Missing COFFEE option `menuId` fails with `400 POLL_COFFEE_OPTION_MENU_REQUIRED`; missing and inactive menu rows reuse `POLL_MENU_NOT_FOUND` and `POLL_MENU_INACTIVE`.
+- Direct COFFEE Poll creation accepts either an active catalog `menuId` or a manual `content` (trimmed, 1–200 characters) plus positive integer `priceAmount`. Manual options store a null `composeMenuCode` and do not create catalog entries. Persisted COFFEE PollTemplate creation/update still requires catalog `menuId`.
+- Catalog-backed COFFEE option snapshots always use `content = catalog.name`, `composeMenuCode = catalog.menuCode`, and `priceAmount = catalog.priceAmount`. Client `content` and `priceAmount` fields remain accepted for request compatibility but are never authoritative for COFFEE snapshots.
+- Missing COFFEE template option `menuId` fails with `400 POLL_COFFEE_OPTION_MENU_REQUIRED`; missing and inactive menu rows reuse `POLL_MENU_NOT_FOUND` and `POLL_MENU_INACTIVE`.
 - Non-COFFEE Poll/template custom content and zero-price behavior remains separate from COFFEE catalog validation.
 - Brand/menu admin CRUD and additional brand onboarding are outside Issue #37 unless the user approves a separate issue.
 
@@ -547,7 +547,7 @@ Issue #34 is P0.
 - New campus creation must not automatically provision default COFFEE poll templates or recurring coffee polls. Existing auto-created templates are retained unless a separate cleanup issue is approved.
 - Scheduler poll creation excludes COFFEE templates even when `autoCreateEnabled=true`. This does not change the template API fields, and manually created COFFEE polls keep scheduled close and CLOSED settlement behavior.
 - When an active COFFEE duty assignee creates a direct `pollType=COFFEE` poll and omits `allowUserOptionAdd`, the backend defaults it to true. Explicit `allowUserOptionAdd=false` is preserved. Other direct poll creation defaults omitted `allowUserOptionAdd` to false.
-- The user-option-add API keeps `{ "content": "새 항목" }` for non-COFFEE polls and requires `menuId` without client `content` for COFFEE polls. COFFEE user-added options snapshot the active catalog name, menu code, and price.
+- The user-option-add API keeps `{ "content": "새 항목" }` for non-COFFEE polls. COFFEE accepts either `{ "menuId": 1 }` or `{ "content": "동네 카페 라떼", "priceAmount": 4500 }`. Reject mixed catalog/manual fields and non-COFFEE price inputs. Invalid manual fields return `400 POLL_INVALID_OPTION`. Existing membership, OPEN status, allowUserOptionAdd, duplicate-name, and settlement transaction checks remain in force.
 - Do not create option-level poll result endpoints for MVP.
 - For non-anonymous polls, result responses may expose who voted for each option.
 - For anonymous polls, result responses must expose aggregate counts only and must not expose voter user IDs, names, emails, or option-level respondent identity to any user.

@@ -1347,3 +1347,13 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 목장명 request DTO는 compact constructor에서 trim/공백 정규화 후 Bean Validation `@Size(max=100)`을 적용한다. HTTP create/update의 normalized 101자 이름은 기존 `GLOBAL_VALIDATION_FAILED` 400으로 처리하며 담당자 오류로 노출하지 않는다. Service command 직접 호출의 이름 방어 검증도 같은 공통 validation 오류를 사용한다.
 - `shepherd_group_assignees` 복합 ID 신규 저장은 `Persistable` 경계로 신규 row를 명시해 신규 담당자 수만큼 merge existence SELECT가 늘어나지 않게 한다. 담당자 응답 조립에 필요한 bulk SELECT와 필수 INSERT 자체는 유지한다.
 - 일반 report GET은 report+last modifier user projection으로 재조회 직후에도 `lastModifiedByName`을 반환한다. 관리자 board의 기존 modifier projection과 권한/tenant 경계는 유지한다.
+
+
+## 2026-10-16 - 커피 투표 항목 직접 입력
+
+- 사용자 요청: 커피 투표에 직접 입력 항목을 추가할 수 있도록 백엔드부터 수정.
+- 실제 투표 생성과 OPEN 투표 항목 추가에서 메뉴명·금액 직접 입력을 지원한다.
+- 기존 카탈로그 선택 시 서버 메뉴 snapshot을 계속 사용한다. 직접 입력 항목은 카탈로그에 등록하지 않는다.
+- 기존 청구 검증에 맞춰 직접 입력 금액은 양의 정수, 이름은 trim 후 1~200자로 검증한다.
+- DB 변경 없이 poll_options 이름·금액과 nullable 메뉴 코드를 사용한다. CLOSED 정산 흐름은 유지한다.
+- 반복 템플릿 편집과 프론트 변경은 이번 구현 범위에 포함하지 않는다.
