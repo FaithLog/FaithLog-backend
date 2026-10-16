@@ -46,7 +46,7 @@ public class PollUserOptionCommandService {
 		List<PollOption> options = pollOptionRepository.findByPollIdOrderBySortOrderAsc(poll.id());
 		int nextSortOrder = options.stream().mapToInt(PollOption::sortOrder).max().orElse(0) + 1;
 		PollOptionSnapshot snapshot = optionSnapshotResolver.resolveUserAddedOption(
-			poll.pollType(), command.content(), command.menuId(), nextSortOrder
+			poll.pollType(), command.content(), command.menuId(), command.priceAmount(), nextSortOrder
 		);
 		boolean duplicated = options.stream()
 			.map(PollOption::content)

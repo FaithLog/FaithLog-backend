@@ -1907,3 +1907,12 @@ Metric candidates:
 - PM 보정 PostgreSQL actual gate는 disposable `postgres:17` 컨테이너 `faithlog-260-pg-final-review-20260813` / port `55463`에서 실행했다. `PostgresFlywayMigrationTest`는 BUILD SUCCESSFUL in 43s로 V1→V23 clean/upgrade/catalog를 재검증했고, 별도 DB의 `ShepherdPostgresPersistenceTest`는 BUILD SUCCESSFUL in 33s/29s로 concurrent normalized create, concurrent normalized rename, concurrent first attendance save one-winner, stale version 409를 검증했다.
 - PM 재리뷰 전 중간 full gate `./gradlew test build asciidoctor`는 새 finding 수신 전 실행 중이던 결과로 `BUILD SUCCESSFUL in 19m 41s`였다. 이후 관리자 board nested report `campusId` null 보정과 PostgreSQL concurrent create 검증 테스트를 추가해 아래 최종 gate를 재실행했다.
 - 최종 `./gradlew --no-daemon test build asciidoctor`는 206 suites / 1006 tests / failures 0 / errors 0 / skipped 24, `BUILD SUCCESSFUL in 21m 18s`로 통과했고 bootJar/plain jar, JaCoCo, REST Docs HTML을 생성했다. push/PR/merge/deploy/shared DB mutation은 수행하지 않는다.
+
+
+## 2026-10-16 - #263 커피 투표 직접 입력
+
+- 기능 검증: 관련 4개 테스트 클래스 81개 통과, REST Docs 및 bootJar 빌드 성공.
+- 전체 테스트 통과 수치로 사용하지 않는다. 전체 실행 중 기존 BillingControllerTest summary.totalAmount 기대 5000/실제 2500 실패가 확인되어 중단했다. 수정 전 main f63bd081에서도 동일 실패를 재현했다.
+- 성능·운영 개선 수치는 측정하지 않았다. 상세 기록: docs/devlogs/2026-10-16-263-coffee-manual-options.md.
+
+- #263 후속 조사: 청구 기본 조회의 한 달 보관 정책과 고정 fixture 간 불일치를 테스트 요청 옵션으로 수정. 청구 생성·조회 관련 69개 테스트 통과(1m43s). 운영 청구 로직 변경 없음.
