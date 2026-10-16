@@ -899,7 +899,7 @@ class PollServiceTest {
 	}
 
 	@Test
-	void direct_coffee_poll_requires_catalog_menu_id_without_persisting_rows() {
+	void direct_coffee_poll_rejects_missing_manual_price_without_persisting_rows() {
 		User manager = saveUser("poll-183-direct-manager@example.com", UserRole.MANAGER);
 		User duty = saveUser("poll-183-direct-duty@example.com", UserRole.USER);
 		CampusCreateResult campus = createCampus(manager, "183직접검증캠");
@@ -922,10 +922,10 @@ class PollServiceTest {
 			accountId,
 			Instant.now().minusSeconds(60),
 			Instant.now().plusSeconds(3600),
-			List.of(new CreatePollOptionCommand("클라이언트 아메리카노", null, 1, 1))
+			List.of(new CreatePollOptionCommand("클라이언트 아메리카노", null, null, 1))
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_COFFEE_OPTION_MENU_REQUIRED)
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_INVALID_OPTION)
 			);
 
 		assertThat(pollRepository.count()).isEqualTo(pollCount);
@@ -1908,7 +1908,7 @@ class PollServiceTest {
 			null
 		)))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_USER_OPTION_MENU_REQUIRED)
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.POLL_INVALID_OPTION)
 			);
 
 		PollResult customPoll = pollService.createPoll(new CreatePollCommand(
@@ -2605,6 +2605,63 @@ class PollServiceTest {
 		assertThat(charge.bankNameSnapshot()).isEqualTo("카카오뱅크");
 		assertThat(charge.accountNumberSnapshot()).isEqualTo("3333-37-000001");
 		assertThat(charge.accountHolderSnapshot()).isEqualTo("커피회계");
+	}
+
+	@Test
+	void direct_manual_coffee_poll_persists_name_and_price_without_catalog_entry() {
+		User manager = saveUser("manual-direct-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("manual-direct-duty@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "직접커피생성캠");
+		joinCampus(campus, duty);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), duty.id(), duty.id());
+		long catalogCount = coffeeMenuCatalogRepository.count();
+		PollResult poll = pollService.createPoll(new CreatePollCommand(
+			campus.campusId(), duty.id(), null, "직접 입력 투표 생성", PollType.COFFEE,
+			SelectionType.SINGLE, false, ChargeGenerationType.OPTION_PRICE, PaymentCategory.COFFEE,
+			accountId, Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600),
+			List.of(new CreatePollOptionCommand("  동네 카페 라떼  ", null, 4500, 1))));
+		assertThat(poll.options()).singleElement().satisfies(option -> {
+			assertThat(option.content()).isEqualTo("동네 카페 라떼");
+			assertThat(option.priceAmount()).isEqualTo(4500);
+			assertThat(option.composeMenuCode()).isNull();
+		});
+		assertThat(coffeeMenuCatalogRepository.count()).isEqualTo(catalogCount);
+	}
+
+	@Test
+	void manually_added_coffee_option_is_saved_voted_and_settled_at_entered_price() {
+		User manager = saveUser("manual-coffee-manager@example.com", UserRole.MANAGER);
+		User duty = saveUser("manual-coffee-duty@example.com", UserRole.USER);
+		User member = saveUser("manual-coffee-member@example.com", UserRole.USER);
+		CampusCreateResult campus = createCampus(manager, "직접입력커피캠");
+		joinCampus(campus, duty);
+		joinCampus(campus, member);
+		campusService.assignCoffeeDuty(new AssignCoffeeDutyCommand(campus.campusId(), manager.id(), duty.id()));
+		Long accountId = createCoffeeAccount(campus.campusId(), manager.id());
+		PollResult poll = createOpenCoffeePoll(campus.campusId(), manager.id(), accountId, "직접 입력 커피");
+		long catalogCount = coffeeMenuCatalogRepository.count();
+		PollOptionResult added = pollService.addUserOption(new AddPollOptionCommand(
+			campus.campusId(), poll.id(), member.id(), "  동네 카페 라떼  ", null, 4500));
+		assertThat(added.content()).isEqualTo("동네 카페 라떼");
+		assertThat(added.composeMenuCode()).isNull();
+		assertThat(added.priceAmount()).isEqualTo(4500);
+		assertThat(added.userAdded()).isTrue();
+		assertThat(coffeeMenuCatalogRepository.count()).isEqualTo(catalogCount);
+		assertThatThrownBy(() -> pollService.addUserOption(new AddPollOptionCommand(
+			campus.campusId(), poll.id(), member.id(), "동네 카페 라떼", null, 5000)))
+			.isInstanceOfSatisfying(BusinessException.class, ex ->
+				assertThat(ex.errorCode()).isEqualTo(ErrorCode.POLL_OPTION_DUPLICATE_CONTENT));
+		pollService.respondToPoll(new RespondToPollCommand(campus.campusId(), poll.id(), member.id(), List.of(added.id()), null));
+		assertThat(chargesForCampus(campus.campusId())).isEmpty();
+		closePoll(poll.id());
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), poll.id());
+		coffeePollSettlementService.settleClosedCoffeePoll(campus.campusId(), poll.id());
+		assertThat(chargesForCampus(campus.campusId())).singleElement().satisfies(charge -> {
+			assertThat(charge.title()).isEqualTo("동네 카페 라떼");
+			assertThat(charge.amount()).isEqualTo(4500);
+			assertThat(charge.paymentAccountId()).isEqualTo(accountId);
+		});
 	}
 
 	@Test

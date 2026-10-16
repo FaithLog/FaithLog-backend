@@ -2509,7 +2509,7 @@ include::{snippets}/poll-template-deactivate-non-duty-forbidden/http-response.ad
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
 
-`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. `pollType=COFFEE` 투표 생성은 ACTIVE `COFFEE` 담당자만 가능하다. 직접 생성과 계좌 중립 COFFEE 템플릿 기반 생성 모두 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`가 필수다. 직접 COFFEE 투표의 각 선택지는 active backend catalog `menuId`가 필수이며 요청의 `content`/`priceAmount`와 무관하게 catalog 메뉴명/코드/가격만 snapshot한다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한과 custom content/0원 계약을 유지한다.
+`templateId` 없이 직접 선택지로 생성할 수 있고, 템플릿 기반 생성 시 템플릿 선택지를 실제 투표 선택지로 복사한다. `pollType=COFFEE` 투표 생성은 ACTIVE `COFFEE` 담당자만 가능하다. 직접 생성과 계좌 중립 COFFEE 템플릿 기반 생성 모두 requester 본인 소유 active `COFFEE` 계좌의 `paymentAccountId`가 필수다. 직접 COFFEE 투표의 각 선택지는 active backend catalog `menuId` 또는 직접 입력 `content`와 `priceAmount`로 지정한다. 메뉴 선택 시 catalog 메뉴명/코드/가격을 snapshot한다. 직접 입력은 이름 앞뒤 공백 제거 후 1~200자, 금액은 양의 정수이며 `composeMenuCode=null`로 저장하고 카탈로그를 추가하지 않는다. `CUSTOM`, `WED_SERVICE`, `SATURDAY_LEADER` 등 커피 외 투표는 기존 관리자 권한과 custom content/0원 계약을 유지한다.
 
 ==== Request
 
@@ -2589,11 +2589,19 @@ include::{snippets}/poll-notice-update-not-found/http-response.adoc[]
 
 include::{snippets}/poll-notice-update-image-conflict/http-response.adoc[]
 
-=== Reject Coffee Poll Option Without Menu ID
+=== Create Coffee Poll With Manual Option
+
+카탈로그 메뉴와 직접 입력 항목을 함께 사용할 수 있다. 직접 입력한 이름과 가격은 해당 투표에만 저장된다.
+
+include::{snippets}/poll-create-coffee-manual-success/http-request.adoc[]
+include::{snippets}/poll-create-coffee-manual-success/request-fields.adoc[]
+include::{snippets}/poll-create-coffee-manual-success/http-response.adoc[]
+
+=== Reject Coffee Poll Option Without Manual Price
 
 `POST /api/v1/admin/campuses/{campusId}/polls`
 
-직접 `COFFEE` Poll 또는 `COFFEE` PollTemplate 생성/수정에서 선택지 `menuId`가 없으면 `400 POLL_COFFEE_OPTION_MENU_REQUIRED`와 `커피 투표 선택지는 menuId가 필요합니다.`를 반환하며 Poll/template/option/charge row를 생성하거나 변경하지 않는다.
+직접 `COFFEE` Poll 생성에서 `menuId` 없이 이름만 보내고 금액을 누락하면 `400 POLL_INVALID_OPTION`을 반환하며 Poll/option/charge row를 생성하지 않는다. COFFEE 템플릿 생성/수정은 기존처럼 catalog `menuId`가 필수다.
 
 ==== Request
 
@@ -2671,7 +2679,7 @@ include::{snippets}/poll-create-with-user-option-add-success/response-fields.ado
 
 `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`
 
-ACTIVE 캠퍼스 멤버가 `allowUserOptionAdd=true`인 OPEN 투표에 선택지를 추가한다. CUSTOM 등 커피 외 투표는 기존처럼 `{ "content": "새 항목" }`만 허용한다. COFFEE 투표는 `{ "menuId": 1 }`만 허용하며, 서버가 커피 메뉴 카탈로그에서 메뉴명, 메뉴 코드, 가격 snapshot을 `poll_options`에 복사 저장한다.
+ACTIVE 캠퍼스 멤버가 `allowUserOptionAdd=true`인 OPEN 투표에 선택지를 추가한다. CUSTOM 등 커피 외 투표는 기존처럼 `{ "content": "새 항목" }`만 허용한다. COFFEE 투표는 `{ "menuId": 1 }` 또는 `{ "content": "동네 카페 라떼", "priceAmount": 4500 }`를 허용한다. 메뉴 선택 시 서버가 커피 메뉴 카탈로그에서 메뉴명, 메뉴 코드, 가격 snapshot을 `poll_options`에 복사 저장한다.
 
 ==== Request
 
@@ -2709,7 +2717,11 @@ include::{snippets}/poll-user-option-add-duplicate-error/response-fields.adoc[]
 
 `POST /api/v1/campuses/{campusId}/polls/{pollId}/options`
 
-COFFEE 투표의 사용자 추가 선택지는 `menuId` 기반 계약만 허용한다. `content`만 보내거나 커피 외 투표에 `menuId`를 보내면 `400`으로 실패한다.
+COFFEE 투표의 사용자 추가 선택지는 메뉴 선택 또는 이름·금액 직접 입력을 지원한다. 직접 입력은 이름 앞뒤 공백 제거 후 1~200자, 금액은 양의 정수여야 한다. `content`만 보내면 `400 POLL_INVALID_OPTION`이며, `menuId`와 직접 입력 필드를 혼합하면 `400 POLL_USER_OPTION_CONTENT_NOT_ALLOWED`다. 커피 외 투표에서는 `menuId`와 `priceAmount`를 허용하지 않는다. 정산 시 직접 입력한 항목의 이름과 금액으로 청구한다.
+
+include::{snippets}/poll-user-option-add-coffee-manual-success/http-request.adoc[]
+include::{snippets}/poll-user-option-add-coffee-manual-success/request-fields.adoc[]
+include::{snippets}/poll-user-option-add-coffee-manual-success/http-response.adoc[]
 
 ==== Request
 

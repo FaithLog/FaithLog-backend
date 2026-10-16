@@ -32,17 +32,19 @@ class PollOptionSnapshotResolver {
 	List<PollOptionSnapshot> resolvePollOptions(PollType pollType, List<CreatePollOptionCommand> commands) {
 		List<PollOptionSnapshot> snapshots = new ArrayList<>();
 		for (CreatePollOptionCommand command : commands) {
-			snapshots.add(resolve(pollType, command.content(), command.menuId(), command.priceAmount(), command.sortOrder()));
+			snapshots.add(pollType == PollType.COFFEE && command.menuId() == null
+				? resolveManualCoffeeOption(command.content(), command.priceAmount(), command.sortOrder())
+				: resolve(pollType, command.content(), command.menuId(), command.priceAmount(), command.sortOrder()));
 		}
 		return sortAndValidate(snapshots);
 	}
 
-	PollOptionSnapshot resolveUserAddedOption(PollType pollType, String content, Long menuId, int sortOrder) {
+	PollOptionSnapshot resolveUserAddedOption(PollType pollType, String content, Long menuId, Integer priceAmount, int sortOrder) {
 		if (pollType == PollType.COFFEE) {
 			if (menuId == null) {
-				throw new BusinessException(ErrorCode.POLL_USER_OPTION_MENU_REQUIRED);
+				return resolveManualCoffeeOption(content, priceAmount, sortOrder);
 			}
-			if (content != null && !content.isBlank()) {
+			if ((content != null && !content.isBlank()) || priceAmount != null) {
 				throw new BusinessException(ErrorCode.POLL_USER_OPTION_CONTENT_NOT_ALLOWED);
 			}
 			return resolve(pollType, null, menuId, null, sortOrder);
@@ -50,10 +52,18 @@ class PollOptionSnapshotResolver {
 		if (menuId != null) {
 			throw new BusinessException(ErrorCode.POLL_USER_OPTION_MENU_NOT_ALLOWED);
 		}
-		if (content == null || content.isBlank() || content.trim().length() > 200) {
+		if (priceAmount != null || content == null || content.isBlank() || content.trim().length() > 200) {
 			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
 		}
 		return new PollOptionSnapshot(content.trim(), null, 0, sortOrder);
+	}
+
+	private PollOptionSnapshot resolveManualCoffeeOption(String content, Integer priceAmount, int sortOrder) {
+		if (content == null || content.isBlank() || content.trim().isEmpty() || content.trim().length() > 200
+			|| priceAmount == null || priceAmount <= 0) {
+			throw new BusinessException(ErrorCode.POLL_INVALID_OPTION);
+		}
+		return new PollOptionSnapshot(content.trim(), null, priceAmount, sortOrder);
 	}
 
 	private PollOptionSnapshot resolve(PollType pollType, String content, Long menuId, Integer priceAmount, int sortOrder) {

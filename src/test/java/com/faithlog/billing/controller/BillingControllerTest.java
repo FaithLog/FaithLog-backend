@@ -721,6 +721,7 @@ class BillingControllerTest {
 		ChargeItemResult paidResult = createPenaltyCharge(campusId, member.id(), 6102L);
 		ChargeItem paid = chargeItemRepository.findById(paidResult.id()).orElseThrow();
 		bindChargeSummaryMonth(unpaid.id(), paid);
+		// The mapping fixture includes historical payments; archive-window behavior has its own test.
 
 		mockMvc.perform(get("/api/v1/campuses/{campusId}/charges/me", campusId)
 				.header("Authorization", "Bearer " + memberToken)
@@ -756,6 +757,7 @@ class BillingControllerTest {
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/charges", campusId)
 				.header("Authorization", "Bearer " + managerToken)
+				.param("includeArchived", "true")
 				.param("keyword", "billing-http-query-member")
 				.param("page", "0")
 				.param("size", "20")
@@ -773,6 +775,7 @@ class BillingControllerTest {
 
 		mockMvc.perform(get("/api/v1/admin/campuses/{campusId}/members/{userId}/charges", campusId, member.id())
 				.header("Authorization", "Bearer " + managerToken)
+				.param("includeArchived", "true")
 				.param("paymentCategory", "PENALTY")
 				.param("page", "0")
 				.param("size", "20")

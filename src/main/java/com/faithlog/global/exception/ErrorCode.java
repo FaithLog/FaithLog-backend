@@ -150,7 +150,7 @@ public enum ErrorCode {
 	POLL_CLOSE_NOT_ALLOWED(HttpStatus.CONFLICT, "종료할 수 없는 투표 상태입니다."),
 	POLL_USER_OPTION_ADD_DISABLED(HttpStatus.FORBIDDEN, "투표 항목 추가 권한이 없습니다."),
 	POLL_USER_OPTION_MENU_REQUIRED(HttpStatus.BAD_REQUEST, "커피 투표 항목은 menuId로 추가해야 합니다."),
-	POLL_USER_OPTION_CONTENT_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "커피 투표 항목에는 content를 직접 사용할 수 없습니다."),
+	POLL_USER_OPTION_CONTENT_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "커피 메뉴 선택 시 content 또는 priceAmount를 함께 사용할 수 없습니다."),
 	POLL_USER_OPTION_MENU_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "커피 외 투표 항목에는 menuId를 사용할 수 없습니다."),
 	POLL_OPTION_DUPLICATE_CONTENT(HttpStatus.BAD_REQUEST, "이미 같은 이름의 투표 선택지가 있습니다."),
 	POLL_MEAL_OPTION_DUPLICATE_CONTENT(HttpStatus.CONFLICT, "이미 같은 이름의 밥 투표 선택지가 있습니다."),
