@@ -9,6 +9,13 @@
 FaithLog의 상세 API 계약은 Spring REST Docs 테스트가 검증한 request/response snippets를 기준으로 문서화한다.
 Swagger/springdoc은 간단한 API 탐색용으로 유지하지만, 정확한 계약 문서는 이 REST Docs 산출물을 기준으로 본다.
 
+== 입력 검증 오류
+
+HTTP 400, `GLOBAL_VALIDATION_FAILED`의 기존 메시지는 유지한다. `data.fieldErrors`는 실패한 모든 필드 경로와 검증 코드만 제공한다. 입력값, 비밀번호, rejectedValue, 검증기 인자는 제공하지 않는다. 클라이언트는 알려진 필드와 제약 코드만 한국어 안내로 변환하며, 지원하지 않는 필드는 일반 안내로 처리한다.
+
+include::{snippets}/validation-field-errors/http-response.adoc[]
+include::{snippets}/validation-field-errors/response-fields.adoc[]
+
 == Shepherd Groups And Attendance
 
 목장은 캠퍼스에 귀속되며 일반 사용자는 본인이 담당자로 연결된 목장만 조회·작성·수정할 수 있다.
