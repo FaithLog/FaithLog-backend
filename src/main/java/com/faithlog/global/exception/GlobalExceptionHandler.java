@@ -1,6 +1,9 @@
 package com.faithlog.global.exception;
 
 import com.faithlog.global.response.ApiResponse;
+import com.faithlog.global.response.ValidationErrors;
+import java.time.Instant;
+import java.util.Comparator;
 import com.faithlog.global.observability.AuthFailure;
 import com.faithlog.global.observability.AuthFlow;
 import com.faithlog.global.observability.OperationalEventPort;
@@ -70,17 +73,24 @@ public class GlobalExceptionHandler {
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)
-	public ResponseEntity<ApiResponse<Void>> handleValidationException(MethodArgumentNotValidException exception) {
+	public ResponseEntity<ApiResponse<ValidationErrors>> handleValidationException(MethodArgumentNotValidException exception) {
 		String message = exception.getBindingResult()
 			.getFieldErrors()
 			.stream()
 			.findFirst()
 			.map(error -> error.getField() + ": " + error.getDefaultMessage())
 			.orElse(ErrorCode.GLOBAL_VALIDATION_FAILED.message());
+		var fields = exception.getBindingResult().getFieldErrors().stream()
+			.map(error -> new ValidationErrors.FieldError(error.getField(), error.getCode()))
+			.distinct()
+			.sorted(Comparator.comparing(ValidationErrors.FieldError::field)
+				.thenComparing(ValidationErrors.FieldError::code, Comparator.nullsLast(Comparator.naturalOrder())))
+			.toList();
 
 		return ResponseEntity
 			.badRequest()
-			.body(ApiResponse.failure(ErrorCode.GLOBAL_VALIDATION_FAILED.name(), message));
+			.body(new ApiResponse<>(false, ErrorCode.GLOBAL_VALIDATION_FAILED.name(), message,
+				new ValidationErrors(fields), Instant.now()));
 	}
 
 	@ExceptionHandler(HttpMessageNotReadableException.class)

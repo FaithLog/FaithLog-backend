@@ -1364,3 +1364,7 @@ This file records user-approved project decisions so Codex does not rely on gues
 - 사용자가 develop과 main에 병합하도록 승인했다.
 - 이어 청구 관련 실패를 먼저 수정하도록 요청했다. 조사 결과 생성 오류가 아닌 과거 납부 fixture와 기본 한 달 보관 정책의 테스트 불일치로 확인했다.
 - 과거 내역을 검사하는 두 관리자 조회에 includeArchived=true를 명시하고 청구 관련 테스트를 통과시킨 뒤 두 브랜치 병합을 진행한다. 운영 청구 정책은 변경하지 않는다.
+
+## 2026-10-29 - #266 입력칸별 검증 오류 안내
+
+사용자 요청에 따라 입력 오류가 난 항목과 필요한 수정을 앱에서 식별할 수 있도록 한다. 기존 HTTP 400, GLOBAL_VALIDATION_FAILED와 message는 유지하고 Bean Validation 오류에서만 data.fieldErrors 배열에 field와 code를 제공한다. 여러 필드 오류를 빠짐없이 제공하며 중복을 제거하고 필드·코드 순서로 정렬한다. rejectedValue와 검증 인자는 포함하지 않는다. 프론트는 알려진 필드·코드만 표시하며 구형 서버의 단일 필드 메시지도 안전하게 처리한다. DB·검증 기준·권한과 잘못된 JSON 처리 정책은 변경하지 않는다.
