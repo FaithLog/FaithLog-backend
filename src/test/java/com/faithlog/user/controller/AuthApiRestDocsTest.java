@@ -690,7 +690,8 @@ class AuthApiRestDocsTest {
 			fieldWithPath("success").description("요청 성공 여부. 실패 응답에서는 `false`"),
 			fieldWithPath("code").description("도메인 세부 오류 코드"),
 			fieldWithPath("message").description("오류 메시지"),
-			fieldWithPath("data").optional().description("실패 응답에서는 생략된다"),
+			org.springframework.restdocs.payload.PayloadDocumentation.subsectionWithPath("data").optional()
+				.description("입력 검증 오류는 fieldErrors에 필드 경로와 검증 코드를 제공하며, 그 외 오류에서는 생략될 수 있다"),
 			fieldWithPath("timestamp").description("응답 생성 시각")
 		};
 	}
