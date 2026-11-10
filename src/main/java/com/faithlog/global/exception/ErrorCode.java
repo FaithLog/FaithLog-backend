@@ -3,6 +3,7 @@ package com.faithlog.global.exception;
 import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
+	DEVOTION_MISSION_NOT_READY(HttpStatus.CONFLICT, "캘린더에서 오늘 경건 체크를 저장한 뒤 보상을 받을 수 있습니다."),
 	GLOBAL_VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "잘못된 요청입니다."),
 	GLOBAL_INVALID_JSON(HttpStatus.BAD_REQUEST, "잘못된 JSON 요청입니다."),
 

@@ -67,6 +67,28 @@ class DevotionApiRestDocsTest {
 	@Autowired
 	private BillingService billingService;
 
+ @Test
+ void documents_calendar_daily_mission_query_claim_and_unsaved_conflict() throws Exception {
+  String token=signupAndLogin("docs-calendar-mission@example.com",UserRole.MANAGER);
+  long campusId=createCampus(token,"미션문서캠").path("campusId").asLong();
+  String root="/api/v1/campuses/"+campusId+"/devotions/me";
+  mockMvc.perform(post(root+"/daily-missions/QUIET_TIME/claims").header("Authorization","Bearer "+token))
+   .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("DEVOTION_MISSION_NOT_READY"))
+   .andDo(document("daily-mission-unsaved",preprocessResponse(prettyPrint())));
+  String date=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).toString();
+  mockMvc.perform(put(root+"/days/"+date).header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON)
+   .content("{\"quietTimeChecked\":true,\"prayerChecked\":true,\"bibleReadingChecked\":false}"))
+   .andExpect(status().isOk());
+  mockMvc.perform(get(root+"/daily-missions").header("Authorization","Bearer "+token))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.data.missions[0].status").value("READY"))
+   .andDo(document("daily-mission-get",preprocessResponse(prettyPrint())));
+  mockMvc.perform(post(root+"/daily-missions/QUIET_TIME/claims").header("Authorization","Bearer "+token))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalAwardedPoints").value(30))
+   .andDo(document("daily-mission-claim",preprocessResponse(prettyPrint())));
+  mockMvc.perform(post(root+"/daily-missions/QUIET_TIME/claims").header("Authorization","Bearer "+token))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalAwardedPoints").value(30));
+ }
+
 	@Test
 	void documents_admin_weekly_members_and_excel_export_contracts() throws Exception {
 		String managerToken = signupAndLogin("docs-admin-weekly-manager@example.com", UserRole.MANAGER);
