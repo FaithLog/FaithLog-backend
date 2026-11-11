@@ -25,11 +25,13 @@ public class CalendarDailyRewardService {
  private final WeeklyDevotionRecordRepository weeks;
  private final DevotionDailyCheckRepository checks;
  private final Clock clock;
- public CalendarDailyRewardService(CampusMemberRepositoryPort members, CampusUserLookupPort users, CalendarDailyRewardRepository rewards, WeeklyDevotionRecordRepository weeks, DevotionDailyCheckRepository checks, Clock clock) {
-  this.members=members; this.users=users; this.rewards=rewards; this.weeks=weeks; this.checks=checks; this.clock=clock;
+ private final com.faithlog.points.PointWalletService pointWallet;
+ public CalendarDailyRewardService(CampusMemberRepositoryPort members, CampusUserLookupPort users, CalendarDailyRewardRepository rewards, WeeklyDevotionRecordRepository weeks, DevotionDailyCheckRepository checks, Clock clock, com.faithlog.points.PointWalletService pointWallet) {
+  this.members=members; this.users=users; this.rewards=rewards; this.weeks=weeks; this.checks=checks; this.clock=clock; this.pointWallet=pointWallet;
  }
  // Serialize scope creation and claim, including a first-ever calendar save.
  public void lockMember(Long campusId,Long userId) {
+  pointWallet.lockAccount(userId);
   users.findCampusUserById(userId).filter(user -> user.active()).orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED));
   members.findByCampusIdAndUserIdForUpdate(campusId,userId).filter(member -> member.isActive()).orElseThrow(() -> new BusinessException(ErrorCode.DEVOTION_ACCESS_FORBIDDEN));
  }
@@ -58,6 +60,7 @@ public class CalendarDailyRewardService {
    var reward=rows.stream().filter(r -> r.mission()==claim).findFirst().orElseThrow(() -> new BusinessException(ErrorCode.DEVOTION_MISSION_NOT_READY));
    reward.claim(now,claim.checked(current));
    rewards.saveAndFlush(reward);
+   pointWallet.settle(userId,30,"daily:"+date+":"+claim.name());
   }
   var items=Arrays.stream(DailyMission.values()).map(mission -> {
    var reward=rows.stream().filter(r -> r.mission()==mission).findFirst().orElse(null);

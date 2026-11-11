@@ -3,6 +3,11 @@ package com.faithlog.global.exception;
 import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
+ COMPANION_REQUEST_CONFLICT(HttpStatus.CONFLICT, "같은 요청 키에 다른 내용이 전달되었습니다."),
+ COMPANION_INSUFFICIENT_POINTS(HttpStatus.CONFLICT, "포인트가 부족합니다."),
+ COMPANION_INVALID_SALE(HttpStatus.CONFLICT, "판매 가능한 중복 수량을 확인해 주세요."),
+ COMPANION_GARDEN_CONFLICT(HttpStatus.CONFLICT, "정원이 변경되었습니다. 다시 불러온 뒤 저장해 주세요."),
+ COMPANION_NOT_OWNED(HttpStatus.FORBIDDEN, "보유하지 않은 동물이나 배경입니다."),
 	DEVOTION_MISSION_NOT_READY(HttpStatus.CONFLICT, "캘린더에서 오늘 경건 체크를 저장한 뒤 보상을 받을 수 있습니다."),
 	GLOBAL_VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "잘못된 요청입니다."),
 	GLOBAL_INVALID_JSON(HttpStatus.BAD_REQUEST, "잘못된 JSON 요청입니다."),
