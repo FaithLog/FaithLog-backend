@@ -50,6 +50,15 @@ public class CompanionEconomyService {
   var result=new Result(UUID.randomUUID(),List.of(request.designId()),quote.totalPoints(),wallet.wallet(user).balance(),(String)row.get("policy_version"),quote.quantity(),quote.unitPrice());
   record(user,"SALE",key,fp,null,business,result);return result;
  }
+ @Transactional public List<HistoryItem> drawHistory(Long user,int page) {
+  if(page<0||page>10000)throw invalid();
+  wallet.lockAccount(user);
+  return jdbc.query("SELECT response_json,created_at FROM companion_operations WHERE user_id=:user AND kind='DRAW' ORDER BY created_at DESC,operation_id DESC LIMIT 20 OFFSET :offset",Map.of("user",user,"offset",page*20),(rs,n)->{
+   try{return new HistoryItem(json.readValue(rs.getString("response_json"),Result.class),rs.getTimestamp("created_at").toInstant());}
+   catch(com.fasterxml.jackson.core.JsonProcessingException e){throw new IllegalStateException("Stored operation unreadable",e);}
+  });
+ }
+ public record HistoryItem(Result result,Instant createdAt){}
  public record DrawRequest(String poolVersion,int count){}
  public record SaleRequest(String designId,long quantity){}
  public record Result(UUID operationId,List<String> designIds,long pointDelta,long balance,String policyVersion,long quantity,long unitPrice){}

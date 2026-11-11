@@ -3577,3 +3577,15 @@ include::{snippets}/companions-draw/http-response.adoc[]
 GET `/api/v1/companions/me/inventory`: filter=OWNED/DUPLICATES/ALL/UNEQUIPPED, sort=CATALOG/RARITY/COUNT, rarity, query, page(0부터), size(1~100). 배치 중인 친구가 먼저 표시된다.
 GET/PUT `/api/v1/companions/me/garden`: version,backgroundId,placements. 최대5마리이며 slot/designId 중복 금지, x/y는0~1. 미소유 자산403, 이전 버전409. backgroundId=null은 별도 보유 배경을 적용하지 않은 기본 상태다.
 POST `/api/v1/companions/me/sales`: Idempotency-Key와 designId/quantity를 전달한다. 마지막1마리는 남겨두며 가격은 서버가 결정한다. 소유권·수량·잔액 변경과 원장 및 결과 저장은 단일 transaction이다.
+
+=== 일간 출석 상태와 10P 수령
+한국 시간 기준 계정당 하루 한 번 지급한다. 날짜·금액을 클라이언트에서 받지 않는다. 재요청은 추가 적립하지 않으며 현재 잔액을 반환한다.
+include::{snippets}/points-attendance/http-request.adoc[]
+include::{snippets}/points-attendance/http-response.adoc[]
+include::{snippets}/points-attendance-claim/http-request.adoc[]
+include::{snippets}/points-attendance-claim/http-response.adoc[]
+
+=== 본인 뽑기 이력
+page는 0부터 시작하며 페이지당 20건, 최신순이다. 결과의 balance는 해당 뽑기 당시 잔액이다.
+include::{snippets}/companions-draw-history/http-request.adoc[]
+include::{snippets}/companions-draw-history/http-response.adoc[]
