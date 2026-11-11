@@ -3542,3 +3542,15 @@ include::{snippets}/media-access-urls/http-request.adoc[]
 include::{snippets}/media-access-urls/request-fields.adoc[]
 include::{snippets}/media-access-urls/http-response.adoc[]
 include::{snippets}/media-access-urls/response-fields.adoc[]
+
+== Calendar Daily Missions
+
+한국 시간 오늘 기록을 캘린더 일별 저장 API로 성공적으로 저장한 뒤 큐티·기도·말씀 각각 30P를 하루 한 번 수령한다.
+주간 저장은 캘린더 저장 근거를 만들지 않는다. 응답의 totalAwardedPoints는 이 일간 보상 원장의 누적 적립액이며, 뽑기·판매를 정산한 지갑 잔액이 아니다.
+미션은 QUIET_TIME / PRAYER / BIBLE, 상태는 INCOMPLETE / READY / CLAIMED다. 서버가 날짜와 포인트를 결정하며 클라이언트는 날짜·금액을 지정하지 않는다.
+
+include::{snippets}/daily-mission-get/http-request.adoc[]
+include::{snippets}/daily-mission-get/http-response.adoc[]
+include::{snippets}/daily-mission-claim/http-request.adoc[]
+include::{snippets}/daily-mission-claim/http-response.adoc[]
+include::{snippets}/daily-mission-unsaved/http-response.adoc[]

@@ -26,23 +26,27 @@ public class DailyDevotionCommandService {
 	private final DevotionDailyCheckRepository dailyCheckRepository;
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
+	private final CalendarDailyRewardService calendarRewards;
 
 	public DailyDevotionCommandService(
 		WeeklyDevotionRecordRepository weeklyRecordRepository,
 		DevotionDailyCheckRepository dailyCheckRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
-		CampusUserLookupPort userLookupPort
+		CampusUserLookupPort userLookupPort,
+		CalendarDailyRewardService calendarRewards
 	) {
 		this.weeklyRecordRepository = weeklyRecordRepository;
 		this.dailyCheckRepository = dailyCheckRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
+		this.calendarRewards = calendarRewards;
 	}
 
 	@Transactional
 	public DailyDevotionResult updateDailyCheck(UpdateDailyDevotionCommand command) {
 		CampusUserLookupResult requester = getActiveUser(command.requesterId());
 		requireActiveCampusMember(command.campusId(), requester.userId());
+		calendarRewards.lockMember(command.campusId(), requester.userId());
 		LocalDate weekStartDate = command.recordDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 		WeeklyDevotionRecord weeklyRecord = weeklyRecordRepository
 			.findByCampusIdAndUserIdAndWeekStartDate(command.campusId(), requester.userId(), weekStartDate)
@@ -64,6 +68,7 @@ public class DailyDevotionCommandService {
 		);
 
 		refreshWeeklySummary(weeklyRecord);
+		calendarRewards.recordCalendarSave(command);
 		return DailyDevotionResult.of(weeklyRecord, dailyCheck);
 	}
 
