@@ -45,9 +45,22 @@ class CompanionPostgresQaTest {
   assertThat(result.pointDelta()).isEqualTo(1000000L);
   assertThat(economy.sell(u,"miracle-sale",new CompanionEconomyService.SaleRequest("jesus:miracle",1))).isEqualTo(result);
  }
+ @Test void current_backgrounds_are_free_and_saved_for_new_and_existing_members(){
+  Long user=account();
+  assertThat(catalog.backgrounds(user)).allMatch(CompanionCatalogService.Background::owned);
+  for(String id:List.of("meadow","olive","shore","starlight")){
+   var current=gardens.get(user);
+   assertThat(gardens.save(user,new GardenUpdate(current.version(),id,List.of())).backgroundId()).isEqualTo(id);
+   assertThat(gardens.get(user).backgroundId()).isEqualTo(id);
+  }
+  assertThat(catalog.backgrounds(user)).allMatch(CompanionCatalogService.Background::owned);
+  assertThat(jdbc.queryForObject("select count(*) from user_backgrounds where user_id=?",Long.class,user)).isEqualTo(5);
+  Long direct=account();
+  assertThat(gardens.save(direct,new GardenUpdate(0,"meadow",List.of())).backgroundId()).isEqualTo("meadow");
+ }
  private Long account(){return users.saveAndFlush(User.create("QA",UUID.randomUUID()+"@example.test","test-only")).id();}
  @Test void draw_replay_sale_garden_and_conflict_are_consistent(){
-  Long u=account();wallet.settle(u,1000,"qa-initial");
+  Long u=account();
   var request=new CompanionEconomyService.DrawRequest("standard-v2",10);
   var first=economy.draw(u,"draw1",request);assertThat(first.designIds()).hasSize(10);assertThat(first.balance()).isZero();
   assertThat(economy.draw(u,"draw1",request)).isEqualTo(first);
@@ -71,13 +84,13 @@ class CompanionPostgresQaTest {
   assertThat(wallet.wallet(u).balance()).isEqualTo(sale.pointDelta());
  }
  @Test void parallel_same_key_debits_once()throws Exception{
-  Long u=account();wallet.settle(u,1000,"qa-initial");var pool=Executors.newFixedThreadPool(2);
+  Long u=account();var pool=Executors.newFixedThreadPool(2);
   try{var gate=new CountDownLatch(1);Callable<CompanionEconomyService.Result> task=()->{gate.await();return economy.draw(u,"same-key",new CompanionEconomyService.DrawRequest("standard-v2",1));};var a=pool.submit(task);var b=pool.submit(task);gate.countDown();assertThat(a.get(30,TimeUnit.SECONDS)).isEqualTo(b.get(30,TimeUnit.SECONDS));assertThat(wallet.wallet(u).balance()).isEqualTo(900);}finally{pool.shutdownNow();}
  }
  @Test void outer_failure_rolls_back_wallet_inventory_and_operation(){
   Long u=account();wallet.settle(u,100,"qa-initial");
   assertThatThrownBy(()->new TransactionTemplate(tx).executeWithoutResult(status->{economy.draw(u,"rollback",new CompanionEconomyService.DrawRequest("standard-v2",1));throw new IllegalStateException("rollback");})).isInstanceOf(IllegalStateException.class);
-  assertThat(wallet.wallet(u).balance()).isEqualTo(100);
+  assertThat(wallet.wallet(u).balance()).isEqualTo(1100);
   assertThat(jdbc.queryForObject("select count(*) from companion_operations where user_id=?",Long.class,u)).isZero();
   assertThat(jdbc.queryForObject("select count(*) from user_companions where user_id=?",Long.class,u)).isZero();
  }
@@ -90,8 +103,8 @@ class CompanionPostgresQaTest {
   mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/companions/catalog").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.length()").value(131)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("companions-catalog"));
   mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/companions/me/inventory").param("sort","invalid").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
   mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/points/me/attendance")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
-  mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/points/me/attendance").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.balance").value(10)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("points-attendance-claim"));
-  mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/points/me/attendance").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.balance").value(10));
+  mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/points/me/attendance").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.balance").value(1010)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("points-attendance-claim"));
+  mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/points/me/attendance").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.balance").value(1010));
   mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/points/me/attendance").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.claimed").value(true)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("points-attendance"));
   mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/companions/sale-prices")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
   mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/companions/sale-prices").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.length()").value(6)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data[0].unitPrice").value(10)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("companions-sale-prices"));
@@ -101,7 +114,7 @@ class CompanionPostgresQaTest {
   String retry=mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/companions/me/draws").header("Authorization","Bearer "+token).header("Idempotency-Key","http-draw").contentType("application/json").content(body)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn().getResponse().getContentAsString();
   assertThat(json.readTree(first).path("data")).isEqualTo(json.readTree(retry).path("data"));
   mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/companions/me/draws").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.length()").value(1)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("companions-draw-history"));
-  mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/points/me/wallet").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.balance").value(10)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("points-wallet"));
+  mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/points/me/wallet").header("Authorization","Bearer "+token)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.balance").value(1010)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("points-wallet"));
  }
 
  @Test void concurrent_attendance_claims_credit_once_and_rollback_is_atomic()throws Exception {
@@ -111,16 +124,16 @@ class CompanionPostgresQaTest {
    var gate=new CountDownLatch(1);
    Callable<com.faithlog.points.AttendanceService.Result> task=()->{gate.await();return attendance.claim(u);};
    var a=pool.submit(task);var b=pool.submit(task);gate.countDown();
-   assertThat(a.get(30,TimeUnit.SECONDS).balance()).isEqualTo(10);
-   assertThat(b.get(30,TimeUnit.SECONDS).balance()).isEqualTo(10);
+   assertThat(a.get(30,TimeUnit.SECONDS).balance()).isEqualTo(1010);
+   assertThat(b.get(30,TimeUnit.SECONDS).balance()).isEqualTo(1010);
   }finally{pool.shutdownNow();}
   assertThat(attendance.status(u).claimed()).isTrue();
-  assertThat(wallet.wallet(u).balance()).isEqualTo(10);
-  assertThat(jdbc.queryForObject("select count(*) from point_transactions where user_id=?",Long.class,u)).isEqualTo(1);
+  assertThat(wallet.wallet(u).balance()).isEqualTo(1010);
+  assertThat(jdbc.queryForObject("select count(*) from point_transactions where user_id=?",Long.class,u)).isEqualTo(2);
   Long other=account();assertThat(attendance.status(other).claimed()).isFalse();
   assertThatThrownBy(()->new TransactionTemplate(tx).executeWithoutResult(status->{attendance.claim(other);throw new IllegalStateException("rollback");})).isInstanceOf(IllegalStateException.class);
   assertThat(attendance.status(other).claimed()).isFalse();
-  assertThat(wallet.wallet(other).balance()).isZero();
+  assertThat(wallet.wallet(other).balance()).isEqualTo(1000);
  }
 
 }
