@@ -86,6 +86,19 @@ class BillingQueryServiceTest {
 	private EntityManagerFactory entityManagerFactory;
 
 	@Test
+	void my_charge_page_does_not_load_all_entities_to_compute_summary() {
+		User manager=saveUser("query-bounded-manager@example.test",UserRole.MANAGER,"관리자");
+		CampusCreateResult campus=createCampus(manager,"페이지집계");
+		PaymentAccountResult account=createAccount(campus.campusId(),manager.id(),PaymentCategory.PENALTY,"bounded-test");
+		for(int i=0;i<50;i++)saveCharge(campus.campusId(),manager.id(),account,PaymentCategory.PENALTY,ChargeSourceType.DEVOTION_RECORD,50000L+i,"QA",100,ChargeStatus.UNPAID,null);
+		entityManager.flush();entityManager.clear();
+		var statistics=entityManagerFactory.unwrap(SessionFactory.class).getStatistics();statistics.setStatisticsEnabled(true);statistics.clear();
+		var result=billingQueryService.listMyCharges(new MyChargeListQuery(campus.campusId(),manager.id(),null,null,PageRequest.of(0,5)));
+		assertThat(result.items()).hasSize(5);assertThat(result.summary().totalAmount()).isEqualTo(5000);
+		assertThat(statistics.getEntityStatistics(ChargeItem.class.getName()).getLoadCount()).isEqualTo(5);
+	}
+
+	@Test
 	void listMyCharges_returns_summary_items_account_and_source_with_filters_and_paging() {
 		User manager = saveUser("query-my-manager@example.com", UserRole.MANAGER, "관리자");
 		User member = saveUser("query-my-member@example.com", UserRole.USER, "멤버");

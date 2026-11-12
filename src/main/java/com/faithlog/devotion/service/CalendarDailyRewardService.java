@@ -58,7 +58,9 @@ public class CalendarDailyRewardService {
   LocalDate monday=date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
   DevotionDailyCheck current=weeks.findByCampusIdAndUserIdAndWeekStartDate(campusId,userId,monday).flatMap(week -> checks.findByWeeklyRecordIdAndRecordDate(week.id(),date)).orElse(null);
   var claimed=EnumSet.noneOf(DailyMission.class);
-  for(var mission:DailyMission.values())if(pointTransactions.findByUserIdAndBusinessKey(userId,"daily:"+date+":"+mission.name()).isPresent())claimed.add(mission);
+  var missionKeys=Arrays.stream(DailyMission.values()).map(mission->"daily:"+date+":"+mission.name()).toList();
+  var claimedKeys=new HashSet<>(pointTransactions.findBusinessKeysByUserIdAndBusinessKeyIn(userId,missionKeys));
+  for(var mission:DailyMission.values())if(claimedKeys.contains("daily:"+date+":"+mission.name()))claimed.add(mission);
   if (claim!=null && !claimed.contains(claim)) {
    var reward=rows.stream().filter(r -> r.mission()==claim).findFirst().orElseThrow(() -> new BusinessException(ErrorCode.DEVOTION_MISSION_NOT_READY));
    reward.claim(now,claim.checked(current));
