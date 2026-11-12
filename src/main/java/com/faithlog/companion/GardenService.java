@@ -12,6 +12,7 @@ public class GardenService {
  public GardenService(PointWalletService accounts,NamedParameterJdbcTemplate jdbc,Clock clock){this.accounts=accounts;this.jdbc=jdbc;this.clock=clock;}
  private void initialize(Long user){
   accounts.lockAccount(user);
+  StarterBackgrounds.grant(jdbc,user);
   jdbc.update("INSERT INTO user_gardens(user_id,version,updated_at) VALUES(:user,0,:now) ON CONFLICT(user_id) DO NOTHING",new MapSqlParameterSource("user",user).addValue("now",java.sql.Timestamp.from(clock.instant())));
  }
  @Transactional public Garden get(Long user){initialize(user);return read(user);}
