@@ -45,6 +45,19 @@ class CompanionPostgresQaTest {
   assertThat(result.pointDelta()).isEqualTo(1000000L);
   assertThat(economy.sell(u,"miracle-sale",new CompanionEconomyService.SaleRequest("jesus:miracle",1))).isEqualTo(result);
  }
+ @Test void current_backgrounds_are_free_and_saved_for_new_and_existing_members(){
+  Long user=account();
+  assertThat(catalog.backgrounds(user)).allMatch(CompanionCatalogService.Background::owned);
+  for(String id:List.of("meadow","olive","shore","starlight")){
+   var current=gardens.get(user);
+   assertThat(gardens.save(user,new GardenUpdate(current.version(),id,List.of())).backgroundId()).isEqualTo(id);
+   assertThat(gardens.get(user).backgroundId()).isEqualTo(id);
+  }
+  assertThat(catalog.backgrounds(user)).allMatch(CompanionCatalogService.Background::owned);
+  assertThat(jdbc.queryForObject("select count(*) from user_backgrounds where user_id=?",Long.class,user)).isEqualTo(5);
+  Long direct=account();
+  assertThat(gardens.save(direct,new GardenUpdate(0,"meadow",List.of())).backgroundId()).isEqualTo("meadow");
+ }
  private Long account(){return users.saveAndFlush(User.create("QA",UUID.randomUUID()+"@example.test","test-only")).id();}
  @Test void draw_replay_sale_garden_and_conflict_are_consistent(){
   Long u=account();wallet.settle(u,1000,"qa-initial");
