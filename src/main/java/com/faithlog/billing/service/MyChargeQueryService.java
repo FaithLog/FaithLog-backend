@@ -8,7 +8,6 @@ import com.faithlog.billing.service.policy.ChargeArchivePolicy;
 import com.faithlog.billing.service.query.ChargeSearchCriteria;
 import com.faithlog.billing.service.query.MyChargeListQuery;
 import com.faithlog.billing.service.query.MyChargeSummaryQuery;
-import com.faithlog.billing.service.result.ChargeAmountSummaryResult;
 import com.faithlog.billing.service.result.ChargeCategorySummaryResult;
 import com.faithlog.billing.service.result.ChargeListItemResult;
 import com.faithlog.billing.service.result.MyChargeSummaryResult;
@@ -43,19 +42,22 @@ public class MyChargeQueryService {
 	private final CampusMemberRepositoryPort campusMemberRepository;
 	private final CampusUserLookupPort userLookupPort;
 	private final Clock clock;
+	private final com.faithlog.billing.service.port.MyChargeAggregationQueryPort aggregation;
 
 	public MyChargeQueryService(
 		ChargeItemRepositoryPort chargeItemRepository,
 		CampusRepositoryPort campusRepository,
 		CampusMemberRepositoryPort campusMemberRepository,
 		CampusUserLookupPort userLookupPort,
-		Clock clock
+		Clock clock,
+		com.faithlog.billing.service.port.MyChargeAggregationQueryPort aggregation
 	) {
 		this.chargeItemRepository = chargeItemRepository;
 		this.campusRepository = campusRepository;
 		this.campusMemberRepository = campusMemberRepository;
 		this.userLookupPort = userLookupPort;
 		this.clock = clock;
+		this.aggregation = aggregation;
 	}
 
 	@Transactional(readOnly = true)
@@ -74,13 +76,13 @@ public class MyChargeQueryService {
 			null,
 			ChargeArchivePolicy.terminalCompletedAtFrom(clock, query.includeArchived())
 		);
-		List<ChargeItem> summaryTargets = chargeItemRepository.searchCharges(criteria);
+		var summary = aggregation.summarize(query.campusId(),requester.userId(),query.paymentCategory(),query.status(),criteria.terminalCompletedAtFrom());
 		Page<ChargeItem> page = chargeItemRepository.searchCharges(criteria, query.pageable());
 		return new MyChargesResult(
 			campus.id(),
 			campus.name(),
 			campus.region(),
-			summarize(summaryTargets),
+			summary,
 			page.stream().map(ChargeListItemResult::from).toList(),
 			page.getNumber(),
 			page.getSize(),
@@ -159,23 +161,6 @@ public class MyChargeQueryService {
 			));
 		}
 		return results;
-	}
-
-	private ChargeAmountSummaryResult summarize(List<ChargeItem> charges) {
-		return new ChargeAmountSummaryResult(
-			charges.stream().mapToInt(ChargeItem::amount).sum(),
-			sumByStatus(charges, ChargeStatus.UNPAID),
-			sumByStatus(charges, ChargeStatus.PAID),
-			sumByStatus(charges, ChargeStatus.WAIVED),
-			sumByStatus(charges, ChargeStatus.CANCELED)
-		);
-	}
-
-	private int sumByStatus(List<ChargeItem> charges, ChargeStatus status) {
-		return charges.stream()
-			.filter(charge -> charge.status() == status)
-			.mapToInt(ChargeItem::amount)
-			.sum();
 	}
 
 	private boolean isInMonth(Instant instant, YearMonth yearMonth) {

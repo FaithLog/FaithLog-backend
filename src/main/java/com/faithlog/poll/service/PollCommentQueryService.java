@@ -26,9 +26,11 @@ public class PollCommentQueryService {
 	@Transactional
 	public List<PollCommentResult> listComments(Long campusId, Long pollId, Long requesterId) {
 		pollLookupSupport.getVisiblePoll(campusId, pollId, requesterId);
-		return pollCommentRepository.findByPollIdOrderByIdAsc(pollId)
-			.stream()
-			.map(comment -> PollCommentResult.of(comment, pollAccessService.getUser(comment.userId())))
+		var comments = pollCommentRepository.findByPollIdOrderByIdAsc(pollId);
+		if (comments.isEmpty()) return List.of();
+		var authors = pollAccessService.getUsers(comments.stream().map(comment -> comment.userId()).distinct().toList());
+		return comments.stream()
+			.map(comment -> PollCommentResult.of(comment, authors.get(comment.userId())))
 			.toList();
 	}
 }
