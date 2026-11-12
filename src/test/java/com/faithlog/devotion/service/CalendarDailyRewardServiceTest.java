@@ -96,4 +96,16 @@ class CalendarDailyRewardServiceTest {
   assertThatThrownBy(() -> rewards.getToday(a.campus,b.user)).isInstanceOf(RuntimeException.class);
   assertThatThrownBy(() -> rewards.claim(a.campus,b.user,DailyMission.BIBLE)).isInstanceOf(RuntimeException.class);
  }
+ @Autowired com.faithlog.points.PointWalletService wallet;
+ @Test void same_daily_mission_in_two_campuses_credits_account_once(){
+  var s=scope();
+  var other=campuses.createCampus(new CreateCampusCommand(s.user,"다른캠퍼스","분당","QA"));
+  daily.updateDailyCheck(new UpdateDailyDevotionCommand(s.campus,s.user,TODAY,true,false,false));
+  daily.updateDailyCheck(new UpdateDailyDevotionCommand(other.campusId(),s.user,TODAY,true,false,false));
+  rewards.claim(s.campus,s.user,DailyMission.QUIET_TIME);
+  assertThat(rewards.getToday(other.campusId(),s.user).missions()).filteredOn(m -> m.mission()==DailyMission.QUIET_TIME).allMatch(m -> m.status().equals("CLAIMED"));
+  rewards.claim(other.campusId(),s.user,DailyMission.QUIET_TIME);
+  assertThat(wallet.wallet(s.user).balance()).isEqualTo(30);
+ }
+
 }

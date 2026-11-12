@@ -3554,3 +3554,62 @@ include::{snippets}/daily-mission-get/http-response.adoc[]
 include::{snippets}/daily-mission-claim/http-request.adoc[]
 include::{snippets}/daily-mission-claim/http-response.adoc[]
 include::{snippets}/daily-mission-unsaved/http-response.adoc[]
+
+== Companion Economy (검증 중)
+
+포인트와 동물·정원은 계정 공통이다. 동물 경제 조회·변경은 Spring 인증 API로만 수행하고 Supabase Data API에는 공개하지 않는다.
+
+=== Point Wallet
+GET `/api/v1/points/me/wallet`은 현재 잔액과 버전을 반환한다.
+include::{snippets}/points-wallet/http-request.adoc[]
+include::{snippets}/points-wallet/http-response.adoc[]
+
+=== Companion Catalog
+include::{snippets}/companions-catalog/http-request.adoc[]
+include::{snippets}/companions-catalog/http-response.adoc[]
+
+=== Draw
+Idempotency-Key는 1~80자의 영문·숫자·하이픈·밑줄이다. 재시도는 반드시 같은 키와 같은 body를 사용한다. 같은 키에 다른 요청은409다. 결과의 balance는 처리 당시 snapshot이므로 최신 지갑 조회와 구분한다. count는1 또는10이며 가격·결과는 서버가 결정한다.
+include::{snippets}/companions-draw/http-request.adoc[]
+include::{snippets}/companions-draw/http-response.adoc[]
+
+=== Inventory / Garden / Sale
+GET `/api/v1/companions/me/inventory`: filter=OWNED/DUPLICATES/ALL/UNEQUIPPED, sort=CATALOG/RARITY/COUNT, rarity, query, page(0부터), size(1~100). 배치 중인 친구가 먼저 표시된다.
+GET/PUT `/api/v1/companions/me/garden`: version,backgroundId,placements. 최대5마리이며 slot/designId 중복 금지, x/y는0~1. 미소유 자산403, 이전 버전409. backgroundId=null은 별도 보유 배경을 적용하지 않은 기본 상태다.
+POST `/api/v1/companions/me/sales`: Idempotency-Key와 designId/quantity를 전달한다. 마지막1마리는 남겨두며 가격은 서버가 결정한다. 소유권·수량·잔액 변경과 원장 및 결과 저장은 단일 transaction이다.
+
+=== 일간 출석 상태와 10P 수령
+한국 시간 기준 계정당 하루 한 번 지급한다. 날짜·금액을 클라이언트에서 받지 않는다. 재요청은 추가 적립하지 않으며 현재 잔액을 반환한다.
+include::{snippets}/points-attendance/http-request.adoc[]
+include::{snippets}/points-attendance/http-response.adoc[]
+include::{snippets}/points-attendance-claim/http-request.adoc[]
+include::{snippets}/points-attendance-claim/http-response.adoc[]
+
+=== 본인 뽑기 이력
+page는 0부터 시작하며 페이지당 20건, 최신순이다. 결과의 balance는 해당 뽑기 당시 잔액이다.
+include::{snippets}/companions-draw-history/http-request.adoc[]
+include::{snippets}/companions-draw-history/http-response.adoc[]
+
+=== 주간·월간 미션 조회 및 수령
+활성 캠퍼스 멤버 본인만 사용할 수 있다. 포인트와 대상 기간은 서버가 결정하며 요청 본문으로 금액·기간을 받지 않는다.
+
+[cols="2,1,3"]
+|===
+|mission |포인트 |근거
+|WEEKLY_SUBMISSION |100 |이번 주 경건 최종 제출
+|WEEKLY_VOTE |50 |이번 주 최초 생성된 유효 투표 응답
+|WEEKLY_NO_PENALTY |50 |전주 제출 완료 및 경건 벌금 없음
+|MONTHLY_NO_PENALTY |200 |확정 가능한 직전 월의 모든 대상 주 제출 및 경건 벌금 없음
+|MONTHLY_ALL_SUBMISSIONS |300 |확정 가능한 직전 월의 모든 대상 주 최종 제출
+|===
+
+한국 시간 월요일을 주의 시작으로 사용한다. 월간 대상 주는 월요일이 해당 월에 속한 주이며 마지막 주가 다음 달까지 이어지면 그 주가 끝난 뒤 보상이 열린다. 응답의 periodStart/periodEnd는 보상 대상 기간, availableAt/expiresAt은 수령 가능 구간이다. 가장 최근 확정 가능한 월만 제공하며, 월 마지막 주 집계 중에는 그 이전에 확정된 월이 표시될 수 있다.
+
+상태는 INCOMPLETE/READY/CLAIMED이다. 미제출자는 무벌금 대상이 아니고 가입·재가입 이전 기간은 인정하지 않는다. PENALTY/DEVOTION_RECORD만 벌금 근거로 반영하며 COFFEE와 MEAL 청구는 제외한다. PAID/WAIVED 벌금도 발생한 벌금으로 본다. 기존 관리자 취소 흐름으로 재오픈된 경건 기록은 재제출 전에는 미완료이며, 0원 재제출 후 남은 CANCELED 청구는 벌금에서 제외한다.
+
+같은 계정·미션·대상 기간은 여러 캠퍼스에서도 한 번만 적립된다. 이미 수령한 요청은 현재 상태·잔액을 반환한다. 지급 이후 관리자 정정은 자동 차감하지 않고 지급 근거를 운영 확인 자료로 보존한다. 조건 미충족 수령은 409 PERIOD_MISSION_NOT_READY로 실패한다.
+
+include::{snippets}/period-missions/http-request.adoc[]
+include::{snippets}/period-missions/http-response.adoc[]
+include::{snippets}/period-mission-claim/http-request.adoc[]
+include::{snippets}/period-mission-claim/http-response.adoc[]
