@@ -22,7 +22,7 @@ public class CompanionCatalogService {
   if(q.rarity()!=null)where+=" AND d.rarity=:rarity";
   where+=" AND (d.name ILIKE :search ESCAPE E'\\\\' OR d.species_name ILIKE :search ESCAPE E'\\\\')";
   String order=switch(q.sort()){
-   case "RARITY" -> "CASE d.rarity WHEN 'UNIQUE' THEN 5 WHEN 'EPIC' THEN 4 WHEN 'RARE' THEN 3 WHEN 'UNCOMMON' THEN 2 ELSE 1 END DESC,d.catalog_order";
+   case "RARITY" -> "CASE d.rarity WHEN 'MIRACLE' THEN 6 WHEN 'UNIQUE' THEN 5 WHEN 'EPIC' THEN 4 WHEN 'RARE' THEN 3 WHEN 'UNCOMMON' THEN 2 ELSE 1 END DESC,d.catalog_order";
    case "COUNT" -> "coalesce(u.quantity,0) DESC,d.catalog_order";
    default -> "d.catalog_order";
   };
