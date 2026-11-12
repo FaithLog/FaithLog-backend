@@ -49,10 +49,19 @@ public class PeriodMissionService {
   return jdbc.queryForObject("SELECT count(*) FROM mission_claims WHERE user_id=:user AND mission_code=:mission AND period_start=:start",new MapSqlParameterSource("user",user).addValue("mission",mission.name()).addValue("start",window.start()),Long.class)>0;
  }
  private Snapshot snapshot(Long campus,Long user,Instant joined,Instant now) {
+  var windows=new EnumMap<PeriodMission,MissionWindow>(PeriodMission.class);
+  for(var mission:PeriodMission.values())windows.put(mission,MissionWindow.forMission(mission,now));
+  var starts=windows.values().stream().map(MissionWindow::start).distinct().toList();
+  var claimedKeys=new HashSet<>(jdbc.query("SELECT mission_code,period_start FROM mission_claims WHERE user_id=:user AND period_start IN (:starts)",new MapSqlParameterSource("user",user).addValue("starts",starts),(rs,n)->rs.getString("mission_code")+":"+rs.getDate("period_start").toLocalDate()));
+  var pending=windows.entrySet().stream().filter(e->!claimedKeys.contains(e.getKey().name()+":"+e.getValue().start())).toList();
+  var dates=pending.stream().filter(e->e.getKey()!=PeriodMission.WEEKLY_VOTE).flatMap(e->e.getValue().weeks().stream()).distinct().sorted().toList();
+  var allWeeks=dates.isEmpty()?List.<MissionEvidence.Week>of():submittedWeeks(campus,user,joined,now,dates);
+  var vote=pending.stream().anyMatch(e->e.getKey()==PeriodMission.WEEKLY_VOTE)?evidence(campus,user,joined,now,PeriodMission.WEEKLY_VOTE,windows.get(PeriodMission.WEEKLY_VOTE)):new MissionEvidence(List.of(),List.of());
   var items=new ArrayList<Item>();
   for(var mission:PeriodMission.values()) {
-   var window=MissionWindow.forMission(mission,now);
-   String status=claimed(user,mission,window)?"CLAIMED":evidence(campus,user,joined,now,mission,window).eligible(mission,window,joined)?"READY":"INCOMPLETE";
+   var window=windows.get(mission);
+   var source=mission==PeriodMission.WEEKLY_VOTE?vote:new MissionEvidence(allWeeks.stream().filter(w->window.weeks().contains(w.start())).toList(),List.of());
+   String status=claimedKeys.contains(mission.name()+":"+window.start())?"CLAIMED":source.eligible(mission,window,joined)?"READY":"INCOMPLETE";
    items.add(new Item(mission,mission.points(),status,window.start(),window.end(),window.availableAt(),window.expiresAt()));
   }
   return new Snapshot(now,wallet.wallet(user).balance(),List.copyOf(items));
@@ -64,11 +73,14 @@ public class PeriodMissionService {
    var responses=jdbc.queryForList("SELECT r.id FROM poll_responses r JOIN polls p ON p.id=r.poll_id WHERE r.user_id=:user AND p.campus_id=:campus AND p.status IN ('OPEN','CLOSED') AND r.created_at>=:from AND r.created_at<:until AND r.created_at>=:joined AND r.created_at<=:now AND EXISTS(SELECT 1 FROM poll_response_options ro JOIN poll_options o ON o.id=ro.option_id AND o.poll_id=p.id WHERE ro.response_id=r.id) ORDER BY r.created_at,r.id LIMIT 1",p,Long.class);
    return new MissionEvidence(List.of(),responses);
   }
-  p.addValue("weeks",window.weeks());
+  return new MissionEvidence(submittedWeeks(campus,user,joined,now,window.weeks()),List.of());
+ }
+ private List<MissionEvidence.Week> submittedWeeks(Long campus,Long user,Instant joined,Instant now,List<LocalDate> dates) {
+  var p=params(campus,user).addValue("joined",Timestamp.from(joined)).addValue("now",Timestamp.from(now)).addValue("weeks",dates);
   // One statement reads submission and penalty state from the same MVCC snapshot.
   // A CANCELED penalty reopens submission; a zero-penalty resubmission keeps that row canceled.
   var weeks=jdbc.query("SELECT w.id,w.week_start_date,EXISTS(SELECT 1 FROM charge_items c WHERE c.campus_id=w.campus_id AND c.user_id=w.user_id AND c.source_id=w.id AND c.source_type='DEVOTION_RECORD' AND c.payment_category='PENALTY' AND c.amount>0 AND c.status<>'CANCELED') AS penalty FROM weekly_devotion_records w WHERE w.campus_id=:campus AND w.user_id=:user AND w.week_start_date IN (:weeks) AND w.submitted_at IS NOT NULL AND w.submitted_at>=:joined AND w.submitted_at<=:now ORDER BY w.week_start_date",p,(rs,n)->new MissionEvidence.Week(rs.getLong("id"),rs.getDate("week_start_date").toLocalDate(),rs.getBoolean("penalty")));
-  return new MissionEvidence(weeks,List.of());
+  return weeks;
  }
  private static MapSqlParameterSource params(Long campus,Long user) {return new MapSqlParameterSource("campus",campus).addValue("user",user);}
  private record EvidenceSnapshot(String policyVersion,MissionWindow window,Instant joinedAt,MissionEvidence evidence) {}

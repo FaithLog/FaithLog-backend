@@ -91,7 +91,7 @@ jobs:
 
       - name: Verify starter points and backgrounds on PostgreSQL
         if: steps.gradle.outputs.present == 'true'
-        run: ./gradlew test --tests '*StarterPointsMigrationTest' --tests '*StarterBackgroundsTest' --tests '*CompanionPostgresQaTest' --tests '*PeriodMissionPostgresQaTest'
+        run: ./gradlew test --tests '*StarterPointsMigrationTest' --tests '*StarterBackgroundsTest' --tests '*CompanionPostgresQaTest' --tests '*PeriodMissionPostgresQaTest' --tests '*PollCommentQueryServiceTest' --tests '*CalendarDailyRewardServiceTest' --tests '*BillingQueryServiceTest'
 
       - name: Run tests
         if: steps.gradle.outputs.present == 'true'
