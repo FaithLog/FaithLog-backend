@@ -103,6 +103,7 @@ class CalendarDailyRewardServiceTest {
   daily.updateDailyCheck(new UpdateDailyDevotionCommand(s.campus,s.user,TODAY,true,false,false));
   daily.updateDailyCheck(new UpdateDailyDevotionCommand(other.campusId(),s.user,TODAY,true,false,false));
   rewards.claim(s.campus,s.user,DailyMission.QUIET_TIME);
+  assertThat(rewards.getToday(other.campusId(),s.user).missions()).filteredOn(m -> m.mission()==DailyMission.QUIET_TIME).allMatch(m -> m.status().equals("CLAIMED"));
   rewards.claim(other.campusId(),s.user,DailyMission.QUIET_TIME);
   assertThat(wallet.wallet(s.user).balance()).isEqualTo(30);
  }

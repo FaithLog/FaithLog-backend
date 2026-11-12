@@ -3,6 +3,7 @@ package com.faithlog.global.exception;
 import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
+ PERIOD_MISSION_NOT_READY(HttpStatus.CONFLICT, "해당 기간의 미션 조건을 아직 충족하지 못했습니다."),
  COMPANION_REQUEST_CONFLICT(HttpStatus.CONFLICT, "같은 요청 키에 다른 내용이 전달되었습니다."),
  COMPANION_INSUFFICIENT_POINTS(HttpStatus.CONFLICT, "포인트가 부족합니다."),
  COMPANION_INVALID_SALE(HttpStatus.CONFLICT, "판매 가능한 중복 수량을 확인해 주세요."),

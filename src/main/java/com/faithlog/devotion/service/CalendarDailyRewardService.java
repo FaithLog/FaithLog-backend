@@ -26,8 +26,9 @@ public class CalendarDailyRewardService {
  private final DevotionDailyCheckRepository checks;
  private final Clock clock;
  private final com.faithlog.points.PointWalletService pointWallet;
- public CalendarDailyRewardService(CampusMemberRepositoryPort members, CampusUserLookupPort users, CalendarDailyRewardRepository rewards, WeeklyDevotionRecordRepository weeks, DevotionDailyCheckRepository checks, Clock clock, com.faithlog.points.PointWalletService pointWallet) {
-  this.members=members; this.users=users; this.rewards=rewards; this.weeks=weeks; this.checks=checks; this.clock=clock; this.pointWallet=pointWallet;
+ private final com.faithlog.points.PointTransactionRepository pointTransactions;
+ public CalendarDailyRewardService(CampusMemberRepositoryPort members, CampusUserLookupPort users, CalendarDailyRewardRepository rewards, WeeklyDevotionRecordRepository weeks, DevotionDailyCheckRepository checks, Clock clock, com.faithlog.points.PointWalletService pointWallet, com.faithlog.points.PointTransactionRepository pointTransactions) {
+  this.members=members; this.users=users; this.rewards=rewards; this.weeks=weeks; this.checks=checks; this.clock=clock; this.pointWallet=pointWallet;this.pointTransactions=pointTransactions;
  }
  // Serialize scope creation and claim, including a first-ever calendar save.
  public void lockMember(Long campusId,Long userId) {
@@ -56,15 +57,18 @@ public class CalendarDailyRewardService {
   var rows=rewards.findByCampusIdAndUserIdAndRecordDate(campusId,userId,date);
   LocalDate monday=date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
   DevotionDailyCheck current=weeks.findByCampusIdAndUserIdAndWeekStartDate(campusId,userId,monday).flatMap(week -> checks.findByWeeklyRecordIdAndRecordDate(week.id(),date)).orElse(null);
-  if (claim!=null) {
+  var claimed=EnumSet.noneOf(DailyMission.class);
+  for(var mission:DailyMission.values())if(pointTransactions.findByUserIdAndBusinessKey(userId,"daily:"+date+":"+mission.name()).isPresent())claimed.add(mission);
+  if (claim!=null && !claimed.contains(claim)) {
    var reward=rows.stream().filter(r -> r.mission()==claim).findFirst().orElseThrow(() -> new BusinessException(ErrorCode.DEVOTION_MISSION_NOT_READY));
    reward.claim(now,claim.checked(current));
    rewards.saveAndFlush(reward);
    pointWallet.settle(userId,30,"daily:"+date+":"+claim.name());
+   claimed.add(claim);
   }
   var items=Arrays.stream(DailyMission.values()).map(mission -> {
    var reward=rows.stream().filter(r -> r.mission()==mission).findFirst().orElse(null);
-   String status=reward!=null && reward.claimedAt()!=null ? "CLAIMED" : reward!=null && reward.ready(mission.checked(current)) ? "READY" : "INCOMPLETE";
+   String status=claimed.contains(mission) || reward!=null && reward.claimedAt()!=null ? "CLAIMED" : reward!=null && reward.ready(mission.checked(current)) ? "READY" : "INCOMPLETE";
    return new DailyMissionResult.Item(mission,status,30);
   }).toList();
   return new DailyMissionResult(date,now,rewards.totalAwarded(campusId,userId),items);
