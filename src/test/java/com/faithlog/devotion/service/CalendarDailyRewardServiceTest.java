@@ -47,6 +47,14 @@ class CalendarDailyRewardServiceTest {
   var campus=campuses.createCampus(new CreateCampusCommand(user.id(),"미션캠","분당","테스트"));
   return new Scope(campus.campusId(),user.id());
  }
+ @org.springframework.test.context.bean.override.mockito.MockitoSpyBean com.faithlog.points.PointTransactionRepository pointLedger;
+ @Test void loads_all_daily_claim_keys_in_one_query() {
+  var s=scope();
+  org.mockito.Mockito.clearInvocations(pointLedger);
+  rewards.getToday(s.campus,s.user);
+  org.mockito.Mockito.verify(pointLedger).findBusinessKeysByUserIdAndBusinessKeyIn(org.mockito.ArgumentMatchers.eq(s.user),org.mockito.ArgumentMatchers.anyCollection());
+  org.mockito.Mockito.verify(pointLedger,org.mockito.Mockito.never()).findByUserIdAndBusinessKey(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString());
+ }
  @Test void only_successful_calendar_save_opens_rewards_and_unchecking_closes_unclaimed_rewards() {
   var s=scope();
   assertThat(rewards.getToday(s.campus,s.user).recordDate()).isEqualTo(TODAY);

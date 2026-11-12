@@ -72,6 +72,17 @@ class PeriodMissionPostgresQaTest {
   jdbc.update("INSERT INTO charge_items(campus_id,user_id,payment_category,payment_account_id,bank_name_snapshot,account_number_snapshot,account_holder_snapshot,source_type,source_id,title,amount,status,paid_at,created_at,updated_at) VALUES(?,?,?,?, 'test-only','test-only','QA',?,?,'QA',100,?,?,?,?)",s.campus,s.user,category,account,source,sourceId,status,status.equals("PAID")?Timestamp.from(NOW):null,Timestamp.from(NOW),Timestamp.from(NOW));
  }
  private String missionStatus(Scope s,PeriodMission mission) {return missions.get(s.campus,s.user).missions().stream().filter(m->m.mission()==mission).findFirst().orElseThrow().status();}
+ @org.springframework.test.context.bean.override.mockito.MockitoSpyBean org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate missionQueries;
+ @Test void mission_snapshot_batches_claims_and_weekly_evidence_queries() {
+  var s=scope();
+  for(var d:MissionWindow.forMission(PeriodMission.MONTHLY_ALL_SUBMISSIONS,NOW).weeks())week(s,d,true);
+  week(s,LocalDate.of(2026,12,7),true);vote(s,NOW.minusSeconds(60),true);
+  org.mockito.Mockito.clearInvocations(missionQueries);
+  assertThat(missions.get(s.campus,s.user).missions()).allMatch(m->m.status().equals("READY"));
+  var calls=org.mockito.Mockito.mockingDetails(missionQueries).getInvocations().stream().filter(i->i.getMethod().getName().equals("query")&&i.getArguments().length>0&&i.getArgument(0) instanceof String).map(i->(String)i.getArgument(0)).toList();
+  assertThat(calls.stream().filter(sql->sql.contains("FROM mission_claims")).count()).isEqualTo(1);
+  assertThat(calls.stream().filter(sql->sql.contains("FROM weekly_devotion_records")).count()).isEqualTo(1);
+ }
  @Test void all_five_missions_use_real_sources_and_account_common_claims() {
   var s=scope();
   for(var d:MissionWindow.forMission(PeriodMission.MONTHLY_ALL_SUBMISSIONS,NOW).weeks())week(s,d,true);
