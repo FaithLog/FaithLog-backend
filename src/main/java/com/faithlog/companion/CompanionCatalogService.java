@@ -30,7 +30,8 @@ public class CompanionCatalogService {
   var items=jdbc.query("SELECT d.*,coalesce(u.quantity,0) AS quantity"+where+" ORDER BY CASE WHEN EXISTS(SELECT 1 FROM garden_placements g WHERE g.user_id=:user AND g.design_id=d.design_id) THEN 0 ELSE 1 END,"+order+" LIMIT :limit OFFSET :offset",params,(rs,n)->design(rs));
   return new Inventory(items,q.page(),q.size(),total);
  }
- public List<Background> backgrounds(Long id){authenticate(id);return jdbc.query("SELECT b.*,u.user_id IS NOT NULL AS owned FROM backgrounds b LEFT JOIN user_backgrounds u ON u.background_id=b.background_id AND u.user_id=:user WHERE b.active=true OR u.user_id IS NOT NULL ORDER BY b.background_id",Map.of("user",id),(rs,n)->new Background(rs.getString("background_id"),rs.getString("name"),rs.getString("description"),rs.getString("asset_key"),rs.getBoolean("active"),rs.getBoolean("owned")));}
+ @Transactional(readOnly=false)
+ public List<Background> backgrounds(Long id){authenticate(id);StarterBackgrounds.grant(jdbc,id);return jdbc.query("SELECT b.*,u.user_id IS NOT NULL AS owned FROM backgrounds b LEFT JOIN user_backgrounds u ON u.background_id=b.background_id AND u.user_id=:user WHERE b.active=true OR u.user_id IS NOT NULL ORDER BY b.background_id",Map.of("user",id),(rs,n)->new Background(rs.getString("background_id"),rs.getString("name"),rs.getString("description"),rs.getString("asset_key"),rs.getBoolean("active"),rs.getBoolean("owned")));}
  private Design design(java.sql.ResultSet rs)throws java.sql.SQLException{return new Design(rs.getString("design_id"),rs.getString("species_code"),rs.getString("name"),rs.getString("rarity"),rs.getString("asset_key"),rs.getBoolean("active"),rs.getLong("quantity"));}
  public record Design(String designId,String speciesCode,String name,String rarity,String assetKey,boolean active,long quantity){}
  public record Inventory(List<Design> items,int page,int size,long total){}
