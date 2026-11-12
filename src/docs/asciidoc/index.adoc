@@ -3613,3 +3613,8 @@ include::{snippets}/period-missions/http-request.adoc[]
 include::{snippets}/period-missions/http-response.adoc[]
 include::{snippets}/period-mission-claim/http-request.adoc[]
 include::{snippets}/period-mission-claim/http-response.adoc[]
+
+=== 동물 중복 판매가 조회
+등급별 서버 판매가와 정책 버전을 반환한다. 실제 판매 정산은 서버가 보유 수량과 현재 단가로 검증한다.
+include::{snippets}/companions-sale-prices/http-request.adoc[]
+include::{snippets}/companions-sale-prices/http-response.adoc[]
