@@ -89,6 +89,10 @@ jobs:
         if: steps.gradle.outputs.present == 'true'
         run: chmod +x ./gradlew
 
+      - name: Verify starter points and backgrounds on PostgreSQL
+        if: steps.gradle.outputs.present == 'true'
+        run: ./gradlew test --tests '*StarterPointsMigrationTest' --tests '*StarterBackgroundsTest' --tests '*CompanionPostgresQaTest' --tests '*PeriodMissionPostgresQaTest'
+
       - name: Run tests
         if: steps.gradle.outputs.present == 'true'
         run: ./gradlew test
