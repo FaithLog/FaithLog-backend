@@ -97,13 +97,16 @@ class CompanionExperienceDecayPolicyTest {
         var stats = new Snapshot(new Meters(100, 100, 100, 100, 100), START, origin, 0);
         var at72 = CompanionExperienceDecayPolicy.evaluate(ex, stats,
                 origin.plus(Duration.ofHours(72)));
-        assertThat(at72.lostXp()).isZero();
+        assertThat(at72.lostXp()).isEqualTo(10);
         var at73 = CompanionExperienceDecayPolicy.evaluate(
                 at72.experience(), at72.care(), START.plus(Duration.ofHours(73)));
-        assertThat(at73.lostXp()).isEqualTo(10);
+        assertThat(at73.lostXp()).isZero();
         var rolledBack = CompanionExperienceDecayPolicy.evaluate(
                 at73.experience(), at73.care(), START);
         assertThat(rolledBack.experience()).isEqualTo(at73.experience());
+        assertThat(CompanionExperienceDecayPolicy.evaluate(
+                at73.experience(), at73.care(), START.plus(Duration.ofHours(73))).lostXp())
+                .isZero();
     }
 
     @Test void care_rewards_increase_both_counters_but_decayed_xp_is_not_refunded() {

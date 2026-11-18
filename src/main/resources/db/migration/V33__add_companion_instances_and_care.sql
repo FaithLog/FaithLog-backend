@@ -16,6 +16,7 @@ CREATE TABLE companion_instances (
   last_evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_cared_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   elapsed_hours BIGINT NOT NULL DEFAULT 0 CHECK (elapsed_hours >= 0),
+  xp_decay_days BIGINT NOT NULL DEFAULT 0 CHECK (xp_decay_days >= 0),
   last_care_date DATE,
   daily_xp_date DATE,
   daily_xp_earned INTEGER NOT NULL DEFAULT 0 CHECK (daily_xp_earned BETWEEN 0 AND 100),

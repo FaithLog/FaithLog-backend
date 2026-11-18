@@ -54,11 +54,12 @@ public class CompanionInstanceService {
     private record Row(UUID id, String designId, int level, long growthXp, long totalEarnedXp,
                        int careDays, int satiety, int cleanliness, int joy, int affection,
                        int health, Instant lastEvaluatedAt, Instant lastCaredAt,
-                       long elapsedHours, LocalDate lastCareDate, LocalDate dailyXpDate,
+                       long elapsedHours, long xpDecayDays, LocalDate lastCareDate, LocalDate dailyXpDate,
                        int dailyXpEarned, long version) {
         private CompanionExperienceDecayPolicy.Experience experience() {
             return new CompanionExperienceDecayPolicy.Experience(
-                    level, growthXp, totalEarnedXp, lastEvaluatedAt, lastCaredAt);
+                    level, growthXp, totalEarnedXp, lastEvaluatedAt, lastCaredAt,
+                    xpDecayDays);
         }
         private CompanionNeglectPolicy.Snapshot care() {
             return new CompanionNeglectPolicy.Snapshot(
@@ -76,6 +77,7 @@ public class CompanionInstanceService {
                 rs.getInt("joy"), rs.getInt("affection"), rs.getInt("health"),
                 rs.getTimestamp("last_evaluated_at").toInstant(),
                 rs.getTimestamp("last_cared_at").toInstant(), rs.getLong("elapsed_hours"),
+                rs.getLong("xp_decay_days"),
                 careDate == null ? null : careDate.toLocalDate(),
                 dailyDate == null ? null : dailyDate.toLocalDate(),
                 rs.getInt("daily_xp_earned"), rs.getLong("version"));
@@ -218,13 +220,15 @@ public class CompanionInstanceService {
                 .addValue("evaluated",Timestamp.from(state.lastEvaluatedAt()))
                 .addValue("cared",Timestamp.from(state.lastCaredAt()))
                 .addValue("hours",state.elapsedHours())
+                .addValue("xpDecayDays",xp.evaluatedDecayDays())
                 .addValue("careDate",lastCareDate)
                 .addValue("xpDate",dailyXpDate).addValue("xpEarned",dailyXpEarned);
         int changed = jdbc.update(
                 "UPDATE companion_instances SET level=:level,growth_xp=:xp,total_earned_xp=:totalXp,"
                 + "care_days=:careDays,satiety=:food,cleanliness=:clean,joy=:joy,"
                 + "affection=:affection,health=:health,last_evaluated_at=:evaluated,"
-                + "last_cared_at=:cared,elapsed_hours=:hours,last_care_date=:careDate,"
+                + "last_cared_at=:cared,elapsed_hours=:hours,xp_decay_days=:xpDecayDays,"
+                + "last_care_date=:careDate,"
                 + "daily_xp_date=:xpDate,daily_xp_earned=:xpEarned,version=version+1 "
                 + "WHERE user_id=:user AND id=:id AND version=:oldVersion",
                 params);

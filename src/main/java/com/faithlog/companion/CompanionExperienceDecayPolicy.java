@@ -37,7 +37,13 @@ public final class CompanionExperienceDecayPolicy {
      * Both timestamps must track the matching care-meter snapshot.
      */
     public record Experience(int level, long growthXp, long totalEarnedXp,
-                             Instant lastEvaluatedAt, Instant lastCaredAt) {
+                             Instant lastEvaluatedAt, Instant lastCaredAt,
+                             long evaluatedDecayDays) {
+        /** Backward-compatible constructor for a new, unprocessed XP snapshot. */
+        public Experience(int level, long growthXp, long totalEarnedXp,
+                          Instant lastEvaluatedAt, Instant lastCaredAt) {
+            this(level, growthXp, totalEarnedXp, lastEvaluatedAt, lastCaredAt, 0L);
+        }
         public Experience {
             long floor = floorForLevel(level);
             if (growthXp < floor || totalEarnedXp < growthXp) {
@@ -45,6 +51,7 @@ public final class CompanionExperienceDecayPolicy {
             }
             Objects.requireNonNull(lastEvaluatedAt, "lastEvaluatedAt");
             Objects.requireNonNull(lastCaredAt, "lastCaredAt");
+            if (evaluatedDecayDays < 0) throw new IllegalArgumentException("Negative XP decay cursor");
         }
 
         public CompanionGrowthPolicy.State growthState(
@@ -87,8 +94,11 @@ public final class CompanionExperienceDecayPolicy {
 
         var updatedCare = CompanionNeglectPolicy.evaluate(care, now);
         Instant through = updatedCare.lastEvaluatedAt();
-        long firstTick = elapsedDecayDays(previous.lastCaredAt(), previous.lastEvaluatedAt());
-        long lastTick = elapsedDecayDays(previous.lastCaredAt(), through);
+        long firstTick = previous.evaluatedDecayDays();
+        // A separate XP-day cursor is required: care timestamps may be offset by
+        // minutes relative to the hourly status cursor. Never round the 72h XP
+        // boundary back to the previous full hour or charge the same day twice.
+        long lastTick = elapsedDecayDays(previous.lastCaredAt(), now);
         long currentXp = previous.growthXp();
         long floor = floorForLevel(previous.level());
         long lostXp = 0L;
@@ -110,7 +120,7 @@ public final class CompanionExperienceDecayPolicy {
         }
 
         return new Result(new Experience(previous.level(), currentXp,
-                previous.totalEarnedXp(), through, previous.lastCaredAt()),
+                previous.totalEarnedXp(), through, previous.lastCaredAt(), lastTick),
                 updatedCare, lostXp);
     }
 
@@ -126,7 +136,7 @@ public final class CompanionExperienceDecayPolicy {
         var updatedCare = CompanionNeglectPolicy.markCaredFor(settled.care(), now);
         var xp = settled.experience();
         return new Result(new Experience(xp.level(), xp.growthXp(),
-                xp.totalEarnedXp(), updatedCare.lastEvaluatedAt(), now),
+                xp.totalEarnedXp(), updatedCare.lastEvaluatedAt(), now, 0L),
                 updatedCare, settled.lostXp());
     }
 
@@ -139,7 +149,7 @@ public final class CompanionExperienceDecayPolicy {
         return new Experience(state.level(),
                 Math.addExact(state.growthXp(), grantedXp),
                 Math.addExact(state.totalEarnedXp(), grantedXp),
-                state.lastEvaluatedAt(), state.lastCaredAt());
+                state.lastEvaluatedAt(), state.lastCaredAt(), state.evaluatedDecayDays());
     }
 
     /** Advance the stage only after the established evolution checks pass. */
@@ -151,7 +161,8 @@ public final class CompanionExperienceDecayPolicy {
         requireAligned(state, care);
         var evolved = CompanionGrowthPolicy.evolve(state.growthState(care, distinctCareDays));
         return new Experience(evolved.level(), state.growthXp(),
-                state.totalEarnedXp(), state.lastEvaluatedAt(), state.lastCaredAt());
+                state.totalEarnedXp(), state.lastEvaluatedAt(), state.lastCaredAt(),
+                state.evaluatedDecayDays());
     }
 
     private static void requireAligned(Experience state, CompanionNeglectPolicy.Snapshot care) {
