@@ -62,8 +62,8 @@ export const options = {
   setupTimeout: '5m',
   summaryTrendStats: ['avg', 'med', 'p(50)', 'p(95)', 'p(99)', 'max'],
   thresholds: {
-    farm_response_ok: ['rate==1'],
-    http_req_failed: ['rate==0'],
+    farm_response_ok: ['rate>=1'],
+    http_req_failed: ['rate<=0'],
   },
 };
 
