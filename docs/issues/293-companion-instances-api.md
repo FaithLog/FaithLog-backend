@@ -31,3 +31,5 @@
 - 홈 쿼리의 효율은 `ix_companion_instances_user_design`, 목록 정렬은 `ix_companion_instances_owner_acquired` 인덱스로 뒷받침한다.
 - 기존 디자인별 배치는 첫 번째 인스턴스를 선택한다. 동일 디자인 두 마리의 서로 다른 돌봄·배치는 후속 인스턴스 배치 개발에 속한다.
 - 실제 응답 시간/쿼리 실행 계획은 운영 대표 데이터로 별도 측정해야 한다. 검증 전 특정 ms/배수 향상 주장은 하지 않는다.
+
+- `GET /api/v1/companions/me/garden`는 **읽기 전용**으로 변경: 매 홈 진입마다 사용자행 잠금/무료 배경 재지급/정원 UPSERT를 반복하지 않음. 정원 미등록이면 기존 계약의 비어 있는 기본 정원(version=0)을 반환하고, 첫 PUT에서 정상 초기화한다. #295 PostgreSQL 통합 테스트 포함.

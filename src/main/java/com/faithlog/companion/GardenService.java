@@ -15,11 +15,22 @@ public class GardenService {
   StarterBackgrounds.grant(jdbc,user);
   jdbc.update("INSERT INTO user_gardens(user_id,version,updated_at) VALUES(:user,0,:now) ON CONFLICT(user_id) DO NOTHING",new MapSqlParameterSource("user",user).addValue("now",java.sql.Timestamp.from(clock.instant())));
  }
- @Transactional public Garden get(Long user){initialize(user);return read(user);}
+ // The homepage must not mutate the user's account on GET, acquire wallet
+ // locks, or insert background/garden rows every time the screen is revisited.
+ // First PUT still initializes both legacy background entitlements and garden.
+ @Transactional(readOnly=true) public Garden get(Long user){
+  Long active=jdbc.queryForObject(
+   "SELECT count(*) FROM users WHERE id=:user AND is_active=true AND deleted_at IS NULL",
+   Map.of("user",user),Long.class);
+  if(active==null||active!=1L)throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
+  return read(user);
+ }
  private Garden read(Long user){
   var params=Map.of("user",user);
   var placements=jdbc.query("SELECT slot,design_id,x,y FROM garden_placements WHERE user_id=:user ORDER BY slot",params,(rs,n)->new GardenUpdate.Placement(rs.getInt("slot"),rs.getString("design_id"),rs.getDouble("x"),rs.getDouble("y")));
-  return jdbc.queryForObject("SELECT version,background_id FROM user_gardens WHERE user_id=:user",params,(rs,n)->new Garden(rs.getLong("version"),rs.getString("background_id"),placements));
+  var gardens=jdbc.query("SELECT version,background_id FROM user_gardens WHERE user_id=:user",
+   params,(rs,n)->new Garden(rs.getLong("version"),rs.getString("background_id"),placements));
+  return gardens.isEmpty()?new Garden(0,null,List.of()):gardens.getFirst();
  }
  @Transactional public Garden save(Long user,GardenUpdate request){
   initialize(user);

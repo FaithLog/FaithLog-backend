@@ -136,6 +136,27 @@ class CompanionPostgresQaTest {
   assertThat(wallet.wallet(other).balance()).isEqualTo(1000);
  }
 
+ @Test void garden_get_is_read_only_and_initial_put_still_assigns_backgrounds() {
+  Long user=account();
+  for(int attempt=0;attempt<4;attempt++){
+   var garden=gardens.get(user);
+   assertThat(garden.version()).isZero();
+   assertThat(garden.backgroundId()).isNull();
+   assertThat(garden.placements()).isEmpty();
+  }
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_gardens WHERE user_id=?",
+          Long.class,user)).isZero();
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_backgrounds WHERE user_id=?",
+          Long.class,user)).isZero();
+  var changed=gardens.save(user,new GardenUpdate(0,"meadow",List.of()));
+  assertThat(changed.backgroundId()).isEqualTo("meadow");
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_gardens WHERE user_id=?",
+          Long.class,user)).isEqualTo(1L);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_backgrounds WHERE user_id=?",
+          Long.class,user)).isEqualTo(5L);
+  assertThat(gardens.get(user).version()).isEqualTo(1);
+ }
+
  @Test void garden_query_is_capped_at_five_and_uses_ordered_paginated_inventory() {
   Long user=account();
   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
