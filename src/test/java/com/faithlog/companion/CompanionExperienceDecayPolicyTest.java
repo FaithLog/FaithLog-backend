@@ -60,6 +60,36 @@ class CompanionExperienceDecayPolicyTest {
                 .isZero();
     }
 
+    @Test void huge_absence_uses_bounded_decay_and_keeps_final_stage() {
+        var grown = new Experience(3, 1_000_000L, 1_000_000L, START, START);
+        var result = CompanionExperienceDecayPolicy.evaluate(
+                grown, fullMeters(), START.plus(Duration.ofDays(100_000)));
+        assertThat(result.experience().level()).isEqualTo(3);
+        assertThat(result.experience().growthXp()).isEqualTo(1000);
+        assertThat(result.experience().totalEarnedXp()).isEqualTo(1_000_000L);
+        assertThat(result.lostXp()).isEqualTo(999_000L);
+        assertThat(CompanionExperienceDecayPolicy.evaluate(
+                result.experience(),result.care(),START.plus(Duration.ofDays(100_000))).lostXp())
+                .isZero();
+    }
+
+    @Test void normal_then_danger_loss_matches_daywise_evaluations() {
+        for (int initialFood : new int[]{100,65,28,24,0}) {
+            var meters = new Meters(initialFood, 100, 100, 100, 100);
+            var care = new Snapshot(meters,START,START,0);
+            var experience = new Experience(2, 5_000, 5_000, START, START);
+            var oneShot = CompanionExperienceDecayPolicy.evaluate(
+                    experience,care,START.plus(Duration.ofDays(35)));
+            var step = new CompanionExperienceDecayPolicy.Result(experience,care,0L);
+            for(int hour=1;hour<=35*24;hour++){
+                step = CompanionExperienceDecayPolicy.evaluate(
+                        step.experience(),step.care(),START.plus(Duration.ofHours(hour)));
+            }
+            assertThat(step.experience()).isEqualTo(oneShot.experience());
+            assertThat(step.care()).isEqualTo(oneShot.care());
+        }
+    }
+
     @Test void preserves_stage_floor_and_total_earned_experience() {
         var level1 = CompanionExperienceDecayPolicy.evaluate(
                 xp(1, 120), fullMeters(), START.plus(Duration.ofDays(365)));
