@@ -189,6 +189,30 @@ class CompanionPostgresQaTest {
           Long.class,user)).isEqualTo(200L);
  }
 
+ @Test void on_demand_single_design_browse_is_bounded_and_owner_scoped() {
+  Long user=account();
+  Long another=account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'david-lamb:base',61,now())",user);
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'hope-rabbit:base',14,now())",user);
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'david-lamb:base',1,now())",another);
+  var first=instances.listByDesign(user,"david-lamb:base",0,20);
+  var second=instances.listByDesign(user,"david-lamb:base",1,20);
+  var last=instances.listByDesign(user,"david-lamb:base",3,20);
+  assertThat(first).hasSize(20);
+  assertThat(second).hasSize(20);
+  assertThat(last).hasSize(1);
+  assertThat(first).extracting(CompanionInstanceService.View::instanceId)
+          .doesNotContainAnyElementsOf(second.stream()
+                  .map(CompanionInstanceService.View::instanceId).toList());
+  assertThat(instances.listByDesign(user,"hope-rabbit:base",0,20)).hasSize(14);
+  assertThat(instances.listByDesign(another,"david-lamb:base",0,20)).hasSize(1);
+  assertThatThrownBy(()->instances.listByDesign(user,"david-lamb:base",0,51))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+ }
+
  @Test void identical_designs_bind_to_separate_owned_uuids_and_keep_independent_growth() {
   Long user=account();
   String design="david-lamb:base";

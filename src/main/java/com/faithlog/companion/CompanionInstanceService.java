@@ -152,6 +152,25 @@ public class CompanionInstanceService {
         return render(rows,clock.instant());
     }
 
+    /** Bounded on-demand collection browse; no full inventory fetch on home. */
+    @Transactional(readOnly=true)
+    public List<View> listByDesign(Long user, String design, int page, int size) {
+        if (design == null || design.isBlank() || design.length()>100
+                || page < 0 || page > 100 || size < 1 || size > 50) {
+            throw invalid();
+        }
+        authenticateRead(user);
+        var rows=jdbc.query("""
+                SELECT * FROM companion_instances
+                WHERE user_id=:user AND design_id=:design
+                ORDER BY acquired_at,id LIMIT :size OFFSET :offset
+                """,new MapSqlParameterSource("user",user)
+                .addValue("design",design)
+                .addValue("size",size).addValue("offset",page*size),
+                CompanionInstanceService::mapRow);
+        return render(rows,clock.instant());
+    }
+
     /**
      * Home scene reads only the five assigned UUIDs through the primary key.
      * There are no per-design scans or account locks on this read path.
