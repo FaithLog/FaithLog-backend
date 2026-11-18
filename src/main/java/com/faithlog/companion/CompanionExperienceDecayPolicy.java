@@ -37,7 +37,13 @@ public final class CompanionExperienceDecayPolicy {
      * Both timestamps must track the matching care-meter snapshot.
      */
     public record Experience(int level, long growthXp, long totalEarnedXp,
-                             Instant lastEvaluatedAt, Instant lastCaredAt) {
+                             Instant lastEvaluatedAt, Instant lastCaredAt,
+                             long evaluatedDecayDays) {
+        /** Backward-compatible constructor for a new, unprocessed XP snapshot. */
+        public Experience(int level, long growthXp, long totalEarnedXp,
+                          Instant lastEvaluatedAt, Instant lastCaredAt) {
+            this(level, growthXp, totalEarnedXp, lastEvaluatedAt, lastCaredAt, 0L);
+        }
         public Experience {
             long floor = floorForLevel(level);
             if (growthXp < floor || totalEarnedXp < growthXp) {
@@ -45,6 +51,7 @@ public final class CompanionExperienceDecayPolicy {
             }
             Objects.requireNonNull(lastEvaluatedAt, "lastEvaluatedAt");
             Objects.requireNonNull(lastCaredAt, "lastCaredAt");
+            if (evaluatedDecayDays < 0) throw new IllegalArgumentException("Negative XP decay cursor");
         }
 
         public CompanionGrowthPolicy.State growthState(
@@ -87,30 +94,44 @@ public final class CompanionExperienceDecayPolicy {
 
         var updatedCare = CompanionNeglectPolicy.evaluate(care, now);
         Instant through = updatedCare.lastEvaluatedAt();
-        long firstTick = elapsedDecayDays(previous.lastCaredAt(), previous.lastEvaluatedAt());
-        long lastTick = elapsedDecayDays(previous.lastCaredAt(), through);
-        long currentXp = previous.growthXp();
-        long floor = floorForLevel(previous.level());
-        long lostXp = 0L;
-
-        // This loop short-circuits as soon as the floor is reached. Even a
-        // long absence does not require calculating every missed day.
-        for (long tick = firstTick + 1; tick <= lastTick && currentXp > floor; tick++) {
-            long hoursSinceCare = Math.addExact(GRACE_HOURS,
-                    Math.multiplyExact(tick, DECAY_INTERVAL_HOURS));
-            Instant atTick = previous.lastCaredAt()
-                    .plus(hoursSinceCare, ChronoUnit.HOURS);
-            var careAtTick = CompanionNeglectPolicy.evaluate(care, atTick).meters();
-            boolean danger = careAtTick.satiety() < CompanionNeglectPolicy.LOW_METER_THRESHOLD
-                    || careAtTick.cleanliness() < CompanionNeglectPolicy.LOW_METER_THRESHOLD;
-            long requestedLoss = danger ? DANGER_DAILY_LOSS : NORMAL_DAILY_LOSS;
-            long appliedLoss = Math.min(requestedLoss, currentXp - floor);
-            currentXp -= appliedLoss;
-            lostXp += appliedLoss;
+        long firstTick = previous.evaluatedDecayDays();
+        // A separate XP-day cursor is required: care timestamps may be offset by
+        // minutes relative to the hourly status cursor. Never round the 72h XP
+        // boundary back to the previous full hour or charge the same day twice.
+        long lastTick = elapsedDecayDays(previous.lastCaredAt(), now);
+        if (lastTick < firstTick) {
+            throw new IllegalArgumentException("XP decay cursor is ahead of the clock");
         }
+        long availableXp = previous.growthXp() - floorForLevel(previous.level());
+        long missedDays = lastTick - firstTick;
+
+        // Satiety and cleanliness cannot increase without care, so all normal
+        // days precede all dangerous days. Binary-search only the first danger
+        // boundary, then use capped arithmetic instead of one loop per day.
+        // This keeps multi-year absences bounded by O(log days) meter checks.
+        long normalDays = missedDays;
+        if (availableXp > 0 && missedDays > 0
+                && dangerousAt(care, previous.lastCaredAt(), lastTick)) {
+            long left = firstTick + 1;
+            long right = lastTick;
+            while (left < right) {
+                long middle = left + (right - left) / 2;
+                if (dangerousAt(care, previous.lastCaredAt(), middle)) {
+                    right = middle;
+                } else {
+                    left = middle + 1;
+                }
+            }
+            normalDays = left - firstTick - 1;
+        }
+        long normalLoss = cappedLoss(normalDays, NORMAL_DAILY_LOSS, availableXp);
+        long dangerLoss = cappedLoss(missedDays - normalDays, DANGER_DAILY_LOSS,
+                availableXp - normalLoss);
+        long lostXp = normalLoss + dangerLoss;
+        long currentXp = previous.growthXp() - lostXp;
 
         return new Result(new Experience(previous.level(), currentXp,
-                previous.totalEarnedXp(), through, previous.lastCaredAt()),
+                previous.totalEarnedXp(), through, previous.lastCaredAt(), lastTick),
                 updatedCare, lostXp);
     }
 
@@ -126,7 +147,7 @@ public final class CompanionExperienceDecayPolicy {
         var updatedCare = CompanionNeglectPolicy.markCaredFor(settled.care(), now);
         var xp = settled.experience();
         return new Result(new Experience(xp.level(), xp.growthXp(),
-                xp.totalEarnedXp(), updatedCare.lastEvaluatedAt(), now),
+                xp.totalEarnedXp(), updatedCare.lastEvaluatedAt(), now, 0L),
                 updatedCare, settled.lostXp());
     }
 
@@ -139,7 +160,7 @@ public final class CompanionExperienceDecayPolicy {
         return new Experience(state.level(),
                 Math.addExact(state.growthXp(), grantedXp),
                 Math.addExact(state.totalEarnedXp(), grantedXp),
-                state.lastEvaluatedAt(), state.lastCaredAt());
+                state.lastEvaluatedAt(), state.lastCaredAt(), state.evaluatedDecayDays());
     }
 
     /** Advance the stage only after the established evolution checks pass. */
@@ -151,7 +172,8 @@ public final class CompanionExperienceDecayPolicy {
         requireAligned(state, care);
         var evolved = CompanionGrowthPolicy.evolve(state.growthState(care, distinctCareDays));
         return new Experience(evolved.level(), state.growthXp(),
-                state.totalEarnedXp(), state.lastEvaluatedAt(), state.lastCaredAt());
+                state.totalEarnedXp(), state.lastEvaluatedAt(), state.lastCaredAt(),
+                state.evaluatedDecayDays());
     }
 
     private static void requireAligned(Experience state, CompanionNeglectPolicy.Snapshot care) {
@@ -159,6 +181,23 @@ public final class CompanionExperienceDecayPolicy {
                 || !state.lastCaredAt().equals(care.lastCaredAt())) {
             throw new IllegalArgumentException("Experience and care snapshots are out of sync");
         }
+    }
+
+    private static boolean dangerousAt(CompanionNeglectPolicy.Snapshot care,
+                                       Instant lastCaredAt, long tick) {
+        long elapsedHours = Math.addExact(GRACE_HOURS,
+                Math.multiplyExact(tick, DECAY_INTERVAL_HOURS));
+        Instant atTick = lastCaredAt.plus(elapsedHours, ChronoUnit.HOURS);
+        var meters = CompanionNeglectPolicy.evaluate(care, atTick).meters();
+        return meters.satiety() < CompanionNeglectPolicy.LOW_METER_THRESHOLD
+                || meters.cleanliness() < CompanionNeglectPolicy.LOW_METER_THRESHOLD;
+    }
+
+    /** Avoid multiplication overflow even for very large legacy XP balances. */
+    private static long cappedLoss(long days, int dailyLoss, long availableXp) {
+        if (days <= 0 || availableXp <= 0) return 0L;
+        if (days > (availableXp - 1) / dailyLoss) return availableXp;
+        return days * dailyLoss;
     }
 
     private static long elapsedDecayDays(Instant lastCaredAt, Instant until) {

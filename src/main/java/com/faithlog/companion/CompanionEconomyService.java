@@ -45,6 +45,23 @@ public class CompanionEconomyService {
   if(rows.isEmpty())throw new BusinessException(ErrorCode.COMPANION_INVALID_SALE);
   var row=rows.getFirst();SaleQuote quote;
   try{quote=SaleQuote.calculate(((Number)row.get("quantity")).longValue(),request.quantity(),((Number)row.get("unit_price")).longValue());}catch(IllegalArgumentException|ArithmeticException e){throw new BusinessException(ErrorCode.COMPANION_INVALID_SALE);}
+  // Keep the legacy quantity API, but never sell a cared-for, evolved or
+  // uniquely deployed instance by accident. Guard before the database trigger
+  // so clients receive the existing 409 sale error rather than a SQL 500.
+  Long sellable=jdbc.queryForObject("""
+      SELECT count(*) FROM companion_instances ci
+      WHERE ci.user_id=:user AND ci.design_id=:design
+        AND ci.level=1 AND ci.growth_xp=0 AND ci.care_days=0
+        AND (
+          NOT EXISTS (SELECT 1 FROM garden_placements gp
+            WHERE gp.user_id=:user AND gp.design_id=:design)
+          OR ci.id <> (SELECT reserved.id FROM companion_instances reserved
+            WHERE reserved.user_id=:user AND reserved.design_id=:design
+            ORDER BY reserved.acquired_at,reserved.id LIMIT 1)
+        )
+      """,p,Long.class);
+  if(sellable==null || sellable<quote.quantity())
+   throw new BusinessException(ErrorCode.COMPANION_INVALID_SALE);
   p.addValue("quantity",quote.quantity());jdbc.update("UPDATE user_companions SET quantity=quantity-:quantity WHERE user_id=:user AND design_id=:design",p);
   String business="sale:"+key;wallet.settle(user,quote.totalPoints(),business);
   var result=new Result(UUID.randomUUID(),List.of(request.designId()),quote.totalPoints(),wallet.wallet(user).balance(),(String)row.get("policy_version"),quote.quantity(),quote.unitPrice());

@@ -32,7 +32,7 @@ class CompanionPostgresQaTest {
  @Autowired org.springframework.test.web.servlet.MockMvc mvc;
  @Autowired com.fasterxml.jackson.databind.ObjectMapper json;
  @Autowired org.springframework.security.crypto.password.PasswordEncoder passwords;
- @Autowired UserRepository users;@Autowired PointWalletService wallet;@Autowired CompanionEconomyService economy;@Autowired GardenService gardens;@Autowired CompanionCatalogService catalog;@Autowired JdbcTemplate jdbc;@Autowired PlatformTransactionManager tx;
+ @Autowired UserRepository users;@Autowired PointWalletService wallet;@Autowired CompanionEconomyService economy;@Autowired CompanionInstanceService instances;@Autowired GardenService gardens;@Autowired CompanionCatalogService catalog;@Autowired JdbcTemplate jdbc;@Autowired PlatformTransactionManager tx;
  @Test void miracle_policy_catalog_inventory_and_sale_are_consistent(){
   Long u=account();
   assertThat(jdbc.queryForObject("select sum(weight) from companion_pool_entries where pool_version='standard-v2'",Long.class)).isEqualTo(130000000L);
@@ -134,6 +134,170 @@ class CompanionPostgresQaTest {
   assertThatThrownBy(()->new TransactionTemplate(tx).executeWithoutResult(status->{attendance.claim(other);throw new IllegalStateException("rollback");})).isInstanceOf(IllegalStateException.class);
   assertThat(attendance.status(other).claimed()).isFalse();
   assertThat(wallet.wallet(other).balance()).isEqualTo(1000);
+ }
+
+ @Test void garden_get_is_read_only_and_initial_put_still_assigns_backgrounds() {
+  Long user=account();
+  for(int attempt=0;attempt<4;attempt++){
+   var garden=gardens.get(user);
+   assertThat(garden.version()).isZero();
+   assertThat(garden.backgroundId()).isNull();
+   assertThat(garden.placements()).isEmpty();
+  }
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_gardens WHERE user_id=?",
+          Long.class,user)).isZero();
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_backgrounds WHERE user_id=?",
+          Long.class,user)).isZero();
+  var changed=gardens.save(user,new GardenUpdate(0,"meadow",List.of()));
+  assertThat(changed.backgroundId()).isEqualTo("meadow");
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_gardens WHERE user_id=?",
+          Long.class,user)).isEqualTo(1L);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_backgrounds WHERE user_id=?",
+          Long.class,user)).isEqualTo(5L);
+  assertThat(gardens.get(user).version()).isEqualTo(1);
+ }
+
+ @Test void garden_query_is_capped_at_five_and_uses_ordered_paginated_inventory() {
+  Long user=account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'david-lamb:base',120,now())",user);
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'hope-rabbit:base',80,now())",user);
+  var first=instances.list(user,0,50);
+  var second=instances.list(user,1,50);
+  var last=instances.list(user,2,100);
+  assertThat(first).hasSize(50);
+  assertThat(second).hasSize(50);
+  assertThat(last).hasSize(0);
+  assertThat(first).extracting(CompanionInstanceService.View::instanceId)
+          .doesNotContainAnyElementsOf(second.stream()
+              .map(CompanionInstanceService.View::instanceId).toList());
+  assertThat(instances.gardenInstances(user)).isEmpty();
+  var garden=gardens.get(user);
+  gardens.save(user,new GardenUpdate(garden.version(),null,List.of(
+          new GardenUpdate.Placement(1,"david-lamb:base",.2,.2),
+          new GardenUpdate.Placement(2,"hope-rabbit:base",.7,.7))));
+  assertThat(instances.gardenInstances(user))
+          .extracting(CompanionInstanceService.View::designId)
+          .containsExactly("david-lamb:base","hope-rabbit:base");
+  assertThat(instances.list(user,0,50)).hasSize(50);
+  assertThatThrownBy(()->instances.list(user,0,101))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThatThrownBy(()->instances.list(user,101,50))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM companion_instances WHERE user_id=?",
+          Long.class,user)).isEqualTo(200L);
+ }
+
+ @Test void individual_inventory_migrates_new_quantities_and_care_is_idempotent() {
+  Long user=account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'david-lamb:base',2,now())",user);
+  assertThat(instances.list(user)).hasSize(2);
+  jdbc.update("UPDATE user_companions SET quantity=3 WHERE user_id=? AND design_id='david-lamb:base'",user);
+  assertThat(instances.list(user)).hasSize(3);
+  var first=instances.list(user).getFirst();
+  var fed=instances.care(user,first.instanceId(),"care-first",
+          new CompanionInstanceService.CareRequest("FEED",0));
+  assertThat(fed.growthXp()).isEqualTo(15);
+  assertThat(fed.totalEarnedXp()).isEqualTo(15);
+  assertThat(fed.careDays()).isEqualTo(1);
+  assertThat(fed.level()).isEqualTo(1);
+  assertThat(fed.version()).isEqualTo(1);
+  assertThat(instances.care(user,first.instanceId(),"care-first",
+          new CompanionInstanceService.CareRequest("FEED",0))).isEqualTo(fed);
+  assertThatThrownBy(() -> instances.care(user,first.instanceId(),"care-second",
+          new CompanionInstanceService.CareRequest("FEED",1)))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThatThrownBy(() -> instances.care(user,first.instanceId(),"care-first",
+          new CompanionInstanceService.CareRequest("PLAY",0)))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  Long otherUser=account();
+  assertThatThrownBy(() -> instances.care(otherUser,first.instanceId(),"hack",
+          new CompanionInstanceService.CareRequest("PET",0)))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  var sale=economy.sell(user,"safe-sale",new CompanionEconomyService.SaleRequest("david-lamb:base",2));
+  assertThat(sale.quantity()).isEqualTo(2);
+  assertThat(instances.list(user)).hasSize(1);
+  assertThat(instances.list(user).getFirst().instanceId()).isEqualTo(first.instanceId());
+  assertThat(instances.list(user).getFirst().growthXp()).isEqualTo(15);
+  assertThat(jdbc.queryForObject("SELECT sum(quantity) FROM user_companions WHERE user_id=?",
+          Long.class,user)).isEqualTo(1);
+ }
+
+ @Test void server_rechecks_evolution_and_preserves_all_levels() {
+  Long user=account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'daniel-lion:royal',1,now())",user);
+  var animal=instances.list(user).getFirst();
+  assertThat(animal.canEvolve()).isFalse();
+  assertThatThrownBy(() -> instances.evolve(user,animal.instanceId(),"early",
+          new CompanionInstanceService.EvolveRequest(0)))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  jdbc.update("UPDATE companion_instances SET growth_xp=300,total_earned_xp=300,"
+          +"care_days=3,satiety=100,cleanliness=100,health=100 WHERE id=?",
+          animal.instanceId());
+  var grown=instances.evolve(user,animal.instanceId(),"first-evolution",
+          new CompanionInstanceService.EvolveRequest(0));
+  assertThat(grown.level()).isEqualTo(2);
+  assertThat(grown.growthXp()).isEqualTo(300);
+  assertThat(grown.designId()).isEqualTo("daniel-lion:royal");
+  assertThat(instances.evolve(user,animal.instanceId(),"first-evolution",
+          new CompanionInstanceService.EvolveRequest(0))).isEqualTo(grown);
+  jdbc.update("UPDATE companion_instances SET growth_xp=1000,total_earned_xp=1000,"
+          +"care_days=10,satiety=100,cleanliness=100,health=100 WHERE id=?",
+          animal.instanceId());
+  var finalForm=instances.evolve(user,animal.instanceId(),"final-evolution",
+          new CompanionInstanceService.EvolveRequest(1));
+  assertThat(finalForm.level()).isEqualTo(3);
+  assertThat(finalForm.growthXp()).isEqualTo(1000);
+  assertThat(finalForm.canEvolve()).isFalse();
+  assertThatThrownBy(() -> instances.evolve(user,animal.instanceId(),"extra",
+          new CompanionInstanceService.EvolveRequest(2)))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+ }
+
+ @Test void lazy_xp_loss_settles_on_care_without_charging_a_second_time() {
+  Long user=account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'hope-rabbit:base',1,now())",user);
+  var animal=instances.list(user).getFirst();
+  jdbc.update("UPDATE companion_instances SET growth_xp=750,total_earned_xp=750,"
+          +"level=2,care_days=10,last_cared_at=now()-interval '120 hours',"
+          +"last_evaluated_at=now()-interval '120 hours',elapsed_hours=0,xp_decay_days=0 "
+          +"WHERE id=?",animal.instanceId());
+  var preview=instances.list(user).getFirst();
+  assertThat(preview.growthXp()).isEqualTo(710);
+  assertThat(preview.totalEarnedXp()).isEqualTo(750);
+  assertThat(jdbc.queryForObject("SELECT growth_xp FROM companion_instances WHERE id=?",
+          Long.class,animal.instanceId())).isEqualTo(750);
+  var cared=instances.care(user,animal.instanceId(),"return-to-care",
+          new CompanionInstanceService.CareRequest("FEED",0));
+  assertThat(cared.growthXp()).isEqualTo(725);
+  assertThat(cared.totalEarnedXp()).isEqualTo(765);
+  assertThat(cared.version()).isEqualTo(1);
+  assertThat(instances.list(user).getFirst().growthXp()).isEqualTo(725);
+  assertThat(instances.care(user,animal.instanceId(),"return-to-care",
+          new CompanionInstanceService.CareRequest("FEED",0))).isEqualTo(cared);
+  assertThat(jdbc.queryForObject("SELECT xp_decay_days FROM companion_instances WHERE id=?",
+          Long.class,animal.instanceId())).isZero();
+ }
+
+ @Test void a_fainted_animal_can_sleep_and_recover_instead_of_being_deleted() {
+  Long user=account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'peace-dove:base',1,now())",user);
+  var animal=instances.list(user).getFirst();
+  jdbc.update("UPDATE companion_instances SET health=0,satiety=0,cleanliness=0 WHERE id=?",
+          animal.instanceId());
+  assertThatThrownBy(() -> instances.care(user,animal.instanceId(),"cant-play",
+          new CompanionInstanceService.CareRequest("PLAY",0)))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  var slept=instances.care(user,animal.instanceId(),"restore",
+          new CompanionInstanceService.CareRequest("SLEEP",0));
+  assertThat(slept.stats().health()).isEqualTo(15);
+  assertThat(slept.growthXp()).isZero();
+  assertThat(instances.list(user)).hasSize(1);
  }
 
 }
