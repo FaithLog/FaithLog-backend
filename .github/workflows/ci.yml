@@ -73,6 +73,9 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify isolated companion farm load scenario (no HTTP traffic)
+        run: node --test performance/k6/companion-farm-read/baseline.test.mjs
+
       - name: Set up JDK
         if: steps.gradle.outputs.present == 'true'
         uses: actions/setup-java@v4
