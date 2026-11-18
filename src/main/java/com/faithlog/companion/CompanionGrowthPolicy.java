@@ -98,7 +98,7 @@ public final class CompanionGrowthPolicy {
         PET(10, Duration.ofHours(1)),
         PLAY(20, Duration.ofHours(2)),
         CLEAN(15, Duration.ofHours(3)),
-        SLEEP(0, Duration.ZERO);
+        SLEEP(0, Duration.ofHours(4));
 
         private final int xp;
         private final Duration cooldown;
