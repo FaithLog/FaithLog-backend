@@ -213,6 +213,52 @@ class CompanionPostgresQaTest {
           .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
  }
 
+ @Test void old_client_cannot_erase_a_uuid_duplicate_garden_and_new_client_can_clear_it(){
+   Long user=account();
+   String design="hope-rabbit:base";
+   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+      +"VALUES (?,?,2,now())",user,design);
+   var animals=instances.listByDesign(user,design,0,20);
+   var updated=gardens.save(user,new GardenUpdate(0,null,List.of(
+     new GardenUpdate.Placement(1,design,.2,.3,animals.get(0).instanceId()),
+     new GardenUpdate.Placement(2,design,.8,.7,animals.get(1).instanceId())),
+     GardenUpdate.INSTANCE_PROTOCOL));
+   assertThat(updated.placements()).hasSize(2);
+   assertThatThrownBy(()->gardens.save(user,new GardenUpdate(
+      updated.version(),null,List.of())))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+   assertThatThrownBy(()->gardens.save(user,new GardenUpdate(
+      updated.version(),null,List.of(new GardenUpdate.Placement(1,design,.5,.5)))))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+   assertThat(gardens.get(user).version()).isEqualTo(updated.version());
+   assertThat(gardens.get(user).placements()).hasSize(2);
+   var cleared=gardens.save(user,new GardenUpdate(
+      updated.version(),null,List.of(),GardenUpdate.INSTANCE_PROTOCOL));
+   assertThat(cleared.placements()).isEmpty();
+ }
+
+ @Test void sale_availability_is_owner_scoped_and_matches_protected_inventory(){
+   Long user=account(),other=account();
+   String design="david-lamb:base";
+   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+      +"VALUES (?,?,3,now())",user,design);
+   var ids=instances.listByDesign(user,design,0,20);
+   gardens.save(user,new GardenUpdate(0,null,List.of(
+      new GardenUpdate.Placement(1,design,.2,.3,ids.get(0).instanceId())),
+      GardenUpdate.INSTANCE_PROTOCOL));
+   instances.care(user,ids.get(1).instanceId(),"fed-protected",
+      new CompanionInstanceService.CareRequest("FEED",0));
+   assertThat(economy.saleAvailability(user,design).ownedQuantity()).isEqualTo(3L);
+   assertThat(economy.saleAvailability(user,design).sellableQuantity()).isEqualTo(1L);
+   assertThat(economy.saleAvailability(other,design).sellableQuantity()).isZero();
+   assertThat(economy.sell(user,"sell-only-one",
+      new CompanionEconomyService.SaleRequest(design,1)).quantity()).isEqualTo(1L);
+   assertThat(economy.saleAvailability(user,design).sellableQuantity()).isZero();
+   assertThatThrownBy(()->economy.sell(user,"sell-fail-protected",
+      new CompanionEconomyService.SaleRequest(design,1)))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+ }
+
  @Test void identical_designs_bind_to_separate_owned_uuids_and_keep_independent_growth() {
   Long user=account();
   String design="david-lamb:base";

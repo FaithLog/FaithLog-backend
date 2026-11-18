@@ -3,6 +3,13 @@ import static org.assertj.core.api.Assertions.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 class GardenUpdateTest {
+ @Test void rejects_unknown_protocol_but_preserves_existing_callers(){
+   assertThat(new GardenUpdate(0,null,List.of()).placementProtocol()).isNull();
+   assertThat(new GardenUpdate(0,null,List.of(),GardenUpdate.INSTANCE_PROTOCOL)
+       .placementProtocol()).isEqualTo("INSTANCE_V1");
+   assertThatThrownBy(()->new GardenUpdate(0,null,List.of(),"INVALID"))
+       .isInstanceOf(RuntimeException.class);
+ }
  @Test void accepts_empty_garden(){assertThat(new GardenUpdate(0,null,List.of()).placements()).isEmpty();}
  @Test void rejects_duplicate_design_and_slots(){
   var p=new GardenUpdate.Placement(1,"david-lamb:base",0.5,0.5);

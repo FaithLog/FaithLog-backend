@@ -6,8 +6,18 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public record GardenUpdate(long version, String backgroundId, List<Placement> placements) {
+public record GardenUpdate(long version, String backgroundId, List<Placement> placements,
+                           String placementProtocol) {
+    public static final String INSTANCE_PROTOCOL = "INSTANCE_V1";
+
+    /** Existing 1.3-era requests and backend callers omit the protocol. */
+    public GardenUpdate(long version, String backgroundId, List<Placement> placements) {
+        this(version, backgroundId, placements, null);
+    }
     public GardenUpdate {
+        if (placementProtocol != null && !INSTANCE_PROTOCOL.equals(placementProtocol)) {
+            throw invalid();
+        }
         if (version < 0 || backgroundId != null
                 && (backgroundId.isBlank() || backgroundId.length() > 40)
                 || placements == null || placements.size() > 5
