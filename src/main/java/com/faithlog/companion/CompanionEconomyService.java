@@ -89,9 +89,12 @@ public class CompanionEconomyService {
   var result=new Result(UUID.randomUUID(),List.of(request.designId()),quote.totalPoints(),wallet.wallet(user).balance(),(String)row.get("policy_version"),quote.quantity(),quote.unitPrice());
   record(user,"SALE",key,fp,null,business,result);return result;
  }
- @Transactional public List<HistoryItem> drawHistory(Long user,int page) {
+ @Transactional(readOnly=true) public List<HistoryItem> drawHistory(Long user,int page) {
   if(page<0||page>10000)throw invalid();
-  wallet.lockAccount(user);
+  Long active=jdbc.queryForObject(
+    "SELECT count(*) FROM users WHERE id=:user AND is_active=true AND deleted_at IS NULL",
+    Map.of("user",user),Long.class);
+  if(active==null||active!=1L)throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
   return jdbc.query("SELECT response_json,created_at FROM companion_operations WHERE user_id=:user AND kind='DRAW' ORDER BY created_at DESC,operation_id DESC LIMIT 20 OFFSET :offset",Map.of("user",user,"offset",page*20),(rs,n)->{
    try{return new HistoryItem(json.readValue(rs.getString("response_json"),Result.class),rs.getTimestamp("created_at").toInstant());}
    catch(com.fasterxml.jackson.core.JsonProcessingException e){throw new IllegalStateException("Stored operation unreadable",e);}

@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 final class StarterBackgrounds {
  private static final List<String> IDS = List.of("default", "meadow", "olive", "shore", "starlight");
  private StarterBackgrounds() {}
+ static List<String> freeIds() {return IDS;}
  static void grant(NamedParameterJdbcTemplate jdbc, Long user) {
   jdbc.update("INSERT INTO user_backgrounds(user_id,background_id,acquired_at) SELECT :user,background_id,CURRENT_TIMESTAMP FROM backgrounds WHERE background_id IN (:ids) ON CONFLICT DO NOTHING", Map.of("user", user, "ids", IDS));
  }

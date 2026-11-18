@@ -45,6 +45,22 @@ class CompanionPostgresQaTest {
   assertThat(result.pointDelta()).isEqualTo(1000000L);
   assertThat(economy.sell(u,"miracle-sale",new CompanionEconomyService.SaleRequest("jesus:miracle",1))).isEqualTo(result);
  }
+ @Test void home_catalog_reads_are_side_effect_free_until_first_garden_write() {
+  Long user=account();
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_backgrounds WHERE user_id=?",
+      Long.class,user)).isZero();
+  assertThat(catalog.backgrounds(user)).allMatch(CompanionCatalogService.Background::owned);
+  assertThat(catalog.backgrounds(user)).allMatch(CompanionCatalogService.Background::owned);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_backgrounds WHERE user_id=?",
+      Long.class,user)).isZero();
+  assertThat(economy.drawHistory(user,0)).isEmpty();
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_backgrounds WHERE user_id=?",
+      Long.class,user)).isZero();
+  gardens.save(user,new GardenUpdate(0,"meadow",List.of()));
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM user_backgrounds WHERE user_id=?",
+      Long.class,user)).isEqualTo(5L);
+ }
+
  @Test void current_backgrounds_are_free_and_saved_for_new_and_existing_members(){
   Long user=account();
   assertThat(catalog.backgrounds(user)).allMatch(CompanionCatalogService.Background::owned);
