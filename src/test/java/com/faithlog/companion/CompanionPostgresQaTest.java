@@ -189,6 +189,66 @@ class CompanionPostgresQaTest {
           Long.class,user)).isEqualTo(200L);
  }
 
+ @Test void identical_designs_bind_to_separate_owned_uuids_and_keep_independent_growth() {
+  Long user=account();
+  String design="david-lamb:base";
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,?,3,now())",user,design);
+  var sameStyle=instances.list(user,0,10);
+  assertThat(sameStyle).hasSize(3);
+  var id1=sameStyle.get(0).instanceId();
+  var id2=sameStyle.get(1).instanceId();
+  assertThat(id1).isNotEqualTo(id2);
+  var before=gardens.get(user);
+  var updated=gardens.save(user,new GardenUpdate(before.version(),null,List.of(
+          new GardenUpdate.Placement(1,design,.18,.33,id1),
+          new GardenUpdate.Placement(2,design,.77,.55,id2))));
+  assertThat(updated.placements()).hasSize(2);
+  assertThat(updated.placements()).extracting(GardenUpdate.Placement::instanceId)
+          .containsExactly(id1,id2);
+  assertThat(instances.gardenInstances(user))
+          .extracting(CompanionInstanceService.View::instanceId)
+          .containsExactly(id1,id2);
+  var fed=instances.care(user,id2,"feed-selected",
+          new CompanionInstanceService.CareRequest("FEED",0));
+  assertThat(fed.growthXp()).isEqualTo(15);
+  assertThat(instances.gardenInstances(user)).extracting(CompanionInstanceService.View::growthXp)
+          .containsExactly(0L,15L);
+  var reloaded=gardens.get(user);
+  assertThat(reloaded.placements().get(0).x()).isEqualTo(.18);
+  assertThat(reloaded.placements().get(1).y()).isEqualTo(.55);
+  assertThatThrownBy(()->gardens.save(user,new GardenUpdate(reloaded.version(),null,List.of(
+          new GardenUpdate.Placement(1,design,.2,.2,id1),
+          new GardenUpdate.Placement(2,design,.3,.3,id1)))))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  Long attacker=account();
+  assertThatThrownBy(()->gardens.save(attacker,new GardenUpdate(0,null,List.of(
+          new GardenUpdate.Placement(1,design,.3,.3,id1)))))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  // Sale can only consume the untouched third animal; both placed UUIDs survive.
+  assertThat(economy.sell(user,"sell-one-untouched",
+          new CompanionEconomyService.SaleRequest(design,1)).quantity()).isEqualTo(1);
+  assertThat(instances.gardenInstances(user))
+          .extracting(CompanionInstanceService.View::instanceId).containsExactly(id1,id2);
+  assertThatThrownBy(()->economy.sell(user,"sell-selected",
+          new CompanionEconomyService.SaleRequest(design,1)))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+ }
+
+ @Test void old_garden_payload_retains_same_instance_and_is_backwards_compatible() {
+  Long user=account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'hope-rabbit:base',2,now())",user);
+  var one=gardens.save(user,new GardenUpdate(0,null,List.of(
+          new GardenUpdate.Placement(1,"hope-rabbit:base",.2,.3))));
+  var selected=one.placements().getFirst().instanceId();
+  assertThat(selected).isNotNull();
+  var moved=gardens.save(user,new GardenUpdate(one.version(),null,List.of(
+          new GardenUpdate.Placement(1,"hope-rabbit:base",.4,.5))));
+  assertThat(moved.placements().getFirst().instanceId()).isEqualTo(selected);
+  assertThat(moved.placements().getFirst().x()).isEqualTo(.4);
+ }
+
  @Test void individual_inventory_migrates_new_quantities_and_care_is_idempotent() {
   Long user=account();
   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
