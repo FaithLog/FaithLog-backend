@@ -14,7 +14,8 @@ public record GardenUpdate(long version, String backgroundId, List<Placement> pl
                 || placements.stream().anyMatch(Objects::isNull)) {
             throw invalid();
         }
-        placements = List.copyOf(placements);
+        var validated = List.copyOf(placements);
+        placements = validated;
         if (placements.stream().map(Placement::slot).distinct().count() != placements.size()
                 || placements.stream().map(Placement::instanceId).filter(Objects::nonNull)
                         .distinct().count() != placements.stream()
@@ -25,7 +26,7 @@ public record GardenUpdate(long version, String backgroundId, List<Placement> pl
         // They retain their previous one-per-design contract.
         var legacy = placements.stream().filter(p -> p.instanceId() == null).toList();
         if (legacy.stream().map(Placement::designId).distinct().count() != legacy.size()
-                || legacy.stream().anyMatch(p -> placements.stream()
+                || legacy.stream().anyMatch(p -> validated.stream()
                         .anyMatch(other -> other != p
                                 && other.designId().equals(p.designId())))) {
             throw invalid();
