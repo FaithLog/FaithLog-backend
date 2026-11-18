@@ -29,6 +29,9 @@ CREATE INDEX ix_companion_instances_user_design
   ON companion_instances (user_id,design_id,acquired_at,id);
 CREATE INDEX ix_companion_instances_owner_level
   ON companion_instances (user_id,level);
+-- Covers paginated owned-instances ORDER BY acquired_at,id without sorting.
+CREATE INDEX ix_companion_instances_owner_acquired
+  ON companion_instances (user_id,acquired_at,id);
 
 CREATE TABLE companion_instance_operations (
   user_id BIGINT NOT NULL,

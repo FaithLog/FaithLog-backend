@@ -116,16 +116,64 @@ public class CompanionInstanceService {
                 evolution != null && evolution.canEvolve());
     }
 
-    @Transactional
-    public List<View> list(Long user) {
-        wallet.lockAccount(user);
-        Instant now = clock.instant();
-        var rows = jdbc.query(
-                "SELECT * FROM companion_instances WHERE user_id=:user ORDER BY acquired_at,id",
-                Map.of("user",user), CompanionInstanceService::mapRow);
+    /** Active account check without the user-row FOR UPDATE lock used by the economy. */
+    private void authenticateRead(Long user) {
+        Long active = jdbc.queryForObject(
+                "SELECT count(*) FROM users WHERE id=:user AND is_active=true AND deleted_at IS NULL",
+                Map.of("user",user),Long.class);
+        if (active == null || active != 1L) {
+            throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
+        }
+    }
+
+    /** One fixed clock for the batch, no writes and no database locks. */
+    private List<View> render(List<Row> rows, Instant now) {
         return rows.stream().map(row -> view(row,
                 CompanionExperienceDecayPolicy.evaluate(row.experience(),row.care(),now),
                 row.careDays(),row.version())).toList();
+    }
+
+    /** Paginated inventory view: 50 by default, 100 max, never an unbounded scan. */
+    @Transactional(readOnly=true)
+    public List<View> list(Long user) {
+        return list(user,0,50);
+    }
+
+    @Transactional(readOnly=true)
+    public List<View> list(Long user, int page, int size) {
+        if (page < 0 || page > 100 || size < 1 || size > 100) throw invalid();
+        authenticateRead(user);
+        var rows = jdbc.query(
+                "SELECT * FROM companion_instances WHERE user_id=:user "
+                + "ORDER BY acquired_at,id LIMIT :size OFFSET :offset",
+                new MapSqlParameterSource("user",user).addValue("size",size)
+                        .addValue("offset",page * size),
+                CompanionInstanceService::mapRow);
+        return render(rows,clock.instant());
+    }
+
+    /**
+     * Home scene only needs the five equipped animals; LATERAL + indexed
+     * (user_id, design_id, acquired_at, id) lookup avoids fetching every owned
+     * duplicate and avoids the wallet/user row lock entirely.
+     *
+     * Legacy placement is keyed by design_id, so the oldest owned instance
+     * represents that design until per-instance garden placement is released.
+     */
+    @Transactional(readOnly=true)
+    public List<View> gardenInstances(Long user) {
+        authenticateRead(user);
+        var rows = jdbc.query("""
+                SELECT ci.*
+                FROM garden_placements gp
+                JOIN LATERAL (
+                    SELECT i.* FROM companion_instances i
+                    WHERE i.user_id=gp.user_id AND i.design_id=gp.design_id
+                    ORDER BY i.acquired_at,i.id LIMIT 1
+                ) ci ON TRUE
+                WHERE gp.user_id=:user ORDER BY gp.slot
+                """,Map.of("user",user),CompanionInstanceService::mapRow);
+        return render(rows,clock.instant());
     }
 
     private View replay(Long user, UUID id, String key, String fingerprint) {

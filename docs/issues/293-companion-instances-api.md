@@ -23,3 +23,11 @@
 - 현재 프론트 홈에서는 새 API나 `FarmHudGauge`를 호출하지 않는다. frontend #348에서 터치 시 선택 동물의 상태·경험치와 돌봄 버튼을 연결하고, 최신 버전 충돌 UI를 제공해야 한다.
 - 기존 판매 API는 디자인별 수량만 받으므로, 성장 개체를 판매하려면 별도의 개체 선택 UI/보호 정책이 필요하다.
 - 모바일 단말 실기기/성능/시각 QA 및 메인 배포는 완료되지 않았다.
+
+## 홈 조회 최적화 (#295)
+- `GET /api/v1/companions/me/instances/garden`는 현재 배치된 최대 5개만 `garden_placements` + 인덱스 LATERAL JOIN으로 조회한다.
+- `GET /api/v1/companions/me/instances?page=0&size=50`는 소유 개체 목록 페이지네이션. 최대 100개/요청, page 0~100, 한 요청으로 수천 개를 조회하지 않도록 제한한다.
+- GET는 사용자 `is_active/deleted_at`만 확인하고 **계정/개체에 FOR UPDATE 잠금을 걸지 않는다**. 읽기마다 상태를 저장하지 않으며, 돌봄·진화 POST에만 트랜잭션 잠금을 적용한다.
+- 홈 쿼리의 효율은 `ix_companion_instances_user_design`, 목록 정렬은 `ix_companion_instances_owner_acquired` 인덱스로 뒷받침한다.
+- 기존 디자인별 배치는 첫 번째 인스턴스를 선택한다. 동일 디자인 두 마리의 서로 다른 돌봄·배치는 후속 인스턴스 배치 개발에 속한다.
+- 실제 응답 시간/쿼리 실행 계획은 운영 대표 데이터로 별도 측정해야 한다. 검증 전 특정 ms/배수 향상 주장은 하지 않는다.

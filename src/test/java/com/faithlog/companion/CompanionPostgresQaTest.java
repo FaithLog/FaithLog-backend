@@ -136,6 +136,38 @@ class CompanionPostgresQaTest {
   assertThat(wallet.wallet(other).balance()).isEqualTo(1000);
  }
 
+ @Test void garden_query_is_capped_at_five_and_uses_ordered_paginated_inventory() {
+  Long user=account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'david-lamb:base',120,now())",user);
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+          +"VALUES (?,'hope-rabbit:base',80,now())",user);
+  var first=instances.list(user,0,50);
+  var second=instances.list(user,1,50);
+  var last=instances.list(user,2,100);
+  assertThat(first).hasSize(50);
+  assertThat(second).hasSize(50);
+  assertThat(last).hasSize(0);
+  assertThat(first).extracting(CompanionInstanceService.View::instanceId)
+          .doesNotContainAnyElementsOf(second.stream()
+              .map(CompanionInstanceService.View::instanceId).toList());
+  assertThat(instances.gardenInstances(user)).isEmpty();
+  var garden=gardens.get(user);
+  gardens.save(user,new GardenUpdate(garden.version(),null,List.of(
+          new GardenUpdate.Placement(1,"david-lamb:base",.2,.2),
+          new GardenUpdate.Placement(2,"hope-rabbit:base",.7,.7))));
+  assertThat(instances.gardenInstances(user))
+          .extracting(CompanionInstanceService.View::designId)
+          .containsExactly("david-lamb:base","hope-rabbit:base");
+  assertThat(instances.list(user,0,50)).hasSize(50);
+  assertThatThrownBy(()->instances.list(user,0,101))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThatThrownBy(()->instances.list(user,101,50))
+          .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM companion_instances WHERE user_id=?",
+          Long.class,user)).isEqualTo(200L);
+ }
+
  @Test void individual_inventory_migrates_new_quantities_and_care_is_idempotent() {
   Long user=account();
   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "

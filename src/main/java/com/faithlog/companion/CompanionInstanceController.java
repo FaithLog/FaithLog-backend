@@ -18,8 +18,17 @@ public class CompanionInstanceController {
 
     @GetMapping
     public ApiResponse<List<CompanionInstanceService.View>> list(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(defaultValue="0") int page,
+            @RequestParam(defaultValue="50") int size) {
+        return ApiResponse.success(service.list(user.userId(),page,size));
+    }
+
+    /** Read at most the five visible companions for the home garden. */
+    @GetMapping("/garden")
+    public ApiResponse<List<CompanionInstanceService.View>> garden(
             @AuthenticationPrincipal AuthenticatedUser user) {
-        return ApiResponse.success(service.list(user.userId()));
+        return ApiResponse.success(service.gardenInstances(user.userId()));
     }
 
     @PostMapping("/{id}/care")
