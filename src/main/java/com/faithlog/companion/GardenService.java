@@ -144,6 +144,17 @@ public class GardenService {
         if (current.version()!=request.version()) {
             throw new BusinessException(ErrorCode.COMPANION_GARDEN_CONFLICT);
         }
+        // Old clients cannot represent two distinct UUIDs of the same design.
+        // Reject even an empty legacy PUT: otherwise the entire developed
+        // garden could silently disappear. New clients identify themselves
+        // when persisting a full UUID-capable garden snapshot.
+        boolean hasDuplicateDesign = current.placements().stream()
+                .map(GardenUpdate.Placement::designId).distinct().count()
+                != current.placements().size();
+        if (hasDuplicateDesign
+                && !GardenUpdate.INSTANCE_PROTOCOL.equals(request.placementProtocol())) {
+            throw new BusinessException(ErrorCode.COMPANION_GARDEN_CONFLICT);
+        }
         var params = new MapSqlParameterSource("user",user)
                 .addValue("background",request.backgroundId());
         if (request.backgroundId()!=null) {

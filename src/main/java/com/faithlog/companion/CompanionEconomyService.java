@@ -37,6 +37,39 @@ public class CompanionEconomyService {
   var result=new Result(UUID.randomUUID(),List.copyOf(results),-cost,wallet.wallet(user).balance(),request.poolVersion(),0,0);
   record(user,"DRAW",key,fp,request.poolVersion(),business,result);return result;
  }
+ /** The same eligibility predicate is shared by the sale endpoint and UI quote. */
+ private long untouchedUnplaced(Long user,String design){
+  var p=new MapSqlParameterSource("user",user).addValue("design",design);
+  Long n=jdbc.queryForObject("""
+      SELECT count(*) FROM companion_instances ci
+      WHERE ci.user_id=:user AND ci.design_id=:design
+        AND ci.level=1 AND ci.growth_xp=0 AND ci.care_days=0
+        AND NOT EXISTS (
+          SELECT 1 FROM garden_placements gp
+          WHERE gp.user_id=ci.user_id AND gp.instance_id=ci.id
+        )
+      """,p,Long.class);
+  return n==null?0L:n;
+ }
+
+ /** Advisory quantity for display; sell() rechecks under the existing lock. */
+ @Transactional(readOnly=true)
+ public SaleAvailability saleAvailability(Long user,String design){
+  if(design==null||design.isBlank()||design.length()>100)throw invalid();
+  Long active=jdbc.queryForObject("""
+     SELECT count(*) FROM users WHERE id=:user AND is_active=true AND deleted_at IS NULL
+     """,Map.of("user",user),Long.class);
+  if(active==null||active!=1L)throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
+  var p=new MapSqlParameterSource("user",user).addValue("design",design);
+  Long owned=jdbc.queryForObject("""
+     SELECT COALESCE((SELECT quantity FROM user_companions
+                       WHERE user_id=:user AND design_id=:design),0)
+     """,p,Long.class);
+  long quantity=owned==null?0L:owned;
+  long available=Math.min(untouchedUnplaced(user,design),Math.max(0L,quantity-1));
+  return new SaleAvailability(design,quantity,available);
+ }
+ public record SaleAvailability(String designId,long ownedQuantity,long sellableQuantity){}
  @Transactional public Result sell(Long user,String key,SaleRequest request){
   key(key);if(request==null||request.designId()==null||request.designId().length()>100||request.quantity()<1)throw invalid();
   wallet.lockAccount(user);String fp=request.designId()+":"+request.quantity();var old=replay(user,"SALE",key,fp);if(old!=null)return old;
@@ -48,16 +81,8 @@ public class CompanionEconomyService {
   // Keep the legacy quantity API, but never sell a cared-for, evolved or
   // uniquely deployed instance by accident. Guard before the database trigger
   // so clients receive the existing 409 sale error rather than a SQL 500.
-  Long sellable=jdbc.queryForObject("""
-      SELECT count(*) FROM companion_instances ci
-      WHERE ci.user_id=:user AND ci.design_id=:design
-        AND ci.level=1 AND ci.growth_xp=0 AND ci.care_days=0
-        AND NOT EXISTS (
-          SELECT 1 FROM garden_placements gp
-          WHERE gp.user_id=ci.user_id AND gp.instance_id=ci.id
-        )
-      """,p,Long.class);
-  if(sellable==null || sellable<quote.quantity())
+  long sellable=untouchedUnplaced(user,request.designId());
+  if(sellable<quote.quantity())
    throw new BusinessException(ErrorCode.COMPANION_INVALID_SALE);
   p.addValue("quantity",quote.quantity());jdbc.update("UPDATE user_companions SET quantity=quantity-:quantity WHERE user_id=:user AND design_id=:design",p);
   String business="sale:"+key;wallet.settle(user,quote.totalPoints(),business);
