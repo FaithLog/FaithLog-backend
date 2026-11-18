@@ -198,6 +198,11 @@ public class CompanionInstanceService {
         if (!fingerprint.equals(item.get("request_fingerprint"))) {
             throw new BusinessException(ErrorCode.COMPANION_REQUEST_CONFLICT);
         }
+        // An archived tombstone still blocks the same request key forever.
+        // Returning a 409 is safer than executing a stale POST again.
+        if (item.get("response_json") == null) {
+            throw new BusinessException(ErrorCode.COMPANION_REQUEST_CONFLICT);
+        }
         try {
             return json.readValue((String) item.get("response_json"),View.class);
         } catch (JsonProcessingException e) {
