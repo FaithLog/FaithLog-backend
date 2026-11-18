@@ -32,6 +32,7 @@ class CompanionPostgresQaTest {
  @Autowired org.springframework.test.web.servlet.MockMvc mvc;
  @Autowired com.fasterxml.jackson.databind.ObjectMapper json;
  @Autowired org.springframework.security.crypto.password.PasswordEncoder passwords;
+ @Autowired CompanionInstanceOperationArchiveService operationArchive;
  @Autowired UserRepository users;@Autowired PointWalletService wallet;@Autowired CompanionEconomyService economy;@Autowired CompanionInstanceService instances;@Autowired GardenService gardens;@Autowired CompanionCatalogService catalog;@Autowired JdbcTemplate jdbc;@Autowired PlatformTransactionManager tx;
  @Test void miracle_policy_catalog_inventory_and_sale_are_consistent(){
   Long u=account();
@@ -333,6 +334,33 @@ class CompanionPostgresQaTest {
           new GardenUpdate.Placement(1,"hope-rabbit:base",.4,.5))));
   assertThat(moved.placements().getFirst().instanceId()).isEqualTo(selected);
   assertThat(moved.placements().getFirst().x()).isEqualTo(.4);
+ }
+
+ @Test void archived_old_care_still_blocks_idempotency_replays_without_extra_xp(){
+   Long user=account();
+   String design="hope-rabbit:base";
+   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) "
+      +"VALUES (?,?,1,now())",user,design);
+   var pet=instances.listByDesign(user,design,0,20).getFirst();
+   var first=instances.care(user,pet.instanceId(),"archivable-feed",
+      new CompanionInstanceService.CareRequest("FEED",0));
+   assertThat(first.growthXp()).isEqualTo(15);
+   jdbc.update("UPDATE companion_instance_operations SET created_at=now()-interval '120 days' "
+      +"WHERE user_id=? AND instance_id=?",user,pet.instanceId());
+   assertThat(operationArchive.archiveBefore(java.time.Instant.now()
+      .minus(90,java.time.temporal.ChronoUnit.DAYS),100)).isEqualTo(1);
+   assertThat(jdbc.queryForObject(
+      "SELECT response_json FROM companion_instance_operations WHERE user_id=? AND instance_id=?",
+      String.class,user,pet.instanceId())).isNull();
+   assertThat(jdbc.queryForObject(
+      "SELECT archived_at IS NOT NULL FROM companion_instance_operations WHERE user_id=? AND instance_id=?",
+      Boolean.class,user,pet.instanceId())).isTrue();
+   assertThatThrownBy(()->instances.care(user,pet.instanceId(),"archivable-feed",
+      new CompanionInstanceService.CareRequest("FEED",0)))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+   assertThat(instances.listByDesign(user,design,0,20).getFirst().growthXp()).isEqualTo(15);
+   assertThat(operationArchive.archiveBefore(java.time.Instant.now()
+      .minus(90,java.time.temporal.ChronoUnit.DAYS),100)).isZero();
  }
 
  @Test void individual_inventory_migrates_new_quantities_and_care_is_idempotent() {
