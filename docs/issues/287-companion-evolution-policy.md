@@ -9,21 +9,21 @@
 
 ## 임시 성장 정책 (실제 운영 숫자 확정 전)
 
-| 다음 단계 | 누적 성장 XP | 돌봄한 서로 다른 날짜(KST) | 건강 | 배부름 | 청결 |
+| 다음 단계 | 현재 성장 XP | 돌봄한 서로 다른 날짜(KST) | 건강 | 배부름 | 청결 |
 |---|---:|---:|---:|---:|---:|
 | Lv1 → Lv2 | 300 | 3 | 60 | 50 | 50 |
 | Lv2 → Lv3 | 1,000 | 10 | 70 | 60 | 60 |
 
-- `growthXp`는 누적형(감소하지 않음), 하루 XP 획득 최대 100.
+- `growthXp`는 **현재 성장 XP**로서 방치하면 감소할 수 있다(#291). `totalEarnedXp`는 누적 획득량이며 감소하지 않는다. 하루 XP 획득 최대 100. Lv1/2/3의 XP 하한은 각각 0/300/1000.
 - 행동별 임시 쿨다운/획득 XP: 먹이 4시간/15XP, 쓰다듬기 1시간/10XP, 놀기 2시간/20XP, 청소 3시간/15XP. 수면은 0XP.
 - 건강·배부름·청결도는 0~100. 낮을 때 진화만 제한. 건강이 0이어도 영구 삭제하지 않고 기절/회복 상태로 관리할 것을 권장한다.
-- 사용자가 직접 진화 버튼을 눌러야 레벨이 올라간다. XP와 현재 상태는 유지되고 뽑기 포인트를 차감하지 않는다.
+- 사용자가 직접 진화 버튼을 눌러야 레벨이 올라간다. **진화하면 그 단계의 XP 하한이 영구 보호**되며 레벨은 하락하지 않는다. 진화 시 XP·상태는 유지하고 뽑기 포인트를 차감하지 않는다.
 - 예수님 미라클은 Lv2/Lv3 에셋이 없으므로 당장은 진화 대상에서 제외.
 - 소셜/신앙 미션 포인트는 별도 화폐이고 돌봄 XP로 바로 환산하지 않는다.
 
 ## 1. 데이터 이전 계획
 
-1. `companion_instances(id UUID PRIMARY KEY,user_id,design_id,level, growth_xp, care_days,health,satiety,cleanliness,joy,updated_at,created_at,version)` 추가. `UNIQUE(user_id,id)` 및 유저/디자인 인덱스.
+1. `companion_instances(id UUID PRIMARY KEY,user_id,design_id,level, growth_xp, total_earned_xp, care_days,health,satiety,cleanliness,joy,affection,last_evaluated_at,last_cared_at,elapsed_hours,updated_at,created_at,version)` 추가. `UNIQUE(user_id,id)` 및 유저/디자인 인덱스.
 2. 기존 `user_companions.quantity`만큼 인스턴스 레코드로 **중복을 보존해 백필**. 기존 `acquired_at` 보존, 임의로 돌봄 횟수/진화 진행도를 부여하지 않는다.
 3. 점진적 변경 동안 기존 재고 집계는 이전 버전 클라이언트를 위해 유지한다. 뽑기/판매 트랜잭션은 인스턴스 생성/삭제와 재고 집계를 원자적으로 동기화하고 일치성 검증 테스트를 작성.
 4. 현재 판매 API는 `designId + quantity`로 동작함. 진화 개체를 임의 판매하지 않도록 해당 디자인의 **기본 Lv1 미배치 개체 우선** 판매하고, 개체 선택 UI를 추가하기 전에는 성장 개체 판매를 막는 정책을 권장.
@@ -31,7 +31,7 @@
 
 ## 2. 확정해야 할 API 계약
 
-- `GET /api/v1/companions/me/instances`: 개별 소유 동물의 `instanceId`, `designId`, `level`, `growthXp`, `stats`, `careDays`, `version`, `nextEvolution` 노출.
+- `GET /api/v1/companions/me/instances`: 개별 소유 동물의 `instanceId`, `designId`, `level`, `growthXp`, `totalEarnedXp`, `stats`, `careDays`, `version`, `nextEvolution` 노출.
 - `POST /api/v1/companions/me/instances/{id}/care`: `{action, requestId}`; 서버 시각으로 쿨다운·일일 XP·상태 변화 계산, 성공 결과와 새 버전 반환.
 - `POST /api/v1/companions/me/instances/{id}/evolve`: `{requestId, expectedVersion}`; 행 잠금 → 상태 재평가 → 진화 → 상태 저장 → 결과 반환.
 - `companion_care_events`: `(user_id,instance_id,request_id)` UNIQUE, 행위 종류, XP 변화, 이전/이후 게이지, 서버 시각. **중복 요청은 이전 결과를 재생**.
