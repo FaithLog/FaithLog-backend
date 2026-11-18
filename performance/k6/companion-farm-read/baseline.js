@@ -17,7 +17,7 @@ function guard() {
   if (!/^http:\/\/(?:127\.0\.0\.1|localhost|host\.docker\.internal|app)(?::[0-9]{2,5})?$/.test(BASE_URL)) {
     throw new Error('Only local HTTP fixture URLs are permitted; remote load is prohibited.');
   }
-  if (!USERS_FILE || !USERS_FILE.startsWith('build/')) {
+  if (!USERS_FILE || !/^build\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.json$/.test(USERS_FILE)) {
     throw new Error('PERF_USERS_FILE must be an ignored build/ JSON file.');
   }
   if (!Number.isInteger(VUS) || VUS < 1 || VUS > 300) {
@@ -35,7 +35,8 @@ function guard() {
 }
 guard();
 
-const accounts = JSON.parse(open(USERS_FILE));
+// k6 resolves init-context open() relative to this JS module, not repository root.
+const accounts = JSON.parse(open('../../../' + USERS_FILE));
 if (!Array.isArray(accounts) || accounts.length < VUS || accounts.length > 300) {
   throw new Error('Provide a JSON array of at least VUS and at most 300 synthetic accounts.');
 }
