@@ -24,6 +24,17 @@ public class CompanionInstanceController {
         return ApiResponse.success(service.list(user.userId(),page,size));
     }
 
+    /** Only queried from the collection page when a specific design is selected. */
+    @GetMapping("/by-design")
+    public ApiResponse<List<CompanionInstanceService.View>> byDesign(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam String designId,
+            @RequestParam(defaultValue="0") int page,
+            @RequestParam(defaultValue="20") int size) {
+        return ApiResponse.success(service.listByDesign(
+                user.userId(),designId,page,size));
+    }
+
     /** Read at most the five visible companions for the home garden. */
     @GetMapping("/garden")
     public ApiResponse<List<CompanionInstanceService.View>> garden(
