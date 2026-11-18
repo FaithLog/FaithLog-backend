@@ -52,12 +52,9 @@ public class CompanionEconomyService {
       SELECT count(*) FROM companion_instances ci
       WHERE ci.user_id=:user AND ci.design_id=:design
         AND ci.level=1 AND ci.growth_xp=0 AND ci.care_days=0
-        AND (
-          NOT EXISTS (SELECT 1 FROM garden_placements gp
-            WHERE gp.user_id=:user AND gp.design_id=:design)
-          OR ci.id <> (SELECT reserved.id FROM companion_instances reserved
-            WHERE reserved.user_id=:user AND reserved.design_id=:design
-            ORDER BY reserved.acquired_at,reserved.id LIMIT 1)
+        AND NOT EXISTS (
+          SELECT 1 FROM garden_placements gp
+          WHERE gp.user_id=ci.user_id AND gp.instance_id=ci.id
         )
       """,p,Long.class);
   if(sellable==null || sellable<quote.quantity())

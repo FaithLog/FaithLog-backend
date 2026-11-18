@@ -153,12 +153,8 @@ public class CompanionInstanceService {
     }
 
     /**
-     * Home scene only needs the five equipped animals; LATERAL + indexed
-     * (user_id, design_id, acquired_at, id) lookup avoids fetching every owned
-     * duplicate and avoids the wallet/user row lock entirely.
-     *
-     * Legacy placement is keyed by design_id, so the oldest owned instance
-     * represents that design until per-instance garden placement is released.
+     * Home scene reads only the five assigned UUIDs through the primary key.
+     * There are no per-design scans or account locks on this read path.
      */
     @Transactional(readOnly=true)
     public List<View> gardenInstances(Long user) {
@@ -166,11 +162,8 @@ public class CompanionInstanceService {
         var rows = jdbc.query("""
                 SELECT ci.*
                 FROM garden_placements gp
-                JOIN LATERAL (
-                    SELECT i.* FROM companion_instances i
-                    WHERE i.user_id=gp.user_id AND i.design_id=gp.design_id
-                    ORDER BY i.acquired_at,i.id LIMIT 1
-                ) ci ON TRUE
+                JOIN companion_instances ci
+                  ON ci.user_id=gp.user_id AND ci.id=gp.instance_id
                 WHERE gp.user_id=:user ORDER BY gp.slot
                 """,Map.of("user",user),CompanionInstanceService::mapRow);
         return render(rows,clock.instant());
