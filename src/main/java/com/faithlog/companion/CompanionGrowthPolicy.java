@@ -24,7 +24,8 @@ public final class CompanionGrowthPolicy {
     }
 
     /**
-     * The current growth XP may decline from neglect (see CompanionExperienceDecayPolicy),\n     * while the historical total earned XP and completed evolution stages never decline.\n     * Temporary care meters may also decrease.
+     * The current growth XP may decline from neglect (see CompanionExperienceDecayPolicy),
+     * while the historical total earned XP and completed evolution stages never decline.\n     * Temporary care meters may also decrease.
      * A stage is 1, 2 or 3; not the number of times evolved (0, 1, 2).
      */
     public record State(int level, long growthXp, int distinctCareDays,
