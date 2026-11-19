@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Server-authoritative individual pet care and evolution.
  *
- * All mutating operations hold the existing per-user lock and a companion row lock,
+ * New operations hold the existing per-user lock and a companion row lock,
  * validate request replay before versions/cooldowns and write stats + events atomically.
  */
 @Service
@@ -190,8 +190,13 @@ public class CompanionInstanceService {
 
     private View replay(Long user, UUID id, String key, String fingerprint) {
         var rows = jdbc.queryForList(
-                "SELECT request_fingerprint,response_json FROM companion_instance_operations "
-                + "WHERE user_id=:user AND instance_id=:id AND request_key=:key",
+                """
+                SELECT op.request_fingerprint, op.response_json
+                FROM companion_instance_operations op
+                JOIN companion_instances ci ON ci.id=op.instance_id AND ci.user_id=op.user_id
+                JOIN users u ON u.id=op.user_id AND u.is_active=true AND u.deleted_at IS NULL
+                WHERE op.user_id=:user AND op.instance_id=:id AND op.request_key=:key
+                """,
                 new MapSqlParameterSource("user",user).addValue("id",id).addValue("key",key));
         if (rows.isEmpty()) return null;
         var item = rows.getFirst();
@@ -313,10 +318,14 @@ public class CompanionInstanceService {
             throw invalid();
         }
 
-        wallet.lockAccount(user);
-        Row row = ownedAndLocked(user,id);
         String fingerprint = "CARE:"+action.name()+":"+request.expectedVersion();
         View old = replay(user,id,key,fingerprint);
+        if (old != null) return old;
+
+        wallet.lockAccount(user);
+        Row row = ownedAndLocked(user,id);
+        // A request can finish while this transaction waits for the account lock.
+        old = replay(user,id,key,fingerprint);
         if (old != null) return old;
         validateVersion(row.version(),request.expectedVersion());
 
@@ -337,8 +346,7 @@ public class CompanionInstanceService {
             throw new BusinessException(ErrorCode.COMPANION_CARE_COOLDOWN);
         }
 
-        var afterCare = CompanionExperienceDecayPolicy.markCaredFor(
-                row.experience(),row.care(),now);
+        var afterCare = CompanionExperienceDecayPolicy.markCaredFor(settled,now);
         LocalDate today = LocalDate.ofInstant(now,KOREA);
         int todayEarned = today.equals(row.dailyXpDate()) ? row.dailyXpEarned() : 0;
         int awarded = CompanionGrowthPolicy.growthXpAward(todayEarned,action);
@@ -364,10 +372,14 @@ public class CompanionInstanceService {
     public View evolve(Long user, UUID id, String key, EvolveRequest request) {
         validateKey(key);
         if (id == null || request == null || request.expectedVersion() < 0) throw invalid();
-        wallet.lockAccount(user);
-        Row row = ownedAndLocked(user,id);
         String fingerprint = "EVOLVE:"+request.expectedVersion();
         View old = replay(user,id,key,fingerprint);
+        if (old != null) return old;
+
+        wallet.lockAccount(user);
+        Row row = ownedAndLocked(user,id);
+        // A request can finish while this transaction waits for the account lock.
+        old = replay(user,id,key,fingerprint);
         if (old != null) return old;
         validateVersion(row.version(),request.expectedVersion());
         if (row.designId().equals("jesus:miracle")) {
