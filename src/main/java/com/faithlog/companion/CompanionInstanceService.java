@@ -328,12 +328,18 @@ public class CompanionInstanceService {
             throw new BusinessException(ErrorCode.COMPANION_CARE_UNAVAILABLE);
         }
 
-        var params = new MapSqlParameterSource("id",id).addValue("action",action.name());
-        var cooldown = jdbc.query("SELECT last_used_at FROM companion_care_cooldowns "
-                + "WHERE instance_id=:id AND action=:action",params,
-                (rs,n)->rs.getTimestamp(1).toInstant());
-        Instant previous = cooldown.isEmpty() ? null : cooldown.getFirst();
-        if (!CompanionGrowthPolicy.cooldownElapsed(now,previous,action)) {
+        var cooldownParams = new MapSqlParameterSource("id",id)
+                .addValue("action",action.name())
+                .addValue("now",Timestamp.from(now))
+                .addValue("cutoff",Timestamp.from(now.minus(action.cooldown())
+                        .truncatedTo(java.time.temporal.ChronoUnit.MICROS)));
+        int reserved = jdbc.update("""
+                INSERT INTO companion_care_cooldowns(instance_id,action,last_used_at)
+                VALUES(:id,:action,:now)
+                ON CONFLICT(instance_id,action) DO UPDATE SET last_used_at=EXCLUDED.last_used_at
+                WHERE companion_care_cooldowns.last_used_at <= :cutoff
+                """, cooldownParams);
+        if (reserved == 0) {
             throw new BusinessException(ErrorCode.COMPANION_CARE_COOLDOWN);
         }
 
@@ -347,10 +353,6 @@ public class CompanionInstanceService {
                 afterCare.care().lastEvaluatedAt(),now,afterCare.care().elapsedHours());
         int days = Math.addExact(row.careDays(),today.equals(row.lastCareDate()) ? 0 : 1);
         persist(user,row,xp,cared,days,today,today,todayEarned+awarded);
-        jdbc.update("INSERT INTO companion_care_cooldowns(instance_id,action,last_used_at) "
-                + "VALUES(:id,:action,:now) ON CONFLICT(instance_id,action) DO UPDATE "
-                + "SET last_used_at=EXCLUDED.last_used_at",
-                params.addValue("now",Timestamp.from(now)));
 
         var result = new CompanionExperienceDecayPolicy.Result(
                 xp,cared,afterCare.lostXp());
