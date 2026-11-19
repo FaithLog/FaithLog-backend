@@ -143,7 +143,10 @@ public final class CompanionExperienceDecayPolicy {
     public static Result markCaredFor(Experience previous,
                                       CompanionNeglectPolicy.Snapshot care,
                                       Instant now) {
-        Result settled = evaluate(previous, care, now);
+        return markCaredFor(evaluate(previous, care, now), now);
+    }
+
+    static Result markCaredFor(Result settled, Instant now) {
         var updatedCare = CompanionNeglectPolicy.markCaredFor(settled.care(), now);
         var xp = settled.experience();
         return new Result(new Experience(xp.level(), xp.growthXp(),

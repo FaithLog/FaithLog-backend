@@ -337,8 +337,7 @@ public class CompanionInstanceService {
             throw new BusinessException(ErrorCode.COMPANION_CARE_COOLDOWN);
         }
 
-        var afterCare = CompanionExperienceDecayPolicy.markCaredFor(
-                row.experience(),row.care(),now);
+        var afterCare = CompanionExperienceDecayPolicy.markCaredFor(settled,now);
         LocalDate today = LocalDate.ofInstant(now,KOREA);
         int todayEarned = today.equals(row.dailyXpDate()) ? row.dailyXpEarned() : 0;
         int awarded = CompanionGrowthPolicy.growthXpAward(todayEarned,action);
