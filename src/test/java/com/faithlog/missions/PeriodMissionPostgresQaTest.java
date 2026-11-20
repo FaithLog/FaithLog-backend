@@ -89,10 +89,10 @@ class PeriodMissionPostgresQaTest {
   week(s,LocalDate.of(2026,12,7),true);vote(s,NOW.minusSeconds(60),true);
   assertThat(missions.get(s.campus,s.user).missions()).allMatch(m->m.status().equals("READY"));
   for(var m:PeriodMission.values())missions.claim(s.campus,s.user,m);
-  assertThat(wallet.wallet(s.user).balance()).isEqualTo(1700);
+  assertThat(wallet.wallet(s.user).balance()).isEqualTo(3740);
   long second=campus(s.user);
   assertThat(missions.claim(second,s.user,PeriodMission.WEEKLY_SUBMISSION).missions()).allMatch(m->m.status().equals("CLAIMED"));
-  assertThat(wallet.wallet(s.user).balance()).isEqualTo(1700);
+  assertThat(wallet.wallet(s.user).balance()).isEqualTo(3740);
   assertThat(jdbc.queryForObject("SELECT count(*) FROM mission_claims WHERE user_id=?",Long.class,s.user)).isEqualTo(5);
   assertThat(jdbc.queryForObject("SELECT count(*) FROM mission_claims WHERE user_id=? AND evidence_json->>'policyVersion'='period-v1' AND source_campus_id=?",Long.class,s.user,s.campus)).isEqualTo(5);
  }
@@ -134,7 +134,7 @@ class PeriodMissionPostgresQaTest {
    var start=new CountDownLatch(1);
    Callable<Long> task=()->{start.await();return missions.claim(s.campus,s.user,PeriodMission.WEEKLY_SUBMISSION).balance();};
    var a=pool.submit(task);var b=pool.submit(task);start.countDown();
-   assertThat(a.get(30,TimeUnit.SECONDS)).isEqualTo(1100);assertThat(b.get(30,TimeUnit.SECONDS)).isEqualTo(1100);
+   assertThat(a.get(30,TimeUnit.SECONDS)).isEqualTo(1120);assertThat(b.get(30,TimeUnit.SECONDS)).isEqualTo(1120);
   }finally{pool.shutdownNow();}
   var other=scope();week(other,LocalDate.of(2026,12,7),true);
   assertThatThrownBy(()->new TransactionTemplate(tx).executeWithoutResult(status->{missions.claim(other.campus,other.user,PeriodMission.WEEKLY_SUBMISSION);throw new IllegalStateException("rollback");})).isInstanceOf(IllegalStateException.class);
@@ -147,7 +147,7 @@ class PeriodMissionPostgresQaTest {
   missions.claim(s.campus,s.user,PeriodMission.WEEKLY_SUBMISSION);
   jdbc.update("UPDATE weekly_devotion_records SET submitted_at=NULL WHERE id=?",w);
   missions.claim(s.campus,s.user,PeriodMission.WEEKLY_SUBMISSION);
-  assertThat(wallet.wallet(s.user).balance()).isEqualTo(1100);
+  assertThat(wallet.wallet(s.user).balance()).isEqualTo(1120);
   var other=scope();assertThatThrownBy(()->missions.get(s.campus,other.user)).isInstanceOf(RuntimeException.class);
   jdbc.update("UPDATE campus_members SET status='INACTIVE' WHERE campus_id=? AND user_id=?",s.campus,s.user);
   assertThatThrownBy(()->missions.claim(s.campus,s.user,PeriodMission.WEEKLY_SUBMISSION)).isInstanceOf(RuntimeException.class);
@@ -160,8 +160,8 @@ class PeriodMissionPostgresQaTest {
   String token=json.readTree(login).path("data").path("accessToken").asText();String path="/api/v1/campuses/"+s.campus+"/missions/me";
   mvc.perform(get(path)).andExpect(status().isUnauthorized());
   mvc.perform(get(path).header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.missions.length()").value(5)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("period-missions"));
-  mvc.perform(post(path+"/WEEKLY_SUBMISSION/claims").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.balance").value(1100)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("period-mission-claim"));
-  mvc.perform(post(path+"/WEEKLY_SUBMISSION/claims").header("Authorization","Bearer "+token)).andExpect(jsonPath("$.data.balance").value(1100));
+  mvc.perform(post(path+"/WEEKLY_SUBMISSION/claims").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.balance").value(1120)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("period-mission-claim"));
+  mvc.perform(post(path+"/WEEKLY_SUBMISSION/claims").header("Authorization","Bearer "+token)).andExpect(jsonPath("$.data.balance").value(1120));
   mvc.perform(post(path+"/WEEKLY_VOTE/claims").header("Authorization","Bearer "+token)).andExpect(status().isConflict());
   mvc.perform(post(path+"/invalid/claims").header("Authorization","Bearer "+token)).andExpect(status().isBadRequest());
  }
