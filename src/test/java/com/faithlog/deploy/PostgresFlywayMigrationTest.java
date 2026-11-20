@@ -80,7 +80,9 @@ class PostgresFlywayMigrationTest {
 		);
 		assertYearlyRecapSecurityAndIntegrity(jdbcUrl, username, password);
 		assertSixYearlyRecapQueriesShareOnePostgresSnapshot(jdbcUrl, username, password);
-		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("35"));
+		assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("36"));
+		assertConstraintExists(jdbcUrl, username, password, "mission_claims", "mission_claims_mission_code_check");
+		assertConstraintValidated(jdbcUrl, username, password, "mission_claims", "mission_claims_mission_code_check");
 		assertTableExists(jdbcUrl, username, password, "companion_instances");
 		assertTableExists(jdbcUrl, username, password, "companion_instance_operations");
 		assertTableExists(jdbcUrl, username, password, "companion_care_cooldowns");
