@@ -3,11 +3,13 @@ package com.faithlog.missions;
 import java.time.*;
 import java.util.List;
 
-public record MissionEvidence(List<Week> weeks,List<Long> responseIds) {
- public MissionEvidence {weeks=List.copyOf(weeks);responseIds=List.copyOf(responseIds);}
+public record MissionEvidence(List<Week> weeks,List<Long> responseIds,List<Long> prayerSubmissionIds) {
+ public MissionEvidence(List<Week> weeks,List<Long> responseIds) {this(weeks,responseIds,List.of());}
+ public MissionEvidence {weeks=List.copyOf(weeks);responseIds=List.copyOf(responseIds);prayerSubmissionIds=List.copyOf(prayerSubmissionIds);}
  public boolean eligible(PeriodMission mission,MissionWindow window,Instant joinedAt) {
   if(mission.fullMembershipRequired()&&joinedAt.isAfter(MissionWindow.midnight(window.start())))return false;
   if(mission==PeriodMission.WEEKLY_VOTE)return !responseIds.isEmpty();
+  if(mission==PeriodMission.WEEKLY_PRAYER_TOPIC)return !prayerSubmissionIds.isEmpty();
   if(!weeks.stream().map(Week::start).toList().containsAll(window.weeks()))return false;
   return !mission.noPenalty()||weeks.stream().noneMatch(Week::penalty);
  }
