@@ -52,8 +52,13 @@ public class PeriodMissionService {
   var windows=new EnumMap<PeriodMission,MissionWindow>(PeriodMission.class);
   for(var mission:PeriodMission.values())windows.put(mission,MissionWindow.forMission(mission,now));
   var starts=windows.values().stream().map(MissionWindow::start).distinct().toList();
-  var claimedKeys=new HashSet<>(jdbc.query("SELECT mission_code,period_start FROM mission_claims WHERE user_id=:user AND period_start IN (:starts)",new MapSqlParameterSource("user",user).addValue("starts",starts),(rs,n)->rs.getString("mission_code")+":"+rs.getDate("period_start").toLocalDate()));
-  var pending=windows.entrySet().stream().filter(e->!claimedKeys.contains(e.getKey().name()+":"+e.getValue().start())).toList();
+  var awardedPoints=jdbc.query("SELECT mission_code,period_start,points FROM mission_claims WHERE user_id=:user AND period_start IN (:starts)",
+    new MapSqlParameterSource("user",user).addValue("starts",starts), rs -> {
+      var points=new HashMap<String,Long>();
+      while(rs.next())points.put(rs.getString("mission_code")+":"+rs.getDate("period_start").toLocalDate(),rs.getLong("points"));
+      return points;
+    });
+  var pending=windows.entrySet().stream().filter(e->!awardedPoints.containsKey(e.getKey().name()+":"+e.getValue().start())).toList();
   var dates=pending.stream().filter(e->e.getKey()!=PeriodMission.WEEKLY_VOTE).flatMap(e->e.getValue().weeks().stream()).distinct().sorted().toList();
   var allWeeks=dates.isEmpty()?List.<MissionEvidence.Week>of():submittedWeeks(campus,user,joined,now,dates);
   var vote=pending.stream().anyMatch(e->e.getKey()==PeriodMission.WEEKLY_VOTE)?evidence(campus,user,joined,now,PeriodMission.WEEKLY_VOTE,windows.get(PeriodMission.WEEKLY_VOTE)):new MissionEvidence(List.of(),List.of());
@@ -61,8 +66,8 @@ public class PeriodMissionService {
   for(var mission:PeriodMission.values()) {
    var window=windows.get(mission);
    var source=mission==PeriodMission.WEEKLY_VOTE?vote:new MissionEvidence(allWeeks.stream().filter(w->window.weeks().contains(w.start())).toList(),List.of());
-   String status=claimedKeys.contains(mission.name()+":"+window.start())?"CLAIMED":source.eligible(mission,window,joined)?"READY":"INCOMPLETE";
-   items.add(new Item(mission,mission.points(),status,window.start(),window.end(),window.availableAt(),window.expiresAt()));
+   String status=awardedPoints.containsKey(mission.name()+":"+window.start())?"CLAIMED":source.eligible(mission,window,joined)?"READY":"INCOMPLETE";
+   items.add(new Item(mission,awardedPoints.getOrDefault(mission.name()+":"+window.start(),mission.points()),status,window.start(),window.end(),window.availableAt(),window.expiresAt()));
   }
   return new Snapshot(now,wallet.wallet(user).balance(),List.copyOf(items));
  }
