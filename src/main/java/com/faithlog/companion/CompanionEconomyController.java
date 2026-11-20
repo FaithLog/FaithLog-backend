@@ -7,6 +7,16 @@ import org.springframework.web.bind.annotation.*;
 public class CompanionEconomyController {
  private final CompanionEconomyService service;
  public CompanionEconomyController(CompanionEconomyService service){this.service=service;}
+ @GetMapping("/growth-shards")
+ public ApiResponse<java.util.Map<String,Long>> growthShards(@AuthenticationPrincipal AuthenticatedUser user) {
+  return ApiResponse.success(java.util.Map.of("balance",service.growthShardBalance(user.userId())));
+ }
+ @PostMapping("/growth-shards/exchanges")
+ public ApiResponse<CompanionEconomyService.ShardExchange> exchange(
+     @AuthenticationPrincipal AuthenticatedUser user,@RequestHeader("Idempotency-Key") String key,
+     @RequestBody CompanionEconomyService.ShardExchangeRequest request) {
+  return ApiResponse.success(service.exchange(user.userId(),key,request));
+ }
  @GetMapping("/sales/availability") public ApiResponse<CompanionEconomyService.SaleAvailability> availability(
      @AuthenticationPrincipal AuthenticatedUser user,@RequestParam String designId){
     return ApiResponse.success(service.saleAvailability(user.userId(),designId));

@@ -43,7 +43,7 @@ public class CompanionEconomyService {
   Long n=jdbc.queryForObject("""
       SELECT count(*) FROM companion_instances ci
       WHERE ci.user_id=:user AND ci.design_id=:design
-        AND ci.level=1 AND ci.growth_xp=0 AND ci.care_days=0
+        AND ci.level=1 AND ci.total_earned_xp=0 AND ci.care_days=0
         AND NOT EXISTS (
           SELECT 1 FROM garden_placements gp
           WHERE gp.user_id=ci.user_id AND gp.instance_id=ci.id
@@ -89,6 +89,60 @@ public class CompanionEconomyService {
   var result=new Result(UUID.randomUUID(),List.of(request.designId()),quote.totalPoints(),wallet.wallet(user).balance(),(String)row.get("policy_version"),quote.quantity(),quote.unitPrice());
   record(user,"SALE",key,fp,null,business,result);return result;
  }
+ @Transactional(readOnly=true)
+ public long growthShardBalance(Long user) {
+  return jdbc.queryForObject("""
+      SELECT COALESCE((SELECT balance FROM companion_growth_shards WHERE user_id=:user),0)
+      """,Map.of("user",user),Long.class);
+ }
+
+ @Transactional
+ public ShardExchange exchange(Long user,String key,ShardExchangeRequest request) {
+  key(key);
+  if(request==null||request.designId()==null||request.designId().isBlank()
+      ||request.designId().length()>100)throw invalid();
+  wallet.lockAccount(user);
+  var params=new MapSqlParameterSource("user",user).addValue("key",key)
+      .addValue("design",request.designId());
+  var prior=jdbc.query("""
+      SELECT design_id,awarded,resulting_balance FROM companion_shard_exchanges
+      WHERE user_id=:user AND request_key=:key
+      """,params,(rs,n)->new ShardExchange(rs.getString(1),rs.getLong(2),rs.getLong(3)));
+  if(!prior.isEmpty()) {
+   var result=prior.getFirst();
+   if(!result.designId().equals(request.designId()))
+    throw new BusinessException(ErrorCode.COMPANION_REQUEST_CONFLICT);
+   return result;
+  }
+  var rows=jdbc.query("""
+      SELECT d.rarity FROM user_companions u JOIN companion_designs d ON d.design_id=u.design_id
+      WHERE u.user_id=:user AND u.design_id=:design AND u.quantity>1
+      """,params,(rs,n)->rs.getString(1));
+  if(rows.isEmpty()||untouchedUnplaced(user,request.designId())<1)
+   throw new BusinessException(ErrorCode.COMPANION_INVALID_SHARD_EXCHANGE);
+  int award=switch(rows.getFirst()) {
+   case "COMMON" -> 1;
+   case "UNCOMMON" -> 2;
+   case "RARE" -> 4;
+   case "EPIC" -> 8;
+   case "UNIQUE" -> 16;
+   default -> throw new BusinessException(ErrorCode.COMPANION_INVALID_SHARD_EXCHANGE);
+  };
+  jdbc.update("UPDATE user_companions SET quantity=quantity-1 WHERE user_id=:user AND design_id=:design",params);
+  params.addValue("award",award);
+  long balance=jdbc.queryForObject("""
+      INSERT INTO companion_growth_shards(user_id,balance) VALUES(:user,:award)
+      ON CONFLICT(user_id) DO UPDATE SET balance=companion_growth_shards.balance+EXCLUDED.balance
+      RETURNING balance
+      """,params,Long.class);
+  jdbc.update("""
+      INSERT INTO companion_shard_exchanges(user_id,request_key,design_id,awarded,resulting_balance)
+      VALUES(:user,:key,:design,:award,:balance)
+      """,params.addValue("balance",balance));
+  return new ShardExchange(request.designId(),award,balance);
+ }
+ public record ShardExchangeRequest(String designId){}
+ public record ShardExchange(String designId,long awarded,long balance){}
  @Transactional(readOnly=true) public List<HistoryItem> drawHistory(Long user,int page) {
   if(page<0||page>10000)throw invalid();
   Long active=jdbc.queryForObject(

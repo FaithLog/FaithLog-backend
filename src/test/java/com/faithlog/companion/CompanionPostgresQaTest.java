@@ -254,6 +254,49 @@ class CompanionPostgresQaTest {
    assertThat(cleared.placements()).isEmpty();
  }
 
+ @Test void growth_shards_protect_duplicates_and_boost_only_once_daily() {
+   Long user=account();
+   String design="david-lamb:base";
+   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES(?,?,2,now())",user,design);
+   var request=new CompanionEconomyService.ShardExchangeRequest(design);
+   var exchanged=economy.exchange(user,"exchange-once",request);
+   assertThat(exchanged.awarded()).isEqualTo(1);
+   assertThat(economy.exchange(user,"exchange-once",request)).isEqualTo(exchanged);
+   assertThat(economy.growthShardBalance(user)).isEqualTo(1);
+   assertThatThrownBy(()->economy.exchange(user,"exchange-last",request))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+
+   jdbc.update("UPDATE companion_growth_shards SET balance=20 WHERE user_id=?",user);
+   var pet=instances.listByDesign(user,design,0,20).getFirst();
+   var base=new CompanionInstanceService.EvolveRequest(pet.version());
+   var boosted=instances.boostWithShards(user,pet.instanceId(),"boost-once",base);
+   assertThat(boosted.growthXp()).isEqualTo(pet.growthXp()+20);
+   assertThat(boosted.careDays()).isEqualTo(pet.careDays());
+   assertThat(instances.boostWithShards(user,pet.instanceId(),"boost-once",base)).isEqualTo(boosted);
+   assertThatThrownBy(()->instances.boostWithShards(user,pet.instanceId(),"boost-twice",
+      new CompanionInstanceService.EvolveRequest(boosted.version())))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+   assertThat(economy.growthShardBalance(user)).isEqualTo(10);
+ }
+
+ @Test void returning_after_72_hours_marks_garden_companion_dormant_and_waking_is_idempotent() {
+   Long user=account();
+   String design="david-lamb:base";
+   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES(?,?,1,now())",user,design);
+   var pet=instances.listByDesign(user,design,0,20).getFirst();
+   gardens.save(user,new GardenUpdate(0,null,List.of(
+      new GardenUpdate.Placement(1,design,.2,.3,pet.instanceId())),GardenUpdate.INSTANCE_PROTOCOL));
+   jdbc.update("UPDATE companion_instances SET acquired_at=now()-interval '1 day',last_cared_at=now()-interval '1 day' WHERE id=?",pet.instanceId());
+   jdbc.update("INSERT INTO companion_garden_presence(user_id,last_visited_at) VALUES(?,now()-interval '73 hours')",user);
+   instances.recordVisit(user);
+   assertThat(instances.gardenInstances(user).getFirst().dormant()).isTrue();
+   var awakened=instances.wake(user,pet.instanceId());
+   assertThat(awakened.dormant()).isFalse();
+   assertThat(awakened.version()).isEqualTo(pet.version()+1);
+   assertThat(instances.wake(user,pet.instanceId()).version()).isEqualTo(awakened.version());
+   assertThat(instances.gardenInstances(user).getFirst().dormant()).isFalse();
+ }
+
  @Test void sale_availability_is_owner_scoped_and_matches_protected_inventory(){
    Long user=account(),other=account();
    String design="david-lamb:base";
