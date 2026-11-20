@@ -55,7 +55,7 @@ class CalendarDailyRewardServiceTest {
   org.mockito.Mockito.verify(pointLedger).findBusinessKeysByUserIdAndBusinessKeyIn(org.mockito.ArgumentMatchers.eq(s.user),org.mockito.ArgumentMatchers.anyCollection());
   org.mockito.Mockito.verify(pointLedger,org.mockito.Mockito.never()).findByUserIdAndBusinessKey(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString());
  }
- @Test void only_successful_calendar_save_opens_rewards_and_unchecking_closes_unclaimed_rewards() {
+ @Test void calendar_save_opens_rewards_and_unchecking_closes_unclaimed_rewards() {
   var s=scope();
   assertThat(rewards.getToday(s.campus,s.user).recordDate()).isEqualTo(TODAY);
   assertThat(rewards.getToday(s.campus,s.user).missions()).allMatch(m -> m.status().equals("INCOMPLETE"));
@@ -69,12 +69,16 @@ class CalendarDailyRewardServiceTest {
   daily.updateDailyCheck(new UpdateDailyDevotionCommand(s.campus,s.user,TODAY,true,true,true));
   assertThat(rewards.claim(s.campus,s.user,DailyMission.QUIET_TIME).totalAwardedPoints()).isEqualTo(30);
  }
- @Test void weekly_save_and_past_or_future_calendar_dates_do_not_create_todays_eligibility() {
+ @Test void weekly_draft_enables_only_todays_checks_and_calendar_cannot_double_award() {
   var s=scope();
-  weekly.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(s.campus,s.user,LocalDate.of(2026,11,9),List.of(new DevotionDailyCheckCommand(TODAY,true,true,true)),0,false));
+  weekly.updateWeeklyCheck(new UpdateWeeklyDevotionCommand(s.campus,s.user,LocalDate.of(2026,11,9),List.of(new DevotionDailyCheckCommand(TODAY,true,false,false)),0,false));
   daily.updateDailyCheck(new UpdateDailyDevotionCommand(s.campus,s.user,TODAY.minusDays(1),true,true,true));
   daily.updateDailyCheck(new UpdateDailyDevotionCommand(s.campus,s.user,TODAY.plusDays(1),true,true,true));
-  assertThat(rewards.getToday(s.campus,s.user).missions()).allMatch(m -> m.status().equals("INCOMPLETE"));
+  assertThat(rewards.getToday(s.campus,s.user).missions().stream().map(m -> m.status()))
+   .containsExactly("READY","INCOMPLETE","INCOMPLETE");
+  assertThat(rewards.claim(s.campus,s.user,DailyMission.QUIET_TIME).totalAwardedPoints()).isEqualTo(30);
+  daily.updateDailyCheck(new UpdateDailyDevotionCommand(s.campus,s.user,TODAY,true,true,false));
+  assertThat(rewards.claim(s.campus,s.user,DailyMission.QUIET_TIME).totalAwardedPoints()).isEqualTo(30);
  }
  @Test void parallel_claims_across_devices_award_thirty_points_once() throws Exception {
   var s=scope();
