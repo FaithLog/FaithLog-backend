@@ -65,6 +65,25 @@ class PeriodMissionPostgresQaTest {
   if(selected)jdbc.update("INSERT INTO poll_response_options(response_id,option_id) VALUES(?,?)",response,option);
   return response;
  }
+ private void prayerTopic(Scope s,String content) {
+  var now=Timestamp.from(NOW.minusSeconds(60));
+  var monday=LocalDate.of(2026,12,7);
+  long season=jdbc.queryForObject("INSERT INTO prayer_seasons(campus_id,name,start_date,created_at,updated_at) VALUES(?,'QA',?,?,?) RETURNING id",Long.class,s.campus,monday,now,now);
+  long group=jdbc.queryForObject("INSERT INTO prayer_groups(season_id,name,created_at,updated_at) VALUES(?,'QA',?,?) RETURNING id",Long.class,season,now,now);
+  long week=jdbc.queryForObject("INSERT INTO prayer_weeks(campus_id,season_id,week_start_date,week_end_date,created_at,updated_at) VALUES(?,?,?,?,?,?) RETURNING id",Long.class,s.campus,season,monday,monday.plusDays(6),now,now);
+  jdbc.update("INSERT INTO prayer_submissions(prayer_week_id,group_id,user_id,content,submitted_by,submitted_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",week,group,s.user,content,s.user,now,now,now);
+ }
+ @Test void prayer_topic_requires_nonblank_self_submission_and_pays_once() {
+  var s=scope();
+  prayerTopic(s," ");
+  assertThat(missionStatus(s,PeriodMission.WEEKLY_PRAYER_TOPIC)).isEqualTo("INCOMPLETE");
+  jdbc.update("UPDATE prayer_submissions SET content='기도제목',submitted_by=NULL WHERE user_id=?",s.user);
+  assertThat(missionStatus(s,PeriodMission.WEEKLY_PRAYER_TOPIC)).isEqualTo("INCOMPLETE");
+  jdbc.update("UPDATE prayer_submissions SET submitted_by=user_id WHERE user_id=?",s.user);
+  assertThat(missionStatus(s,PeriodMission.WEEKLY_PRAYER_TOPIC)).isEqualTo("READY");
+  assertThat(missions.claim(s.campus,s.user,PeriodMission.WEEKLY_PRAYER_TOPIC).balance()).isEqualTo(1050);
+  assertThat(missions.claim(s.campus,s.user,PeriodMission.WEEKLY_PRAYER_TOPIC).balance()).isEqualTo(1050);
+ }
  private void penalty(Scope s,long week,String category,String status) {
   long account=jdbc.queryForObject("INSERT INTO payment_accounts(campus_id,account_type,nickname,bank_name,account_number,account_holder,owner_user_id,is_active,created_at,updated_at) VALUES(?,?,'QA','test-only','test-only','QA',?,true,?,?) RETURNING id",Long.class,s.campus,category,s.user,Timestamp.from(NOW),Timestamp.from(NOW));
   String source=category.equals("PENALTY")?"DEVOTION_RECORD":"POLL_RESPONSE";
@@ -76,25 +95,25 @@ class PeriodMissionPostgresQaTest {
  @Test void mission_snapshot_batches_claims_and_weekly_evidence_queries() {
   var s=scope();
   for(var d:MissionWindow.forMission(PeriodMission.MONTHLY_ALL_SUBMISSIONS,NOW).weeks())week(s,d,true);
-  week(s,LocalDate.of(2026,12,7),true);vote(s,NOW.minusSeconds(60),true);
+  week(s,LocalDate.of(2026,12,7),true);vote(s,NOW.minusSeconds(60),true);prayerTopic(s,"기도제목");
   org.mockito.Mockito.clearInvocations(missionQueries);
   assertThat(missions.get(s.campus,s.user).missions()).allMatch(m->m.status().equals("READY"));
   var calls=org.mockito.Mockito.mockingDetails(missionQueries).getInvocations().stream().filter(i->i.getMethod().getName().equals("query")&&i.getArguments().length>0&&i.getArgument(0) instanceof String).map(i->(String)i.getArgument(0)).toList();
   assertThat(calls.stream().filter(sql->sql.contains("FROM mission_claims")).count()).isEqualTo(1);
   assertThat(calls.stream().filter(sql->sql.contains("FROM weekly_devotion_records")).count()).isEqualTo(1);
  }
- @Test void all_five_missions_use_real_sources_and_account_common_claims() {
+ @Test void all_six_missions_use_real_sources_and_account_common_claims() {
   var s=scope();
   for(var d:MissionWindow.forMission(PeriodMission.MONTHLY_ALL_SUBMISSIONS,NOW).weeks())week(s,d,true);
-  week(s,LocalDate.of(2026,12,7),true);vote(s,NOW.minusSeconds(60),true);
+  week(s,LocalDate.of(2026,12,7),true);vote(s,NOW.minusSeconds(60),true);prayerTopic(s,"기도제목");
   assertThat(missions.get(s.campus,s.user).missions()).allMatch(m->m.status().equals("READY"));
   for(var m:PeriodMission.values())missions.claim(s.campus,s.user,m);
-  assertThat(wallet.wallet(s.user).balance()).isEqualTo(3740);
+  assertThat(wallet.wallet(s.user).balance()).isEqualTo(3830);
   long second=campus(s.user);
   assertThat(missions.claim(second,s.user,PeriodMission.WEEKLY_SUBMISSION).missions()).allMatch(m->m.status().equals("CLAIMED"));
-  assertThat(wallet.wallet(s.user).balance()).isEqualTo(3740);
-  assertThat(jdbc.queryForObject("SELECT count(*) FROM mission_claims WHERE user_id=?",Long.class,s.user)).isEqualTo(5);
-  assertThat(jdbc.queryForObject("SELECT count(*) FROM mission_claims WHERE user_id=? AND evidence_json->>'policyVersion'='period-v1' AND source_campus_id=?",Long.class,s.user,s.campus)).isEqualTo(5);
+  assertThat(wallet.wallet(s.user).balance()).isEqualTo(3830);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM mission_claims WHERE user_id=?",Long.class,s.user)).isEqualTo(6);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM mission_claims WHERE user_id=? AND evidence_json->>'policyVersion'='period-v1' AND source_campus_id=?",Long.class,s.user,s.campus)).isEqualTo(6);
  }
  @Test void missing_rows_and_new_members_do_not_receive_period_bonus() {
   var s=scope();
@@ -160,6 +179,7 @@ class PeriodMissionPostgresQaTest {
   String token=json.readTree(login).path("data").path("accessToken").asText();String path="/api/v1/campuses/"+s.campus+"/missions/me";
   mvc.perform(get(path)).andExpect(status().isUnauthorized());
   mvc.perform(get(path).header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.missions.length()").value(5)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("period-missions"));
+  mvc.perform(get(path).param("includePrayerTopic","true").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.missions.length()").value(6));
   mvc.perform(post(path+"/WEEKLY_SUBMISSION/claims").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.balance").value(1120)).andDo(org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document("period-mission-claim"));
   mvc.perform(post(path+"/WEEKLY_SUBMISSION/claims").header("Authorization","Bearer "+token)).andExpect(jsonPath("$.data.balance").value(1120));
   mvc.perform(post(path+"/WEEKLY_VOTE/claims").header("Authorization","Bearer "+token)).andExpect(status().isConflict());

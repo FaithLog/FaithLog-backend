@@ -1,7 +1,7 @@
 package com.faithlog.missions;
 
 public enum PeriodMission {
- WEEKLY_SUBMISSION(120), WEEKLY_VOTE(60), WEEKLY_NO_PENALTY(60),
+ WEEKLY_SUBMISSION(120), WEEKLY_VOTE(60), WEEKLY_NO_PENALTY(100), WEEKLY_PRAYER_TOPIC(50),
  MONTHLY_NO_PENALTY(2000), MONTHLY_ALL_SUBMISSIONS(500);
  private final long points;
  PeriodMission(long points) {this.points=points;}

@@ -59,13 +59,18 @@ public class PeriodMissionService {
       return points;
     });
   var pending=windows.entrySet().stream().filter(e->!awardedPoints.containsKey(e.getKey().name()+":"+e.getValue().start())).toList();
-  var dates=pending.stream().filter(e->e.getKey()!=PeriodMission.WEEKLY_VOTE).flatMap(e->e.getValue().weeks().stream()).distinct().sorted().toList();
+  var dates=pending.stream().filter(e->switch(e.getKey()){case WEEKLY_VOTE,WEEKLY_PRAYER_TOPIC->false;default->true;}).flatMap(e->e.getValue().weeks().stream()).distinct().sorted().toList();
   var allWeeks=dates.isEmpty()?List.<MissionEvidence.Week>of():submittedWeeks(campus,user,joined,now,dates);
   var vote=pending.stream().anyMatch(e->e.getKey()==PeriodMission.WEEKLY_VOTE)?evidence(campus,user,joined,now,PeriodMission.WEEKLY_VOTE,windows.get(PeriodMission.WEEKLY_VOTE)):new MissionEvidence(List.of(),List.of());
+  var prayerTopic=pending.stream().anyMatch(e->e.getKey()==PeriodMission.WEEKLY_PRAYER_TOPIC)?evidence(campus,user,joined,now,PeriodMission.WEEKLY_PRAYER_TOPIC,windows.get(PeriodMission.WEEKLY_PRAYER_TOPIC)):new MissionEvidence(List.of(),List.of());
   var items=new ArrayList<Item>();
   for(var mission:PeriodMission.values()) {
    var window=windows.get(mission);
-   var source=mission==PeriodMission.WEEKLY_VOTE?vote:new MissionEvidence(allWeeks.stream().filter(w->window.weeks().contains(w.start())).toList(),List.of());
+   var source=switch(mission) {
+    case WEEKLY_VOTE -> vote;
+    case WEEKLY_PRAYER_TOPIC -> prayerTopic;
+    default -> new MissionEvidence(allWeeks.stream().filter(w->window.weeks().contains(w.start())).toList(),List.of());
+   };
    String status=awardedPoints.containsKey(mission.name()+":"+window.start())?"CLAIMED":source.eligible(mission,window,joined)?"READY":"INCOMPLETE";
    items.add(new Item(mission,awardedPoints.getOrDefault(mission.name()+":"+window.start(),mission.points()),status,window.start(),window.end(),window.availableAt(),window.expiresAt()));
   }
@@ -77,6 +82,19 @@ public class PeriodMissionService {
    p.addValue("from",Timestamp.from(MissionWindow.midnight(window.start()))).addValue("until",Timestamp.from(window.expiresAt()));
    var responses=jdbc.queryForList("SELECT r.id FROM poll_responses r JOIN polls p ON p.id=r.poll_id WHERE r.user_id=:user AND p.campus_id=:campus AND p.status IN ('OPEN','CLOSED') AND r.created_at>=:from AND r.created_at<:until AND r.created_at>=:joined AND r.created_at<=:now AND EXISTS(SELECT 1 FROM poll_response_options ro JOIN poll_options o ON o.id=ro.option_id AND o.poll_id=p.id WHERE ro.response_id=r.id) ORDER BY r.created_at,r.id LIMIT 1",p,Long.class);
    return new MissionEvidence(List.of(),responses);
+  }
+  if(mission==PeriodMission.WEEKLY_PRAYER_TOPIC) {
+   p.addValue("week",window.start()).addValue("from",Timestamp.from(window.availableAt()));
+   var submissionIds=jdbc.queryForList("""
+    SELECT s.id
+      FROM prayer_weeks w JOIN prayer_submissions s ON s.prayer_week_id=w.id
+     WHERE w.campus_id=:campus AND w.week_start_date=:week
+       AND s.user_id=:user AND s.submitted_by=:user
+       AND s.submitted_at>=:from AND s.submitted_at>=:joined AND s.submitted_at<=:now
+       AND s.content ~ '[^[:space:]]'
+     ORDER BY s.id LIMIT 1
+    """,p,Long.class);
+   return new MissionEvidence(List.of(),List.of(),submissionIds);
   }
   return new MissionEvidence(submittedWeeks(campus,user,joined,now,window.weeks()),List.of());
  }
