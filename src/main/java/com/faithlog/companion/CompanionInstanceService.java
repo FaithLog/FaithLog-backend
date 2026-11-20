@@ -208,10 +208,10 @@ public class CompanionInstanceService {
                 INSERT INTO companion_garden_presence(user_id,last_visited_at)
                 VALUES(:user,:now)
                 ON CONFLICT(user_id) DO UPDATE SET
-                    dormant_at=CASE WHEN companion_garden_presence.last_visited_at <= :now - INTERVAL '72 hours'
+                    dormant_at=CASE WHEN companion_garden_presence.last_visited_at <= CAST(:now AS TIMESTAMPTZ) - INTERVAL '72 hours'
                                     THEN :now ELSE companion_garden_presence.dormant_at END,
                     last_visited_at=:now
-                WHERE companion_garden_presence.last_visited_at <= :now - INTERVAL '30 seconds'
+                WHERE companion_garden_presence.last_visited_at <= CAST(:now AS TIMESTAMPTZ) - INTERVAL '30 seconds'
                 """,Map.of("user",user,"now",Timestamp.from(clock.instant())));
     }
 
