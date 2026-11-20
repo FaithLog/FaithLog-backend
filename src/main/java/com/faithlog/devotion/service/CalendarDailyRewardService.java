@@ -62,15 +62,18 @@ public class CalendarDailyRewardService {
   var claimedKeys=new HashSet<>(pointTransactions.findBusinessKeysByUserIdAndBusinessKeyIn(userId,missionKeys));
   for(var mission:DailyMission.values())if(claimedKeys.contains("daily:"+date+":"+mission.name()))claimed.add(mission);
   if (claim!=null && !claimed.contains(claim)) {
-   var reward=rows.stream().filter(r -> r.mission()==claim).findFirst().orElseThrow(() -> new BusinessException(ErrorCode.DEVOTION_MISSION_NOT_READY));
-   reward.claim(now,claim.checked(current));
+   if (!claim.checked(current)) throw new BusinessException(ErrorCode.DEVOTION_MISSION_NOT_READY);
+   var reward=rows.stream().filter(r -> r.mission()==claim).findFirst()
+     .orElseGet(() -> new CalendarDailyReward(campusId,userId,date,claim));
+   reward.recordSave(true);
+   reward.claim(now,true);
    rewards.saveAndFlush(reward);
    pointWallet.settle(userId,30,"daily:"+date+":"+claim.name());
    claimed.add(claim);
   }
   var items=Arrays.stream(DailyMission.values()).map(mission -> {
    var reward=rows.stream().filter(r -> r.mission()==mission).findFirst().orElse(null);
-   String status=claimed.contains(mission) || reward!=null && reward.claimedAt()!=null ? "CLAIMED" : reward!=null && reward.ready(mission.checked(current)) ? "READY" : "INCOMPLETE";
+   String status=claimed.contains(mission) || reward!=null && reward.claimedAt()!=null ? "CLAIMED" : mission.checked(current) ? "READY" : "INCOMPLETE";
    return new DailyMissionResult.Item(mission,status,30);
   }).toList();
   return new DailyMissionResult(date,now,rewards.totalAwarded(campusId,userId),items);
