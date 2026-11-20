@@ -14,7 +14,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -47,7 +46,12 @@ public class CompanionInstanceService {
     public record View(UUID instanceId, String designId, int level, long growthXp,
                        long totalEarnedXp, int careDays, Stats stats, Instant lastCaredAt,
                        long version, CompanionGrowthPolicy.Evaluation nextEvolution,
-                       boolean canEvolve) {}
+                       boolean canEvolve, boolean dormant) {
+        private View withDormancy() {
+            return new View(instanceId,designId,level,growthXp,totalEarnedXp,careDays,
+                    stats,lastCaredAt,version,nextEvolution,false,true);
+        }
+    }
     public record CareRequest(String action, long expectedVersion) {}
     public record EvolveRequest(long expectedVersion) {}
 
@@ -113,7 +117,7 @@ public class CompanionInstanceService {
                         state.experience().growthState(state.care(),careDays));
         return new View(row.id(),row.designId(),xp.level(),xp.growthXp(),xp.totalEarnedXp(),
                 careDays,stats,state.care().lastCaredAt(),version,evolution,
-                evolution != null && evolution.canEvolve());
+                evolution != null && evolution.canEvolve(),false);
     }
 
     /** Active account check without the user-row FOR UPDATE lock used by the economy. */
@@ -178,14 +182,56 @@ public class CompanionInstanceService {
     @Transactional(readOnly=true)
     public List<View> gardenInstances(Long user) {
         authenticateRead(user);
-        var rows = jdbc.query("""
-                SELECT ci.*
+        Instant now=clock.instant();
+        return jdbc.query("""
+                SELECT ci.*, (presence.dormant_at IS NOT NULL
+                    AND ci.acquired_at < presence.dormant_at
+                    AND ci.last_cared_at < presence.dormant_at
+                    AND (ci.last_awakened_at IS NULL OR ci.last_awakened_at < presence.dormant_at)
+                    AND ci.design_id <> 'jesus:miracle') AS dormant
                 FROM garden_placements gp
-                JOIN companion_instances ci
-                  ON ci.user_id=gp.user_id AND ci.id=gp.instance_id
+                JOIN companion_instances ci ON ci.user_id=gp.user_id AND ci.id=gp.instance_id
+                LEFT JOIN companion_garden_presence presence ON presence.user_id=gp.user_id
                 WHERE gp.user_id=:user ORDER BY gp.slot
-                """,Map.of("user",user),CompanionInstanceService::mapRow);
-        return render(rows,clock.instant());
+                """,Map.of("user",user),(rs,n)->{
+            Row row=mapRow(rs,n);
+            View view=view(row,CompanionExperienceDecayPolicy.evaluate(row.experience(),row.care(),now),
+                    row.careDays(),row.version());
+            return rs.getBoolean("dormant") ? view.withDormancy() : view;
+        });
+    }
+
+    @Transactional
+    public void recordVisit(Long user) {
+        authenticateRead(user);
+        jdbc.update("""
+                INSERT INTO companion_garden_presence(user_id,last_visited_at)
+                VALUES(:user,:now)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    dormant_at=CASE WHEN companion_garden_presence.last_visited_at <= :now - INTERVAL '72 hours'
+                                    THEN :now ELSE companion_garden_presence.dormant_at END,
+                    last_visited_at=:now
+                WHERE companion_garden_presence.last_visited_at <= :now - INTERVAL '30 seconds'
+                """,Map.of("user",user,"now",Timestamp.from(clock.instant())));
+    }
+
+    @Transactional
+    public View wake(Long user, UUID id) {
+        wallet.lockAccount(user);
+        Row row=ownedAndLocked(user,id);
+        Instant now=clock.instant();
+        int changed=jdbc.update("""
+                UPDATE companion_instances ci SET last_awakened_at=:now,version=version+1
+                FROM companion_garden_presence presence
+                WHERE presence.user_id=ci.user_id AND ci.user_id=:user AND ci.id=:id
+                  AND ci.acquired_at<presence.dormant_at AND ci.last_cared_at<presence.dormant_at
+                  AND (ci.last_awakened_at IS NULL OR ci.last_awakened_at<presence.dormant_at)
+                  AND ci.design_id<>'jesus:miracle'
+                  AND EXISTS (SELECT 1 FROM garden_placements gp
+                              WHERE gp.user_id=ci.user_id AND gp.instance_id=ci.id)
+                """,Map.of("user",user,"id",id,"now",Timestamp.from(now)));
+        return view(row,CompanionExperienceDecayPolicy.evaluate(row.experience(),row.care(),now),
+                row.careDays(),row.version()+changed);
     }
 
     private View replay(Long user, UUID id, String key, String fingerprint) {
@@ -356,6 +402,35 @@ public class CompanionInstanceService {
                 xp,cared,afterCare.lostXp());
         View response = view(row,result,days,row.version()+1);
         record(user,id,key,fingerprint,"CARE",now,response);
+        return response;
+    }
+
+    @Transactional
+    public View boostWithShards(Long user, UUID id, String key, EvolveRequest request) {
+        validateKey(key);
+        if (id == null || request == null || request.expectedVersion() < 0) throw invalid();
+        wallet.lockAccount(user);
+        Row row = ownedAndLocked(user,id);
+        String fingerprint = "BOOST:"+request.expectedVersion();
+        View old = replay(user,id,key,fingerprint);
+        if (old != null) return old;
+        validateVersion(row.version(),request.expectedVersion());
+        if ("jesus:miracle".equals(row.designId())) throw invalid();
+
+        Instant now = clock.instant();
+        LocalDate today = LocalDate.ofInstant(now,KOREA);
+        int debited = jdbc.update("""
+                UPDATE companion_growth_shards SET balance=balance-10,last_boost_date=:today
+                WHERE user_id=:user AND balance>=10 AND (last_boost_date IS NULL OR last_boost_date<:today)
+                """,Map.of("user",user,"today",today));
+        if (debited != 1) throw new BusinessException(ErrorCode.COMPANION_SHARD_BOOST_UNAVAILABLE);
+
+        var settled = CompanionExperienceDecayPolicy.evaluate(row.experience(),row.care(),now);
+        var xp = CompanionExperienceDecayPolicy.awardEarnedXp(settled.experience(),20);
+        persist(user,row,xp,settled.care(),row.careDays(),row.lastCareDate(),row.dailyXpDate(),row.dailyXpEarned());
+        var response = view(row,new CompanionExperienceDecayPolicy.Result(xp,settled.care(),settled.lostXp()),
+                row.careDays(),row.version()+1);
+        record(user,id,key,fingerprint,"BOOST",now,response);
         return response;
     }
 
