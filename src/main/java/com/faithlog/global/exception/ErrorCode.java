@@ -8,6 +8,7 @@ public enum ErrorCode {
  COMPANION_INSUFFICIENT_POINTS(HttpStatus.CONFLICT, "포인트가 부족합니다."),
  COMPANION_INVALID_SALE(HttpStatus.CONFLICT, "판매 가능한 중복 수량을 확인해 주세요."),
  COMPANION_INVALID_SHARD_EXCHANGE(HttpStatus.CONFLICT, "성장 조각으로 교환할 수 있는 중복 동물이 없습니다."),
+ COMPANION_CARE_GIFT_UNAVAILABLE(HttpStatus.CONFLICT, "돌봄 선물 조건이나 오늘 수령 여부를 확인해 주세요."),
  COMPANION_SHARD_BOOST_UNAVAILABLE(HttpStatus.CONFLICT, "성장 조각 잔액 또는 하루 사용 한도를 확인해 주세요."),
  COMPANION_GARDEN_CONFLICT(HttpStatus.CONFLICT, "정원이 변경되었습니다. 다시 불러온 뒤 저장해 주세요."),
  COMPANION_NOT_OWNED(HttpStatus.FORBIDDEN, "보유하지 않은 동물이나 배경입니다."),

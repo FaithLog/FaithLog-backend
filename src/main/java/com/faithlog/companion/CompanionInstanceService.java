@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CompanionInstanceService {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
+    private static final Map<Integer, Integer> CARE_GIFTS = Map.of(3, 1, 7, 2, 14, 3);
     private final PointWalletService wallet;
     private final NamedParameterJdbcTemplate jdbc;
     private final ObjectMapper json;
@@ -404,6 +405,66 @@ public class CompanionInstanceService {
         record(user,id,key,fingerprint,"CARE",now,response);
         return response;
     }
+
+    public record CareGift(int milestone, int shards, String status) {}
+
+    @Transactional(readOnly = true)
+    public List<CareGift> careGifts(Long user, UUID id) {
+        var params = new MapSqlParameterSource("user", user).addValue("id", id);
+        var rows = jdbc.query("SELECT * FROM companion_instances WHERE user_id=:user AND id=:id",
+                params, CompanionInstanceService::mapRow);
+        if (rows.isEmpty()) throw new BusinessException(ErrorCode.COMPANION_NOT_OWNED);
+        return careGiftStatuses(user, rows.getFirst(), LocalDate.now(clock.withZone(KOREA)));
+    }
+
+    @Transactional
+    public List<CareGift> claimCareGift(Long user, UUID id, int milestone) {
+        Integer shards = CARE_GIFTS.get(milestone);
+        if (shards == null) throw invalid();
+
+        wallet.lockAccount(user);
+        Row row = ownedAndLocked(user, id);
+        LocalDate today = LocalDate.now(clock.withZone(KOREA));
+        List<CareGift> statuses = careGiftStatuses(user, row, today);
+        CareGift gift = statuses.stream().filter(item -> item.milestone() == milestone)
+                .findFirst().orElseThrow(this::invalid);
+        if ("CLAIMED".equals(gift.status())) return statuses;
+        if (!"READY".equals(gift.status())) {
+            throw new BusinessException(ErrorCode.COMPANION_CARE_GIFT_UNAVAILABLE);
+        }
+
+        jdbc.update("""
+                INSERT INTO companion_care_gift_claims(user_id,instance_id,milestone,claim_date)
+                VALUES(:user,:id,:milestone,:today)
+                """, Map.of("user", user, "id", id, "milestone", milestone, "today", today));
+        jdbc.update("""
+                INSERT INTO companion_growth_shards(user_id,balance) VALUES(:user,:shards)
+                ON CONFLICT(user_id) DO UPDATE SET balance=companion_growth_shards.balance+EXCLUDED.balance
+                """, Map.of("user", user, "shards", shards));
+        return careGiftStatuses(user, row, today);
+    }
+
+    private List<CareGift> careGiftStatuses(Long user, Row row, LocalDate today) {
+        if ("jesus:miracle".equals(row.designId())) return List.of();
+        var params = new MapSqlParameterSource("user", user).addValue("id", row.id())
+                .addValue("today", today);
+        var claims = jdbc.query("""
+                SELECT instance_id, milestone, claim_date FROM companion_care_gift_claims
+                WHERE user_id=:user AND (instance_id=:id OR claim_date=:today)
+                """, params, (rs, number) -> new GiftClaim(rs.getObject("instance_id", UUID.class),
+                rs.getInt("milestone"), rs.getObject("claim_date", LocalDate.class)));
+        boolean claimedToday = claims.stream().anyMatch(claim -> today.equals(claim.date()));
+        return CARE_GIFTS.entrySet().stream().sorted(Map.Entry.comparingByKey()).map(entry -> {
+            int milestone = entry.getKey();
+            boolean claimed = claims.stream().anyMatch(claim ->
+                    row.id().equals(claim.instanceId()) && claim.milestone() == milestone);
+            String status = claimed ? "CLAIMED" : row.careDays() < milestone ? "LOCKED"
+                    : claimedToday ? "TOMORROW" : "READY";
+            return new CareGift(milestone, entry.getValue(), status);
+        }).toList();
+    }
+
+    private record GiftClaim(UUID instanceId, int milestone, LocalDate date) {}
 
     @Transactional
     public View boostWithShards(Long user, UUID id, String key, EvolveRequest request) {

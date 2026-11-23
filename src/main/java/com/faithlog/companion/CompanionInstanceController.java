@@ -63,6 +63,19 @@ public class CompanionInstanceController {
         return ApiResponse.success(service.care(user.userId(),id,key,request));
     }
 
+    @GetMapping("/{id}/care-gifts")
+    public ApiResponse<List<CompanionInstanceService.CareGift>> careGifts(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable UUID id) {
+        return ApiResponse.success(service.careGifts(user.userId(), id));
+    }
+
+    @PostMapping("/{id}/care-gifts/{milestone}/claim")
+    public ApiResponse<List<CompanionInstanceService.CareGift>> claimCareGift(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable UUID id,
+            @PathVariable int milestone) {
+        return ApiResponse.success(service.claimCareGift(user.userId(), id, milestone));
+    }
+
     @PostMapping("/{id}/growth-shard-boost")
     public ApiResponse<CompanionInstanceService.View> boostWithShards(
             @AuthenticationPrincipal AuthenticatedUser user,

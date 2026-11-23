@@ -76,6 +76,51 @@ class CompanionPostgresQaTest {
   assertThat(gardens.save(direct,new GardenUpdate(0,"meadow",List.of())).backgroundId()).isEqualTo("meadow");
  }
  private Long account(){return users.saveAndFlush(User.create("QA",UUID.randomUUID()+"@example.test","test-only")).id();}
+ @Test void care_gifts_are_atomic_and_limit_concurrent_claims_across_pets() throws Exception {
+  Long user = account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES (?,'david-lamb:base',2,now())", user);
+  var pets = instances.list(user, 0, 5);
+  UUID first = pets.get(0).instanceId();
+  UUID second = pets.get(1).instanceId();
+  assertThat(instances.careGifts(user,first)).extracting(CompanionInstanceService.CareGift::status)
+      .containsOnly("LOCKED");
+  assertThatThrownBy(() -> instances.claimCareGift(user,first,3)).isInstanceOf(RuntimeException.class);
+  assertThatThrownBy(() -> instances.claimCareGift(account(),first,3)).isInstanceOf(RuntimeException.class);
+  jdbc.update("UPDATE companion_instances SET care_days=14 WHERE user_id=?", user);
+
+  assertThatThrownBy(() -> new TransactionTemplate(tx).executeWithoutResult(status -> {
+   instances.claimCareGift(user, first, 14);
+   throw new IllegalStateException("rollback");
+  })).isInstanceOf(IllegalStateException.class);
+  assertThat(economy.growthShardBalance(user)).isZero();
+
+  try (var pool = Executors.newFixedThreadPool(2)) {
+   var gate = new CountDownLatch(1);
+   List<Future<Boolean>> results = new ArrayList<>();
+   for (UUID id : List.of(first, second)) {
+    results.add(pool.submit(() -> {
+     gate.await();
+     try {
+      instances.claimCareGift(user,id,14);
+      return true;
+     } catch (com.faithlog.global.exception.BusinessException denied) {
+      return false;
+     }
+    }));
+   }
+   gate.countDown();
+   boolean firstWon = results.get(0).get(15, TimeUnit.SECONDS);
+   assertThat(results.get(1).get(15, TimeUnit.SECONDS)).isNotEqualTo(firstWon);
+   UUID winner = firstWon ? first : second;
+   assertThat(instances.claimCareGift(user,winner,14)).contains(
+       new CompanionInstanceService.CareGift(14,3,"CLAIMED"));
+   assertThat(instances.careGifts(user,firstWon ? second : first))
+       .extracting(CompanionInstanceService.CareGift::status).containsOnly("TOMORROW");
+  }
+  assertThat(economy.growthShardBalance(user)).isEqualTo(3);
+  assertThat(wallet.wallet(user).balance()).isEqualTo(1000);
+ }
+
  @Test void draw_replay_sale_garden_and_conflict_are_consistent(){
   Long u=account();
   var request=new CompanionEconomyService.DrawRequest("standard-v2",10);
