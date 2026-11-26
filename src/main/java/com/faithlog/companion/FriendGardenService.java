@@ -2,7 +2,12 @@ package com.faithlog.companion;
 
 import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
+import com.faithlog.points.PointWalletService;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.UUID;
 import java.util.Map;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -27,8 +32,16 @@ public class FriendGardenService {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    public FriendGardenService(NamedParameterJdbcTemplate jdbc) {
+    private final CompanionInstanceService instances;
+    private final PointWalletService accounts;
+    private final Clock clock;
+
+    public FriendGardenService(NamedParameterJdbcTemplate jdbc, CompanionInstanceService instances,
+                               PointWalletService accounts, Clock clock) {
         this.jdbc = jdbc;
+        this.instances = instances;
+        this.accounts = accounts;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -74,7 +87,7 @@ public class FriendGardenService {
         requireMember(params);
         // Authorize and read from the same statement snapshot. Public data omits instance IDs and private progress.
         var rows = jdbc.query("""
-            SELECT friend.name, g.background_id, gp.design_id, gp.x, gp.y, ci.level
+            SELECT friend.name, g.background_id, gp.slot, gp.design_id, gp.x, gp.y, ci.level
             FROM (
                 SELECT v.user_id, u.name
                 """ + FRIENDS + " AND v.user_id = :target AND EXISTS (" + ACTIVE_MEMBER + """
@@ -85,11 +98,40 @@ public class FriendGardenService {
             ORDER BY gp.slot
             """, params, (rs, n) -> new Row(rs.getString("name"), rs.getString("background_id"),
                 rs.getString("design_id") == null ? null
-                    : new Animal(rs.getString("design_id"), rs.getDouble("x"), rs.getDouble("y"),
+                    : new Animal(rs.getInt("slot"), rs.getString("design_id"), rs.getDouble("x"), rs.getDouble("y"),
                         Math.max(1, rs.getInt("level")))));
         if (rows.isEmpty()) throw new BusinessException(ErrorCode.COMPANION_FRIEND_GARDEN_NOT_FOUND);
         return new Visit(rows.getFirst().name(), rows.getFirst().backgroundId(),
             rows.stream().map(Row::animal).filter(java.util.Objects::nonNull).toList());
+    }
+
+    @Transactional
+    public HelpResult help(long campus, long user, long owner, int slot, String requestedAction) {
+        if (slot < 1 || slot > 5 || user == owner
+                || !("FEED".equals(requestedAction) || "CLEAN".equals(requestedAction))) {
+            throw new BusinessException(ErrorCode.GLOBAL_VALIDATION_FAILED);
+        }
+        requireMember(Map.of("campus", campus, "user", user));
+        accounts.lockAccount(owner);
+        var params = Map.of("campus", campus, "user", user, "target", owner, "slot", slot);
+        var animals = jdbc.query("""
+            SELECT gp.instance_id FROM garden_placements gp
+            WHERE gp.user_id = :target AND gp.slot = :slot AND gp.instance_id IS NOT NULL
+              AND EXISTS (SELECT 1
+            """ + FRIENDS + " AND v.user_id = :target FOR SHARE OF v, cm) AND EXISTS (" + ACTIVE_MEMBER + ")",
+            params, (rs, n) -> rs.getObject(1, UUID.class));
+        if (animals.isEmpty()) throw new BusinessException(ErrorCode.COMPANION_FRIEND_GARDEN_NOT_FOUND);
+
+        var now = clock.instant();
+        var date = LocalDate.ofInstant(now, ZoneId.of("Asia/Seoul"));
+        var animal = animals.getFirst();
+        int inserted = jdbc.update("""
+            INSERT INTO friend_garden_help(helper_id, help_date, animal_id)
+            VALUES (:helper, :date, :animal) ON CONFLICT DO NOTHING
+            """, Map.of("helper", user, "date", date, "animal", animal));
+        if (inserted == 0) throw new BusinessException(ErrorCode.COMPANION_FRIEND_HELP_LIMIT);
+        instances.applyFriendHelp(owner, animal, CompanionGrowthPolicy.CareAction.valueOf(requestedAction), now);
+        return new HelpResult(true);
     }
 
     private void requireMember(Map<String, Long> params) {
@@ -101,7 +143,8 @@ public class FriendGardenService {
     public record Friend(long userId, String name) {}
     public record Page(boolean visible, List<Friend> items, Long nextCursor) {}
     public record Visibility(boolean visible) {}
-    public record Animal(String designId, double x, double y, int level) {}
+    public record HelpResult(boolean helped) {}
+    public record Animal(int slot, String designId, double x, double y, int level) {}
     public record Visit(String name, String backgroundId, List<Animal> animals) {}
     private record Row(String name, String backgroundId, Animal animal) {}
 }

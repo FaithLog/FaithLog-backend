@@ -11,6 +11,7 @@ public enum ErrorCode {
  COMPANION_CARE_GIFT_UNAVAILABLE(HttpStatus.CONFLICT, "돌봄 선물 조건이나 오늘 수령 여부를 확인해 주세요."),
  COMPANION_SHARD_BOOST_UNAVAILABLE(HttpStatus.CONFLICT, "성장 조각 잔액 또는 하루 사용 한도를 확인해 주세요."),
  COMPANION_GARDEN_CONFLICT(HttpStatus.CONFLICT, "정원이 변경되었습니다. 다시 불러온 뒤 저장해 주세요."),
+ COMPANION_FRIEND_HELP_LIMIT(HttpStatus.CONFLICT, "하루에 한 번만 돌봄을 주거나 받을 수 있어요."),
  COMPANION_FRIEND_GARDEN_NOT_FOUND(HttpStatus.NOT_FOUND, "방문할 수 있는 농장이 아닙니다."),
  COMPANION_NOT_OWNED(HttpStatus.FORBIDDEN, "보유하지 않은 동물이나 배경입니다."),
  COMPANION_INSTANCE_CONFLICT(HttpStatus.CONFLICT, "동물 상태가 변경되었습니다. 다시 조회해 주세요."),

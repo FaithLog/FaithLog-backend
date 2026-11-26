@@ -34,5 +34,12 @@ public class FriendGardenController {
         return ApiResponse.success(service.visit(campusId, user.userId(), ownerId));
     }
 
+    @PostMapping("/{ownerId}/help")
+    public ApiResponse<FriendGardenService.HelpResult> help(@AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long campusId, @PathVariable long ownerId, @RequestBody HelpRequest request) {
+        return ApiResponse.success(service.help(campusId, user.userId(), ownerId, request.slot(), request.action()));
+    }
+
+    public record HelpRequest(int slot, String action) {}
     public record VisibilityRequest(@NotNull Boolean visible) {}
 }

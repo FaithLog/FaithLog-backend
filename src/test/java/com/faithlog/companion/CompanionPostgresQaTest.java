@@ -59,6 +59,18 @@ class CompanionPostgresQaTest {
   assertThat(friendGardens.visit(campus, visitor, owner).animals()).isEmpty();
   assertThatThrownBy(() -> friendGardens.visit(campus, outsider, owner))
       .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES (?,'david-lamb:base',1,now())", owner);
+  UUID animal = instances.list(owner, 0, 5).getFirst().instanceId();
+  gardens.save(owner, new GardenUpdate(0, null,
+      List.of(new GardenUpdate.Placement(1, "david-lamb:base", .5, .5, animal))));
+  jdbc.update("UPDATE companion_instances SET satiety=40, cleanliness=40 WHERE id=?", animal);
+  assertThat(friendGardens.help(campus, visitor, owner, 1, "FEED").helped()).isTrue();
+  assertThatThrownBy(() -> friendGardens.help(campus, visitor, owner, 1, "CLEAN"))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThat(jdbc.queryForObject("SELECT satiety FROM companion_instances WHERE id=?", Integer.class, animal))
+      .isEqualTo(75);
+  assertThat(jdbc.queryForObject("SELECT growth_xp FROM companion_instances WHERE id=?", Long.class, animal))
+      .isZero();
   jdbc.update("UPDATE campus_members SET status='INACTIVE' WHERE campus_id=? AND user_id=?", campus, owner);
   assertThat(friendGardens.list(campus, visitor, 0).items()).isEmpty();
   jdbc.update("""
