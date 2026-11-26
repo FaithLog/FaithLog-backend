@@ -40,6 +40,18 @@ class CompanionPostgresQaTest {
  @Autowired CompanionInstanceOperationArchiveService operationArchive;
  @Autowired UserRepository users;@Autowired PointWalletService wallet;@Autowired CompanionEconomyService economy;@Autowired CompanionInstanceService instances;@Autowired GardenService gardens;@Autowired CompanionCatalogService catalog;@Autowired JdbcTemplate jdbc;@Autowired PlatformTransactionManager tx;
  @Autowired GardenExpeditionService expeditions;
+ @Autowired GardenCareReminderService reminders;
+
+ @Test void gardenCareRemindersDefaultOffAndKeepAccountPreferencesSeparate() {
+  Long owner = account();
+  Long other = account();
+  assertThat(reminders.enabled(owner)).isFalse();
+  assertThat(reminders.setEnabled(owner, true)).isTrue();
+  assertThat(reminders.enabled(owner)).isTrue();
+  assertThat(reminders.enabled(other)).isFalse();
+  assertThat(reminders.setEnabled(owner, false)).isFalse();
+  assertThat(reminders.enabled(owner)).isFalse();
+ }
 
  @Test void gardenExpeditionClaimsOneRewardAndRequiresAnOwnedPlacedAnimal() {
   Long owner = account();
