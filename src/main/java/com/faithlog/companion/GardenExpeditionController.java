@@ -5,6 +5,7 @@ import com.faithlog.global.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.UUID;
+import java.time.LocalDate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,6 +33,12 @@ public class GardenExpeditionController {
     public ApiResponse<GardenExpeditionService.Status> claim(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable UUID id) {
         return ApiResponse.success(service.claim(user.userId(), id));
+    }
+
+    @PostMapping("/seasons/{seasonStart}/claim")
+    public ApiResponse<GardenExpeditionService.Status> claimSeason(@AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable LocalDate seasonStart) {
+        return ApiResponse.success(service.claimSeason(user.userId(), seasonStart));
     }
 
     public record StartRequest(@NotNull UUID instanceId) {}
