@@ -53,6 +53,44 @@ class CompanionPostgresQaTest {
   assertThat(reminders.enabled(owner)).isFalse();
  }
 
+ @Autowired com.faithlog.notification.infrastructure.repository.UserFcmTokenRepository reminderTokens;
+
+ @Test void queuesOnlyForOptedInGardenPetsBelowThresholdAndAtMostOncePerDay() {
+  Long owner = account();
+  Long campus = jdbc.queryForObject("""
+      INSERT INTO campuses(name, invite_code, created_at, updated_at)
+      VALUES ('Reminder QA', ?, now(), now()) RETURNING id
+      """, Long.class, UUID.randomUUID().toString());
+  jdbc.update("""
+      INSERT INTO campus_members(campus_id,user_id,joined_at,created_at,updated_at)
+      VALUES (?,?,now(),now())
+      """, campus, owner);
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES (?,'david-lamb:base',1,now())", owner);
+  UUID pet = instances.list(owner, 0, 5).getFirst().instanceId();
+  gardens.save(owner, new GardenUpdate(0, null,
+      List.of(new GardenUpdate.Placement(1, "david-lamb:base", .5, .5, pet))));
+  reminderTokens.save(com.faithlog.notification.domain.entity.UserFcmToken.create(
+      owner, "qa-token-" + owner, "qa-installation", com.faithlog.notification.domain.type.DeviceType.ANDROID, "test"));
+  var date = java.time.LocalDate.of(2026, 11, 27);
+  String logCount = "SELECT count(*) FROM notification_logs WHERE user_id=? AND notification_type='GARDEN_CARE_REMINDER'";
+  jdbc.update("UPDATE companion_instances SET cleanliness=24 WHERE id=?", pet);
+  reminders.queueBatch(date, 0);
+  assertThat(jdbc.queryForObject(logCount, Long.class, owner)).isZero();
+  reminders.setEnabled(owner, true);
+  jdbc.update("UPDATE companion_instances SET cleanliness=25 WHERE id=?", pet);
+  reminders.queueBatch(date, 0);
+  assertThat(jdbc.queryForObject(logCount, Long.class, owner)).isZero();
+  jdbc.update("UPDATE companion_instances SET cleanliness=24 WHERE id=?", pet);
+  reminders.queueBatch(date, 0);
+  reminders.setEnabled(owner, false);
+  reminders.setEnabled(owner, true);
+  reminders.queueBatch(date, 0);
+  assertThat(jdbc.queryForObject(logCount, Long.class, owner)).isEqualTo(1L);
+  reminders.setEnabled(owner, false);
+  reminders.queueBatch(date.plusDays(1), 0);
+  assertThat(jdbc.queryForObject(logCount, Long.class, owner)).isEqualTo(1L);
+ }
+
  @Test void gardenExpeditionClaimsOneRewardAndRequiresAnOwnedPlacedAnimal() {
   Long owner = account();
   Long outsider = account();
