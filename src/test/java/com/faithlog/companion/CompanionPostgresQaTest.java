@@ -69,7 +69,15 @@ class CompanionPostgresQaTest {
   gardens.save(owner, new GardenUpdate(0, null,
       List.of(new GardenUpdate.Placement(1, "david-lamb:base", .5, .5, animal))));
   jdbc.update("UPDATE companion_instances SET satiety=40, cleanliness=40 WHERE id=?", animal);
+  assertThat(friendGardens.weeklyGoal(campus, visitor).participants()).isZero();
   assertThat(friendGardens.help(campus, visitor, owner, 1, "FEED").helped()).isTrue();
+  var goal = friendGardens.weeklyGoal(campus, visitor);
+  assertThat(goal.participants()).isEqualTo(1);
+  assertThat(goal.contributed()).isTrue();
+  assertThat(goal.target()).isEqualTo(5);
+  assertThat(friendGardens.weeklyGoal(campus, owner).contributed()).isFalse();
+  assertThatThrownBy(() -> friendGardens.weeklyGoal(campus, outsider))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
   assertThatThrownBy(() -> friendGardens.help(campus, visitor, owner, 1, "CLEAN"))
       .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
   assertThat(jdbc.queryForObject("SELECT satiety FROM companion_instances WHERE id=?", Integer.class, animal))

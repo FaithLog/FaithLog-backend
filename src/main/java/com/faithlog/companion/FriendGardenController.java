@@ -28,6 +28,12 @@ public class FriendGardenController {
         return ApiResponse.success(service.visibility(campusId, user.userId(), request.visible()));
     }
 
+    @GetMapping("/weekly-goal")
+    public ApiResponse<FriendGardenService.WeeklyGoal> weeklyGoal(@AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long campusId) {
+        return ApiResponse.success(service.weeklyGoal(campusId, user.userId()));
+    }
+
     @GetMapping("/{ownerId}")
     public ApiResponse<FriendGardenService.Visit> visit(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long campusId, @PathVariable long ownerId) {
