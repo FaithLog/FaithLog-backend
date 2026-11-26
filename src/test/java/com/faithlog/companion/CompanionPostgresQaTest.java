@@ -67,6 +67,14 @@ class CompanionPostgresQaTest {
   assertThat(expeditions.claim(owner, started.id()).state()).isEqualTo("CLAIMED");
   assertThat(jdbc.queryForObject("SELECT balance FROM companion_growth_shards WHERE user_id=?", Long.class, owner))
       .isEqualTo(1L);
+  assertThatThrownBy(() -> expeditions.start(owner, animal))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  jdbc.update("UPDATE garden_expeditions SET started_on=started_on-1 WHERE user_id=?", owner);
+  assertThat(expeditions.status(owner).state()).isEqualTo("AVAILABLE");
+  var next = expeditions.start(owner, animal);
+  assertThat(next.id()).isNotEqualTo(started.id());
+  assertThatThrownBy(() -> expeditions.claim(owner, started.id()))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
  }
 
  @Autowired FriendGardenService friendGardens;
