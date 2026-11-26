@@ -1,4 +1,9 @@
 package com.faithlog.companion;
+
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.assertj.core.api.Assertions.*;
 import com.faithlog.points.PointWalletService;
 import com.faithlog.user.infrastructure.repository.UserRepository;
@@ -156,6 +161,39 @@ class CompanionPostgresQaTest {
   assertThat(jdbc.queryForObject("select count(*) from companion_operations where user_id=?",Long.class,u)).isZero();
   assertThat(jdbc.queryForObject("select count(*) from user_companions where user_id=?",Long.class,u)).isZero();
  }
+ @Test void gardenDecorationPurchaseChargesOnceAndPersistsOwnership() throws Exception {
+  String email = UUID.randomUUID() + "@example.test";
+  Long user = users.saveAndFlush(User.create("Garden shop QA", email, passwords.encode("1234"))).id();
+  long startingBalance = wallet.wallet(user).balance();
+  if (startingBalance < 100) {
+   wallet.settle(user, 100, "garden-shop-qa-credit");
+   startingBalance += 100;
+  }
+  var login = mvc.perform(post("/api/v1/auth/login").contentType("application/json")
+    .content(json.writeValueAsString(Map.of("email", email, "password", "1234"))))
+    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+  String auth = "Bearer " + json.readTree(login).path("data").path("accessToken").asText();
+  String shop = "/api/v1/companions/me/garden/decorations";
+  String purchase = shop + "/seed-dish/purchase";
+  String owned = "$.data.items[?(@.id == 'seed-dish')].owned";
+  mvc.perform(get(shop)).andExpect(status().isUnauthorized());
+  mvc.perform(get(shop).header("Authorization", auth))
+    .andExpect(status().isOk()).andExpect(jsonPath(owned, org.hamcrest.Matchers.contains(false)));
+  mvc.perform(post(purchase).header("Authorization", auth).contentType("application/json")
+    .content("{\"expectedPrice\":200}"))
+    .andExpect(status().isConflict());
+  assertThat(wallet.wallet(user).balance()).isEqualTo(startingBalance);
+  for (int attempt = 0; attempt < 2; attempt++) {
+   mvc.perform(post(purchase).header("Authorization", auth).contentType("application/json")
+     .content("{\"expectedPrice\":100}"))
+     .andExpect(status().isOk()).andExpect(jsonPath("$.data.balance").value(startingBalance - 100))
+     .andExpect(jsonPath(owned, org.hamcrest.Matchers.contains(true)));
+  }
+  mvc.perform(get(shop).header("Authorization", auth))
+    .andExpect(status().isOk()).andExpect(jsonPath(owned, org.hamcrest.Matchers.contains(true)));
+  assertThat(wallet.wallet(user).balance()).isEqualTo(startingBalance - 100);
+ }
+
  @Test void http_authentication_catalog_draw_replay_and_docs()throws Exception{
   String email=UUID.randomUUID()+"@example.test";
   Long u=users.saveAndFlush(User.create("HTTP QA",email,passwords.encode("1234"))).id();
