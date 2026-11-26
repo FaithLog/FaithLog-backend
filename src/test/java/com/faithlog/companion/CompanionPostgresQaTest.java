@@ -39,6 +39,36 @@ class CompanionPostgresQaTest {
  @Autowired org.springframework.security.crypto.password.PasswordEncoder passwords;
  @Autowired CompanionInstanceOperationArchiveService operationArchive;
  @Autowired UserRepository users;@Autowired PointWalletService wallet;@Autowired CompanionEconomyService economy;@Autowired CompanionInstanceService instances;@Autowired GardenService gardens;@Autowired CompanionCatalogService catalog;@Autowired JdbcTemplate jdbc;@Autowired PlatformTransactionManager tx;
+ @Autowired GardenExpeditionService expeditions;
+
+ @Test void gardenExpeditionClaimsOneRewardAndRequiresAnOwnedPlacedAnimal() {
+  Long owner = account();
+  Long outsider = account();
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES (?,'david-lamb:base',1,now())", owner);
+  UUID animal = instances.list(owner, 0, 5).getFirst().instanceId();
+  assertThat(expeditions.status(owner).state()).isEqualTo("AVAILABLE");
+  assertThatThrownBy(() -> expeditions.start(owner, animal))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  gardens.save(owner, new GardenUpdate(0, null,
+      List.of(new GardenUpdate.Placement(1, "david-lamb:base", .5, .5, animal))));
+  assertThatThrownBy(() -> expeditions.start(outsider, animal))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  var started = expeditions.start(owner, animal);
+  assertThat(started.state()).isEqualTo("EXPLORING");
+  assertThatThrownBy(() -> expeditions.start(owner, animal))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThatThrownBy(() -> expeditions.claim(owner, started.id()))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  jdbc.update("UPDATE garden_expeditions SET ready_at=now()-interval '1 minute' WHERE user_id=?", owner);
+  assertThat(expeditions.status(owner).state()).isEqualTo("READY");
+  assertThatThrownBy(() -> expeditions.claim(outsider, started.id()))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThat(expeditions.claim(owner, started.id()).state()).isEqualTo("CLAIMED");
+  assertThat(expeditions.claim(owner, started.id()).state()).isEqualTo("CLAIMED");
+  assertThat(jdbc.queryForObject("SELECT balance FROM companion_growth_shards WHERE user_id=?", Long.class, owner))
+      .isEqualTo(1L);
+ }
+
  @Autowired FriendGardenService friendGardens;
 
  @Test void friendGardenVisibilityFollowsActiveCampusMembershipAndOptIn() {
