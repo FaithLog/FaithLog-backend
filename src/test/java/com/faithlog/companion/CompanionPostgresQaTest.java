@@ -71,6 +71,17 @@ class CompanionPostgresQaTest {
       .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
   jdbc.update("UPDATE garden_expeditions SET started_on=started_on-1 WHERE user_id=?", owner);
   assertThat(expeditions.status(owner).state()).isEqualTo("AVAILABLE");
+  var season = expeditions.status(owner).season();
+  assertThat(season.completed()).isEqualTo(1);
+  assertThatThrownBy(() -> expeditions.claimSeason(owner, season.startsOn()))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  jdbc.update("UPDATE garden_season_progress SET completed=3 WHERE user_id=?", owner);
+  assertThatThrownBy(() -> expeditions.claimSeason(owner, season.startsOn().minusMonths(3)))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThat(expeditions.claimSeason(owner, season.startsOn()).season().claimed()).isTrue();
+  assertThat(expeditions.claimSeason(owner, season.startsOn()).season().claimed()).isTrue();
+  assertThat(jdbc.queryForObject("SELECT balance FROM companion_growth_shards WHERE user_id=?", Long.class, owner))
+      .isEqualTo(2L);
   var next = expeditions.start(owner, animal);
   assertThat(next.id()).isNotEqualTo(started.id());
   assertThatThrownBy(() -> expeditions.claim(owner, started.id()))
