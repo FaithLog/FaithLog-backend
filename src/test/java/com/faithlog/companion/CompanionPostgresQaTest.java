@@ -63,7 +63,7 @@ class CompanionPostgresQaTest {
       """, Long.class, UUID.randomUUID().toString());
   jdbc.update("""
       INSERT INTO campus_members(campus_id,user_id,joined_at,created_at,updated_at)
-      VALUES (?,?,now(),now())
+      VALUES (?,?,now(),now(),now())
       """, campus, owner);
   jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES (?,'david-lamb:base',1,now())", owner);
   UUID pet = instances.list(owner, 0, 5).getFirst().instanceId();
