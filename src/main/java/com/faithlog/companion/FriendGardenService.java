@@ -4,8 +4,10 @@ import com.faithlog.global.exception.BusinessException;
 import com.faithlog.global.exception.ErrorCode;
 import com.faithlog.points.PointWalletService;
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.UUID;
 import java.util.Map;
@@ -16,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class FriendGardenService {
     private static final int PAGE_SIZE = 20;
+    private static final int WEEKLY_HELPER_GOAL = 5;
+    private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     private static final String ACTIVE_MEMBER = """
         SELECT 1 FROM campus_members cm
         JOIN users u ON u.id = cm.user_id AND u.is_active AND u.deleted_at IS NULL
@@ -123,7 +127,7 @@ public class FriendGardenService {
         if (animals.isEmpty()) throw new BusinessException(ErrorCode.COMPANION_FRIEND_GARDEN_NOT_FOUND);
 
         var now = clock.instant();
-        var date = LocalDate.ofInstant(now, ZoneId.of("Asia/Seoul"));
+        var date = LocalDate.ofInstant(now, KOREA);
         var animal = animals.getFirst();
         int inserted = jdbc.update("""
             INSERT INTO friend_garden_help(helper_id, help_date, animal_id)
@@ -131,7 +135,30 @@ public class FriendGardenService {
             """, Map.of("helper", user, "date", date, "animal", animal));
         if (inserted == 0) throw new BusinessException(ErrorCode.COMPANION_FRIEND_HELP_LIMIT);
         instances.applyFriendHelp(owner, animal, CompanionGrowthPolicy.CareAction.valueOf(requestedAction), now);
+        jdbc.update("""
+            INSERT INTO campus_garden_goal_contributions(campus_id, week_start, helper_id)
+            VALUES (:campus, :week, :helper) ON CONFLICT DO NOTHING
+            """, Map.of("campus", campus, "week", weekStart(date), "helper", user));
         return new HelpResult(true);
+    }
+
+    @Transactional(readOnly = true)
+    public WeeklyGoal weeklyGoal(long campus, long user) {
+        var start = weekStart(LocalDate.ofInstant(clock.instant(), KOREA));
+        var params = Map.of("campus", campus, "user", user);
+        requireMember(params);
+        var progress = jdbc.queryForObject("""
+            SELECT count(*), coalesce(bool_or(helper_id = :user), false)
+            FROM campus_garden_goal_contributions
+            WHERE campus_id = :campus AND week_start = :week AND EXISTS (
+            """ + ACTIVE_MEMBER + ")",
+            Map.of("campus", campus, "week", start, "user", user),
+            (rs, n) -> new WeeklyGoal(start, start.plusDays(6), WEEKLY_HELPER_GOAL, rs.getLong(1), rs.getBoolean(2)));
+        return java.util.Objects.requireNonNull(progress);
+    }
+
+    static LocalDate weekStart(LocalDate date) {
+        return date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
     }
 
     private void requireMember(Map<String, Long> params) {
@@ -143,6 +170,7 @@ public class FriendGardenService {
     public record Friend(long userId, String name) {}
     public record Page(boolean visible, List<Friend> items, Long nextCursor) {}
     public record Visibility(boolean visible) {}
+    public record WeeklyGoal(LocalDate startsOn, LocalDate endsOn, int target, long participants, boolean contributed) {}
     public record HelpResult(boolean helped) {}
     public record Animal(int slot, String designId, double x, double y, int level) {}
     public record Visit(String name, String backgroundId, List<Animal> animals) {}
