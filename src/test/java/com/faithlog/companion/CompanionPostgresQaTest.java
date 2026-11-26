@@ -39,6 +39,56 @@ class CompanionPostgresQaTest {
  @Autowired org.springframework.security.crypto.password.PasswordEncoder passwords;
  @Autowired CompanionInstanceOperationArchiveService operationArchive;
  @Autowired UserRepository users;@Autowired PointWalletService wallet;@Autowired CompanionEconomyService economy;@Autowired CompanionInstanceService instances;@Autowired GardenService gardens;@Autowired CompanionCatalogService catalog;@Autowired JdbcTemplate jdbc;@Autowired PlatformTransactionManager tx;
+ @Autowired FriendGardenService friendGardens;
+
+ @Test void friendGardenVisibilityFollowsActiveCampusMembershipAndOptIn() {
+  Long visitor = account();
+  Long owner = account();
+  Long outsider = account();
+  Long campus = jdbc.queryForObject("""
+      INSERT INTO campuses(name, invite_code, created_at, updated_at)
+      VALUES ('Garden QA', ?, now(), now()) RETURNING id
+      """, Long.class, UUID.randomUUID().toString());
+  for (Long account : List.of(visitor, owner)) {
+   jdbc.update("""
+       INSERT INTO campus_members(campus_id,user_id,joined_at,created_at,updated_at)
+       VALUES (?,?,now(),now(),now())
+       """, campus, account);
+  }
+  assertThat(friendGardens.list(campus, visitor, 0).items()).isEmpty();
+  assertThatThrownBy(() -> friendGardens.visit(campus, visitor, owner))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  friendGardens.visibility(campus, owner, true);
+  assertThat(friendGardens.list(campus, visitor, 0).items())
+      .extracting(FriendGardenService.Friend::userId).containsExactly(owner);
+  assertThat(friendGardens.visit(campus, visitor, owner).animals()).isEmpty();
+  assertThatThrownBy(() -> friendGardens.visit(campus, outsider, owner))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  jdbc.update("INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES (?,'david-lamb:base',1,now())", owner);
+  UUID animal = instances.list(owner, 0, 5).getFirst().instanceId();
+  gardens.save(owner, new GardenUpdate(0, null,
+      List.of(new GardenUpdate.Placement(1, "david-lamb:base", .5, .5, animal))));
+  jdbc.update("UPDATE companion_instances SET satiety=40, cleanliness=40 WHERE id=?", animal);
+  assertThat(friendGardens.help(campus, visitor, owner, 1, "FEED").helped()).isTrue();
+  assertThatThrownBy(() -> friendGardens.help(campus, visitor, owner, 1, "CLEAN"))
+      .isInstanceOf(com.faithlog.global.exception.BusinessException.class);
+  assertThat(jdbc.queryForObject("SELECT satiety FROM companion_instances WHERE id=?", Integer.class, animal))
+      .isEqualTo(75);
+  assertThat(jdbc.queryForObject("SELECT growth_xp FROM companion_instances WHERE id=?", Long.class, animal))
+      .isZero();
+  jdbc.update("UPDATE campus_members SET status='INACTIVE' WHERE campus_id=? AND user_id=?", campus, owner);
+  assertThat(friendGardens.list(campus, visitor, 0).items()).isEmpty();
+  jdbc.update("""
+      UPDATE campus_members SET status='ACTIVE', joined_at=joined_at+interval '1 second'
+      WHERE campus_id=? AND user_id=?
+      """, campus, owner);
+  assertThat(friendGardens.list(campus, visitor, 0).items()).isEmpty();
+  friendGardens.visibility(campus, owner, true);
+  assertThat(friendGardens.list(campus, visitor, 0).items()).hasSize(1);
+  friendGardens.visibility(campus, owner, false);
+  assertThat(friendGardens.list(campus, visitor, 0).items()).isEmpty();
+ }
+
  @Test void miracle_policy_catalog_inventory_and_sale_are_consistent(){
   Long u=account();
   assertThat(jdbc.queryForObject("select sum(weight) from companion_pool_entries where pool_version='standard-v2'",Long.class)).isEqualTo(130000000L);

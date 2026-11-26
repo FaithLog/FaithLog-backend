@@ -406,6 +406,23 @@ public class CompanionInstanceService {
         return response;
     }
 
+    // The caller verifies campus, visibility, placement and the daily help limit.
+    void applyFriendHelp(Long owner, UUID id, CompanionGrowthPolicy.CareAction action, Instant now) {
+        Row row = ownedAndLocked(owner, id);
+        var settled = CompanionExperienceDecayPolicy.evaluate(row.experience(), row.care(), now);
+        var meters = settled.care().meters();
+        var effect = restore(meters, action);
+        var restored = new CompanionNeglectPolicy.Meters(
+                effect.satiety(), effect.cleanliness(), meters.joy(), meters.affection(), meters.health());
+        if (restored.equals(meters)) {
+            throw new BusinessException(ErrorCode.COMPANION_CARE_UNAVAILABLE);
+        }
+        var snapshot = new CompanionNeglectPolicy.Snapshot(restored,
+                settled.care().lastEvaluatedAt(), settled.care().lastCaredAt(), settled.care().elapsedHours());
+        persist(owner, row, settled.experience(), snapshot, row.careDays(),
+                row.lastCareDate(), row.dailyXpDate(), row.dailyXpEarned());
+    }
+
     public record CareGift(int milestone, int shards, String status) {}
 
     @Transactional(readOnly = true)
